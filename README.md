@@ -62,6 +62,13 @@ interface Csv {
 }
 ```
 
+> Note: For readability, the `Effect` error types are omitted in the interface above.  
+> In the actual implementation, the signatures include the error channel:
+>
+> ```typescript
+> readonly read: (text: string, options?: ReadOptions) => Effect.Effect<TableData, CsvOperationError>;
+> readonly write: (data: TableData) => Effect.Effect<string, CsvOperationError>;
+> ```
 ### Using the Service Pattern
 
 ```typescript
