@@ -10,7 +10,7 @@ An Effect-native CSV toolkit providing a **unified, coherent API** for all CSV o
 - 🎨 **Dialect Flexibility** - Support for CSV, TSV, and custom delimiters
 - 🧪 **Data Synthesis** - Generate reproducible test data with seeded randomization
 - ⚡ **Bun-First** - Optimized for Bun runtime
-- 🛡️ **Type Safe** - Full TypeScript support with Effect Schema integration
+- 🛡️ **Type Safe** - Full TypeScript support with strong typing across APIs
 
 ## Installation
 
