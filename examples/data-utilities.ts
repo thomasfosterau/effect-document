@@ -9,17 +9,23 @@ import { csvRead, csvWrite, type TableData } from "../src/index.js";
 console.log("=== CSV Data Format Utilities ===\n");
 
 // Helper: Convert TableData to array of objects
-function tableToObjects(table: TableData): Record<string, string>[] {
-  if (!table.columnHeaders) {
-    throw new Error("Cannot convert to objects without column headers");
-  }
+function tableToObjects(
+  table: TableData
+): Effect.Effect<Record<string, string>[], Error> {
+  return Effect.gen(function* () {
+    if (!table.columnHeaders) {
+      yield* Effect.fail(
+        new Error("Cannot convert to objects without column headers")
+      );
+    }
 
-  return table.dataRows.map((row) => {
-    const obj: Record<string, string> = {};
-    table.columnHeaders!.forEach((header, idx) => {
-      obj[header] = row[idx] ?? "";
+    return table.dataRows.map((row) => {
+      const obj: Record<string, string> = {};
+      table.columnHeaders!.forEach((header, idx) => {
+        obj[header] = row[idx] ?? "";
+      });
+      return obj;
     });
-    return obj;
   });
 }
 
@@ -77,7 +83,7 @@ const example = Effect.gen(function* () {
   });
 
   // Convert back to objects
-  const recovered = tableToObjects(parsed);
+  const recovered = yield* tableToObjects(parsed);
   console.log("4. Recovered as typed objects:");
   console.log(recovered);
   console.log();

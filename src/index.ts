@@ -91,7 +91,15 @@ export const CsvTag = Context.GenericTag<Csv>("@effect-csv/Csv");
  * Options for reading operations
  */
 export interface ReadOptions {
+  /**
+   * Treat the first row as column headers
+   * Note: If both treatFirstRowAsHeader and providedHeaders are set,
+   * treatFirstRowAsHeader takes precedence and providedHeaders is ignored.
+   */
   readonly treatFirstRowAsHeader?: boolean;
+  /**
+   * Supply custom column headers (ignored if treatFirstRowAsHeader is true)
+   */
   readonly providedHeaders?: ReadonlyArray<string>;
   readonly skipRows?: number;
   readonly filterEmpty?: boolean;
@@ -372,112 +380,15 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
   // Streaming Implementation
   // ------------------------------------------------------------------------
 
-  /**
-   * Incrementally parse CSV text into rows using the configured dialect.
-   * This avoids materializing all rows in memory at once.
-   */
-  const parseRows = function* (
-    text: string
-  ): Generator<ReadonlyArray<string>, void, unknown> {
-    const rows: string[] = [];
-    let currentField = "";
-    let currentRow: string[] = [];
-    let inQuotes = false;
-
-    const sep = dialect.separator;
-    const lb = dialect.linebreak;
-    const wrap = dialect.wrapper;
-    const dblWrap = dialect.doubleWrapper;
-
-    const commitField = () => {
-      currentRow.push(currentField);
-      currentField = "";
-    };
-
-    const commitRow = () => {
-      // Finalize any pending field in the row
-      commitField();
-      // Yield a shallow copy to satisfy ReadonlyArray outside
-      const rowToYield = currentRow.slice();
-      currentRow = [];
-      return rowToYield;
-    };
-
-    let i = 0;
-    const textLength = text.length;
-
-    while (i < textLength) {
-      const ch = text[i];
-
-      if (inQuotes) {
-        // Inside a quoted field
-        if (ch === wrap) {
-          const nextTwo = text.slice(i, i + dblWrap.length);
-          if (nextTwo === dblWrap) {
-            // Escaped quote
-            currentField += wrap;
-            i += dblWrap.length;
-            continue;
-          } else {
-            // Closing quote
-            inQuotes = false;
-            i++;
-            continue;
-          }
-        } else {
-          currentField += ch;
-          i++;
-          continue;
-        }
-      } else {
-        // Outside quotes
-        const nextLB = text.slice(i, i + lb.length);
-        if (nextLB === lb) {
-          // End of record
-          const row = commitRow();
-          yield row;
-          i += lb.length;
-          continue;
-        }
-
-        const nextSep = text.slice(i, i + sep.length);
-        if (nextSep === sep) {
-          // End of field
-          commitField();
-          i += sep.length;
-          continue;
-        }
-
-        if (ch === wrap) {
-          // Start of quoted field
-          inQuotes = true;
-          i++;
-          continue;
-        }
-
-        // Regular character in an unquoted field
-        currentField += ch;
-        i++;
-      }
-    }
-
-    // Handle any trailing data without a final linebreak
-    if (inQuotes) {
-      // Unclosed quotes: treat remainder as a field and finalize
-      inQuotes = false;
-    }
-    if (currentField.length > 0 || currentRow.length > 0) {
-      const row = commitRow();
-      yield row;
-    }
-  };
-
   const readStream = (
     text: string,
     options?: ReadOptions
   ): Stream.Stream<ReadonlyArray<string>, CsvOperationError> =>
-    // Note: options can be integrated here (e.g., header handling) if needed.
-    Stream.fromIterable(parseRows(text));
+    pipe(
+      read(text, options),
+      Effect.map((table) => table.dataRows),
+      Stream.fromIterableEffect
+    );
 
   // ------------------------------------------------------------------------
   // Synthesis Implementation
@@ -602,4 +513,12 @@ export const csvSynthesize = (spec: SynthesisSpec) =>
     CsvTag,
     Effect.flatMap((csv) => csv.synthesize(spec)),
     Effect.provide(CsvLive)
+  );
+
+export const csvReadStream = (text: string, options?: ReadOptions) =>
+  pipe(
+    CsvTag,
+    Effect.map((csv) => csv.readStream(text, options)),
+    Effect.provide(CsvLive),
+    Stream.unwrap
   );

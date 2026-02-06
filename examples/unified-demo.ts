@@ -8,6 +8,9 @@ import {
   csvWrite,
   csvSynthesize,
   type TableData,
+  CsvTag,
+  makeCsvLayer,
+  TsvDialect,
 } from "../src/index.js";
 
 console.log("=== Effect-CSV Unified API Examples ===\n");
@@ -114,9 +117,7 @@ grape,purple,30`;
 const example6 = Effect.gen(function* () {
   console.log("Example 6: TSV support");
 
-  const { CsvTag, makeCsvLayer, TsvDialect } = 
-    require("../src/index.js") as typeof import("../src/index.js");
-
+  // Using static imports at top of file
   const tsvText = "name\tage\tcity\nDave\t28\tBoston\nEve\t32\tAustin";
 
   const result = yield* pipe(

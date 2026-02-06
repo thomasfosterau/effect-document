@@ -97,6 +97,33 @@ describe("CSV Read Operations", () => {
 
     expect(result.columnHeaders).toEqual(["x", "y", "z"]);
   });
+
+  test("should skip lines starting with comment marker", async () => {
+    const input = "a,b\n# This is a comment\n1,2\n# Another comment\n3,4";
+    const result = await Effect.runPromise(
+      csvRead(input, {
+        treatFirstRowAsHeader: true,
+        lineCommentMarker: "#",
+      })
+    );
+
+    expect(result.dataRows.length).toBe(2);
+    expect(result.dataRows).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+  });
+
+  test("should fail with column count mismatch when strict", async () => {
+    const input = "a,b,c\n1,2,3\n4,5"; // Last row has only 2 columns
+
+    const result = csvRead(input, {
+      treatFirstRowAsHeader: true,
+      allowVariableColumns: false,
+    });
+
+    await expect(Effect.runPromise(result)).rejects.toThrow();
+  });
 });
 
 describe("CSV Write Operations", () => {
@@ -238,5 +265,45 @@ describe("Round-trip Operations", () => {
 
     expect(parsed.columnHeaders).toEqual(original.columnHeaders);
     expect(parsed.dataRows).toEqual(original.dataRows);
+  });
+});
+
+describe("CSV Streaming", () => {
+  test("should stream CSV rows", async () => {
+    const { csvReadStream } = await import("../src/index.js");
+    const { Stream } = await import("effect");
+    
+    const input = "a,b,c\n1,2,3\n4,5,6\n7,8,9";
+    const stream = csvReadStream(input, { treatFirstRowAsHeader: true });
+    
+    const rows = await Effect.runPromise(
+      Stream.runCollect(stream).pipe(
+        Effect.map((chunk) => Array.from(chunk))
+      )
+    );
+
+    expect(rows.length).toBe(3);
+    expect(rows[0]).toEqual(["1", "2", "3"]);
+    expect(rows[1]).toEqual(["4", "5", "6"]);
+    expect(rows[2]).toEqual(["7", "8", "9"]);
+  });
+
+  test("should stream with empty lines filtered", async () => {
+    const { csvReadStream } = await import("../src/index.js");
+    const { Stream } = await import("effect");
+    
+    const input = "a,b\n1,2\n\n3,4\n\n5,6";
+    const stream = csvReadStream(input, {
+      treatFirstRowAsHeader: true,
+      filterEmpty: true,
+    });
+    
+    const rows = await Effect.runPromise(
+      Stream.runCollect(stream).pipe(
+        Effect.map((chunk) => Array.from(chunk))
+      )
+    );
+
+    expect(rows.length).toBe(3);
   });
 });
