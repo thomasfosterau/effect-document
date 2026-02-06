@@ -23,48 +23,47 @@ console.log(`
 const processDataPipeline = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
 
-  // Read CSV file
-  const csvContent = yield* pipe(
-    fs.readFileString("input.csv"),
-    Effect.orElse(() => Effect.succeed("id,value\n1,100\n2,200\n3,300"))
-  );
-
-  // Parse CSV
-  const table = yield* csvRead(csvContent, {
-    treatFirstRowAsHeader: true,
-    trimWhitespace: true,
-  });
-
-  console.log("Loaded data:", table.dataRows.length, "rows");
-
-  // Transform data (example: double all values)
-  const transformedRows = table.dataRows.map((row) =>
-    row.map((field, idx) => {
-      if (idx === 1 && table.columnHeaders?.[idx] === "value") {
-        const numericValue = Number(field);
-        if (Number.isFinite(numericValue)) {
-          return String(numericValue * 2);
-        }
-      }
-      return field;
-    })
-  );
-
-  const transformed: TableData = {
-    columnHeaders: table.columnHeaders,
-    dataRows: transformedRows,
-  };
-
-  // Write back to CSV
-  const outputCsv = yield* csvWrite(transformed);
-
-  // Save to file
-  yield* fs.writeFileString("output.csv", outputCsv);
-
-  console.log("Processed data written to output.csv");
-  return transformed;
-});
-
+// const processDataPipeline = Effect.gen(function* () {
+//   const fs = yield* FileSystem.FileSystem;
+//
+//   // Read CSV file
+//   const csvContent = yield* pipe(
+//     fs.readFileString("input.csv"),
+//     Effect.orElse(() => Effect.succeed("id,value\n1,100\n2,200\n3,300"))
+//   );
+//
+//   // Parse CSV
+//   const table = yield* csvRead(csvContent, {
+//     treatFirstRowAsHeader: true,
+//     trimWhitespace: true,
+//   });
+//
+//   console.log("Loaded data:", table.dataRows.length, "rows");
+//
+//   // Transform data (example: double all values)
+//   const transformedRows = table.dataRows.map((row) =>
+//     row.map((field, idx) => {
+//       if (idx === 1 && table.columnHeaders?.[idx] === "value") {
+//         return String(parseInt(field) * 2);
+//       }
+//       return field;
+//     })
+//   );
+//
+//   const transformed: TableData = {
+//     columnHeaders: table.columnHeaders,
+//     dataRows: transformedRows,
+//   };
+//
+//   // Write back to CSV
+//   const outputCsv = yield* csvWrite(transformed);
+//
+//   // Save to file
+//   yield* fs.writeFileString("output.csv", outputCsv);
+//
+//   console.log("Processed data written to output.csv");
+//   return transformed;
+// });
 // To run this example:
 // 1. Install the platform-node package: bun add @effect/platform-node
 // 2. Uncomment the imports at the top of this file
