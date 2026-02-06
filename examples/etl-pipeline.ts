@@ -112,11 +112,18 @@ test@domain.com,45,101`;
     const [email, age, score] = row;
 
     // Simple validation rules
+    const ageValue = Number(age);
+    const scoreValue = Number(score);
+
     if (!email?.includes("@")) {
       result.invalid.push({ row, reason: "Invalid email format" });
-    } else if (parseInt(age!) < 18) {
+    } else if (Number.isNaN(ageValue)) {
+      result.invalid.push({ row, reason: "Invalid age value" });
+    } else if (ageValue < 18) {
       result.invalid.push({ row, reason: "Age below minimum (18)" });
-    } else if (parseInt(score!) > 100) {
+    } else if (Number.isNaN(scoreValue)) {
+      result.invalid.push({ row, reason: "Invalid score value" });
+    } else if (scoreValue > 100) {
       result.invalid.push({ row, reason: "Score exceeds maximum (100)" });
     } else {
       result.valid.push(row);
