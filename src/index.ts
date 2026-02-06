@@ -429,7 +429,14 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
     spec: SynthesisSpec
   ): Effect.Effect<TableData, never> =>
     Effect.gen(function* () {
-      const lengthRange = spec.fieldLengthRange ?? [5, 20];
+      const rawLengthRange = spec.fieldLengthRange ?? [5, 20];
+      const minRaw = rawLengthRange[0];
+      const maxRaw = rawLengthRange[1];
+      const lower = Math.min(minRaw, maxRaw);
+      const upper = Math.max(minRaw, maxRaw);
+      const min = Math.max(0, lower);
+      const max = Math.max(min, upper);
+      const lengthRange: readonly [number, number] = [min, max];
       const rng = spec.seed !== undefined ? new SeedableRng(spec.seed) : null;
 
       const columns = Array.isArray(spec.columns)
