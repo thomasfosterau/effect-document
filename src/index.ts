@@ -213,10 +213,13 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
   > =>
     Effect.gen(function* () {
       const lineEnd = text.indexOf("\n", startPos);
-      const lineText =
+      const rawLineText =
         lineEnd === -1
           ? text.substring(startPos)
           : text.substring(startPos, lineEnd);
+      const lineText = rawLineText.endsWith("\r")
+        ? rawLineText.slice(0, -1)
+        : rawLineText;
 
       if (options.filterEmpty && lineText.trim() === "") {
         return {
