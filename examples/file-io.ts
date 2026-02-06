@@ -41,7 +41,10 @@ const processDataPipeline = Effect.gen(function* () {
   const transformedRows = table.dataRows.map((row) =>
     row.map((field, idx) => {
       if (idx === 1 && table.columnHeaders?.[idx] === "value") {
-        return String(parseInt(field) * 2);
+        const numericValue = Number(field);
+        if (Number.isFinite(numericValue)) {
+          return String(numericValue * 2);
+        }
       }
       return field;
     })
