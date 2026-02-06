@@ -1,0 +1,32 @@
+{
+  "name": "effect-csv",
+  "version": "0.1.0",
+  "description": "Effect-native CSV parser, generator, transformer, and toolkit",
+  "module": "src/index.ts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "csv",
+    "effect",
+    "parser",
+    "generator",
+    "stringify",
+    "stream"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "effect": "^3.0.0",
+    "@effect/platform": "^0.70.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.2"
+  }
+}
