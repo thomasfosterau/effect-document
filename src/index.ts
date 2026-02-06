@@ -336,9 +336,7 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
   };
 
   const wrapField = (value: string): string => {
-    const escaped = value
-      .split(dialect.wrapper)
-      .join(dialect.doubleWrapper);
+    const escaped = value.replaceAll(dialect.wrapper, dialect.doubleWrapper);
     return dialect.wrapper + escaped + dialect.wrapper;
   };
 
