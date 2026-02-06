@@ -445,7 +445,13 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
 
       const dataRows: string[][] = [];
 
-      for (let rowIdx = 0; rowIdx < spec.quantity; rowIdx++) {
+      const rawQuantity = spec.quantity;
+      const quantity =
+        typeof rawQuantity === "number" && Number.isFinite(rawQuantity) && rawQuantity > 0
+          ? Math.floor(rawQuantity)
+          : 0;
+
+      for (let rowIdx = 0; rowIdx < quantity; rowIdx++) {
         const row: string[] = [];
         for (let colIdx = 0; colIdx < columns.length; colIdx++) {
           const content = yield* generateRandomContent(lengthRange, rng);
