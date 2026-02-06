@@ -518,7 +518,7 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
         const idx = rng
           ? rng.between(0, chars.length - 1)
           : Math.floor(Math.random() * chars.length);
-        result += chars[idx];
+        result += chars[idx]!;
       }
       return result;
     });
