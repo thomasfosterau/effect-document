@@ -1,12 +1,23 @@
 /**
  * Advanced example: File I/O with @effect/platform
  * Demonstrates reading/writing CSV files from disk
+ * 
+ * Note: This example requires @effect/platform-node:
+ * bun add @effect/platform-node
  */
 
 import { Effect, pipe } from "effect";
 import { FileSystem } from "@effect/platform";
-import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
+// Uncomment these imports after installing @effect/platform-node:
+// import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
 import { csvRead, csvWrite, type TableData } from "../src/index.js";
+
+console.log(`
+⚠️  This example requires @effect/platform-node
+   Install it with: bun add @effect/platform-node
+   
+   Then uncomment the import lines in this file.
+`);
 
 // Example: Read CSV file, transform data, write results
 const processDataPipeline = Effect.gen(function* () {
@@ -51,6 +62,12 @@ const processDataPipeline = Effect.gen(function* () {
   return transformed;
 });
 
+// To run this example:
+// 1. Install the platform-node package: bun add @effect/platform-node
+// 2. Uncomment the imports at the top of this file
+// 3. Uncomment the code below:
+
+/*
 // Run with Node filesystem
 const program = pipe(
   processDataPipeline,
@@ -58,3 +75,7 @@ const program = pipe(
 );
 
 NodeRuntime.runMain(program);
+*/
+
+console.log("File I/O example (see comments for setup instructions)");
+Effect.runPromise(Effect.void);

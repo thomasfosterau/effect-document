@@ -32,7 +32,7 @@ const transformPhase = (data: TableData) =>
 
     // Add computed columns
     const newHeaders = [
-      ...data.columnHeaders,
+      ...(data.columnHeaders ?? []),
       "processed_date",
       "quality_score",
     ];
@@ -102,8 +102,8 @@ test@domain.com,45,101`;
 
   // Validation logic
   interface ValidationResult {
-    valid: string[][];
-    invalid: Array<{ row: string[]; reason: string }>;
+    valid: ReadonlyArray<string>[];
+    invalid: Array<{ row: ReadonlyArray<string>; reason: string }>;
   }
 
   const result: ValidationResult = { valid: [], invalid: [] };

@@ -306,10 +306,12 @@ const createCsvImplementation = (dialect: CsvDialect): Csv => {
         for (let i = 0; i < dataRows.length; i++) {
           const row = dataRows[i]!;
           if (row.length !== expectedCount) {
-            yield* new CsvOperationError({
-              reason: `Row ${i + dataStart} has ${row.length} columns, expected ${expectedCount}`,
-              context: { rowIndex: i + dataStart, actual: row.length, expected: expectedCount },
-            });
+            yield* Effect.fail(
+              new CsvOperationError({
+                reason: `Row ${i + dataStart} has ${row.length} columns, expected ${expectedCount}`,
+                context: { rowIndex: i + dataStart, actual: row.length, expected: expectedCount },
+              })
+            );
           }
         }
       }
