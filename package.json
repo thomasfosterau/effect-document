@@ -22,7 +22,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "effect": "^3.0.0",
+    "effect": "^3.21.0",
     "@effect/platform": "^0.70.0"
   },
   "devDependencies": {
