@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { csvRead, csvWrite, csvSynthesize, type TableData } from "../src/index.js";
+import { csvRead, csvWrite, csvSynthesize, type TableData } from "../src/legacy.js";
 
 describe("CSV Read Operations", () => {
   test("should read basic CSV with headers", async () => {
@@ -270,7 +270,7 @@ describe("Round-trip Operations", () => {
 
 describe("CSV Streaming", () => {
   test("should stream CSV rows", async () => {
-    const { csvReadStream } = await import("../src/index.js");
+    const { csvReadStream } = await import("../src/legacy.js");
     const { Stream } = await import("effect");
     
     const input = "a,b,c\n1,2,3\n4,5,6\n7,8,9";
@@ -289,7 +289,7 @@ describe("CSV Streaming", () => {
   });
 
   test("should stream with empty lines filtered", async () => {
-    const { csvReadStream } = await import("../src/index.js");
+    const { csvReadStream } = await import("../src/legacy.js");
     const { Stream } = await import("effect");
     
     const input = "a,b\n1,2\n\n3,4\n\n5,6";
