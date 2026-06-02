@@ -1,265 +1,234 @@
-# effect-csv
+# effect-pandoc
 
-An Effect-native CSV toolkit providing a **unified, coherent API** for all CSV operations using the Effect ecosystem.
+A **Pandoc-style document conversion toolkit** built on [Effect](https://effect.website): readers parse formats into a universal intermediate representation, writers render it back out, and `convert()` connects any reader to any writer.
+
+```
+        readers                                    writers
+  CSV  ───────────┐                          ┌─────────────▶  CSV
+  TSV  ───────────┤     ┌──────────────┐     ├─────────────▶  TSV
+  XLSX ───────────┼────▶│ universal IR │─────┼─────────────▶  XLSX
+  (more to come)  │     └──────────────┘     │  (more to come)
+                  └──── Workbook ⇄ Document ─┘
+```
 
 ## Features
 
-- 🎯 **Unified API** - Single service interface for read, write, and synthesis operations
-- 🔄 **Effect-Native** - Built on Effect for composability and type safety
-- 🌊 **Streaming Support** - Process large files efficiently with Effect Streams
-- 🎨 **Dialect Flexibility** - Support for CSV, TSV, and custom delimiters
-- 🧪 **Data Synthesis** - Generate reproducible test data with seeded randomization
-- ⚡ **Bun-First** - Optimized for Bun runtime
-- 🛡️ **Type Safe** - Full TypeScript support with strong typing across APIs
+- 🔁 **Format conversion** - `convert({ from, to, input })`, the `pandoc -f csv -t xlsx` equivalent
+- 🌳 **Two-layer IR** - a Pandoc-style **Document AST** (headings, paragraphs, tables, inline formatting) plus a typed **tabular Workbook model**, with bridging between them
+- 📑 **Native XLSX** - reads and writes real Excel files with no heavyweight dependencies (just [fflate](https://github.com/101arrowz/fflate) for zip)
+- 📜 **CSV/TSV dialects** - quoting, escaping, comments, custom separators, type inference
+- 🧬 **Schema-powered** - the whole IR is built on Effect Schema, so documents and workbooks serialize to/from JSON for free
+- 🌊 **Streaming** - process large tabular files row-by-row with Effect Streams
+- 🛡️ **Type safe** - typed cells, tagged errors, no `any`
+- ⚡ **Bun-first** - Bun workspaces, tests, and builds
+
+## Packages
+
+| Package | Description |
+|---|---|
+| [`@effect-pandoc/core`](./packages/core) | The intermediate representation (Document AST + Workbook), Reader/Writer abstractions, and the `convert()` pipeline |
+| [`@effect-pandoc/csv`](./packages/csv) | CSV/TSV reader & writer, streaming, data synthesis |
+| [`@effect-pandoc/xlsx`](./packages/xlsx) | Native Excel (.xlsx) reader & writer |
+| [`effect-csv`](./packages/effect-csv) | Backwards-compatible package preserving the original effect-csv v0.1.x API |
 
 ## Installation
 
 ```bash
-bun add effect-csv effect @effect/platform
+bun add @effect-pandoc/core @effect-pandoc/csv @effect-pandoc/xlsx effect
 ```
 
-## Quick Start
+## Quick start: convert CSV to Excel
 
 ```typescript
-import { csvRead, csvWrite, csvSynthesize } from "effect-csv";
 import { Effect } from "effect";
-
-// Read CSV
-const data = await Effect.runPromise(
-  csvRead("name,age\nAlice,30\nBob,25", {
-    treatFirstRowAsHeader: true,
-  })
-);
-
-// Write CSV
-const output = await Effect.runPromise(
-  csvWrite({
-    columnHeaders: ["name", "age"],
-    dataRows: [["Alice", "30"], ["Bob", "25"]],
-  })
-);
-
-// Generate test data
-const testData = await Effect.runPromise(
-  csvSynthesize({
-    columns: ["id", "email", "username"],
-    quantity: 100,
-    seed: 42,
-  })
-);
-```
-
-## Unified Architecture
-
-Unlike traditional CSV libraries that split functionality into separate packages (csv-parse, csv-stringify, csv-generate), effect-csv provides a **coherent, unified service** through the `Csv` interface:
-
-```typescript
-interface Csv {
-  readonly read: (text: string, options?: ReadOptions) => Effect<TableData>;
-  readonly write: (data: TableData) => Effect<string>;
-  readonly readStream: (text: string, options?) => Stream<Row>;
-  readonly synthesize: (spec: SynthesisSpec) => Effect<TableData>;
-}
-```
-
-> Note: For readability, the `Effect` error types are omitted in the interface above.  
-> In the actual implementation, the signatures include the error channel:
->
-> ```typescript
-> readonly read: (text: string, options?: ReadOptions) => Effect.Effect<TableData, CsvOperationError>;
-> readonly write: (data: TableData) => Effect.Effect<string, CsvOperationError>;
-> ```
-### Using the Service Pattern
-
-```typescript
-import { Effect, pipe } from "effect";
-import { CsvTag, CsvLive } from "effect-csv";
+import { contentToBytes, convert, text } from "@effect-pandoc/core";
+import * as Csv from "@effect-pandoc/csv";
+import * as Xlsx from "@effect-pandoc/xlsx";
 
 const program = Effect.gen(function* () {
-  const csv = yield* CsvTag;
-  
-  // Read data
-  const table = yield* csv.read("a,b,c\n1,2,3", {
-    treatFirstRowAsHeader: true,
+  const xlsx = yield* convert({
+    from: Csv.format,
+    to: Xlsx.format,
+    input: text("product,price\nLaptop,999.99\nMouse,24.99\n"),
   });
-  
-  // Write data
-  const output = yield* csv.write(table);
-  
-  return output;
+
+  yield* Effect.promise(() => Bun.write("products.xlsx", contentToBytes(xlsx)));
 });
 
-// Run with the live CSV service
-Effect.runPromise(pipe(program, Effect.provide(CsvLive)));
+Effect.runPromise(program);
 ```
 
-## API Reference
+...and back: `convert({ from: Xlsx.format, to: Csv.format, input: bytes(data) })`.
 
-### Reading CSV
+## The intermediate representation
 
-```typescript
-csvRead(text: string, options?: ReadOptions): Effect<TableData>
-```
+Like Pandoc, every format reads into (and writes from) a shared representation, so adding a format once connects it to every other format. There are two layers:
 
-**Options:**
-- `treatFirstRowAsHeader` - Parse first row as column names
-- `providedHeaders` - Supply custom column headers
-- `skipRows` - Skip N rows from the beginning
-- `filterEmpty` - Ignore blank lines (default: true)
-- `trimWhitespace` - Trim spaces from fields
-- `allowVariableColumns` - Allow rows with different column counts
-- `lineCommentMarker` - Skip lines starting with this character
+### The tabular layer: `Workbook`
 
-**Examples:**
+The natural target for spreadsheet formats. Sheets hold grids of **typed** cells:
 
 ```typescript
-// With headers
-const data = await Effect.runPromise(
-  csvRead("name,age\nAlice,30", {
-    treatFirstRowAsHeader: true,
-  })
-);
-// data.columnHeaders = ["name", "age"]
-// data.dataRows = [["Alice", "30"]]
+import { cell, sheet, workbookOf } from "@effect-pandoc/core";
 
-// With custom headers
-const data2 = await Effect.runPromise(
-  csvRead("Alice,30", {
-    providedHeaders: ["name", "age"],
-  })
-);
-
-// Handle quoted fields and special characters
-const complex = await Effect.runPromise(
-  csvRead('name,desc\n"John","Has, comma"\n"Jane","Has ""quotes"""')
-);
-```
-
-### Writing CSV
-
-```typescript
-csvWrite(data: TableData): Effect<string>
-```
-
-**Example:**
-
-```typescript
-const output = await Effect.runPromise(
-  csvWrite({
-    columnHeaders: ["product", "price"],
-    dataRows: [
-      ["Laptop", "999"],
-      ["Mouse", "24.99"],
+const workbook = workbookOf(
+  sheet(
+    "People",
+    [
+      [cell.str("alice"), cell.num(30), cell.bool(true)],
+      [cell.str("bob"), cell.num(25), cell.empty()],
     ],
-  })
-);
-// Output:
-// product,price
-// Laptop,999
-// Mouse,24.99
-```
-
-### Synthesizing Data
-
-```typescript
-csvSynthesize(spec: SynthesisSpec): Effect<TableData>
-```
-
-**Spec Options:**
-- `columns` - Column count or array of names
-- `quantity` - Number of rows to generate
-- `seed` - Random seed for reproducibility
-- `fieldLengthRange` - Min/max field length `[min, max]`
-
-**Example:**
-
-```typescript
-// Generate reproducible test data
-const testData = await Effect.runPromise(
-  csvSynthesize({
-    columns: ["id", "email", "status"],
-    quantity: 1000,
-    seed: 12345,
-    fieldLengthRange: [5, 20],
-  })
+    ["name", "age", "active"] // headers
+  )
 );
 ```
 
-### Streaming
+### The document layer: `Document`
+
+A Pandoc-style AST for document formats (Markdown, HTML, ... coming later). Tables are first-class blocks, so tabular data fits inside documents:
 
 ```typescript
-import { CsvTag } from "effect-csv";
-import { Stream, Effect, pipe } from "effect";
+import { Heading, Paragraph, Strong, document, str } from "@effect-pandoc/core";
 
-const program = Effect.gen(function* () {
-  const csv = yield* CsvTag;
-  
-  const stream = csv.readStream(largeCSVText, {
-    treatFirstRowAsHeader: true,
-  });
-  
-  yield* pipe(
-    stream,
-    Stream.take(100), // Process first 100 rows
-    Stream.runForEach((row) =>
-      Effect.sync(() => console.log(row))
-    )
-  );
+const doc = document([
+  new Heading({ level: 1, content: [str("Report")] }),
+  new Paragraph({ content: [str("Sales were "), new Strong({ content: [str("up 12%")] })] }),
+]);
+```
+
+### Bridging and serialization
+
+```typescript
+import { Schema } from "effect";
+import { Document, documentToWorkbook, workbookToDocument } from "@effect-pandoc/core";
+
+// Workbook -> Document: each sheet becomes a Table block
+const doc = yield* workbookToDocument(workbook);
+
+// Document -> Workbook: Table blocks become sheets
+const wb = yield* documentToWorkbook(doc);
+
+// The whole IR is Effect Schema-based: JSON in/out for free
+const json = yield* Schema.encode(Document)(doc); // pandoc -t json, effectively
+```
+
+## Reading and writing directly
+
+Each format package exposes its reader/writer for direct use (with format-specific options), plus a `format` bundle for `convert()`:
+
+```typescript
+import { Effect } from "effect";
+import { text } from "@effect-pandoc/core";
+import { makeCsvReader, makeCsvWriter } from "@effect-pandoc/csv";
+
+// CSV -> Workbook with type inference (numbers, booleans, nulls)
+const reader = makeCsvReader({ treatFirstRowAsHeader: true });
+const workbook = yield* reader.readWorkbook!(text("name,age\nalice,30\n"));
+// -> cell types: CellString, CellNumber
+
+// Workbook -> CSV
+const writer = makeCsvWriter();
+const csv = yield* writer.writeWorkbook!(workbook);
+```
+
+```typescript
+import { bytes } from "@effect-pandoc/core";
+import { makeXlsxReader, makeXlsxWriter } from "@effect-pandoc/xlsx";
+
+// .xlsx bytes -> Workbook (multi-sheet, typed cells)
+const workbook = yield* makeXlsxReader().readWorkbook!(bytes(data));
+
+// Workbook -> .xlsx bytes
+const xlsx = yield* makeXlsxWriter().writeWorkbook!(workbook);
+```
+
+### Streaming CSV rows
+
+```typescript
+import { Stream, pipe } from "effect";
+import { makeCsvReader } from "@effect-pandoc/csv";
+
+const rows = makeCsvReader({ treatFirstRowAsHeader: true }).readRowStream!(text(bigCsv));
+
+yield* pipe(
+  rows,
+  Stream.take(100),
+  Stream.runForEach((row) => Effect.sync(() => console.log(row)))
+);
+```
+
+### Synthesizing test data
+
+```typescript
+import { synthesizeWorkbook } from "@effect-pandoc/csv";
+
+const workbook = yield* synthesizeWorkbook({
+  columns: ["id", "email", "username"],
+  quantity: 10_000,
+  seed: 42, // reproducible
 });
 ```
 
-### Custom Dialects
+## Dependency-injection style
+
+Every reader/writer is also available as an Effect service (Context tag + Layer) if you prefer wiring through the environment:
 
 ```typescript
-import { makeCsvLayer, type CsvDialect } from "effect-csv";
+import { Effect } from "effect";
+import { CsvReaderTag, CsvReaderLive } from "@effect-pandoc/csv";
 
-// TSV (Tab-Separated Values)
-const TsvDialect: CsvDialect = {
-  separator: "\t",
-  linebreak: "\n",
-  wrapper: '"',
-  doubleWrapper: '""',
-};
-
-const program = pipe(
-  CsvTag,
-  Effect.flatMap((csv) => csv.read(tsvText)),
-  Effect.provide(makeCsvLayer(TsvDialect))
-);
-
-// Pipe-separated values
-const PipeDialect: CsvDialect = {
-  separator: "|",
-  linebreak: "\n",
-  wrapper: '"',
-  doubleWrapper: '""',
-};
+const program = Effect.gen(function* () {
+  const reader = yield* CsvReaderTag;
+  return yield* reader.readWorkbook!(text("a,b\n1,2"));
+}).pipe(Effect.provide(CsvReaderLive));
 ```
+
+## Backwards compatibility with effect-csv
+
+The original `effect-csv` API (`csvRead`, `csvWrite`, `csvSynthesize`, `csvReadStream`, the `Csv` service, `TableData`, ...) is preserved unchanged in the `effect-csv` package, now implemented on top of `@effect-pandoc/csv`:
+
+```typescript
+import { csvRead, csvWrite } from "effect-csv"; // still works
+```
+
+New code should prefer `@effect-pandoc/csv` directly.
+
+## Format support status
+
+| Format | Read | Write | Notes |
+|---|---|---|---|
+| CSV / TSV | ✅ | ✅ | dialects, quoting, comments, streaming, type inference |
+| XLSX | ✅ | ✅ | multi-sheet, shared/inline strings, numbers, booleans; no styles/formulas yet; dates round-trip as ISO strings |
+| JSON (IR) | ✅ | ✅ | via Effect Schema encode/decode of `Document` / `Workbook` |
+| Markdown | 🔜 | 🔜 | planned |
+| HTML | 🔜 | 🔜 | planned |
 
 ## Examples
 
-See the [examples](./examples/) directory for complete working examples:
-- `unified-demo.ts` - Comprehensive demonstration of all features
+See the [examples](./examples/) directory:
 
-Run examples:
 ```bash
-bun run examples/unified-demo.ts
+bun run examples/convert-csv-to-xlsx.ts   # the headline conversion pipeline
+bun run examples/document-ast.ts          # working with the document AST + JSON serialization
+bun run examples/streaming.ts             # streaming rows + data synthesis
 ```
 
-## Testing
+## Development
 
 ```bash
-bun test
+bun install        # install workspace dependencies
+bun test           # run all package test suites
+bun run typecheck  # tsc --noEmit across the workspace
+bun run build      # bundle each package to dist/
 ```
 
 ## Why Effect?
 
-Effect provides:
-- **Type-safe error handling** - No try/catch, errors are part of the type
-- **Composability** - Combine operations using Effect's operators
-- **Dependency injection** - Service pattern with Layers
-- **Streaming** - Memory-efficient processing of large files
-- **Testability** - Easy mocking and testing with dependency injection
+- **Type-safe error handling** - `ParseError`/`WriteError`/`ConversionError` are part of every signature
+- **Composability** - conversions are ordinary Effects; chain, retry, race, or parallelize them
+- **Dependency injection** - readers and writers are services with Layers
+- **Streaming** - memory-efficient processing of large files
+- **Schema** - the IR validates and serializes itself
 
 ## License
 

@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter '@effect-pandoc/*' build",
+    "build": "bun run --filter '@effect-pandoc/*' --filter 'effect-csv' build",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
