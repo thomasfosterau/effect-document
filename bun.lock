@@ -48,6 +48,9 @@
         "@effect-pandoc/core": "workspace:*",
         "fflate": "^0.8.2",
       },
+      "devDependencies": {
+        "@effect-pandoc/csv": "workspace:*",
+      },
       "peerDependencies": {
         "effect": "^3.10.0",
       },
