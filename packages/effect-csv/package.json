@@ -1,0 +1,36 @@
+{
+  "name": "effect-csv",
+  "version": "0.2.0",
+  "description": "Effect-native CSV parser, generator, transformer, and toolkit (compatibility package - now part of effect-pandoc)",
+  "type": "module",
+  "module": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external effect --external '@effect-pandoc/*'"
+  },
+  "keywords": [
+    "csv",
+    "effect",
+    "parser",
+    "generator",
+    "stringify",
+    "stream"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@effect-pandoc/csv": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^3.10.0"
+  }
+}

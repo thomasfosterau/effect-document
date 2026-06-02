@@ -1,32 +1,38 @@
 {
-  "name": "effect-csv",
-  "version": "0.1.0",
-  "description": "Effect-native CSV parser, generator, transformer, and toolkit",
-  "module": "src/index.ts",
+  "name": "effect-pandoc",
+  "version": "0.2.0",
+  "description": "Effect-native document conversion toolkit - readers and writers for tabular and document formats with a universal intermediate representation",
+  "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "build": "bun run --filter '@effect-pandoc/*' --filter 'effect-csv' build",
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
   "keywords": [
-    "csv",
     "effect",
+    "pandoc",
+    "csv",
+    "xlsx",
+    "excel",
+    "converter",
+    "document",
     "parser",
-    "generator",
-    "stringify",
     "stream"
   ],
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "effect": "^3.0.0",
-    "@effect/platform": "^0.70.0"
-  },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "effect": "^3.19.0",
+    "@effect-pandoc/core": "workspace:*",
+    "@effect-pandoc/csv": "workspace:*",
+    "@effect-pandoc/xlsx": "workspace:*",
+    "effect-csv": "workspace:*"
   }
 }
