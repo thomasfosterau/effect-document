@@ -1,45 +1,35 @@
 /**
- * The XLSX Reader: .xlsx bytes -> tabular Workbook.
+ * The XLSX Reader: .xlsx bytes -> a multi-worksheet document in the Spreadsheet
+ * profile.
  *
  * Unzips the OOXML package with fflate, resolves the workbook and worksheet
- * parts through their relationship files, parses the SpreadsheetML, and
- * builds a dense, typed cell grid per sheet.
+ * parts through their relationship files, parses the SpreadsheetML, and builds
+ * a dense, typed cell grid per sheet.
  */
 
 import { Effect, Layer } from "effect";
 import { strFromU8, unzipSync } from "fflate";
+import { type Doc, type FeaturesOf, trustAs } from "../../profile/profile.js";
+import { Spreadsheet } from "../../profile/profiles.js";
 import {
-  ParseError,
-  Sheet,
-  Workbook,
-  cell,
-  cellToString,
-  contentToBytes,
-  makeReaderTag,
-  type Cell,
-  type Content,
-  type Reader,
-} from "../../core/index.js";
+  type SheetCell, SheetRow, Worksheet, cell, document,
+} from "../../schema/index.js";
+import { contentToBytes, type Content } from "../../io/content.js";
+import { ParseError } from "../../io/errors.js";
+import { makeReaderTag, type Reader } from "../../io/reader.js";
 import { parseA1 } from "./a1.js";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
-import {
-  findChild,
-  findChildren,
-  getAttr,
-  parseXml,
-  type XmlElement,
-} from "./xml.js";
+import { findChild, findChildren, getAttr, parseXml, type XmlElement } from "./xml.js";
+
+export type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
 
 const REL_OFFICE_DOCUMENT_SUFFIX = "/officeDocument";
 const REL_WORKSHEET_SUFFIX = "/worksheet";
 const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 
 export interface XlsxReaderOptions {
-  /**
-   * Treat the first row of each sheet as column headers.
-   * Defaults to false (all rows are data, lossless).
-   */
-  readonly firstRowAsHeader?: boolean;
+  /** Reserved for future reader options. */
+  readonly _?: never;
 }
 
 // ============================================================================
@@ -51,7 +41,6 @@ interface XlsxArchive {
 }
 
 const readEntry = (archive: XlsxArchive, path: string): string | null => {
-  // Normalize leading slashes ("/xl/workbook.xml" -> "xl/workbook.xml")
   const normalized = path.startsWith("/") ? path.substring(1) : path;
   const entry = archive.files[normalized];
   return entry === undefined ? null : strFromU8(entry);
@@ -65,38 +54,24 @@ const parseEntry = (
   Effect.try({
     try: () => {
       const content = readEntry(archive, path);
-      if (content === null) {
-        throw new Error(`Missing required package part: ${path}`);
-      }
+      if (content === null) throw new Error(`Missing required package part: ${path}`);
       return parseXml(content);
     },
     catch: (cause) =>
-      new ParseError({
-        format,
-        reason: `Failed to parse "${path}": ${String(cause)}`,
-        cause,
-      }),
+      new ParseError({ format, reason: `Failed to parse "${path}": ${String(cause)}`, cause }),
   });
 
-/** Resolve a relationship target relative to a base directory */
 const resolveTarget = (baseDir: string, target: string): string => {
-  if (target.startsWith("/")) {
-    return target.substring(1);
-  }
-  // Resolve "../" segments against the base directory
+  if (target.startsWith("/")) return target.substring(1);
   const segments = [...baseDir.split("/").filter((s) => s !== ""), ...target.split("/")];
   const resolved: string[] = [];
   for (const segment of segments) {
-    if (segment === "..") {
-      resolved.pop();
-    } else if (segment !== ".") {
-      resolved.push(segment);
-    }
+    if (segment === "..") resolved.pop();
+    else if (segment !== ".") resolved.push(segment);
   }
   return resolved.join("/");
 };
 
-/** Parse a .rels file into a map of relationship Id -> resolved target path */
 const parseRelationships = (
   relsRoot: XmlElement,
   baseDir: string
@@ -114,30 +89,22 @@ const parseRelationships = (
 const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
   findChildren(root, "si").map(collectText);
 
-interface ParsedSheet {
-  readonly rows: ReadonlyArray<ReadonlyArray<Cell>>;
-}
-
-const parseWorksheet = (root: XmlElement, sharedStrings: ReadonlyArray<string>): ParsedSheet => {
+const parseWorksheetRows = (
+  root: XmlElement,
+  sharedStrings: ReadonlyArray<string>
+): ReadonlyArray<ReadonlyArray<SheetCell>> => {
   const sheetData = findChild(root, "sheetData");
-  if (sheetData === undefined) {
-    return { rows: [] };
-  }
+  if (sheetData === undefined) return [];
 
-  // Sparse cell map: row -> col -> Cell
-  const cellMap = new Map<number, Map<number, Cell>>();
+  const cellMap = new Map<number, Map<number, SheetCell>>();
   let maxRow = -1;
   let maxCol = -1;
 
-  const rowElements = findChildren(sheetData, "row");
-  for (const [rowOrdinal, rowEl] of rowElements.entries()) {
-    // Row index from the r attribute (1-indexed), falling back to document order
+  for (const [rowOrdinal, rowEl] of findChildren(sheetData, "row").entries()) {
     const rAttr = rowEl.attrs["r"];
-    const rowIndex =
-      rAttr !== undefined ? Number.parseInt(rAttr, 10) - 1 : rowOrdinal;
+    const rowIndex = rAttr !== undefined ? Number.parseInt(rAttr, 10) - 1 : rowOrdinal;
 
     for (const [colOrdinal, cellEl] of findChildren(rowEl, "c").entries()) {
-      // Cell position from the r attribute (A1), falling back to document order
       const ref = cellEl.attrs["r"];
       const parsed = ref === undefined ? null : parseA1(ref);
       const colIndex = parsed === null ? colOrdinal : parsed.col;
@@ -147,7 +114,7 @@ const parseWorksheet = (root: XmlElement, sharedStrings: ReadonlyArray<string>):
 
       let rowCells = cellMap.get(effectiveRow);
       if (rowCells === undefined) {
-        rowCells = new Map<number, Cell>();
+        rowCells = new Map<number, SheetCell>();
         cellMap.set(effectiveRow, rowCells);
       }
       rowCells.set(colIndex, value);
@@ -159,35 +126,25 @@ const parseWorksheet = (root: XmlElement, sharedStrings: ReadonlyArray<string>):
     maxRow = Math.max(maxRow, rowIndex);
   }
 
-  if (maxRow < 0 || maxCol < 0) {
-    return { rows: [] };
-  }
+  if (maxRow < 0 || maxCol < 0) return [];
 
-  // Build a dense grid, filling gaps with null cells
-  const rows: Cell[][] = [];
+  const rows: SheetCell[][] = [];
   for (let r = 0; r <= maxRow; r++) {
     const rowCells = cellMap.get(r);
-    const row: Cell[] = [];
-    for (let c = 0; c <= maxCol; c++) {
-      row.push(rowCells?.get(c) ?? cell.empty());
-    }
+    const row: SheetCell[] = [];
+    for (let c = 0; c <= maxCol; c++) row.push(rowCells?.get(c) ?? cell.blank());
     rows.push(row);
   }
-
-  return { rows };
+  return rows;
 };
 
 // ============================================================================
 // Reader
 // ============================================================================
 
-/**
- * Create an XLSX Reader with the given options baked in.
- */
-export const makeXlsxReader = (options?: XlsxReaderOptions): Reader => {
-  const firstRowAsHeader = options?.firstRowAsHeader ?? false;
-
-  const readWorkbook = (input: Content): Effect.Effect<Workbook, ParseError> =>
+/** Create an XLSX Reader with the given options baked in. */
+export const makeXlsxReader = (_options?: XlsxReaderOptions): Reader<SpreadsheetFeature> => {
+  const read = (input: Content): Effect.Effect<Doc<SpreadsheetFeature>, ParseError> =>
     Effect.gen(function* () {
       const archive: XlsxArchive = yield* Effect.try({
         try: () => ({ files: unzipSync(contentToBytes(input)) }),
@@ -199,7 +156,6 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader => {
           }),
       });
 
-      // 1. Root relationships -> workbook part
       const rootRels = yield* parseEntry(archive, "_rels/.rels", "xlsx");
       const workbookPath =
         parseRelationships(rootRels, "").find((rel) =>
@@ -207,38 +163,29 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader => {
         )?.target ?? "xl/workbook.xml";
       const workbookDir = workbookPath.substring(0, workbookPath.lastIndexOf("/"));
 
-      // 2. Workbook relationships -> worksheet & shared string parts
       const workbookRelsPath = `${workbookDir}/_rels/${workbookPath.substring(workbookPath.lastIndexOf("/") + 1)}.rels`;
       const workbookRels = yield* parseEntry(archive, workbookRelsPath, "xlsx");
       const relationships = parseRelationships(workbookRels, workbookDir);
 
-      // 3. Shared strings (optional part)
       const sharedStringsRel = relationships.find((rel) =>
         rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX)
       );
       const sharedStrings: ReadonlyArray<string> =
         sharedStringsRel === undefined
           ? []
-          : parseSharedStrings(
-              yield* parseEntry(archive, sharedStringsRel.target, "xlsx")
-            );
+          : parseSharedStrings(yield* parseEntry(archive, sharedStringsRel.target, "xlsx"));
 
-      // 4. Workbook -> ordered sheet list
       const workbookRoot = yield* parseEntry(archive, workbookPath, "xlsx");
       const sheetsEl = findChild(workbookRoot, "sheets");
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
 
       if (sheetEntries.length === 0) {
-        return yield* new ParseError({
-          format: "xlsx",
-          reason: "Workbook contains no sheets",
-        });
+        return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
       }
 
-      // 5. Parse each worksheet
-      const sheets: Sheet[] = [];
+      const worksheets: Worksheet[] = [];
       for (const sheetEl of sheetEntries) {
-        const name = getAttr(sheetEl, "name") ?? `Sheet${sheets.length + 1}`;
+        const name = getAttr(sheetEl, "name") ?? `Sheet${worksheets.length + 1}`;
         const relId = getAttr(sheetEl, "id");
         const target = relationships.find(
           (rel) => rel.id === relId && rel.type.endsWith(REL_WORKSHEET_SUFFIX)
@@ -252,33 +199,29 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader => {
         }
 
         const worksheetRoot = yield* parseEntry(archive, target, "xlsx");
-        const { rows } = parseWorksheet(worksheetRoot, sharedStrings);
-
-        const headers =
-          firstRowAsHeader && rows.length > 0
-            ? rows[0]!.map(cellToString)
-            : null;
-        const dataRows = firstRowAsHeader && rows.length > 0 ? rows.slice(1) : rows;
-
-        sheets.push(new Sheet({ name, headers, rows: dataRows }));
+        const rows = parseWorksheetRows(worksheetRoot, sharedStrings);
+        worksheets.push(
+          new Worksheet({
+            name,
+            columns: [],
+            rows: rows.map((cells) => new SheetRow({ cells })),
+            merges: [],
+          })
+        );
       }
 
-      const [first, ...rest] = sheets;
-      return new Workbook({ sheets: [first!, ...rest] });
+      return trustAs<SpreadsheetFeature>(document(worksheets));
     });
 
-  return {
-    format: "xlsx",
-    readWorkbook,
-  };
+  return { format: "xlsx", profile: Spreadsheet, read };
 };
 
-/** Context tag for dependency-injection style usage */
-export const XlsxReaderTag = makeReaderTag("xlsx");
+/** Context tag for dependency-injection style usage. */
+export const XlsxReaderTag = makeReaderTag<SpreadsheetFeature>("xlsx");
 
-/** Layer providing an XLSX Reader with default options */
+/** Layer providing an XLSX Reader with default options. */
 export const XlsxReaderLive = Layer.succeed(XlsxReaderTag, makeXlsxReader());
 
-/** Layer providing an XLSX Reader with custom options */
+/** Layer providing an XLSX Reader with custom options. */
 export const makeXlsxReaderLayer = (options?: XlsxReaderOptions) =>
   Layer.succeed(XlsxReaderTag, makeXlsxReader(options));

@@ -1,34 +1,30 @@
 /**
- * Mapping between effect-document core Cells and SpreadsheetML cell
- * representations.
+ * Mapping between schema spreadsheet cells and SpreadsheetML cell representations.
  *
- * Milestone-1 simplifications (documented):
- * - All numeric cells are read as CellNumber (date detection requires
- *   styles/numFmt parsing, which is out of scope)
- * - CellDate is written as an ISO-8601 shared string, so dates round-trip
- *   as strings rather than Excel serial dates
+ * Current simplifications (documented):
+ * - Numeric cells are read as CellNumber; date detection (which needs style /
+ *   numFmt parsing) is out of scope, so `CellDate` is *written* as an ISO-8601
+ *   shared string and round-trips as text.
+ * - Rich-text cells are written as their flattened text.
  */
 
-import { cell, cellToString, type Cell } from "../../core/index.js";
-import { findChild, type XmlElement } from "./xml.js";
+import {
+  type SheetCell, cell, cellToText, inlinesToText,
+} from "../../schema/index.js";
+import { escapeXml, findChild, type XmlElement } from "./xml.js";
 
 // ============================================================================
-// Writing: Cell -> SpreadsheetML <c> fragment
+// Writing: SheetCell -> SpreadsheetML <c> fragment
 // ============================================================================
 
-/**
- * Accumulates the shared strings table while rendering cells.
- * Returns existing indices for repeated strings.
- */
+/** Accumulates the shared strings table while rendering cells. */
 export class SharedStrings {
   private readonly indices = new Map<string, number>();
   private readonly entries: string[] = [];
 
   intern(value: string): number {
     const existing = this.indices.get(value);
-    if (existing !== undefined) {
-      return existing;
-    }
+    if (existing !== undefined) return existing;
     const index = this.entries.length;
     this.indices.set(value, index);
     this.entries.push(value);
@@ -41,36 +37,42 @@ export class SharedStrings {
 }
 
 /**
- * Render a cell as a SpreadsheetML <c> element body, or null if the cell is
- * empty (empty cells are omitted from the output entirely).
- *
- * Returns the type attribute (or null for the default numeric type) and the
- * inner XML of the <c> element.
+ * Render a cell as a SpreadsheetML `<c>` element body, or null for a blank cell
+ * (blank cells are omitted entirely). Returns the `t` attribute (or null for the
+ * default numeric type) and the inner XML.
  */
 export const cellToSpreadsheetMl = (
-  c: Cell,
+  c: SheetCell,
   sharedStrings: SharedStrings
 ): { readonly type: string | null; readonly inner: string } | null => {
   switch (c._tag) {
-    case "CellNull":
+    case "CellBlank":
       return null;
     case "CellNumber":
       return { type: null, inner: `<v>${String(c.value)}</v>` };
     case "CellBoolean":
       return { type: "b", inner: `<v>${c.value ? "1" : "0"}</v>` };
-    case "CellString":
-    case "CellDate": {
-      const index = sharedStrings.intern(cellToString(c));
-      return { type: "s", inner: `<v>${index}</v>` };
-    }
+    case "CellError":
+      return { type: "e", inner: `<v>${escapeXml(c.value)}</v>` };
+    case "CellFormula":
+      return {
+        type: "str",
+        inner: `<f>${escapeXml(c.formula)}</f><v>${escapeXml(c.result ?? "")}</v>`,
+      };
+    case "CellText":
+      return { type: "s", inner: `<v>${sharedStrings.intern(c.value)}</v>` };
+    case "CellDate":
+      return { type: "s", inner: `<v>${sharedStrings.intern(c.value.toISOString())}</v>` };
+    case "CellRichText":
+      return { type: "s", inner: `<v>${sharedStrings.intern(inlinesToText(c.runs))}</v>` };
   }
 };
 
 // ============================================================================
-// Reading: SpreadsheetML <c> element -> Cell
+// Reading: SpreadsheetML <c> element -> SheetCell
 // ============================================================================
 
-/** Concatenate all <t> descendants of an element (handles rich-text runs) */
+/** Concatenate all `<t>` descendants of an element (handles rich-text runs). */
 export const collectText = (element: XmlElement): string => {
   let result = "";
   const visit = (el: XmlElement): void => {
@@ -78,53 +80,48 @@ export const collectText = (element: XmlElement): string => {
       result += el.text;
       return;
     }
-    for (const child of el.children) {
-      visit(child);
-    }
+    for (const child of el.children) visit(child);
   };
   visit(element);
   return result;
 };
 
-/**
- * Convert a parsed SpreadsheetML <c> element into a typed Cell.
- */
+/** Convert a parsed SpreadsheetML `<c>` element into a typed cell. */
 export const spreadsheetMlToCell = (
   c: XmlElement,
   sharedStrings: ReadonlyArray<string>
-): Cell => {
+): SheetCell => {
   const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
 
+  // A formula cell carries an <f> element; round-trip it as a CellFormula
+  // (with its cached <v> result) rather than flattening to the result text.
+  const f = findChild(c, "f");
+  if (f !== undefined) {
+    return cell.formula(f.text, v === undefined ? undefined : v.text);
+  }
+
   switch (type) {
     case "s": {
-      // Shared string reference
-      if (v === undefined) {
-        return cell.empty();
-      }
+      if (v === undefined) return cell.blank();
       const index = Number.parseInt(v.text, 10);
       const value = sharedStrings[index];
-      return value === undefined ? cell.empty() : cell.str(value);
+      return value === undefined ? cell.blank() : cell.text(value);
     }
     case "inlineStr": {
       const is = findChild(c, "is");
-      return is === undefined ? cell.empty() : cell.str(collectText(is));
+      return is === undefined ? cell.blank() : cell.text(collectText(is));
     }
     case "str":
-      // Formula result string
-      return v === undefined ? cell.empty() : cell.str(v.text);
+      return v === undefined ? cell.blank() : cell.text(v.text);
     case "b":
-      return v === undefined ? cell.empty() : cell.bool(v.text.trim() === "1");
+      return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
     case "e":
-      // Error cells surface as their error code text (#DIV/0!, #N/A, ...)
-      return v === undefined ? cell.empty() : cell.str(v.text);
+      return v === undefined ? cell.blank() : cell.error(v.text);
     default: {
-      // "n" or unspecified: numeric
-      if (v === undefined || v.text.trim() === "") {
-        return cell.empty();
-      }
+      if (v === undefined || v.text.trim() === "") return cell.blank();
       const num = Number(v.text);
-      return Number.isFinite(num) ? cell.num(num) : cell.str(v.text);
+      return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
     }
   }
 };

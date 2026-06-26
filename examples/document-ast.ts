@@ -1,81 +1,54 @@
 /**
- * Working with the document AST - the Pandoc-style intermediate
- * representation that all formats convert through.
+ * Working with the universal document schema and the profile/subset system.
  *
  * Run with: bun run examples/document-ast.ts
  */
 
 import { Effect, Schema } from "effect";
 import {
-  Document,
-  Heading,
-  Paragraph,
-  Space,
-  Str,
-  Strong,
-  cell,
-  contentToText,
-  document,
-  documentToWorkbook,
-  sheet,
-  str,
-  workbookOf,
-  workbookToDocument,
-  Csv,
+  Document, Profiles, cell, document, header, narrow, para, str, strong, worksheet,
 } from "@thomasfosterau/effect-document";
 
 const program = Effect.gen(function* () {
-  // --- Build a document by hand ------------------------------------------
+  // --- Build a prose document by hand ------------------------------------
   const doc = document(
     [
-      new Heading({ level: 1, content: [str("Quarterly Report")] }),
-      new Paragraph({
-        content: [
-          str("Sales were"),
-          new Space(),
-          new Strong({ content: [str("up 12%")] }),
-          new Space(),
-          str("this quarter."),
-        ],
-      }),
+      header(1, [str("Quarterly Report")]),
+      para([str("Sales were "), strong([str("up 12%")]), str(" this quarter.")]),
     ],
     { title: "Q2 Report", author: "effect-document" }
   );
 
-  // --- The AST is JSON-serializable via Effect Schema ---------------------
+  // --- The whole schema is JSON-serializable via Effect Schema ------------
   const json = yield* Schema.encode(Document)(doc);
-  console.log("=== Document AST as JSON (pandoc -t json equivalent) ===");
-  console.log(JSON.stringify(json, null, 2).slice(0, 600), "...\n");
-
-  // ...and can be decoded back
+  console.log("=== Document as JSON (pandoc -t json equivalent) ===");
+  console.log(JSON.stringify(json, null, 2).slice(0, 400), "...\n");
   const decoded = yield* Schema.decodeUnknown(Document)(json);
   console.log("Decoded blocks:", decoded.blocks.map((b) => b._tag).join(", "), "\n");
 
-  // --- Bridge between the tabular and document layers ---------------------
-  const workbook = workbookOf(
-    sheet(
+  // --- Profiles: which subset does a document conform to? ----------------
+  console.log("Conforms to Markdown profile?", Profiles.Markdown.is(doc));
+  console.log("Conforms to CSV profile?     ", Profiles.Csv.is(doc), "\n");
+
+  // --- A spreadsheet is part of the same schema --------------------------
+  const sheetDoc = document([
+    worksheet(
       "Sales",
       [
-        [cell.str("North"), cell.num(42000)],
-        [cell.str("South"), cell.num(38500)],
+        [cell.text("North"), cell.number(42000), cell.date(new Date("2026-06-30"))],
+        [cell.text("South"), cell.number(38500), cell.date(new Date("2026-06-30"))],
       ],
-      ["region", "revenue"]
-    )
-  );
+      ["region", "revenue", "as_of"]
+    ),
+  ]);
 
-  // Workbook -> Document (sheets become Table blocks)
-  const docFromWorkbook = yield* workbookToDocument(workbook);
-  console.log(
-    "=== Workbook -> Document blocks ===\n",
-    docFromWorkbook.blocks.map((b) => b._tag).join(", "),
-    "\n"
-  );
-
-  // Document -> Workbook (Table blocks become sheets) -> CSV
-  const workbookAgain = yield* documentToWorkbook(docFromWorkbook);
-  const csvOut = yield* Csv.format.writer!.writeWorkbook!(workbookAgain);
-  console.log("=== ...and back out as CSV ===");
-  console.log(contentToText(csvOut));
+  // --- Narrowing to the CSV subset is lossy, and says exactly what's lost --
+  const { document: csvDoc, loss } = narrow(sheetDoc, Profiles.Csv);
+  console.log("=== Narrowing a spreadsheet (with dates) to the CSV subset ===");
+  console.log("Now conforms to CSV?", Profiles.Csv.is(csvDoc));
+  for (const entry of loss.entries) {
+    console.log(`  ${entry.action}: ${entry.feature} - ${entry.detail}`);
+  }
 });
 
 Effect.runPromise(program);
