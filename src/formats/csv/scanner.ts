@@ -6,7 +6,7 @@
  */
 
 import { Effect } from "effect";
-import { ParseError } from "../../core/index.js";
+import { ParseError } from "../../io/errors.js";
 import { StandardDialect, type CsvDialect } from "./dialect.js";
 
 export interface CsvScanOptions {

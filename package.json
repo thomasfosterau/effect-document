@@ -1,7 +1,7 @@
 {
   "name": "@thomasfosterau/effect-document",
   "version": "0.1.0",
-  "description": "Effect-native document conversion toolkit - readers and writers for tabular and document formats with a universal intermediate representation",
+  "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with readers/writers and lossy-aware conversion",
   "type": "module",
   "module": "src/index.ts",
   "main": "dist/index.js",
@@ -25,11 +25,17 @@
       "import": "./src/formats/xlsx/index.ts",
       "default": "./src/formats/xlsx/index.ts"
     },
-    "./legacy": {
-      "types": "./src/formats/csv/legacy.ts",
-      "bun": "./src/formats/csv/legacy.ts",
-      "import": "./src/formats/csv/legacy.ts",
-      "default": "./src/formats/csv/legacy.ts"
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "bun": "./src/schema/index.ts",
+      "import": "./src/schema/index.ts",
+      "default": "./src/schema/index.ts"
+    },
+    "./profile": {
+      "types": "./src/profile/index.ts",
+      "bun": "./src/profile/index.ts",
+      "import": "./src/profile/index.ts",
+      "default": "./src/profile/index.ts"
     }
   },
   "files": [
@@ -39,7 +45,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/csv/legacy.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
+    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",

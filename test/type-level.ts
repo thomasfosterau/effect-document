@@ -1,0 +1,36 @@
+/**
+ * Compile-only assertions for the profile type system. This file is type-checked
+ * by `tsc` (it is under `test/`), not executed by `bun test`. Each
+ * `@ts-expect-error` asserts that an *unsound* assignment is correctly rejected;
+ * if any such assignment ever started compiling, tsc would flag the now-unused
+ * directive and fail the build.
+ */
+
+import type { Doc, FeaturesOf } from "../src/profile/index.js";
+import { Profiles } from "../src/profile/index.js";
+import { Csv, Xlsx } from "../src/index.js";
+
+type CsvF = FeaturesOf<typeof Profiles.Csv>;
+type SpreadsheetF = FeaturesOf<typeof Profiles.Spreadsheet>;
+
+declare const csvDoc: Doc<CsvF>;
+declare const fullDoc: Doc; // the richest document (Doc<Feature>)
+
+// (1) Widening is free: a CSV document satisfies any superset profile.
+export const widenToAny: Doc = csvDoc;
+export const widenToSpreadsheet: Doc<SpreadsheetF> = csvDoc;
+
+// (2) An over-rich document is NOT assignable to a narrower profile.
+// @ts-expect-error a full document is too rich for the CSV profile
+export const tooRich: Doc<CsvF> = fullDoc;
+
+// (3) A writer only accepts documents its format can represent.
+declare const xlsxWriter: NonNullable<typeof Xlsx.format.writer>;
+declare const csvWriter: NonNullable<typeof Csv.format.writer>;
+
+// A CSV document can be written by the (wider) XLSX writer - free widening.
+export const widenForWrite = xlsxWriter.write(csvDoc);
+
+// But a full document cannot be handed to the CSV writer.
+// @ts-expect-error full document is richer than the CSV writer can represent
+export const writeTooRich = csvWriter.write(fullDoc);

@@ -1,27 +1,31 @@
 /**
- * @thomasfosterau/effect-document
+ * effect-document
  *
- * A Pandoc-style document conversion toolkit built on Effect: readers parse
- * formats into a universal intermediate representation, writers render it
- * back out, and `convert()` connects any reader to any writer.
+ * A type-safe, profile-based universal document schema and conversion toolkit.
  *
- * The core IR (Document AST + tabular Workbook), the Reader/Writer
- * abstractions, and the `convert()` pipeline are exported at the top level.
- * Each format lives in its own namespace, since they share names like
- * `format` and `makeFormat`:
+ * - `schema/`  - the universal document AST (prose + spreadsheet + presentation),
+ *                the attribute model, and the feature taxonomy.
+ * - `profile/` - named subsets of the schema, phantom-typed `Doc<F>` documents,
+ *                conformance checking, and the `widen`/`narrow` transforms.
+ * - `io/`      - profile-typed Reader/Writer/Format abstractions, errors, and
+ *                the `convert` pipeline.
+ * - formats    - the `Csv` and `Xlsx` namespaces.
  *
  * ```ts
  * import { convert, text, Csv, Xlsx } from "@thomasfosterau/effect-document";
- * convert({ from: Csv.format, to: Xlsx.format, input: text("a,b\n1,2") });
+ * const { content } = yield* convert({ from: Csv.format, to: Xlsx.format, input: text("a,b\n1,2") });
  * ```
- *
- * The same modules are also available as subpath imports
- * (`@thomasfosterau/effect-document/csv`, `.../xlsx`, `.../legacy`).
  */
 
-// Core IR, Reader/Writer abstractions, and the convert pipeline.
-export * from "./core/index.js";
+// The universal document schema
+export * from "./schema/index.js";
 
-// Format modules, namespaced (each exports its own `format` / `makeFormat`).
+// The profile / subset system
+export * from "./profile/index.js";
+
+// The IO layer (Reader/Writer/Format, content, errors, convert)
+export * from "./io/index.js";
+
+// Format namespaces
 export * as Csv from "./formats/csv/index.js";
 export * as Xlsx from "./formats/xlsx/index.js";

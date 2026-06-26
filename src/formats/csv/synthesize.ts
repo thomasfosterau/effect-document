@@ -4,7 +4,11 @@
  */
 
 import { Effect } from "effect";
-import { Sheet, Workbook, cell } from "../../core/index.js";
+import { type Doc, type FeaturesOf, trustAs } from "../../profile/profile.js";
+import { Csv } from "../../profile/profiles.js";
+import { cell, document, worksheet } from "../../schema/index.js";
+
+type CsvFeature = FeaturesOf<typeof Csv>;
 
 export interface SynthesisSpec {
   readonly columns: ReadonlyArray<string> | number;
@@ -13,7 +17,7 @@ export interface SynthesisSpec {
   readonly fieldLengthRange?: readonly [number, number];
 }
 
-/** The raw result of synthesis: headers plus rows of string fields */
+/** The raw result of synthesis: headers plus rows of string fields. */
 export interface SynthesizedTable {
   readonly headers: ReadonlyArray<string>;
   readonly rows: ReadonlyArray<ReadonlyArray<string>>;
@@ -60,18 +64,14 @@ const generateRandomContent = (
     return result;
   });
 
-/**
- * Generate a table of random string data according to the spec.
- */
+/** Generate a table of random string data according to the spec. */
 export const synthesizeTable = (
   spec: SynthesisSpec
 ): Effect.Effect<SynthesizedTable, never> =>
   Effect.gen(function* () {
     const rawLengthRange = spec.fieldLengthRange ?? [5, 20];
-    const minRaw = rawLengthRange[0];
-    const maxRaw = rawLengthRange[1];
-    const lower = Math.min(minRaw, maxRaw);
-    const upper = Math.max(minRaw, maxRaw);
+    const lower = Math.min(rawLengthRange[0], rawLengthRange[1]);
+    const upper = Math.max(rawLengthRange[0], rawLengthRange[1]);
     const min = Math.max(0, lower);
     const max = Math.max(min, upper);
     const lengthRange: readonly [number, number] = [min, max];
@@ -82,20 +82,14 @@ export const synthesizeTable = (
       : Array.from({ length: spec.columns as number }, (_, i) => `col${i}`);
 
     const rows: string[][] = [];
-
     const rawQuantity = spec.quantity;
     const quantity =
-      typeof rawQuantity === "number" &&
-      Number.isFinite(rawQuantity) &&
-      rawQuantity > 0
-        ? Math.floor(rawQuantity)
-        : 0;
+      Number.isFinite(rawQuantity) && rawQuantity > 0 ? Math.floor(rawQuantity) : 0;
 
     for (let rowIdx = 0; rowIdx < quantity; rowIdx++) {
       const row: string[] = [];
       for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-        const content = yield* generateRandomContent(lengthRange, rng);
-        row.push(content);
+        row.push(yield* generateRandomContent(lengthRange, rng));
       }
       rows.push(row);
     }
@@ -104,23 +98,20 @@ export const synthesizeTable = (
   });
 
 /**
- * Generate a single-sheet Workbook of random string data according to the
- * spec.
+ * Generate a single-worksheet CSV-profile document of random string data.
  */
-export const synthesizeWorkbook = (
+export const synthesizeDocument = (
   spec: SynthesisSpec,
   sheetName: string = "Sheet1"
-): Effect.Effect<Workbook, never> =>
-  Effect.map(
-    synthesizeTable(spec),
-    ({ headers, rows }) =>
-      new Workbook({
-        sheets: [
-          new Sheet({
-            name: sheetName,
-            headers,
-            rows: rows.map((row) => row.map(cell.str)),
-          }),
-        ],
-      })
+): Effect.Effect<Doc<CsvFeature>, never> =>
+  Effect.map(synthesizeTable(spec), ({ headers, rows }) =>
+    trustAs<CsvFeature>(
+      document([
+        worksheet(
+          sheetName,
+          rows.map((row) => row.map((v) => cell.text(v))),
+          headers
+        ),
+      ])
+    )
   );

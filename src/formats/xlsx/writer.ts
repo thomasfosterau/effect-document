@@ -1,36 +1,31 @@
 /**
- * The XLSX Writer: tabular Workbook -> .xlsx bytes.
+ * The XLSX Writer: a Spreadsheet-profile document -> .xlsx bytes.
  *
  * Generates a minimal but valid OOXML spreadsheet package (workbook,
  * worksheets, shared strings, content types, relationships) and zips it with
- * fflate. No styles, formulas, or number formats - see cellTypes.ts for the
- * cell mapping.
+ * fflate. The input type guarantees only worksheet blocks reach the writer.
  */
 
 import { Effect, Layer } from "effect";
 import { strToU8, zipSync } from "fflate";
-import {
-  WriteError,
-  bytes,
-  makeWriterTag,
-  type Content,
-  type Sheet,
-  type Workbook,
-  type Writer,
-} from "../../core/index.js";
+import { type Doc, type FeaturesOf } from "../../profile/profile.js";
+import { Spreadsheet } from "../../profile/profiles.js";
+import { type Worksheet } from "../../schema/index.js";
+import { bytes, type Content } from "../../io/content.js";
+import { WriteError } from "../../io/errors.js";
+import { makeWriterTag, type Writer } from "../../io/writer.js";
 import { toA1 } from "./a1.js";
 import { SharedStrings, cellToSpreadsheetMl } from "./cellTypes.js";
 import { escapeAttr, escapeXml } from "./xml.js";
 
+type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
+
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-const NS_REL_DOC =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const NS_PKG_REL =
-  "http://schemas.openxmlformats.org/package/2006/relationships";
-const NS_CONTENT_TYPES =
-  "http://schemas.openxmlformats.org/package/2006/content-types";
+const NS_REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
+const NS_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types";
 
 const CT_WORKBOOK =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
@@ -57,7 +52,6 @@ const contentTypesXml = (sheetCount: number): string => {
     (_, i) =>
       `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`
   ).join("");
-
   return (
     XML_DECL +
     `<Types xmlns="${NS_CONTENT_TYPES}">` +
@@ -78,12 +72,8 @@ const rootRelsXml = (): string =>
 
 const workbookXml = (sheetNames: ReadonlyArray<string>): string => {
   const sheets = sheetNames
-    .map(
-      (name, i) =>
-        `<sheet name="${escapeAttr(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`
-    )
+    .map((name, i) => `<sheet name="${escapeAttr(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
     .join("");
-
   return (
     XML_DECL +
     `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL_DOC}">` +
@@ -98,7 +88,6 @@ const workbookRelsXml = (sheetCount: number): string => {
     (_, i) =>
       `<Relationship Id="rId${i + 1}" Type="${REL_WORKSHEET}" Target="worksheets/sheet${i + 1}.xml"/>`
   ).join("");
-
   return (
     XML_DECL +
     `<Relationships xmlns="${NS_PKG_REL}">` +
@@ -112,7 +101,6 @@ const sharedStringsXml = (strings: ReadonlyArray<string>): string => {
   const items = strings
     .map((s) => `<si><t xml:space="preserve">${escapeXml(s)}</t></si>`)
     .join("");
-
   return (
     XML_DECL +
     `<sst xmlns="${NS_MAIN}" count="${strings.length}" uniqueCount="${strings.length}">` +
@@ -121,50 +109,23 @@ const sharedStringsXml = (strings: ReadonlyArray<string>): string => {
   );
 };
 
-const worksheetXml = (sheet: Sheet, sharedStrings: SharedStrings): string => {
-  // Headers (if any) are written as the first row of shared strings,
-  // data rows follow.
-  const renderHeaderRow = (
-    headers: ReadonlyArray<string>,
-    rowIndex: number
-  ): string => {
-    const rendered = headers
-      .map((value, colIndex) => {
-        const index = sharedStrings.intern(value);
-        return `<c r="${toA1(colIndex, rowIndex)}" t="s"><v>${index}</v></c>`;
-      })
-      .join("");
-    return `<row r="${rowIndex + 1}">${rendered}</row>`;
-  };
-
-  const rows: string[] = [];
-  let rowIndex = 0;
-
-  if (sheet.headers !== null) {
-    rows.push(renderHeaderRow(sheet.headers, rowIndex));
-    rowIndex++;
-  }
-
-  for (const dataRow of sheet.rows) {
-    const cells = dataRow
-      .map((c, colIndex) => {
-        const rendered = cellToSpreadsheetMl(c, sharedStrings);
-        if (rendered === null) {
-          return "";
-        }
-        const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
-        return `<c r="${toA1(colIndex, rowIndex)}"${typeAttr}>${rendered.inner}</c>`;
-      })
-      .join("");
-    rows.push(`<row r="${rowIndex + 1}">${cells}</row>`);
-    rowIndex++;
-  }
-
+const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
+  const rows = ws.rows
+    .map((row, rowIndex) => {
+      const cells = row.cells
+        .map((c, colIndex) => {
+          const rendered = cellToSpreadsheetMl(c, sharedStrings);
+          if (rendered === null) return "";
+          const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
+          return `<c r="${toA1(colIndex, rowIndex)}"${typeAttr}>${rendered.inner}</c>`;
+        })
+        .join("");
+      return `<row r="${rowIndex + 1}">${cells}</row>`;
+    })
+    .join("");
   return (
     XML_DECL +
-    `<worksheet xmlns="${NS_MAIN}">` +
-    `<sheetData>${rows.join("")}</sheetData>` +
-    `</worksheet>`
+    `<worksheet xmlns="${NS_MAIN}"><sheetData>${rows}</sheetData></worksheet>`
   );
 };
 
@@ -173,45 +134,33 @@ const worksheetXml = (sheet: Sheet, sharedStrings: SharedStrings): string => {
 // ============================================================================
 
 export interface XlsxWriterOptions {
-  /** Zip compression level 0-9 (defaults to 6) */
+  /** Zip compression level 0-9 (defaults to 6). */
   readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 }
 
-/**
- * Create an XLSX Writer with the given options baked in.
- */
-export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer => {
+/** Create an XLSX Writer with the given options baked in. */
+export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<SpreadsheetFeature> => {
   const level = options?.compressionLevel ?? 6;
 
-  const writeWorkbook = (
-    workbook: Workbook
-  ): Effect.Effect<Content, WriteError> =>
+  const write = (doc: Doc<SpreadsheetFeature>): Effect.Effect<Content, WriteError> =>
     Effect.try({
       try: () => {
-        const sharedStrings = new SharedStrings();
+        const worksheets = doc.blocks.filter((b): b is Worksheet => b._tag === "Worksheet");
+        if (worksheets.length === 0) {
+          throw new Error("document contains no worksheets to write");
+        }
 
-        // Render worksheets first so the shared strings table is populated
-        const worksheets = workbook.sheets.map((sheet) =>
-          worksheetXml(sheet, sharedStrings)
-        );
+        const sharedStrings = new SharedStrings();
+        const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings));
 
         const files: Record<string, Uint8Array> = {
-          "[Content_Types].xml": strToU8(
-            contentTypesXml(workbook.sheets.length)
-          ),
+          "[Content_Types].xml": strToU8(contentTypesXml(worksheets.length)),
           "_rels/.rels": strToU8(rootRelsXml()),
-          "xl/workbook.xml": strToU8(
-            workbookXml(workbook.sheets.map((s) => s.name))
-          ),
-          "xl/_rels/workbook.xml.rels": strToU8(
-            workbookRelsXml(workbook.sheets.length)
-          ),
-          "xl/sharedStrings.xml": strToU8(
-            sharedStringsXml(sharedStrings.strings)
-          ),
+          "xl/workbook.xml": strToU8(workbookXml(worksheets.map((w) => w.name))),
+          "xl/_rels/workbook.xml.rels": strToU8(workbookRelsXml(worksheets.length)),
+          "xl/sharedStrings.xml": strToU8(sharedStringsXml(sharedStrings.strings)),
         };
-
-        worksheets.forEach((xml, i) => {
+        sheetXmls.forEach((xml, i) => {
           files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(xml);
         });
 
@@ -225,18 +174,15 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer => {
         }),
     });
 
-  return {
-    format: "xlsx",
-    writeWorkbook,
-  };
+  return { format: "xlsx", profile: Spreadsheet, write };
 };
 
-/** Context tag for dependency-injection style usage */
-export const XlsxWriterTag = makeWriterTag("xlsx");
+/** Context tag for dependency-injection style usage. */
+export const XlsxWriterTag = makeWriterTag<SpreadsheetFeature>("xlsx");
 
-/** Layer providing an XLSX Writer with default options */
+/** Layer providing an XLSX Writer with default options. */
 export const XlsxWriterLive = Layer.succeed(XlsxWriterTag, makeXlsxWriter());
 
-/** Layer providing an XLSX Writer with custom options */
+/** Layer providing an XLSX Writer with custom options. */
 export const makeXlsxWriterLayer = (options?: XlsxWriterOptions) =>
   Layer.succeed(XlsxWriterTag, makeXlsxWriter(options));
