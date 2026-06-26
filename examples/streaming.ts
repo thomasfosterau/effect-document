@@ -6,8 +6,8 @@
  */
 
 import { Effect, Stream, pipe } from "effect";
-import { contentToText, text } from "@effect-pandoc/core";
-import { makeCsvReader, makeCsvWriter, synthesizeWorkbook } from "@effect-pandoc/csv";
+import { contentToText, text } from "@thomasfosterau/effect-document";
+import { makeCsvReader, makeCsvWriter, synthesizeWorkbook } from "@thomasfosterau/effect-document/csv";
 
 const program = Effect.gen(function* () {
   // --- Synthesize a big CSV to play with ----------------------------------
