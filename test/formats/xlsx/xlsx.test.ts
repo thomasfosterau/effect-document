@@ -51,4 +51,31 @@ describe("XLSX round-trip", () => {
     expect(Spreadsheet.is(back)).toBe(true);
     expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({ _tag: "CellError" });
   });
+
+  test("round-trips a formula cell as CellFormula (not flattened text)", async () => {
+    const doc = trustAs<SpreadsheetF>(
+      document([worksheet("S", [[cell.formula("A1+1", "42")]])])
+    );
+    const xlsx = await run(makeXlsxWriter().write(doc));
+    const back = await run(makeXlsxReader().read(xlsx));
+    expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({
+      _tag: "CellFormula",
+      formula: "A1+1",
+      result: "42",
+    });
+  });
+
+  test("preserves grid width when the trailing column is all-blank", async () => {
+    const doc = trustAs<SpreadsheetF>(
+      document([
+        worksheet("S", [
+          [cell.text("a"), cell.text("b"), cell.blank()],
+          [cell.text("c"), cell.text("d"), cell.blank()],
+        ]),
+      ])
+    );
+    const xlsx = await run(makeXlsxWriter().write(doc));
+    const back = await run(makeXlsxReader().read(xlsx));
+    expect(worksheets(back)[0]!.rows.map((r) => r.cells.length)).toEqual([3, 3]);
+  });
 });

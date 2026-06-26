@@ -2,7 +2,9 @@
  * The CSV Reader: CSV text -> a single-worksheet document in the CSV profile.
  *
  * Optional type inference turns raw strings into number/boolean/blank cells;
- * with inference off, every value stays a text cell for lossless round-trips.
+ * with inference off, every value stays a text cell so cell *values* are
+ * preserved exactly (note: the scanner drops blank lines and the writer
+ * normalizes the trailing newline, so text is not necessarily byte-identical).
  */
 
 import { Effect, Layer, Stream, pipe } from "effect";
@@ -25,7 +27,7 @@ export interface CsvReaderOptions extends CsvScanOptions {
   /**
    * Infer cell types from string values: numbers, booleans ("true"/"false"),
    * and empty strings (-> blank cells). Set to false to keep every value as a
-   * text cell for lossless round-trips. Defaults to true.
+   * text cell, preserving values exactly. Defaults to true.
    */
   readonly inferTypes?: boolean;
   /** Name of the produced worksheet (defaults to "Sheet1"). */

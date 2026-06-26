@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   cell, document, header, para, str, strong, worksheet, blocksToText,
+  SheetColumn, SheetRow, Worksheet,
 } from "../../src/schema/index.js";
-import { Profiles, narrow, widen } from "../../src/profile/index.js";
+import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.js";
 
 describe("widen", () => {
   test("is an identity at runtime", () => {
-    const doc = document([worksheet("S", [[cell.text("a")]])]);
+    // start from a branded Doc<CsvFeature> (a bare Document has no brand)
+    const { document: doc } = narrow(document([worksheet("S", [[cell.text("a")]])]), Profiles.Csv);
     expect(widen(doc)).toBe(doc);
   });
 });
@@ -66,6 +68,27 @@ describe("narrow: prose -> markdown subset", () => {
     const { loss, document: md } = narrow(doc, Profiles.Markdown);
     expect(loss.isLossless).toBe(true);
     expect(md.blocks[0]!._tag).toBe("Header");
+  });
+});
+
+describe("narrow: column-level styling", () => {
+  // a profile allowing column metadata but not styling
+  const Columns = defineProfile("columns", [
+    "sheet.worksheet", "sheet.columns", "cell.text", "cell.number",
+  ] as const);
+
+  test("strips per-column styles the target can't represent (and reports it)", () => {
+    const doc = document([
+      new Worksheet({
+        name: "S",
+        columns: [new SheetColumn({ width: 10, style: { font: { bold: true } } })],
+        rows: [new SheetRow({ cells: [cell.text("a")] })],
+        merges: [],
+      }),
+    ]);
+    const { document: out, loss } = narrow(doc, Columns);
+    expect(Columns.is(out)).toBe(true); // must actually conform
+    expect(loss.entries.some((e) => e.feature === "cell.style")).toBe(true);
   });
 });
 

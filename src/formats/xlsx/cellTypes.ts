@@ -94,6 +94,13 @@ export const spreadsheetMlToCell = (
   const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
 
+  // A formula cell carries an <f> element; round-trip it as a CellFormula
+  // (with its cached <v> result) rather than flattening to the result text.
+  const f = findChild(c, "f");
+  if (f !== undefined) {
+    return cell.formula(f.text, v === undefined ? undefined : v.text);
+  }
+
   switch (type) {
     case "s": {
       if (v === undefined) return cell.blank();

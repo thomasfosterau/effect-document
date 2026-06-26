@@ -248,7 +248,7 @@ export const blocksToText = (blocks: ReadonlyArray<Block>): string =>
         case "HorizontalRule":
           return "";
         case "Table":
-          return block.body
+          return [...block.head, ...block.body, ...block.foot]
             .map((row) => row.cells.map((cl) => blocksToText(cl.content)).join("\t"))
             .join("\n");
         case "Worksheet":

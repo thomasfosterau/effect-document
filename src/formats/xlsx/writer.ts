@@ -110,17 +110,24 @@ const sharedStringsXml = (strings: ReadonlyArray<string>): string => {
 };
 
 const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
+  // The grid width: blank cells emit no <c>, so to let the reader recover the
+  // full width we always emit a cell at the trailing column (bare if blank).
+  const maxCols = ws.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
   const rows = ws.rows
     .map((row, rowIndex) => {
-      const cells = row.cells
-        .map((c, colIndex) => {
-          const rendered = cellToSpreadsheetMl(c, sharedStrings);
-          if (rendered === null) return "";
-          const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
-          return `<c r="${toA1(colIndex, rowIndex)}"${typeAttr}>${rendered.inner}</c>`;
-        })
-        .join("");
-      return `<row r="${rowIndex + 1}">${cells}</row>`;
+      const cells: string[] = [];
+      for (let colIndex = 0; colIndex < maxCols; colIndex++) {
+        const c = row.cells[colIndex];
+        const rendered = c === undefined ? null : cellToSpreadsheetMl(c, sharedStrings);
+        if (rendered === null) {
+          // omit interior blanks; keep the trailing column to preserve width
+          if (colIndex === maxCols - 1) cells.push(`<c r="${toA1(colIndex, rowIndex)}"/>`);
+          continue;
+        }
+        const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
+        cells.push(`<c r="${toA1(colIndex, rowIndex)}"${typeAttr}>${rendered.inner}</c>`);
+      }
+      return `<row r="${rowIndex + 1}">${cells.join("")}</row>`;
     })
     .join("");
   return (

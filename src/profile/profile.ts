@@ -25,9 +25,17 @@ import { collectFeatures, unsupportedFeatures } from "./collect.js";
 
 declare const FeatureBrand: unique symbol;
 
-/** Phantom marker carrying the feature set a document is permitted to use. */
+/**
+ * Phantom marker carrying the feature set a document is permitted to use.
+ *
+ * The brand is a *required* property (never assigned at runtime - the symbol is
+ * `declare`d only). Requiredness is load-bearing: it makes a bare `Document`
+ * (which has no brand) NOT assignable to any `Doc<F>`, so an unvalidated
+ * document cannot slip into a writer. Branding happens only through the trusted
+ * casts in `trustAs`/`narrow`/`widen`/profile validators.
+ */
 export interface DocBrand<out F extends Feature> {
-  readonly [FeatureBrand]?: F;
+  readonly [FeatureBrand]: F;
 }
 
 /**

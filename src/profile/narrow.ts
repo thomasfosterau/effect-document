@@ -16,9 +16,9 @@ import {
   type Block, BlockQuote, BulletList, CellBlank, CellBoolean, CellDate, CellError,
   CellFormula, CellNumber, CellRichText, CellText, Cite, Citation, Code, Div, Emph,
   Figure, Header, Image, type Inline, Link, Math, Note, OrderedList, Para, Picture,
-  Placeholder, Plain, Quoted, RawInline, type SheetCell, type Shape, SheetRow, Slide,
-  SlideShow, SmallCaps, Span, Str, Strikeout, Strong, Subscript, Superscript, Table,
-  TableCell, TableRow, TableShape, TextBox, Underline, Worksheet,
+  Placeholder, Plain, Quoted, RawInline, type SheetCell, type Shape, SheetColumn,
+  SheetRow, Slide, SlideShow, SmallCaps, Span, Str, Strikeout, Strong, Subscript,
+  Superscript, Table, TableCell, TableRow, TableShape, TextBox, Underline, Worksheet,
 } from "../schema/ast.js";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.js";
 import { type Feature } from "../schema/feature.js";
@@ -265,6 +265,17 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
   if (columns.length > 0 && !has("sheet.columns")) {
     ctx.rec.drop("sheet.columns", "column metadata dropped");
     columns = [];
+  } else if (!has("cell.style")) {
+    // sheet.columns is allowed, but per-column styling is not.
+    let recorded = false;
+    columns = columns.map((c) => {
+      if (c.style === undefined) return c;
+      if (!recorded) {
+        ctx.rec.drop("cell.style", "column styling dropped");
+        recorded = true;
+      }
+      return new SheetColumn({ width: c.width });
+    });
   }
   return new Worksheet({
     attr: narrowAttr(w.attr, ctx),
@@ -285,7 +296,9 @@ const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
       })
   );
   ctx.rec.convert("sheet.worksheet", `worksheet "${w.name}" converted to a prose table`);
-  return [new Table({ colSpecs: [], head: [], body: rows, foot: [] })];
+  // Re-narrow: the produced Table carries the worksheet's attr and Plain/Str
+  // cells, which must themselves be checked against the target profile.
+  return narrowBlocks([new Table({ attr: w.attr, colSpecs: [], head: [], body: rows, foot: [] })], ctx);
 };
 
 const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
@@ -293,7 +306,9 @@ const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
     row.cells.map((c) => new CellText({ value: blocksToText(c.content) }));
   const rows = [...t.head, ...t.body, ...t.foot].map((r) => new SheetRow({ cells: toCells(r) }));
   ctx.rec.convert("block.table", "prose table converted to a worksheet");
-  return [new Worksheet({ name: "Sheet1", columns: [], rows, merges: [] })];
+  // Re-narrow: the produced Worksheet carries the table's attr and CellText
+  // cells, which must themselves be checked against the target profile.
+  return narrowBlocks([new Worksheet({ attr: t.attr, name: "Sheet1", columns: [], rows, merges: [] })], ctx);
 };
 
 // ---- presentation ---------------------------------------------------------
@@ -413,13 +428,14 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
       case "SlideShow":
         ctx.rec.convert(feature, "slides flattened to their block content");
         return narrowBlocks(
-          b.slides.flatMap((s) =>
-            s.shapes.flatMap((sh): ReadonlyArray<Block> =>
+          b.slides.flatMap((s) => [
+            ...s.shapes.flatMap((sh): ReadonlyArray<Block> =>
               sh._tag === "TextBox" || sh._tag === "Placeholder" ? sh.content
               : sh._tag === "TableShape" ? [sh.table]
               : []
-            )
-          ),
+            ),
+            ...(s.notes ?? []),
+          ]),
           ctx
         );
       case "Para": case "Plain":
@@ -465,25 +481,23 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  */
 export const narrow = <To extends Feature>(
   doc: Document,
-  to: Profile<To>,
-  options?: { readonly onMultipleSheets?: "firstOnly" | "keep" }
+  to: Profile<To>
 ): NarrowResult<To> => {
   const ctx: Ctx = { allowed: to.features, rec: new Recorder() };
   let blocks = [...doc.blocks];
 
   const worksheets = blocks.filter((b) => b._tag === "Worksheet");
   if (worksheets.length > 1 && !ctx.allowed.has("sheet.multiple")) {
-    const onMultiple = options?.onMultipleSheets ?? "firstOnly";
-    if (onMultiple === "firstOnly") {
-      let seen = false;
-      blocks = blocks.filter((b) => {
-        if (b._tag !== "Worksheet") return true;
-        if (seen) return false;
-        seen = true;
-        return true;
-      });
-      ctx.rec.drop("sheet.multiple", `kept first of ${worksheets.length} worksheets`);
-    }
+    // The target cannot represent multiple worksheets, so "keep" is not
+    // honorable here - we must reduce to the first sheet and report the loss.
+    let seen = false;
+    blocks = blocks.filter((b) => {
+      if (b._tag !== "Worksheet") return true;
+      if (seen) return false;
+      seen = true;
+      return true;
+    });
+    ctx.rec.drop("sheet.multiple", `kept first of ${worksheets.length} worksheets`);
   }
 
   const narrowed = narrowBlocks(blocks, ctx);
@@ -497,7 +511,6 @@ export const narrow = <To extends Feature>(
 /** Narrow within an Effect. */
 export const narrowEffect = <To extends Feature>(
   doc: Document,
-  to: Profile<To>,
-  options?: { readonly onMultipleSheets?: "firstOnly" | "keep" }
+  to: Profile<To>
 ): Effect.Effect<NarrowResult<To>, never> =>
-  Effect.sync(() => narrow(doc, to, options));
+  Effect.sync(() => narrow(doc, to));

@@ -8,6 +8,7 @@
 
 import type { Doc, FeaturesOf } from "../src/profile/index.js";
 import { Profiles } from "../src/profile/index.js";
+import type { Document } from "../src/schema/index.js";
 import { Csv, Xlsx } from "../src/index.js";
 
 type CsvF = FeaturesOf<typeof Profiles.Csv>;
@@ -15,6 +16,7 @@ type SpreadsheetF = FeaturesOf<typeof Profiles.Spreadsheet>;
 
 declare const csvDoc: Doc<CsvF>;
 declare const fullDoc: Doc; // the richest document (Doc<Feature>)
+declare const bareDoc: Document; // an unbranded, unvalidated document
 
 // (1) Widening is free: a CSV document satisfies any superset profile.
 export const widenToAny: Doc = csvDoc;
@@ -34,3 +36,8 @@ export const widenForWrite = xlsxWriter.write(csvDoc);
 // But a full document cannot be handed to the CSV writer.
 // @ts-expect-error full document is richer than the CSV writer can represent
 export const writeTooRich = csvWriter.write(fullDoc);
+
+// (4) An unbranded, unvalidated Document cannot be written at all - you must
+// establish which profile it conforms to first (validate / narrow).
+// @ts-expect-error a bare Document has no profile brand
+export const writeBare = csvWriter.write(bareDoc);

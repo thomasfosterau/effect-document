@@ -24,8 +24,6 @@ export interface ConvertOptions<A extends Feature, B extends Feature> {
   readonly to: Format<B>;
   /** Source content. */
   readonly input: Content;
-  /** How to handle multiple worksheets when the target allows only one. */
-  readonly onMultipleSheets?: "firstOnly" | "keep";
 }
 
 export interface ConvertResult {
@@ -52,7 +50,6 @@ export const convert = <A extends Feature, B extends Feature>({
   from,
   to,
   input,
-  onMultipleSheets,
 }: ConvertOptions<A, B>): Effect.Effect<ConvertResult, ConvertError> =>
   Effect.gen(function* () {
     const reader = from.reader;
@@ -69,7 +66,7 @@ export const convert = <A extends Feature, B extends Feature>({
     }
 
     const source = yield* reader.read(input);
-    const { document, loss } = narrow(source, to.profile, { onMultipleSheets });
+    const { document, loss } = narrow(source, to.profile);
     const content = yield* writer.write(document);
     return { content, loss };
   });

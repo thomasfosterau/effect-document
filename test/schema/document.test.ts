@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
 import {
   Document, Header, Para, Str, Strong, Worksheet, blocksToText, cell, document,
-  header, inlinesToText, para, str, strong, worksheet,
+  header, inlinesToText, para, plainText, str, strong, table, worksheet,
 } from "../../src/schema/index.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -42,6 +42,11 @@ describe("text collapse", () => {
   test("blocksToText renders worksheet rows tab-separated", () => {
     const ws = worksheet("S", [[cell.text("x"), cell.number(1)]]);
     expect(blocksToText([ws])).toBe("x\t1");
+  });
+
+  test("blocksToText includes table header rows, not just the body", () => {
+    const t = table({ headers: ["A", "B"], rows: [[[plainText("1")], [plainText("2")]]] });
+    expect(blocksToText([t])).toBe("A\tB\n1\t2");
   });
 });
 
