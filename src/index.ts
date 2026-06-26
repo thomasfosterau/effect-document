@@ -23,5 +23,5 @@
 export * from "./core/index.js";
 
 // Format modules, namespaced (each exports its own `format` / `makeFormat`).
-export * as Csv from "./csv/index.js";
-export * as Xlsx from "./xlsx/index.js";
+export * as Csv from "./formats/csv/index.js";
+export * as Xlsx from "./formats/xlsx/index.js";

@@ -1,6 +1,6 @@
 {
   "name": "@thomasfosterau/effect-document",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Effect-native document conversion toolkit - readers and writers for tabular and document formats with a universal intermediate representation",
   "type": "module",
   "module": "src/index.ts",
@@ -14,22 +14,22 @@
       "default": "./src/index.ts"
     },
     "./csv": {
-      "types": "./src/csv/index.ts",
-      "bun": "./src/csv/index.ts",
-      "import": "./src/csv/index.ts",
-      "default": "./src/csv/index.ts"
+      "types": "./src/formats/csv/index.ts",
+      "bun": "./src/formats/csv/index.ts",
+      "import": "./src/formats/csv/index.ts",
+      "default": "./src/formats/csv/index.ts"
     },
     "./xlsx": {
-      "types": "./src/xlsx/index.ts",
-      "bun": "./src/xlsx/index.ts",
-      "import": "./src/xlsx/index.ts",
-      "default": "./src/xlsx/index.ts"
+      "types": "./src/formats/xlsx/index.ts",
+      "bun": "./src/formats/xlsx/index.ts",
+      "import": "./src/formats/xlsx/index.ts",
+      "default": "./src/formats/xlsx/index.ts"
     },
     "./legacy": {
-      "types": "./src/csv/legacy.ts",
-      "bun": "./src/csv/legacy.ts",
-      "import": "./src/csv/legacy.ts",
-      "default": "./src/csv/legacy.ts"
+      "types": "./src/formats/csv/legacy.ts",
+      "bun": "./src/formats/csv/legacy.ts",
+      "import": "./src/formats/csv/legacy.ts",
+      "default": "./src/formats/csv/legacy.ts"
     }
   },
   "files": [
@@ -39,10 +39,16 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/csv/index.ts src/xlsx/index.ts src/csv/legacy.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
+    "build": "bun build src/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/csv/legacy.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "bun run build && changeset publish"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "effect",
@@ -65,8 +71,9 @@
     "effect": "^3.10.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@types/bun": "latest",
-    "typescript": "^5.7.2",
-    "effect": "^3.19.0"
+    "effect": "^3.19.0",
+    "typescript": "^5.7.2"
   }
 }
