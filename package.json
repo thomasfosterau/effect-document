@@ -1,38 +1,72 @@
 {
-  "name": "effect-pandoc",
+  "name": "@thomasfosterau/effect-document",
   "version": "0.2.0",
   "description": "Effect-native document conversion toolkit - readers and writers for tabular and document formats with a universal intermediate representation",
-  "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
+  "module": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./csv": {
+      "types": "./src/csv/index.ts",
+      "bun": "./src/csv/index.ts",
+      "import": "./src/csv/index.ts",
+      "default": "./src/csv/index.ts"
+    },
+    "./xlsx": {
+      "types": "./src/xlsx/index.ts",
+      "bun": "./src/xlsx/index.ts",
+      "import": "./src/xlsx/index.ts",
+      "default": "./src/xlsx/index.ts"
+    },
+    "./legacy": {
+      "types": "./src/csv/legacy.ts",
+      "bun": "./src/csv/legacy.ts",
+      "import": "./src/csv/legacy.ts",
+      "default": "./src/csv/legacy.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "bun run --filter '@effect-pandoc/*' --filter 'effect-csv' build",
+    "build": "bun build src/index.ts src/csv/index.ts src/xlsx/index.ts src/csv/legacy.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
   "keywords": [
     "effect",
+    "document",
     "pandoc",
     "csv",
+    "tsv",
     "xlsx",
     "excel",
     "converter",
-    "document",
     "parser",
     "stream"
   ],
-  "author": "",
+  "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "peerDependencies": {
+    "effect": "^3.10.0"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.7.2",
-    "effect": "^3.19.0",
-    "@effect-pandoc/core": "workspace:*",
-    "@effect-pandoc/csv": "workspace:*",
-    "@effect-pandoc/xlsx": "workspace:*",
-    "effect-csv": "workspace:*"
+    "effect": "^3.19.0"
   }
 }

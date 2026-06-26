@@ -1,5 +1,5 @@
 /**
- * The headline effect-pandoc workflow: converting between formats.
+ * The headline effect-document workflow: converting between formats.
  *
  * This is the equivalent of `pandoc -f csv -t xlsx` - CSV text goes in,
  * a real .xlsx file comes out, and back again.
@@ -8,9 +8,7 @@
  */
 
 import { Effect } from "effect";
-import { contentToBytes, contentToText, convert, text } from "@effect-pandoc/core";
-import * as Csv from "@effect-pandoc/csv";
-import * as Xlsx from "@effect-pandoc/xlsx";
+import { contentToBytes, contentToText, convert, text, Csv, Xlsx } from "@thomasfosterau/effect-document";
 
 const csvSource = `product,price,in_stock
 Laptop,999.99,true

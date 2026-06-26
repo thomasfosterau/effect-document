@@ -14,15 +14,15 @@ import {
   Str,
   Strong,
   cell,
+  contentToText,
   document,
   documentToWorkbook,
   sheet,
   str,
   workbookOf,
   workbookToDocument,
-} from "@effect-pandoc/core";
-import * as Csv from "@effect-pandoc/csv";
-import { contentToText } from "@effect-pandoc/core";
+  Csv,
+} from "@thomasfosterau/effect-document";
 
 const program = Effect.gen(function* () {
   // --- Build a document by hand ------------------------------------------
@@ -39,7 +39,7 @@ const program = Effect.gen(function* () {
         ],
       }),
     ],
-    { title: "Q2 Report", author: "effect-pandoc" }
+    { title: "Q2 Report", author: "effect-document" }
   );
 
   // --- The AST is JSON-serializable via Effect Schema ---------------------
