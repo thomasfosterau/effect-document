@@ -156,9 +156,14 @@ const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quan
 | Format | Read | Write | Notes |
 |---|---|---|---|
 | CSV / TSV | ✅ | ✅ | dialects, quoting, comments, streaming, type inference (CSV profile) |
-| XLSX | ✅ | ✅ | multi-sheet, shared/inline strings, numbers, booleans, errors; dates round-trip as ISO strings; no styles/formulas yet |
+| XLSX | ✅ | ✅ | multi-sheet, shared/inline strings, numbers, booleans, errors, formulas; dates round-trip as ISO strings; no styles yet |
+| DOCX | ✅ | ✅ | headings, runs (bold/italic/underline/strike/super/sub/small-caps), hyperlinks, bullet/ordered lists, tables |
+| PPTX | ✅ | ✅ | slides of text-box / placeholder shapes with paragraphs, headings and lists; no speaker notes / pictures yet |
+| RTF | ✅ | ✅ | paragraphs and headings with bold/italic/underline/strike runs |
 | JSON | ✅ | ✅ | via `Schema.encode`/`decode` of any `Document` |
-| Markdown / HTML / docx / PPTX | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
+| Markdown / HTML | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
+
+Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
 
 ## Examples
 

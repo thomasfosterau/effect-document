@@ -29,3 +29,6 @@ export * from "./io/index.js";
 // Format namespaces
 export * as Csv from "./formats/csv/index.js";
 export * as Xlsx from "./formats/xlsx/index.js";
+export * as Rtf from "./formats/rtf/index.js";
+export * as Docx from "./formats/docx/index.js";
+export * as Pptx from "./formats/pptx/index.js";

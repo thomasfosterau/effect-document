@@ -25,6 +25,24 @@
       "import": "./src/formats/xlsx/index.ts",
       "default": "./src/formats/xlsx/index.ts"
     },
+    "./rtf": {
+      "types": "./src/formats/rtf/index.ts",
+      "bun": "./src/formats/rtf/index.ts",
+      "import": "./src/formats/rtf/index.ts",
+      "default": "./src/formats/rtf/index.ts"
+    },
+    "./docx": {
+      "types": "./src/formats/docx/index.ts",
+      "bun": "./src/formats/docx/index.ts",
+      "import": "./src/formats/docx/index.ts",
+      "default": "./src/formats/docx/index.ts"
+    },
+    "./pptx": {
+      "types": "./src/formats/pptx/index.ts",
+      "bun": "./src/formats/pptx/index.ts",
+      "import": "./src/formats/pptx/index.ts",
+      "default": "./src/formats/pptx/index.ts"
+    },
     "./schema": {
       "types": "./src/schema/index.ts",
       "bun": "./src/schema/index.ts",
@@ -45,7 +63,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
+    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
