@@ -32,3 +32,9 @@ export * as Xlsx from "./formats/xlsx/index.js";
 export * as Rtf from "./formats/rtf/index.js";
 export * as Docx from "./formats/docx/index.js";
 export * as Pptx from "./formats/pptx/index.js";
+
+// Apple iWork (read-only, experimental) + the shared container codec
+export * as Pages from "./formats/iwork/pages.js";
+export * as Numbers from "./formats/iwork/numbers.js";
+export * as Keynote from "./formats/iwork/keynote.js";
+export * as iWork from "./formats/iwork/index.js";

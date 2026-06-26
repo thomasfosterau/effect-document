@@ -160,8 +160,20 @@ const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quan
 | DOCX | ✅ | ✅ | headings, runs (bold/italic/underline/strike/super/sub/small-caps), hyperlinks, bullet/ordered lists, tables |
 | PPTX | ✅ | ✅ | slides of text-box / placeholder shapes with paragraphs, headings and lists; no speaker notes / pictures yet |
 | RTF | ✅ | ✅ | paragraphs and headings with bold/italic/underline/strike runs |
+| Keynote (.key) | ⚠️ | 🔜 | **experimental**, read-only: extracts slide text from real `.key` files |
+| Pages (.pages) | ⚠️ | 🔜 | **experimental**, read-only, best-effort: extracts body text |
+| Numbers (.numbers) | ⚠️ | 🔜 | **experimental**, read-only: sheet structure only (cell values deferred) |
 | JSON | ✅ | ✅ | via `Schema.encode`/`decode` of any `Document` |
 | Markdown / HTML | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
+
+Apple iWork (`.pages`/`.numbers`/`.key`) are reverse-engineered binary bundles
+(Protobuf in a non-standard Snappy variant). effect-document ships a
+**dependency-free container codec** for them (`@thomasfosterau/effect-document/iwork`:
+IWA chunk framing, the Snappy block codec, a generic Protobuf wire reader, and the
+zip-bundle opener), verified against real Apple files. The readers currently
+extract *text* only and are experimental; writing requires the proprietary
+object-graph schemas and is a future phase. Password-protected documents are
+detected and refused.
 
 Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
 

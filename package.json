@@ -43,6 +43,30 @@
       "import": "./src/formats/pptx/index.ts",
       "default": "./src/formats/pptx/index.ts"
     },
+    "./pages": {
+      "types": "./src/formats/iwork/pages.ts",
+      "bun": "./src/formats/iwork/pages.ts",
+      "import": "./src/formats/iwork/pages.ts",
+      "default": "./src/formats/iwork/pages.ts"
+    },
+    "./numbers": {
+      "types": "./src/formats/iwork/numbers.ts",
+      "bun": "./src/formats/iwork/numbers.ts",
+      "import": "./src/formats/iwork/numbers.ts",
+      "default": "./src/formats/iwork/numbers.ts"
+    },
+    "./keynote": {
+      "types": "./src/formats/iwork/keynote.ts",
+      "bun": "./src/formats/iwork/keynote.ts",
+      "import": "./src/formats/iwork/keynote.ts",
+      "default": "./src/formats/iwork/keynote.ts"
+    },
+    "./iwork": {
+      "types": "./src/formats/iwork/index.ts",
+      "bun": "./src/formats/iwork/index.ts",
+      "import": "./src/formats/iwork/index.ts",
+      "default": "./src/formats/iwork/index.ts"
+    },
     "./schema": {
       "types": "./src/schema/index.ts",
       "bun": "./src/schema/index.ts",
@@ -63,7 +87,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
+    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts src/formats/iwork/index.ts src/formats/iwork/pages.ts src/formats/iwork/numbers.ts src/formats/iwork/keynote.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
