@@ -7,6 +7,7 @@
  * yields the Protobuf object stream (objects may span chunk boundaries).
  */
 
+import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
 import { compressBlock, decompressBlock } from "./snappy.js";
 
 const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -21,21 +22,20 @@ const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   return out;
 };
 
-/** Decode an `.iwa` file into its concatenated, decompressed Protobuf stream. */
-export const dechunk = (data: Uint8Array): Uint8Array => {
-  const parts: Uint8Array[] = [];
-  let pos = 0;
-  while (pos < data.length) {
-    const type = data[pos]!;
-    if (type !== 0x00) {
-      throw new Error(`IWA chunk does not start with 0x00 (found ${type})`);
-    }
-    const len = data[pos + 1]! + data[pos + 2]! * 256 + data[pos + 3]! * 65536;
-    parts.push(decompressBlock(data.subarray(pos + 4, pos + 4 + len)));
-    pos += 4 + len;
-  }
-  return concat(parts);
-};
+/** One chunk: a 0x00 type byte, a 3-byte little-endian length, then that many bytes. */
+const chunkBody = Parser.preceded(
+  Token.literal(new Uint8Array([0x00])).pipe(Parser.expected("chunk type 0x00")),
+  Parser.cut(Binary.lengthTake(Binary.leU24))
+).pipe(Parser.context("IWA chunk"));
+
+const chunks = Parser.compile(Parser.repeat(chunkBody));
+
+/**
+ * Decode an `.iwa` file into its concatenated, decompressed Protobuf stream.
+ * Throws a positioned `ParseError` on a bad chunk header or a truncated chunk.
+ */
+export const dechunk = (data: Uint8Array): Uint8Array =>
+  concat(Parser.parseSync(chunks, data).map(decompressBlock));
 
 /** Encode a Protobuf stream into IWA chunks (64 KiB uncompressed blocks). */
 export const chunk = (stream: Uint8Array): Uint8Array => {
