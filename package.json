@@ -87,7 +87,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts src/formats/iwork/index.ts src/formats/iwork/pages.ts src/formats/iwork/numbers.ts src/formats/iwork/keynote.ts --root src --outdir dist --target node --format esm --external effect --external fflate",
+    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts src/formats/iwork/index.ts src/formats/iwork/pages.ts src/formats/iwork/numbers.ts src/formats/iwork/keynote.ts --root src --outdir dist --target node --format esm --external effect --external @thomasfosterau/effect-parse --external fflate",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
@@ -113,15 +113,16 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
   "dependencies": {
+    "@thomasfosterau/effect-parse": "^0.1.0",
     "fflate": "^0.8.2"
   },
   "peerDependencies": {
-    "effect": "^3.10.0"
+    "effect": "^4.0.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@types/bun": "latest",
-    "effect": "^3.19.0",
+    "effect": "^4.0.5",
     "typescript": "^5.7.2"
   }
 }

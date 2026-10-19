@@ -24,31 +24,31 @@ export type AttrValue =
   | ReadonlyArray<AttrValue>
   | { readonly [key: string]: AttrValue };
 
-export const AttrValue: Schema.Schema<AttrValue> = Schema.suspend(() =>
-  Schema.Union(
+export const AttrValue: Schema.Codec<AttrValue> = Schema.suspend(() =>
+  Schema.Union([
     Schema.String,
     Schema.Number,
     Schema.Boolean,
     Schema.Null,
     Schema.Array(AttrValue),
-    Schema.Record({ key: Schema.String, value: AttrValue })
-  )
+    Schema.Record(Schema.String, AttrValue)
+  ])
 );
 
 // ============================================================================
 // Style (structured presentation properties)
 // ============================================================================
 
-export const HorizontalAlign = Schema.Literal(
+export const HorizontalAlign = Schema.Literals([
   "left",
   "right",
   "center",
   "justify",
   "default"
-);
+]);
 export type HorizontalAlign = Schema.Schema.Type<typeof HorizontalAlign>;
 
-export const VerticalAlign = Schema.Literal("top", "middle", "bottom");
+export const VerticalAlign = Schema.Literals(["top", "middle", "bottom"]);
 export type VerticalAlign = Schema.Schema.Type<typeof VerticalAlign>;
 
 /** Character-level font properties. */
@@ -96,7 +96,7 @@ export const Attributes = Schema.Struct({
   /** Structured visual styling. */
   style: Schema.optional(Style),
   /** Arbitrary, format-specific custom attributes (Pandoc key/value pairs, ...). */
-  data: Schema.optional(Schema.Record({ key: Schema.String, value: AttrValue })),
+  data: Schema.optional(Schema.Record(Schema.String, AttrValue)),
 });
 export type Attributes = Schema.Schema.Type<typeof Attributes>;
 

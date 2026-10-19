@@ -20,10 +20,10 @@ const program = Effect.gen(function* () {
   );
 
   // --- The whole schema is JSON-serializable via Effect Schema ------------
-  const json = yield* Schema.encode(Document)(doc);
+  const json = yield* Schema.encodeEffect(Document)(doc);
   console.log("=== Document as JSON (pandoc -t json equivalent) ===");
   console.log(JSON.stringify(json, null, 2).slice(0, 400), "...\n");
-  const decoded = yield* Schema.decodeUnknown(Document)(json);
+  const decoded = yield* Schema.decodeUnknownEffect(Document)(json);
   console.log("Decoded blocks:", decoded.blocks.map((b) => b._tag).join(", "), "\n");
 
   // --- Profiles: which subset does a document conform to? ----------------

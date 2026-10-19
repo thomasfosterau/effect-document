@@ -56,10 +56,10 @@ describe("JSON round-trip via Schema", () => {
       [header(2, [str("Hi")]), para([str("body "), strong([str("bold")])])],
       { title: "t" }
     );
-    const encoded = await run(Schema.encode(Document)(doc));
+    const encoded = await run(Schema.encodeEffect(Document)(doc));
     // encoded is plain JSON
     expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded as unknown as object);
-    const decoded = await run(Schema.decode(Document)(encoded));
+    const decoded = await run(Schema.decodeEffect(Document)(encoded));
     expect(decoded).toEqual(doc);
   });
 
@@ -67,8 +67,8 @@ describe("JSON round-trip via Schema", () => {
     const doc = document([
       worksheet("S", [[cell.text("d"), cell.date(new Date("2026-06-26T00:00:00.000Z"))]]),
     ]);
-    const encoded = await run(Schema.encode(Document)(doc));
-    const decoded = await run(Schema.decode(Document)(encoded));
+    const encoded = await run(Schema.encodeEffect(Document)(doc));
+    const decoded = await run(Schema.decodeEffect(Document)(encoded));
     expect(decoded).toEqual(doc);
   });
 });

@@ -36,7 +36,7 @@ const program = Effect.gen(function* () {
   const batchCount = yield* pipe(
     rows,
     Stream.grouped(1000),
-    Stream.runFold(0, (count, batch) => {
+    Stream.runFold(() => 0, (count: number, batch) => {
       console.log(`Processed batch ${count + 1}: ${batch.length} rows`);
       return count + 1;
     })

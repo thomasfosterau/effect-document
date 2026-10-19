@@ -349,11 +349,11 @@ export type BlockEncoded =
 
 /** `ReadonlyArray<Inline>` as a schema, deferring the recursive reference. */
 const InlineArray = Schema.Array(
-  Schema.suspend((): Schema.Schema<Inline, InlineEncoded> => Inline)
+  Schema.suspend((): Schema.Codec<Inline, InlineEncoded> => Inline)
 );
 /** `ReadonlyArray<Block>` as a schema, deferring the recursive reference. */
 const BlockArray = Schema.Array(
-  Schema.suspend((): Schema.Schema<Block, BlockEncoded> => Block)
+  Schema.suspend((): Schema.Codec<Block, BlockEncoded> => Block)
 );
 
 // ============================================================================
@@ -385,7 +385,7 @@ export class Subscript extends Schema.TaggedClass<Subscript>()("Subscript", { co
 /** Small-caps content. */
 export class SmallCaps extends Schema.TaggedClass<SmallCaps>()("SmallCaps", { content: InlineArray }) {}
 
-export const QuoteType = Schema.Literal("single", "double");
+export const QuoteType = Schema.Literals(["single", "double"]);
 export type QuoteType = Schema.Schema.Type<typeof QuoteType>;
 /** Quoted content (rendered with locale-appropriate quotation marks). */
 export class Quoted extends Schema.TaggedClass<Quoted>()("Quoted", {
@@ -393,7 +393,7 @@ export class Quoted extends Schema.TaggedClass<Quoted>()("Quoted", {
   content: InlineArray,
 }) {}
 
-export const CitationMode = Schema.Literal("author-in-text", "suppress-author", "normal");
+export const CitationMode = Schema.Literals(["author-in-text", "suppress-author", "normal"]);
 export type CitationMode = Schema.Schema.Type<typeof CitationMode>;
 /** A single citation within a `Cite`. */
 export class Citation extends Schema.Class<Citation>("Citation")({
@@ -414,7 +414,7 @@ export class Code extends Schema.TaggedClass<Code>()("Code", {
   text: Schema.String,
 }) {}
 
-export const MathType = Schema.Literal("inline", "display");
+export const MathType = Schema.Literals(["inline", "display"]);
 export type MathType = Schema.Schema.Type<typeof MathType>;
 /** Inline or display math (TeX). */
 export class Math extends Schema.TaggedClass<Math>()("Math", {
@@ -463,11 +463,11 @@ export type Inline =
   | Superscript | Subscript | SmallCaps | Quoted | Cite | Code | Math | RawInline
   | Link | Image | Note | Span;
 
-export const Inline: Schema.Schema<Inline, InlineEncoded> = Schema.Union(
+export const Inline: Schema.Codec<Inline, InlineEncoded> = Schema.Union([
   Str, Space, SoftBreak, LineBreak, Emph, Strong, Underline, Strikeout,
   Superscript, Subscript, SmallCaps, Quoted, Cite, Code, Math, RawInline,
   Link, Image, Note, Span
-);
+]);
 
 // ============================================================================
 // Block nodes (prose)
@@ -497,11 +497,11 @@ export class BlockQuote extends Schema.TaggedClass<BlockQuote>()("BlockQuote", {
   content: BlockArray,
 }) {}
 
-export const ListNumberStyle = Schema.Literal(
+export const ListNumberStyle = Schema.Literals([
   "default", "example", "decimal", "lower-roman", "upper-roman", "lower-alpha", "upper-alpha"
-);
+]);
 export type ListNumberStyle = Schema.Schema.Type<typeof ListNumberStyle>;
-export const ListNumberDelim = Schema.Literal("default", "period", "one-paren", "two-parens");
+export const ListNumberDelim = Schema.Literals(["default", "period", "one-paren", "two-parens"]);
 export type ListNumberDelim = Schema.Schema.Type<typeof ListNumberDelim>;
 
 /** An ordered (numbered) list; each item is a sequence of blocks. */
@@ -531,7 +531,7 @@ export class DefinitionList extends Schema.TaggedClass<DefinitionList>()("Defini
 
 /** A section heading (level 1-6). */
 export class Header extends Schema.TaggedClass<Header>()("Header", {
-  level: Schema.Number.pipe(Schema.int(), Schema.between(1, 6)),
+  level: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 6 })),
   attr: attrField,
   content: InlineArray,
 }) {}
@@ -554,13 +554,13 @@ export class Div extends Schema.TaggedClass<Div>()("Div", {
 export const ColWidth = Schema.NullOr(Schema.Number);
 /** A column specification: alignment and relative width. */
 export class ColSpec extends Schema.Class<ColSpec>("ColSpec")({
-  align: Schema.optional(Schema.Literal("left", "right", "center", "default")),
+  align: Schema.optional(Schema.Literals(["left", "right", "center", "default"])),
   width: Schema.optional(ColWidth),
 }) {}
 /** A prose table cell, holding block content (Pandoc style). */
 export class TableCell extends Schema.Class<TableCell>("TableCell")({
   attr: attrField,
-  align: Schema.optional(Schema.Literal("left", "right", "center", "default")),
+  align: Schema.optional(Schema.Literals(["left", "right", "center", "default"])),
   rowSpan: Schema.optional(Schema.Number),
   colSpan: Schema.optional(Schema.Number),
   content: BlockArray,
@@ -602,7 +602,7 @@ export class CellBoolean extends Schema.TaggedClass<CellBoolean>()("CellBoolean"
 }) {}
 /** A date/time cell (a genuine date value, distinct from a number). */
 export class CellDate extends Schema.TaggedClass<CellDate>()("CellDate", {
-  value: Schema.Date,
+  value: Schema.DateFromString,
   style: styleField,
 }) {}
 /** An error cell (carries the error literal, e.g. "#DIV/0!"). */
@@ -630,9 +630,9 @@ export class CellRichText extends Schema.TaggedClass<CellRichText>()("CellRichTe
 export type SheetCell =
   | CellText | CellNumber | CellBoolean | CellDate | CellError | CellBlank
   | CellFormula | CellRichText;
-export const SheetCell: Schema.Schema<SheetCell, SheetCellEncoded> = Schema.Union(
+export const SheetCell: Schema.Codec<SheetCell, SheetCellEncoded> = Schema.Union([
   CellText, CellNumber, CellBoolean, CellDate, CellError, CellBlank, CellFormula, CellRichText
-);
+]);
 
 /** A column definition (width / default style). */
 export class SheetColumn extends Schema.Class<SheetColumn>("SheetColumn")({
@@ -678,7 +678,7 @@ export class Picture extends Schema.TaggedClass<Picture>()("Picture", {
 /** A table shape (wraps a prose `Table`). */
 export class TableShape extends Schema.TaggedClass<TableShape>()("TableShape", {
   attr: attrField,
-  table: Schema.suspend((): Schema.Schema<Table, TableEncoded> => Table),
+  table: Schema.suspend((): Schema.Codec<Table, TableEncoded> => Table),
 }) {}
 /** A layout placeholder shape (title, body, ...). */
 export class Placeholder extends Schema.TaggedClass<Placeholder>()("Placeholder", {
@@ -690,9 +690,9 @@ export class Placeholder extends Schema.TaggedClass<Placeholder>()("Placeholder"
 
 /** Any slide shape. */
 export type Shape = TextBox | Picture | TableShape | Placeholder;
-export const Shape: Schema.Schema<Shape, ShapeEncoded> = Schema.Union(
+export const Shape: Schema.Codec<Shape, ShapeEncoded> = Schema.Union([
   TextBox, Picture, TableShape, Placeholder
-);
+]);
 
 /** A single slide: shapes plus optional speaker notes. */
 export class Slide extends Schema.Class<Slide>("Slide")({
@@ -723,8 +723,8 @@ export type Block =
   | BulletList | DefinitionList | Header | HorizontalRule | Figure | Div | Table
   | Worksheet | SlideShow;
 
-export const Block: Schema.Schema<Block, BlockEncoded> = Schema.Union(
+export const Block: Schema.Codec<Block, BlockEncoded> = Schema.Union([
   Plain, Para, LineBlock, CodeBlock, RawBlock, BlockQuote, OrderedList,
   BulletList, DefinitionList, Header, HorizontalRule, Figure, Div, Table,
   Worksheet, SlideShow
-);
+]);

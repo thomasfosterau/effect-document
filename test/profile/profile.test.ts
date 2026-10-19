@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   cell, document, header, para, str, strong, worksheet,
 } from "../../src/schema/index.js";
@@ -50,16 +50,16 @@ describe("profile conformance", () => {
   });
 
   test("validate: succeeds and brands a conforming document", () => {
-    const r = Effect.runSync(Effect.either(Profiles.Csv.validate(csvDoc)));
-    expect(Either.isRight(r)).toBe(true);
+    const r = Effect.runSync(Effect.result(Profiles.Csv.validate(csvDoc)));
+    expect(Result.isSuccess(r)).toBe(true);
   });
 
   test("validate: fails with the exact unsupported features", () => {
-    const r = Effect.runSync(Effect.either(Profiles.Csv.validate(richDoc)));
-    expect(Either.isLeft(r)).toBe(true);
-    if (Either.isLeft(r)) {
-      expect(r.left._tag).toBe("ProfileViolation");
-      expect(r.left.unsupported).toEqual(
+    const r = Effect.runSync(Effect.result(Profiles.Csv.validate(richDoc)));
+    expect(Result.isFailure(r)).toBe(true);
+    if (Result.isFailure(r)) {
+      expect(r.failure._tag).toBe("ProfileViolation");
+      expect(r.failure.unsupported).toEqual(
         expect.arrayContaining(["cell.date", "sheet.multiple"])
       );
     }
@@ -72,12 +72,12 @@ describe("profile conformance", () => {
         { _tag: "Worksheet", name: "S", columns: [], merges: [], rows: [{ cells: [cellJson] }] },
       ],
     });
-    const ok = Schema.decodeUnknownEither(Profiles.Csv.schema)(mkJson({ _tag: "CellText", value: "a" }));
-    const bad = Schema.decodeUnknownEither(Profiles.Csv.schema)(
+    const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(mkJson({ _tag: "CellText", value: "a" }));
+    const bad = Schema.decodeUnknownResult(Profiles.Csv.schema)(
       mkJson({ _tag: "CellDate", value: "2026-06-26T00:00:00.000Z" })
     );
-    expect(Either.isRight(ok)).toBe(true);
-    expect(Either.isLeft(bad)).toBe(true);
+    expect(Result.isSuccess(ok)).toBe(true);
+    expect(Result.isFailure(bad)).toBe(true);
   });
 });
 
