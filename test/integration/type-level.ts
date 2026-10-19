@@ -8,7 +8,8 @@
 
 import { type Doc, type Document, type FeaturesOf, Profiles } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
-import { Xlsx } from "@thomasfosterau/effect-ooxml";
+import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
+import * as Pdf from "@thomasfosterau/effect-pdf";
 
 type CsvF = FeaturesOf<typeof Profiles.Csv>;
 type SpreadsheetF = FeaturesOf<typeof Profiles.Spreadsheet>;
@@ -40,3 +41,12 @@ export const writeTooRich = csvWriter.write(fullDoc);
 // establish which profile it conforms to first (validate / narrow).
 // @ts-expect-error a bare Document has no profile brand
 export const writeBare = csvWriter.write(bareDoc);
+
+// (5) Prose formats: PDF fits inside DOCX, but a DOCX document (tables...) is
+// too rich for the PDF writer.
+declare const pdfDoc: Doc<FeaturesOf<typeof Pdf.profile>>;
+declare const docxDoc: Doc<FeaturesOf<typeof Docx.profile>>;
+declare const pdfWriter: NonNullable<typeof Pdf.format.writer>;
+export const pdfIntoDocx: Doc<FeaturesOf<typeof Docx.profile>> = pdfDoc;
+// @ts-expect-error a DOCX document may hold tables, which the PDF writer can't represent
+export const docxIntoPdf = pdfWriter.write(docxDoc);
