@@ -6,6 +6,6 @@ The core of effect-document: a type-safe, profile-based universal document schem
 bun add effect @thomasfosterau/effect-document
 ```
 
-Formats are separate packages: `@thomasfosterau/effect-document-csv`, `-ooxml`, `-rtf` and `-iwork`.
+Formats are separate packages: `@thomasfosterau/effect-csv`, `@thomasfosterau/effect-ooxml`, `@thomasfosterau/effect-rtf` and `@thomasfosterau/effect-iwork`.
 
 See the [repository README](https://github.com/thomasfosterau/effect-document#readme) for the schema, profiles and conversion model.

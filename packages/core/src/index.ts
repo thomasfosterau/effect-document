@@ -11,13 +11,14 @@
  *                the `convert` pipeline.
  *
  * Formats live in their own packages, which build on this one:
- * `@thomasfosterau/effect-document-csv` (CSV/TSV), `-ooxml` (xlsx/docx/pptx),
- * `-rtf`, and `-iwork` (Pages/Numbers/Keynote).
+ * `@thomasfosterau/effect-csv` (CSV/TSV), `@thomasfosterau/effect-ooxml`
+ * (xlsx/docx/pptx), `@thomasfosterau/effect-rtf`, and
+ * `@thomasfosterau/effect-iwork` (Pages/Numbers/Keynote).
  *
  * ```ts
  * import { convert, text } from "@thomasfosterau/effect-document";
- * import * as Csv from "@thomasfosterau/effect-document-csv";
- * import { Xlsx } from "@thomasfosterau/effect-document-ooxml";
+ * import * as Csv from "@thomasfosterau/effect-csv";
+ * import { Xlsx } from "@thomasfosterau/effect-ooxml";
  * const { content } = yield* convert({ from: Csv.format, to: Xlsx.format, input: text("a,b\n1,2") });
  * ```
  */

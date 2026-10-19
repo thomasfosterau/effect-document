@@ -1,5 +1,5 @@
 {
-  "name": "@thomasfosterau/effect-document-rtf",
+  "name": "@thomasfosterau/effect-rtf",
   "version": "0.0.0",
   "description": "Rich Text Format reader and writer for effect-document",
   "type": "module",

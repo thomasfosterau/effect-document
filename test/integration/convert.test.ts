@@ -4,9 +4,9 @@ import {
   cell, contentToText, convert, document, type FeaturesOf, text, trustAs, worksheet, Worksheet,
 } from "@thomasfosterau/effect-document";
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
-import * as Csv from "@thomasfosterau/effect-document-csv";
-import * as Xlsx from "@thomasfosterau/effect-document-ooxml/xlsx";
-import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-document-ooxml/xlsx";
+import * as Csv from "@thomasfosterau/effect-csv";
+import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
+import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-ooxml/xlsx";
 
 type SpreadsheetF = FeaturesOf<typeof Spreadsheet>;
 

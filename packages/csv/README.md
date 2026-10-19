@@ -1,10 +1,10 @@
-# @thomasfosterau/effect-document-csv
+# @thomasfosterau/effect-csv
 
 CSV/TSV reader and writer for [effect-document](https://github.com/thomasfosterau/effect-document): dialects, quoting, comments, type inference, streaming, and synthetic data.
 
 ```ts
 import { text } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-document-csv";
+import * as Csv from "@thomasfosterau/effect-csv";
 
 const doc = yield* Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
 ```

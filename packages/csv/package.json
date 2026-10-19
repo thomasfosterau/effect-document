@@ -1,5 +1,5 @@
 {
-  "name": "@thomasfosterau/effect-document-csv",
+  "name": "@thomasfosterau/effect-csv",
   "version": "0.0.0",
   "description": "CSV/TSV reader and writer for effect-document, with streaming",
   "type": "module",

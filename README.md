@@ -39,10 +39,10 @@ The core package holds the schema, profiles and conversion pipeline; each format
 
 ```bash
 bun add effect @thomasfosterau/effect-document
-bun add @thomasfosterau/effect-document-csv     # CSV / TSV
-bun add @thomasfosterau/effect-document-ooxml   # XLSX, DOCX, PPTX
-bun add @thomasfosterau/effect-document-rtf     # RTF
-bun add @thomasfosterau/effect-document-iwork   # Pages, Numbers, Keynote (experimental, read-only)
+bun add @thomasfosterau/effect-csv     # CSV / TSV
+bun add @thomasfosterau/effect-ooxml   # XLSX, DOCX, PPTX
+bun add @thomasfosterau/effect-rtf     # RTF
+bun add @thomasfosterau/effect-iwork   # Pages, Numbers, Keynote (experimental, read-only)
 ```
 
 `effect` is a peer dependency of every package.
@@ -52,8 +52,8 @@ bun add @thomasfosterau/effect-document-iwork   # Pages, Numbers, Keynote (exper
 ```ts
 import { Effect } from "effect";
 import { contentToBytes, convert, text } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-document-csv";
-import { Xlsx } from "@thomasfosterau/effect-document-ooxml";
+import * as Csv from "@thomasfosterau/effect-csv";
+import { Xlsx } from "@thomasfosterau/effect-ooxml";
 
 const program = Effect.gen(function* () {
   // CSV ⊆ Spreadsheet, so this is a free widening - loss.isLossless === true
@@ -135,8 +135,8 @@ Each format exposes its profile, reader/writer factories, Context tags + Layers,
 
 ```ts
 import { text, bytes } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-document-csv";
-import * as Xlsx from "@thomasfosterau/effect-document-ooxml/xlsx";
+import * as Csv from "@thomasfosterau/effect-csv";
+import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
 
 // CSV text -> Doc<CsvFeature> (a single worksheet with inferred cell types)
 const doc = yield* Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
@@ -161,10 +161,10 @@ This repository is a monorepo of one core package and one package per format fam
 | Package | Directory | Contents |
 |---|---|---|
 | `@thomasfosterau/effect-document` | `packages/core` | Schema, profiles, IO (`Reader`/`Writer`/`Format`, errors) and `convert` |
-| `@thomasfosterau/effect-document-csv` | `packages/csv` | CSV/TSV reader, writer, streaming scanner and data synthesis |
-| `@thomasfosterau/effect-document-ooxml` | `packages/ooxml` | `Xlsx`, `Docx` and `Pptx` namespaces over shared XML/OPC infrastructure |
-| `@thomasfosterau/effect-document-rtf` | `packages/rtf` | RTF reader and writer |
-| `@thomasfosterau/effect-document-iwork` | `packages/iwork` | `Pages`, `Numbers`, `Keynote` readers and the iWork container `Codec` |
+| `@thomasfosterau/effect-csv` | `packages/csv` | CSV/TSV reader, writer, streaming scanner and data synthesis |
+| `@thomasfosterau/effect-ooxml` | `packages/ooxml` | `Xlsx`, `Docx` and `Pptx` namespaces over shared XML/OPC infrastructure |
+| `@thomasfosterau/effect-rtf` | `packages/rtf` | RTF reader and writer |
+| `@thomasfosterau/effect-iwork` | `packages/iwork` | `Pages`, `Numbers`, `Keynote` readers and the iWork container `Codec` |
 
 Subpath exports:
 
@@ -174,8 +174,8 @@ Subpath exports:
 | `@thomasfosterau/effect-document/profile` | `Profile`/`Doc<F>`, conformance checking, `widen`/`narrow`, built-in `Profiles` |
 | `@thomasfosterau/effect-document/profiles` | The built-in profiles (`Csv`, `Spreadsheet`, `Markdown`, …) as named exports |
 | `@thomasfosterau/effect-document/io` | Content, Reader/Writer/Format, errors, `convert` |
-| `@thomasfosterau/effect-document-ooxml/{xlsx,docx,pptx}` | A single OOXML format |
-| `@thomasfosterau/effect-document-iwork/{pages,numbers,keynote,codec}` | A single iWork app, or the container codec |
+| `@thomasfosterau/effect-ooxml/{xlsx,docx,pptx}` | A single OOXML format |
+| `@thomasfosterau/effect-iwork/{pages,numbers,keynote,codec}` | A single iWork app, or the container codec |
 
 ## Format support
 
@@ -194,7 +194,7 @@ Subpath exports:
 
 Apple iWork (`.pages`/`.numbers`/`.key`) are reverse-engineered binary bundles
 (Protobuf in a non-standard Snappy variant). effect-document ships a
-**dependency-free container codec** for them (`@thomasfosterau/effect-document-iwork/codec`:
+**dependency-free container codec** for them (`@thomasfosterau/effect-iwork/codec`:
 IWA chunk framing, the Snappy block codec, a generic Protobuf wire reader, and the
 zip-bundle opener), verified against real Apple files. The readers currently
 extract *text* only and are experimental; writing requires the proprietary

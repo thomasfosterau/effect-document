@@ -7,8 +7,8 @@
  */
 
 import { type Doc, type Document, type FeaturesOf, Profiles } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-document-csv";
-import { Xlsx } from "@thomasfosterau/effect-document-ooxml";
+import * as Csv from "@thomasfosterau/effect-csv";
+import { Xlsx } from "@thomasfosterau/effect-ooxml";
 
 type CsvF = FeaturesOf<typeof Profiles.Csv>;
 type SpreadsheetF = FeaturesOf<typeof Profiles.Spreadsheet>;

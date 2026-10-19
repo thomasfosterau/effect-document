@@ -5,8 +5,8 @@ import {
   orderedList, table, slide, slideShow, textBox, blocksToText, type Block,
   trustAs, type FeaturesOf, convert, contentToText,
 } from "@thomasfosterau/effect-document";
-import { Docx, Pptx } from "@thomasfosterau/effect-document-ooxml";
-import * as Rtf from "@thomasfosterau/effect-document-rtf";
+import { Docx, Pptx } from "@thomasfosterau/effect-ooxml";
+import * as Rtf from "@thomasfosterau/effect-rtf";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 

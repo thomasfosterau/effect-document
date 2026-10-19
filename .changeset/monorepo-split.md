@@ -1,9 +1,9 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-document-csv": minor
-"@thomasfosterau/effect-document-ooxml": minor
-"@thomasfosterau/effect-document-rtf": minor
-"@thomasfosterau/effect-document-iwork": minor
+"@thomasfosterau/effect-csv": minor
+"@thomasfosterau/effect-ooxml": minor
+"@thomasfosterau/effect-rtf": minor
+"@thomasfosterau/effect-iwork": minor
 ---
 
 Split into a monorepo: a core package plus one package per format family.
@@ -13,11 +13,11 @@ Split into a monorepo: a core package plus one package per format family.
   longer re-exports any format, and no longer depends on `fflate` or
   `@thomasfosterau/effect-parse`. The built-in profiles are also available on
   the new `./profiles` subpath, and the IO layer on `./io`.
-- `@thomasfosterau/effect-document-csv`: CSV/TSV (was `./csv`).
-- `@thomasfosterau/effect-document-ooxml`: `Xlsx`, `Docx` and `Pptx`
+- `@thomasfosterau/effect-csv`: CSV/TSV (was `./csv`).
+- `@thomasfosterau/effect-ooxml`: `Xlsx`, `Docx` and `Pptx`
   namespaces, also on the `./xlsx`, `./docx` and `./pptx` subpaths.
-- `@thomasfosterau/effect-document-rtf`: RTF (was `./rtf`).
-- `@thomasfosterau/effect-document-iwork`: `Pages`, `Numbers`, `Keynote` and
+- `@thomasfosterau/effect-rtf`: RTF (was `./rtf`).
+- `@thomasfosterau/effect-iwork`: `Pages`, `Numbers`, `Keynote` and
   the container `Codec` namespaces, also on the `./pages`, `./numbers`,
   `./keynote` and `./codec` subpaths (the codec was `./iwork`).
 
@@ -28,6 +28,6 @@ Migrate imports like so:
 import { convert, Csv, Xlsx } from "@thomasfosterau/effect-document";
 // after
 import { convert } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-document-csv";
-import { Xlsx } from "@thomasfosterau/effect-document-ooxml";
+import * as Csv from "@thomasfosterau/effect-csv";
+import { Xlsx } from "@thomasfosterau/effect-ooxml";
 ```

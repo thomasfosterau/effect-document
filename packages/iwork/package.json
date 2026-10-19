@@ -1,5 +1,5 @@
 {
-  "name": "@thomasfosterau/effect-document-iwork",
+  "name": "@thomasfosterau/effect-iwork",
   "version": "0.0.0",
   "description": "Experimental, read-only Apple iWork (Pages, Numbers, Keynote) readers for effect-document",
   "type": "module",
