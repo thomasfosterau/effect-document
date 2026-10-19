@@ -1,0 +1,52 @@
+{
+  "name": "@thomasfosterau/effect-csv",
+  "version": "0.0.0",
+  "description": "CSV/TSV reader and writer for effect-document, with streaming",
+  "type": "module",
+  "module": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --root src --outdir dist --target node --format esm --packages external",
+    "test": "bun test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/csv"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "effect",
+    "document",
+    "csv",
+    "tsv",
+    "stream",
+    "parser"
+  ],
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "license": "MIT",
+  "dependencies": {
+    "@thomasfosterau/effect-document": "^0.1.0",
+    "@thomasfosterau/effect-parse": "^0.1.0"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0"
+  }
+}

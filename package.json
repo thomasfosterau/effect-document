@@ -1,93 +1,12 @@
 {
-  "name": "@thomasfosterau/effect-document",
-  "version": "0.1.0",
-  "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with readers/writers and lossy-aware conversion",
+  "name": "effect-document-monorepo",
+  "private": true,
   "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./csv": {
-      "types": "./src/formats/csv/index.ts",
-      "bun": "./src/formats/csv/index.ts",
-      "import": "./src/formats/csv/index.ts",
-      "default": "./src/formats/csv/index.ts"
-    },
-    "./xlsx": {
-      "types": "./src/formats/xlsx/index.ts",
-      "bun": "./src/formats/xlsx/index.ts",
-      "import": "./src/formats/xlsx/index.ts",
-      "default": "./src/formats/xlsx/index.ts"
-    },
-    "./rtf": {
-      "types": "./src/formats/rtf/index.ts",
-      "bun": "./src/formats/rtf/index.ts",
-      "import": "./src/formats/rtf/index.ts",
-      "default": "./src/formats/rtf/index.ts"
-    },
-    "./docx": {
-      "types": "./src/formats/docx/index.ts",
-      "bun": "./src/formats/docx/index.ts",
-      "import": "./src/formats/docx/index.ts",
-      "default": "./src/formats/docx/index.ts"
-    },
-    "./pptx": {
-      "types": "./src/formats/pptx/index.ts",
-      "bun": "./src/formats/pptx/index.ts",
-      "import": "./src/formats/pptx/index.ts",
-      "default": "./src/formats/pptx/index.ts"
-    },
-    "./pages": {
-      "types": "./src/formats/iwork/pages.ts",
-      "bun": "./src/formats/iwork/pages.ts",
-      "import": "./src/formats/iwork/pages.ts",
-      "default": "./src/formats/iwork/pages.ts"
-    },
-    "./numbers": {
-      "types": "./src/formats/iwork/numbers.ts",
-      "bun": "./src/formats/iwork/numbers.ts",
-      "import": "./src/formats/iwork/numbers.ts",
-      "default": "./src/formats/iwork/numbers.ts"
-    },
-    "./keynote": {
-      "types": "./src/formats/iwork/keynote.ts",
-      "bun": "./src/formats/iwork/keynote.ts",
-      "import": "./src/formats/iwork/keynote.ts",
-      "default": "./src/formats/iwork/keynote.ts"
-    },
-    "./iwork": {
-      "types": "./src/formats/iwork/index.ts",
-      "bun": "./src/formats/iwork/index.ts",
-      "import": "./src/formats/iwork/index.ts",
-      "default": "./src/formats/iwork/index.ts"
-    },
-    "./schema": {
-      "types": "./src/schema/index.ts",
-      "bun": "./src/schema/index.ts",
-      "import": "./src/schema/index.ts",
-      "default": "./src/schema/index.ts"
-    },
-    "./profile": {
-      "types": "./src/profile/index.ts",
-      "bun": "./src/profile/index.ts",
-      "import": "./src/profile/index.ts",
-      "default": "./src/profile/index.ts"
-    }
-  },
-  "files": [
-    "src",
-    "dist",
-    "README.md",
-    "LICENSE"
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
-    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/io/index.ts src/formats/csv/index.ts src/formats/xlsx/index.ts src/formats/rtf/index.ts src/formats/docx/index.ts src/formats/pptx/index.ts src/formats/iwork/index.ts src/formats/iwork/pages.ts src/formats/iwork/numbers.ts src/formats/iwork/keynote.ts --root src --outdir dist --target node --format esm --external effect --external @thomasfosterau/effect-parse --external fflate",
+    "build": "bun run --filter '*' build",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
@@ -95,34 +14,16 @@
     "version": "changeset version",
     "release": "bun run build && changeset publish"
   },
-  "publishConfig": {
-    "access": "public"
-  },
-  "keywords": [
-    "effect",
-    "document",
-    "pandoc",
-    "csv",
-    "tsv",
-    "xlsx",
-    "excel",
-    "converter",
-    "parser",
-    "stream"
-  ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
-  "license": "MIT",
-  "dependencies": {
-    "@thomasfosterau/effect-parse": "^0.1.0",
-    "fflate": "^0.8.2"
-  },
-  "peerDependencies": {
-    "effect": "^4.0.0"
-  },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
+    "@thomasfosterau/effect-document": "workspace:*",
+    "@thomasfosterau/effect-csv": "workspace:*",
+    "@thomasfosterau/effect-iwork": "workspace:*",
+    "@thomasfosterau/effect-ooxml": "workspace:*",
+    "@thomasfosterau/effect-rtf": "workspace:*",
     "@types/bun": "latest",
     "effect": "^4.0.5",
+    "fflate": "^0.8.2",
     "typescript": "^5.7.2"
   }
 }

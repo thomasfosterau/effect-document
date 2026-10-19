@@ -8,7 +8,9 @@
  */
 
 import { Effect } from "effect";
-import { contentToBytes, contentToText, convert, text, Csv, Xlsx } from "@thomasfosterau/effect-document";
+import { contentToBytes, contentToText, convert, text } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-csv";
+import { Xlsx } from "@thomasfosterau/effect-ooxml";
 
 const csvSource = `product,price,in_stock
 Laptop,999.99,true

@@ -35,17 +35,25 @@ So:
 
 ## Installation
 
+The core package holds the schema, profiles and conversion pipeline; each format family is its own package, so you install only the formats you use:
+
 ```bash
-bun add @thomasfosterau/effect-document effect
+bun add effect @thomasfosterau/effect-document
+bun add @thomasfosterau/effect-csv     # CSV / TSV
+bun add @thomasfosterau/effect-ooxml   # XLSX, DOCX, PPTX
+bun add @thomasfosterau/effect-rtf     # RTF
+bun add @thomasfosterau/effect-iwork   # Pages, Numbers, Keynote (experimental, read-only)
 ```
 
-`effect` is a peer dependency; `fflate` (for XLSX) is bundled.
+`effect` is a peer dependency of every package.
 
 ## Quick start: convert CSV to Excel
 
 ```ts
 import { Effect } from "effect";
-import { contentToBytes, convert, text, Csv, Xlsx } from "@thomasfosterau/effect-document";
+import { contentToBytes, convert, text } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-csv";
+import { Xlsx } from "@thomasfosterau/effect-ooxml";
 
 const program = Effect.gen(function* () {
   // CSV ⊆ Spreadsheet, so this is a free widening - loss.isLossless === true
@@ -126,7 +134,9 @@ const Receipt = defineProfile("receipt", [
 Each format exposes its profile, reader/writer factories, Context tags + Layers, and a `format` bundle for `convert()`:
 
 ```ts
-import { text, bytes, Csv, Xlsx } from "@thomasfosterau/effect-document";
+import { text, bytes } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-csv";
+import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
 
 // CSV text -> Doc<CsvFeature> (a single worksheet with inferred cell types)
 const doc = yield* Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
@@ -144,14 +154,28 @@ const live = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHea
 const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 10_000, seed: 42 });
 ```
 
-## Package layout
+## Packages
+
+This repository is a monorepo of one core package and one package per format family.
+
+| Package | Directory | Contents |
+|---|---|---|
+| `@thomasfosterau/effect-document` | `packages/core` | Schema, profiles, IO (`Reader`/`Writer`/`Format`, errors) and `convert` |
+| `@thomasfosterau/effect-csv` | `packages/csv` | CSV/TSV reader, writer, streaming scanner and data synthesis |
+| `@thomasfosterau/effect-ooxml` | `packages/ooxml` | `Xlsx`, `Docx` and `Pptx` namespaces over shared XML/OPC infrastructure |
+| `@thomasfosterau/effect-rtf` | `packages/rtf` | RTF reader and writer |
+| `@thomasfosterau/effect-iwork` | `packages/iwork` | `Pages`, `Numbers`, `Keynote` readers and the iWork container `Codec` |
+
+Subpath exports:
 
 | Import | Contents |
 |---|---|
-| `@thomasfosterau/effect-document` | Everything: schema, profiles, IO, and the `Csv`/`Xlsx` namespaces |
-| `.../schema` | The document AST, attribute model, and feature taxonomy |
-| `.../profile` | `Profile`/`Doc<F>`, conformance checking, `widen`/`narrow`, built-in `Profiles` |
-| `.../csv`, `.../xlsx` | The format readers/writers (same as the `Csv`/`Xlsx` namespaces) |
+| `@thomasfosterau/effect-document/schema` | The document AST, attribute model, and feature taxonomy |
+| `@thomasfosterau/effect-document/profile` | `Profile`/`Doc<F>`, conformance checking, `widen`/`narrow`, built-in `Profiles` |
+| `@thomasfosterau/effect-document/profiles` | The built-in profiles (`Csv`, `Spreadsheet`, `Markdown`, …) as named exports |
+| `@thomasfosterau/effect-document/io` | Content, Reader/Writer/Format, errors, `convert` |
+| `@thomasfosterau/effect-ooxml/{xlsx,docx,pptx}` | A single OOXML format |
+| `@thomasfosterau/effect-iwork/{pages,numbers,keynote,codec}` | A single iWork app, or the container codec |
 
 ## Format support
 
@@ -170,7 +194,7 @@ const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quan
 
 Apple iWork (`.pages`/`.numbers`/`.key`) are reverse-engineered binary bundles
 (Protobuf in a non-standard Snappy variant). effect-document ships a
-**dependency-free container codec** for them (`@thomasfosterau/effect-document/iwork`:
+**dependency-free container codec** for them (`@thomasfosterau/effect-iwork/codec`:
 IWA chunk framing, the Snappy block codec, a generic Protobuf wire reader, and the
 zip-bundle opener), verified against real Apple files. The readers currently
 extract *text* only and are experimental; writing requires the proprietary
@@ -190,13 +214,17 @@ bun run examples/streaming.ts             # streaming rows + data synthesis
 ## Development
 
 ```bash
-bun install        # install dependencies
-bun test           # run the test suite
-bun run typecheck  # tsc --noEmit (also checks the compile-time profile guarantees)
-bun run build      # bundle to dist/
+bun install        # install dependencies and link the workspace packages
+bun test           # run every package's tests plus the cross-package tests in test/
+bun run typecheck  # tsc --noEmit across all packages (also checks the compile-time profile guarantees)
+bun run build      # bundle each package to its dist/
 ```
 
-The type system is part of the test suite: `test/type-level.ts` uses `@ts-expect-error` to assert that over-rich documents are rejected at compile time and that widening compiles.
+Each package's own tests live in `packages/<name>/test`; tests that span packages (cross-format conversion) live in `test/integration`. Run one package's tests with `bun test packages/<name>`.
+
+Releases use [changesets](https://github.com/changesets/changesets): `bun run changeset` and pick the packages your change touches.
+
+The type system is part of the test suite: `test/integration/type-level.ts` uses `@ts-expect-error` to assert that over-rich documents are rejected at compile time and that widening compiles.
 
 ## License
 

@@ -1,5 +1,6 @@
 ---
-"@thomasfosterau/effect-document": minor
+"@thomasfosterau/effect-ooxml": minor
+"@thomasfosterau/effect-rtf": minor
 ---
 
 Add DOCX (Word), PPTX (PowerPoint) and RTF formats, each with its own profile.
@@ -18,5 +19,5 @@ for free, while `Docx → Rtf` and `Pptx → Docx`/`Rtf` narrow with a loss repo
 (links to text, lists to paragraphs, slides flattened to prose, tables dropped).
 
 Internally, the OOXML XML parser and a new OPC packaging helper are shared
-across xlsx/docx/pptx under `src/formats/ooxml/`. The XLSX reader now also
+across xlsx/docx/pptx in the shared OOXML module. The XLSX reader now also
 round-trips formula cells.
