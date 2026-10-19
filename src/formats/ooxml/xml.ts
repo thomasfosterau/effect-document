@@ -1,13 +1,17 @@
 /**
  * Minimal XML utilities shared by the OOXML formats (xlsx, docx, pptx).
  *
- * OOXML is regular, attribute-driven XML; a purpose-built scanner keeps this
- * package dependency-free beyond fflate. This is not a general XML parser - it
- * handles the subset OOXML uses (elements, attributes, text content,
- * self-closing tags, declarations, comments). Namespace prefixes are stripped
+ * OOXML is regular, attribute-driven XML; a small effect-parse grammar handles
+ * the subset OOXML uses (elements, attributes, text content, self-closing
+ * tags, declarations, comments, CDATA) and reports malformed input with its
+ * line and column. This is not a general XML parser: there is no entity
+ * declaration or namespace resolution. Namespace prefixes are stripped
  * from element names, so `<w:p>`, `<a:p>` and `<p:sp>` are navigated by their
  * local names; attribute keys keep their prefixes and `getAttr` matches either.
  */
+
+import { type ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
+import type { Result } from "effect";
 
 // ============================================================================
 // Escaping
@@ -67,129 +71,122 @@ const localName = (name: string): string => {
   return colon === -1 ? name : name.substring(colon + 1);
 };
 
-const ATTR_PATTERN = /([^\s=]+)\s*=\s*"([^"]*)"|([^\s=]+)\s*=\s*'([^']*)'/g;
+// ---- grammar ---------------------------------------------------------------
 
-const parseAttrs = (raw: string): Record<string, string> => {
-  const attrs: Record<string, string> = {};
-  for (const match of raw.matchAll(ATTR_PATTERN)) {
-    const key = match[1] ?? match[3];
-    const value = match[2] ?? match[4];
-    if (key !== undefined && value !== undefined) {
-      attrs[key] = unescapeXml(value);
-    }
+const space = " \t\r\n";
+const ws = Token.takeWhile(space);
+const ws1 = Token.takeWhile(space, { min: 1 });
+const name = Token.takeTill(space + "/>=<", { min: 1 }).pipe(Parser.expected("name"));
+
+const quoted = (quote: string) =>
+  Parser.preceded(
+    Token.literal(quote),
+    Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote)))
+  );
+const attribute = Parser.separatedPair(
+  name,
+  Parser.seq(ws, Token.literal("="), ws),
+  Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(Parser.expected("attribute value"))
+);
+const attributes = Parser.fromEntries(Parser.repeat(Parser.preceded(ws1, attribute)));
+
+/** `open ... close`, committed once `open` has matched. */
+const section = (open: string, close: string) =>
+  Parser.preceded(
+    Token.literal(open),
+    Parser.cut(Parser.terminated(Token.takeUntil(close), Token.literal(close)))
+  );
+const comment = section("<!--", "-->").pipe(Parser.expected("comment"));
+const declaration = section("<?", "?>").pipe(Parser.expected("processing instruction"));
+const cdata = section("<![CDATA[", "]]>").pipe(Parser.expected("CDATA section"));
+const doctype = section("<!", ">").pipe(Parser.expected("declaration"));
+const text = Parser.map(Token.takeTill("<", { min: 1 }), unescapeXml).pipe(Parser.expected("text"));
+
+/** Element content: text (`string`), elements, and skipped comments/PIs (`null`). */
+type Node = MutableElement | string | null;
+interface Content {
+  readonly children: MutableElement[];
+  text: string;
+}
+
+const element: Parser.Parser<MutableElement, string> = Parser.suspend(() => elementImpl);
+
+const content: Parser.Parser<Content, string> = Parser.fold(
+  Parser.alt<[
+    Parser.Parser<Node>, Parser.Parser<Node>, Parser.Parser<Node>, Parser.Parser<Node>,
+    Parser.Parser<Node, string>,
+  ]>(
+    text, cdata, Parser.as(comment, null), Parser.as(declaration, null),
+    element.pipe(Parser.expected("element"))
+  ),
+  {
+    init: (): Content => ({ children: [], text: "" }),
+    f: (acc, node) => {
+      if (typeof node === "string") acc.text += node;
+      else if (node !== null) acc.children.push(node);
+      return acc;
+    },
   }
-  return attrs;
-};
+);
+
+const closingTag = Parser.delimited(Token.literal("</"), name, Parser.seq(ws, Token.literal(">")))
+  .pipe(Parser.expected("closing tag"));
+
+/**
+ * `<name attrs/>` or `<name attrs>content</name>`. Comments, declarations and
+ * CDATA are tried first, so once `<` is not `</` this is committed to being an
+ * element, and a mismatched closing tag is reported as such.
+ */
+const elementImpl: Parser.Parser<MutableElement, string> = Parser.preceded(
+  // `</` is the parent's closing tag, not a child element
+  Parser.seq(Token.literal("<"), Parser.not(Token.literal("/"))),
+  Parser.cut(
+    Parser.seq(
+      name,
+      attributes,
+      ws,
+      Parser.alt(
+        Parser.as(Token.literal("/>"), null),
+        Parser.preceded(Token.literal(">"), Parser.seq(content, closingTag))
+      ).pipe(Parser.expected("\">\" or \"/>\""))
+    ).pipe(
+      Parser.filterOrFail(
+        ([open, , , body]) => body === null || body[1] === open,
+        ([open, , , body]) => `closing tag </${body?.[1]}> does not match <${open}>`
+      ),
+      Parser.map(([open, attrs, , body]): MutableElement => ({
+        name: localName(open),
+        attrs,
+        children: body === null ? [] : body[0].children,
+        text: body === null ? "" : body[0].text,
+      }))
+    )
+  )
+);
+
+const misc = Parser.repeat(Parser.alt(ws1, comment, declaration, doctype));
+
+/** A whole XML document: an optional BOM, prolog, one root element, trailing misc. */
+const xmlDocument: Parser.Parser<XmlElement, string> = Parser.compile(
+  Parser.delimited(
+    Parser.seq(Parser.opt(Token.literal("\uFEFF")), misc),
+    Parser.cut(element.pipe(Parser.expected("root element"))),
+    Parser.cut(Parser.terminated(misc, Parser.eof))
+  )
+);
+
+/**
+ * Parse an XML document into its root element, or a `ParseError` that points
+ * at the problem (line, column and what was expected).
+ */
+export const parseXmlResult = (xml: string): Result.Result<XmlElement, ParseError.ParseError<string>> =>
+  Parser.parse(xmlDocument, xml);
 
 /**
  * Parse an XML document and return its root element.
- * Throws on malformed input.
+ * Throws a positioned `ParseError` on malformed input.
  */
-export const parseXml = (xml: string): XmlElement => {
-  const root: MutableElement = { name: "#root", attrs: {}, children: [], text: "" };
-  const stack: MutableElement[] = [root];
-
-  let position = 0;
-  while (position < xml.length) {
-    const tagStart = xml.indexOf("<", position);
-
-    if (tagStart === -1) {
-      // Trailing text after the last tag
-      const current = stack[stack.length - 1]!;
-      current.text += unescapeXml(xml.substring(position));
-      break;
-    }
-
-    // Text content before this tag
-    if (tagStart > position) {
-      const current = stack[stack.length - 1]!;
-      current.text += unescapeXml(xml.substring(position, tagStart));
-    }
-
-    // Declarations: <?...?>
-    if (xml.startsWith("<?", tagStart)) {
-      const end = xml.indexOf("?>", tagStart);
-      if (end === -1) {
-        throw new Error("Malformed XML: unterminated declaration");
-      }
-      position = end + 2;
-      continue;
-    }
-
-    // Comments: <!--...-->
-    if (xml.startsWith("<!--", tagStart)) {
-      const end = xml.indexOf("-->", tagStart);
-      if (end === -1) {
-        throw new Error("Malformed XML: unterminated comment");
-      }
-      position = end + 3;
-      continue;
-    }
-
-    // Other declarations: <!DOCTYPE ...>, <![CDATA[...]]>
-    if (xml.startsWith("<!", tagStart)) {
-      if (xml.startsWith("<![CDATA[", tagStart)) {
-        const end = xml.indexOf("]]>", tagStart);
-        if (end === -1) {
-          throw new Error("Malformed XML: unterminated CDATA section");
-        }
-        const current = stack[stack.length - 1]!;
-        current.text += xml.substring(tagStart + 9, end);
-        position = end + 3;
-        continue;
-      }
-      const end = xml.indexOf(">", tagStart);
-      if (end === -1) {
-        throw new Error("Malformed XML: unterminated declaration");
-      }
-      position = end + 1;
-      continue;
-    }
-
-    const tagEnd = xml.indexOf(">", tagStart);
-    if (tagEnd === -1) {
-      throw new Error("Malformed XML: unterminated tag");
-    }
-    const rawTag = xml.substring(tagStart + 1, tagEnd);
-    position = tagEnd + 1;
-
-    // Closing tag: </name>
-    if (rawTag.startsWith("/")) {
-      if (stack.length <= 1) {
-        throw new Error(`Malformed XML: unexpected closing tag </${rawTag.substring(1)}>`);
-      }
-      stack.pop();
-      continue;
-    }
-
-    // Opening or self-closing tag
-    const selfClosing = rawTag.endsWith("/");
-    const tagBody = selfClosing ? rawTag.slice(0, -1) : rawTag;
-    const spaceIdx = tagBody.search(/[\s]/);
-    const name = spaceIdx === -1 ? tagBody : tagBody.substring(0, spaceIdx);
-    const attrsRaw = spaceIdx === -1 ? "" : tagBody.substring(spaceIdx);
-
-    const element: MutableElement = {
-      name: localName(name),
-      attrs: parseAttrs(attrsRaw),
-      children: [],
-      text: "",
-    };
-
-    const parent = stack[stack.length - 1]!;
-    parent.children.push(element);
-
-    if (!selfClosing) {
-      stack.push(element);
-    }
-  }
-
-  const rootChild = root.children[0];
-  if (rootChild === undefined) {
-    throw new Error("Malformed XML: no root element");
-  }
-  return rootChild;
-};
+export const parseXml = (xml: string): XmlElement => Parser.parseSync(xmlDocument, xml);
 
 // ============================================================================
 // Element queries

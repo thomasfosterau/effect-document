@@ -32,5 +32,5 @@ export type AnyReader = Reader<Feature>;
 /** Create a Context tag for a format's Reader service. */
 export const makeReaderTag = <F extends Feature>(
   format: string
-): Context.Tag<Reader<F>, Reader<F>> =>
-  Context.GenericTag<Reader<F>>(`@effect-document/Reader/${format}`);
+): Context.Service<Reader<F>, Reader<F>> =>
+  Context.Service<Reader<F>>(`@effect-document/Reader/${format}`);

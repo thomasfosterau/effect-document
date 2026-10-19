@@ -1,13 +1,16 @@
 /**
  * The RTF Reader: RTF text -> a prose document in the RTF profile.
  *
- * A small control-word state machine: it tracks character formatting through
- * groups (`{ }`), turns `\par` into paragraphs and formatted text into runs
- * (Str wrapped in Emph/Strong/Underline/Strikeout), and skips destination
- * groups it doesn't model (font/colour tables, stylesheets, `\*` destinations).
+ * An effect-parse lexer splits the source into groups, control words, control
+ * symbols, hex escapes and text; a small interpreter then tracks character
+ * formatting through groups (`{ }`), turns `\par` into paragraphs and
+ * formatted text into runs (Str wrapped in Emph/Strong/Underline/Strikeout),
+ * and skips destination groups it doesn't model (font/colour tables,
+ * stylesheets, `\*` destinations).
  */
 
-import { Effect, Layer } from "effect";
+import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Effect, Layer, Result } from "effect";
 import { type Doc, trustAs } from "../../profile/profile.js";
 import {
   type Block, type Inline, Emph, LineBreak, Para, Str, Strikeout, Strong, Underline,
@@ -48,6 +51,61 @@ const DESTINATIONS = new Set([
   "themedata", "datastore", "generator", "operator", "company",
 ]);
 
+// ============================================================================
+// Lexer
+// ============================================================================
+
+/** An RTF token. Raw line breaks are kept (as `Newline`) only so that a `\u`
+ * fallback character can be skipped exactly as a character-level scan would. */
+type RtfToken =
+  | { readonly _tag: "Open" }
+  | { readonly _tag: "Close" }
+  | { readonly _tag: "Word"; readonly word: string; readonly param: string }
+  | { readonly _tag: "Symbol"; readonly symbol: string }
+  | { readonly _tag: "Hex"; readonly char: string }
+  | { readonly _tag: "Text"; readonly text: string }
+  | { readonly _tag: "Newline"; readonly text: string };
+
+const letters = Token.takeWhile([Token.range("a", "z"), Token.range("A", "Z")], { min: 1 });
+const hexByte = Token.takeWhile([Token.range("0", "9"), Token.range("a", "f"), Token.range("A", "F")], 2);
+
+/** `\word` with an optional integer parameter; one trailing space is part of it. */
+const controlWord = Parser.map(
+  Parser.seq(
+    letters,
+    Parser.taken(Parser.seq(Parser.opt(Token.literal("-")), Ascii.digit0)),
+    Parser.opt(Token.literal(" "))
+  ),
+  ([word, param]): RtfToken => ({ _tag: "Word", word, param })
+);
+
+/** `\'hh`: one byte, by its hex code. */
+const hexEscape = Parser.map(
+  Parser.preceded(Token.literal("'"), hexByte),
+  (hex): RtfToken => ({ _tag: "Hex", char: String.fromCharCode(Number.parseInt(hex, 16)) })
+);
+
+/** `\` followed by a single non-letter: `\\`, `\{`, `\~`, `\*`, ... */
+const controlSymbol = Parser.map(Token.any, (symbol): RtfToken => ({ _tag: "Symbol", symbol }));
+
+const rtfToken: Parser.Parser<RtfToken | null> = Parser.alt(
+  Parser.as(Token.literal("{"), { _tag: "Open" } as RtfToken),
+  Parser.as(Token.literal("}"), { _tag: "Close" } as RtfToken),
+  Parser.preceded(
+    Token.literal("\\"),
+    Parser.alt(controlWord, hexEscape, controlSymbol, Parser.as(Parser.eof, null))
+  ),
+  Parser.map(Token.takeWhile("\r\n", { min: 1 }), (text): RtfToken => ({ _tag: "Newline", text })),
+  Parser.map(Token.takeTill("\\{}\r\n", { min: 1 }), (text): RtfToken => ({ _tag: "Text", text }))
+);
+
+/** RTF source as a flat token list. Every input lexes; there is no syntax error. */
+const rtfTokens = Parser.compile(Parser.repeat(rtfToken));
+
+// ============================================================================
+// Interpreter
+// ============================================================================
+
 /** Parse RTF text into a sequence of prose blocks. */
 const parseRtf = (rtf: string): Block[] => {
   const blocks: Block[] = [];
@@ -79,83 +137,64 @@ const parseRtf = (rtf: string): Block[] => {
     pendingText += s;
   };
 
-  let i = 0;
-  const n = rtf.length;
-  while (i < n) {
-    const ch = rtf[i]!;
-    if (ch === "{") {
-      flushText();
-      stack.push(cloneState(top()));
-      i += 1;
-    } else if (ch === "}") {
-      flushText();
-      if (stack.length > 1) stack.pop();
-      i += 1;
-    } else if (ch === "\\") {
-      const next = rtf[i + 1];
-      if (next === undefined) { i += 1; continue; }
-      // Control symbol (single non-alphanumeric char)
-      if (!/[a-zA-Z]/.test(next)) {
-        if (next === "\\" || next === "{" || next === "}") pushText(next);
-        else if (next === "~") pushText(" ");
-        else if (next === "'") {
-          const hex = rtf.substring(i + 2, i + 4);
-          if (/^[0-9a-fA-F]{2}$/.test(hex)) {
-            pushText(String.fromCharCode(Number.parseInt(hex, 16)));
-            i += 4;
-            continue;
-          }
-        }
-        // other control symbols (\-, \_, \*) handled below or ignored
-        if (next === "*") {
-          top().skip = true;
-        }
-        i += 2;
-        continue;
+  const controlWord = (word: string, param: string): void => {
+    const on = param !== "0" && param !== "-";
+    switch (word) {
+      case "par": flushPara(); break;
+      case "pard": break; // paragraph defaults: char flags persist
+      case "line": flushText(); para.push(new LineBreak()); break;
+      case "tab": pushText("\t"); break;
+      case "b": top().bold = on; break;
+      case "i": top().italic = on; break;
+      case "ul": top().underline = on; break;
+      case "ulnone": top().underline = false; break;
+      case "strike": top().strike = on; break;
+      case "u": {
+        const code = Number.parseInt(param || "0", 10);
+        pushText(String.fromCodePoint(code < 0 ? code + 65536 : code));
+        break;
       }
-      // Control word: letters, optional integer parameter
-      let j = i + 1;
-      while (j < n && /[a-zA-Z]/.test(rtf[j]!)) j += 1;
-      const word = rtf.substring(i + 1, j);
-      let param = "";
-      if (j < n && (rtf[j] === "-" || /[0-9]/.test(rtf[j]!))) {
-        let k = j;
-        if (rtf[k] === "-") k += 1;
-        while (k < n && /[0-9]/.test(rtf[k]!)) k += 1;
-        param = rtf.substring(j, k);
-        j = k;
-      }
-      // a single trailing space is part of the control word (consumed)
-      if (j < n && rtf[j] === " ") j += 1;
-      i = j;
+      default:
+        if (DESTINATIONS.has(word)) top().skip = true;
+        break;
+    }
+  };
 
-      const on = param !== "0" && param !== "-";
-      switch (word) {
-        case "par": flushPara(); break;
-        case "pard": break; // paragraph defaults: char flags persist
-        case "line": flushText(); para.push(new LineBreak()); break;
-        case "tab": pushText("\t"); break;
-        case "b": top().bold = on; break;
-        case "i": top().italic = on; break;
-        case "ul": top().underline = on; break;
-        case "ulnone": top().underline = false; break;
-        case "strike": top().strike = on; break;
-        case "u": {
-          const code = Number.parseInt(param || "0", 10);
-          const cp = code < 0 ? code + 65536 : code;
-          pushText(String.fromCodePoint(cp));
-          if (i < n && rtf[i] !== "\\" && rtf[i] !== "{" && rtf[i] !== "}") i += 1; // skip fallback char
-          break;
-        }
-        default:
-          if (DESTINATIONS.has(word)) top().skip = true;
-          break;
-      }
-    } else if (ch === "\n" || ch === "\r") {
-      i += 1; // raw line breaks in RTF source are insignificant
-    } else {
-      pushText(ch);
-      i += 1;
+  // the lexer accepts any input, so this never falls back
+  const tokens = Result.getOrElse(Parser.parse(rtfTokens, rtf), () => []);
+  // after \uN, the next plain character is its ANSI fallback and is skipped
+  let skipFallback = false;
+  for (const token of tokens) {
+    if (token === null) continue;
+    const skipping = skipFallback;
+    skipFallback = false;
+    switch (token._tag) {
+      case "Open":
+        flushText();
+        stack.push(cloneState(top()));
+        break;
+      case "Close":
+        flushText();
+        if (stack.length > 1) stack.pop();
+        break;
+      case "Word":
+        controlWord(token.word, token.param);
+        skipFallback = token.word === "u";
+        break;
+      case "Symbol":
+        if (token.symbol === "\\" || token.symbol === "{" || token.symbol === "}") pushText(token.symbol);
+        else if (token.symbol === "~") pushText("\u00a0"); // non-breaking space
+        else if (token.symbol === "*") top().skip = true;
+        // other control symbols (\-, \_, ...) are ignored
+        break;
+      case "Hex":
+        pushText(token.char);
+        break;
+      case "Text":
+        pushText(skipping ? token.text.slice(1) : token.text);
+        break;
+      case "Newline":
+        break; // raw line breaks in RTF source are insignificant
     }
   }
   flushPara();

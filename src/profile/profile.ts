@@ -66,7 +66,7 @@ export interface Profile<F extends Feature> {
    * A `Schema` for documents in this profile: decoding validates both the
    * document structure and profile conformance, and yields a `Doc<F>`.
    */
-  readonly schema: Schema.Schema<Doc<F>, DocumentEncoded>;
+  readonly schema: Schema.Codec<Doc<F>, DocumentEncoded>;
 }
 
 const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
@@ -103,14 +103,13 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
       : Effect.fail(new ProfileViolation({ profile: id, unsupported }));
   };
   const schema = Document.pipe(
-    Schema.filter(
-      (doc): boolean => conforms(doc),
-      {
+    Schema.check(
+      Schema.makeFilter((doc: Document): boolean => conforms(doc), {
         identifier: `${id}Document`,
         description: `A Document conforming to the "${id}" profile`,
-      }
+      })
     )
-  ) as unknown as Schema.Schema<Doc<FS[number]>, DocumentEncoded>;
+  ) as unknown as Schema.Codec<Doc<FS[number]>, DocumentEncoded>;
 
   return { id, features: set, attributes: attrPolicyOf(set), is, validate, schema };
 };

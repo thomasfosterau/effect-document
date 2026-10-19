@@ -16,7 +16,7 @@ import {
 // ============================================================================
 
 /** Document metadata (title, author, arbitrary key/values). */
-export const Meta = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+export const Meta = Schema.Record(Schema.String, Schema.Unknown);
 export type Meta = Schema.Schema.Type<typeof Meta>;
 
 /** A complete document: metadata plus a sequence of blocks. */
@@ -26,7 +26,7 @@ export class Document extends Schema.Class<Document>("Document")({
 }) {}
 
 /** The plain-JSON encoded form of a `Document`. */
-export type DocumentEncoded = Schema.Schema.Encoded<typeof Document>;
+export type DocumentEncoded = Schema.Codec.Encoded<typeof Document>;
 
 // ============================================================================
 // Constructors - inline

@@ -17,7 +17,7 @@ import { contentToText, type Content } from "../../io/content.js";
 import { type ParseError } from "../../io/errors.js";
 import { makeReaderTag, type Reader } from "../../io/reader.js";
 import { StandardDialect, type CsvDialect } from "./dialect.js";
-import { scanCsv, type CsvScanOptions } from "./scanner.js";
+import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.js";
 
 export type CsvFeature = FeaturesOf<typeof Csv>;
 
@@ -73,11 +73,7 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const readStream = (
     input: Content
   ): Stream.Stream<ReadonlyArray<string>, ParseError> =>
-    pipe(
-      scanCsv(contentToText(input), dialect, options),
-      Effect.map((table) => table.rows),
-      Stream.fromIterableEffect
-    );
+    scanCsvStream(Stream.make(contentToText(input)), dialect, options);
 
   return { format: "csv", profile: Csv, read, readStream };
 };

@@ -1,6 +1,6 @@
 # effect-document
 
-A **type-safe, profile-based universal document schema** built on [Effect](https://effect.website). One rich AST spans prose documents, spreadsheets, and presentations; **profiles** carve out named subsets of that schema; and the type system tracks which subset every document belongs to - so a reader returns exactly the subset its format produces, a writer only accepts what its format can represent, and converting between subsets tells you precisely what (if anything) was lost.
+A **type-safe, profile-based universal document schema** built on [Effect](https://effect.website) 4. One rich AST spans prose documents, spreadsheets, and presentations; **profiles** carve out named subsets of that schema; and the type system tracks which subset every document belongs to - so a reader returns exactly the subset its format produces, a writer only accepts what its format can represent, and converting between subsets tells you precisely what (if anything) was lost.
 
 ```
                  ┌──────────────────────────────────────────────┐
@@ -139,6 +139,8 @@ Streaming and synthetic data:
 
 ```ts
 const rows = Csv.makeCsvReader().readStream!(text(bigCsv));   // Stream<readonly string[]>
+// or scan text chunks as they arrive (fields, quotes and line breaks may span chunks)
+const live = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHeader: true });
 const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 10_000, seed: 42 });
 ```
 

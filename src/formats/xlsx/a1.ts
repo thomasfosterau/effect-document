@@ -5,6 +5,9 @@
  * ("A1" = { col: 0, row: 0 }).
  */
 
+import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Option, Result } from "effect";
+
 /** Convert a 0-indexed column number to letters: 0 -> "A", 25 -> "Z", 26 -> "AA" */
 export const indexToCol = (index: number): string => {
   let result = "";
@@ -32,20 +35,62 @@ export interface CellRef {
   readonly row: number;
 }
 
+/** A cell reference that may pin its column and/or row with `$` ("$A1", "B$2", "$C$3"). */
+export interface AbsoluteCellRef extends CellRef {
+  readonly colAbsolute: boolean;
+  readonly rowAbsolute: boolean;
+}
+
+/** A rectangular range between two corner references ("A1:B2"); a lone cell is a 1x1 range. */
+export interface CellRange {
+  readonly start: AbsoluteCellRef;
+  readonly end: AbsoluteCellRef;
+}
+
 /** Render a 0-indexed (col, row) pair as an A1 reference: (1, 2) -> "B3" */
 export const toA1 = (col: number, row: number): string =>
   `${indexToCol(col)}${row + 1}`;
 
-const A1_PATTERN = /^([A-Z]+)(\d+)$/;
+// ============================================================================
+// Grammar
+// ============================================================================
+
+const dollar = Parser.map(Parser.opt(Token.literal("$")), Option.isSome);
+const columnLetters = Parser.map(
+  Token.takeWhile(Token.range("A", "Z"), { min: 1 }),
+  colToIndex
+).pipe(Parser.expected("column letters"));
+const rowNumber = Parser.map(Ascii.digit1, (digits) => Number.parseInt(digits, 10) - 1).pipe(
+  Parser.filter((row) => row >= 0),
+  Parser.expected("row number")
+);
+
+/** A plain A1 reference, as in a SpreadsheetML cell's `r` attribute: "B3". */
+export const a1Cell: Parser.Parser<CellRef> = Parser.compile(
+  Parser.struct({ col: columnLetters, row: rowNumber })
+);
+
+/** An A1 reference with optional `$` markers: "$B$3". */
+export const a1AbsoluteCell: Parser.Parser<AbsoluteCellRef> = Parser.map(
+  Parser.seq(dollar, columnLetters, dollar, rowNumber),
+  ([colAbsolute, col, rowAbsolute, row]) => ({ col, row, colAbsolute, rowAbsolute })
+);
+
+/** An A1 range, "A1:B2", or a single cell. */
+export const a1Range: Parser.Parser<CellRange> = Parser.map(
+  Parser.seq(a1AbsoluteCell, Parser.opt(Parser.preceded(Token.literal(":"), a1AbsoluteCell))),
+  ([start, end]) => ({ start, end: Option.getOrElse(end, () => start) })
+);
+
+const parseOrNull = <A>(parser: Parser.Parser<A>, ref: string): A | null =>
+  Result.getOrNull(Parser.parse(parser, ref));
 
 /** Parse an A1 reference into a 0-indexed (col, row) pair, or null if invalid */
-export const parseA1 = (ref: string): CellRef | null => {
-  const match = A1_PATTERN.exec(ref);
-  if (match === null) {
-    return null;
-  }
-  return {
-    col: colToIndex(match[1]!),
-    row: Number.parseInt(match[2]!, 10) - 1,
-  };
-};
+export const parseA1 = (ref: string): CellRef | null => parseOrNull(a1Cell, ref);
+
+/** Parse an A1 reference that may carry `$` markers, or null if invalid */
+export const parseA1Absolute = (ref: string): AbsoluteCellRef | null =>
+  parseOrNull(a1AbsoluteCell, ref);
+
+/** Parse an A1 range ("A1:B2", "$A$1:$B$2", or a single cell), or null if invalid */
+export const parseA1Range = (ref: string): CellRange | null => parseOrNull(a1Range, ref);
