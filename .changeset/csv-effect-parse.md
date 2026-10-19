@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-document": minor
+"@thomasfosterau/effect-document-csv": minor
 ---
 
 Rewrite the CSV scanner on `@thomasfosterau/effect-parse`.

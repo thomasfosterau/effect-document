@@ -7,7 +7,7 @@
 
 import { Effect, Stream, pipe } from "effect";
 import { contentToText, text } from "@thomasfosterau/effect-document";
-import { makeCsvReader, makeCsvWriter, synthesizeDocument } from "@thomasfosterau/effect-document/csv";
+import { makeCsvReader, makeCsvWriter, synthesizeDocument } from "@thomasfosterau/effect-document-csv";
 
 const program = Effect.gen(function* () {
   // --- Synthesize a big CSV-profile document to play with -----------------

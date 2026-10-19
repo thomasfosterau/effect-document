@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-document": patch
+"@thomasfosterau/effect-document-iwork": patch
 ---
 
 Read iWork Protobuf fields and `.iwa` chunk headers with

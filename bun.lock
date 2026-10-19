@@ -4,15 +4,67 @@
   "workspaces": {
     "": {
       "name": "@thomasfosterau/effect-document",
+      "devDependencies": {
+        "@changesets/cli": "^2.31.0",
+        "@thomasfosterau/effect-document": "workspace:*",
+        "@thomasfosterau/effect-document-csv": "workspace:*",
+        "@thomasfosterau/effect-document-iwork": "workspace:*",
+        "@thomasfosterau/effect-document-ooxml": "workspace:*",
+        "@thomasfosterau/effect-document-rtf": "workspace:*",
+        "@types/bun": "latest",
+        "effect": "^4.0.5",
+        "fflate": "^0.8.2",
+        "typescript": "^5.7.2",
+      },
+    },
+    "packages/core": {
+      "name": "@thomasfosterau/effect-document",
+      "version": "0.1.0",
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/csv": {
+      "name": "@thomasfosterau/effect-document-csv",
+      "version": "0.0.0",
       "dependencies": {
+        "@thomasfosterau/effect-document": "^0.1.0",
+        "@thomasfosterau/effect-parse": "^0.1.0",
+      },
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/iwork": {
+      "name": "@thomasfosterau/effect-document-iwork",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thomasfosterau/effect-document": "^0.1.0",
         "@thomasfosterau/effect-parse": "^0.1.0",
         "fflate": "^0.8.2",
       },
-      "devDependencies": {
-        "@changesets/cli": "^2.31.0",
-        "@types/bun": "latest",
-        "effect": "^4.0.5",
-        "typescript": "^5.7.2",
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/ooxml": {
+      "name": "@thomasfosterau/effect-document-ooxml",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thomasfosterau/effect-document": "^0.1.0",
+        "@thomasfosterau/effect-parse": "^0.1.0",
+        "fflate": "^0.8.2",
+      },
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/rtf": {
+      "name": "@thomasfosterau/effect-document-rtf",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thomasfosterau/effect-document": "^0.1.0",
+        "@thomasfosterau/effect-parse": "^0.1.0",
       },
       "peerDependencies": {
         "effect": "^4.0.0",
@@ -67,6 +119,16 @@
     "@nodelib/fs.stat": ["@nodelib/fs.stat@2.0.5", "", {}, "sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A=="],
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
+
+    "@thomasfosterau/effect-document": ["@thomasfosterau/effect-document@workspace:packages/core"],
+
+    "@thomasfosterau/effect-document-csv": ["@thomasfosterau/effect-document-csv@workspace:packages/csv"],
+
+    "@thomasfosterau/effect-document-iwork": ["@thomasfosterau/effect-document-iwork@workspace:packages/iwork"],
+
+    "@thomasfosterau/effect-document-ooxml": ["@thomasfosterau/effect-document-ooxml@workspace:packages/ooxml"],
+
+    "@thomasfosterau/effect-document-rtf": ["@thomasfosterau/effect-document-rtf@workspace:packages/rtf"],
 
     "@thomasfosterau/effect-parse": ["@thomasfosterau/effect-parse@0.1.0", "", { "peerDependencies": { "effect": "^4.0.0" } }, "sha512-SQ9GwUsAqvrgT0R7z8GhYAKnRHQgSssFFG9k3HAGCYJWYjbdZyy9bOkhqSDbyBRwLjfNQ2mwkm0TratRRaa6JQ=="],
 
