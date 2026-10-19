@@ -3,7 +3,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { colToIndex, indexToCol, parseA1, toA1 } from "../../../src/formats/xlsx/index.js";
+import {
+  colToIndex, indexToCol, parseA1, parseA1Absolute, parseA1Range, toA1,
+} from "../../../src/formats/xlsx/index.js";
 
 describe("indexToCol / colToIndex", () => {
   test("converts single-letter columns", () => {
@@ -52,6 +54,8 @@ describe("toA1 / parseA1", () => {
     expect(parseA1("ABC")).toBeNull();
     expect(parseA1("a1")).toBeNull();
     expect(parseA1("A1B2")).toBeNull();
+    expect(parseA1("A0")).toBeNull();
+    expect(parseA1("$A$1")).toBeNull();
   });
 
   test("round-trips coordinates", () => {
@@ -64,5 +68,25 @@ describe("toA1 / parseA1", () => {
     ] as const) {
       expect(parseA1(toA1(col, row))).toEqual({ col, row });
     }
+  });
+});
+
+describe("absolute references and ranges", () => {
+  test("parses $ markers", () => {
+    expect(parseA1Absolute("$B3")).toEqual({ col: 1, row: 2, colAbsolute: true, rowAbsolute: false });
+    expect(parseA1Absolute("B$3")).toEqual({ col: 1, row: 2, colAbsolute: false, rowAbsolute: true });
+    expect(parseA1Absolute("$AA$100")).toEqual({ col: 26, row: 99, colAbsolute: true, rowAbsolute: true });
+    expect(parseA1Absolute("$$A1")).toBeNull();
+  });
+
+  test("parses ranges, with a lone cell as a 1x1 range", () => {
+    const a1 = { col: 0, row: 0, colAbsolute: false, rowAbsolute: false };
+    expect(parseA1Range("A1:$C$4")).toEqual({
+      start: a1,
+      end: { col: 2, row: 3, colAbsolute: true, rowAbsolute: true },
+    });
+    expect(parseA1Range("A1")).toEqual({ start: a1, end: a1 });
+    expect(parseA1Range("A1:")).toBeNull();
+    expect(parseA1Range("A1:B2:C3")).toBeNull();
   });
 });

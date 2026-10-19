@@ -73,4 +73,25 @@ describe("RTF reader", () => {
     const back = run(makeRtfReader().read(text("{\\rtf1 caf\\'e9 \\u8212?dash\\par}")));
     expect(blocksToText(back.blocks)).toBe("café —dash");
   });
+
+  test("control words take signed parameters and eat one trailing space", () => {
+    const back = run(makeRtfReader().read(text("{\\rtf1 \\b1  bold\\b0  plain\\u-3913 ?x\\par}")));
+    const p = back.blocks[0];
+    expect(p?._tag).toBe("Para");
+    if (p?._tag === "Para") {
+      expect(p.content.map((i) => i._tag)).toEqual(["Strong", "Str"]);
+    }
+    // -3913 + 65536 = 0xF0B7; its "?" fallback is skipped
+    expect(blocksToText(back.blocks)).toBe(" bold plain\uf0b7x");
+  });
+
+  test("control symbols: escaped braces, non-breaking space, ignored symbols", () => {
+    const back = run(makeRtfReader().read(text("{\\rtf1 a\\{b\\}c\\~d\\-e\\\\f\\'zz\\par}")));
+    expect(blocksToText(back.blocks)).toBe("a{b}c\u00a0de\\fzz");
+  });
+
+  test("raw line breaks in the source are ignored", () => {
+    const back = run(makeRtfReader().read(text("{\\rtf1 one\r\ntwo\nthree\\par}")));
+    expect(blocksToText(back.blocks)).toBe("onetwothree");
+  });
 });
