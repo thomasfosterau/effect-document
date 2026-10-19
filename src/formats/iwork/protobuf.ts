@@ -11,6 +11,9 @@
  * length-delimited (2), 32-bit (5).
  */
 
+import { type Input, Parser } from "@thomasfosterau/effect-parse";
+import { Result } from "effect";
+
 export const WIRE_VARINT = 0;
 export const WIRE_I64 = 1;
 export const WIRE_LEN = 2;
@@ -25,63 +28,155 @@ export interface Field {
   readonly bytes?: Uint8Array;
 }
 
-/** Read a base-128 varint at `pos`, returning the value and the new position. */
-export const readVarint = (buf: Uint8Array, pos: number): { value: number; pos: number } => {
+// ============================================================================
+// Parsers
+// ============================================================================
+
+// The wire format is read by plain functions over a cursor, wrapped as
+// effect-parse parsers (`varint`, `field`, `message`) for use in grammars and
+// for positioned errors. `parseMessage` and `readVarint` call the functions
+// directly and only run the parsers to explain a failure: iWork reads tens of
+// thousands of tiny messages, and a parser run costs a few hundred ns each.
+
+/** A read position in a byte buffer (an effect-parse `State` is one). */
+interface Cursor {
+  readonly input: Uint8Array;
+  pos: number;
+  readonly end: number;
+}
+
+/** Why a read failed; the cursor is left where the problem is. */
+type Problem =
+  | { readonly _tag: "Truncated"; readonly what: string; readonly size: number; readonly at: number }
+  | { readonly _tag: "VarintTooLong"; readonly at: number }
+  | { readonly _tag: "VarintTruncated" }
+  | { readonly _tag: "UnsupportedWire"; readonly wire: number; readonly field: number; readonly at: number };
+
+const varintTruncated: Problem = { _tag: "VarintTruncated" };
+
+/** Read a varint at the cursor, or the problem with it. */
+const varintAt = (c: Cursor): number | Problem => {
+  const start = c.pos;
   let value = 0;
   let shift = 0;
-  let p = pos;
   for (;;) {
-    if (p >= buf.length) throw new Error("protobuf: truncated varint");
-    const b = buf[p++]!;
+    if (c.pos >= c.end) return varintTruncated;
+    const b = c.input[c.pos++]!;
     value += (b & 0x7f) * 2 ** shift;
-    if ((b & 0x80) === 0) break;
+    if ((b & 0x80) === 0) return value;
     shift += 7;
-    if (shift > 63) throw new Error("protobuf: varint too long");
+    if (shift > 63) return { _tag: "VarintTooLong", at: start };
   }
-  return { value, pos: p };
 };
 
-/** Parse a message into an ordered list of field records. */
-export const parseMessage = (buf: Uint8Array): Field[] => {
-  const fields: Field[] = [];
-  let pos = 0;
-  while (pos < buf.length) {
-    const tag = readVarint(buf, pos);
-    pos = tag.pos;
-    const field = Math.floor(tag.value / 8);
-    const wire = tag.value & 7;
-    switch (wire) {
-      case WIRE_VARINT: {
-        const v = readVarint(buf, pos);
-        pos = v.pos;
-        fields.push({ field, wire, value: v.value });
-        break;
-      }
-      case WIRE_I64: {
-        let v = 0;
-        for (let i = 0; i < 8; i++) v += buf[pos + i]! * 2 ** (8 * i);
-        pos += 8;
-        fields.push({ field, wire, value: v });
-        break;
-      }
-      case WIRE_LEN: {
-        const len = readVarint(buf, pos);
-        pos = len.pos;
-        const bytes = buf.subarray(pos, pos + len.value);
-        pos += len.value;
-        fields.push({ field, wire, bytes });
-        break;
-      }
-      case WIRE_I32: {
-        let v = 0;
-        for (let i = 0; i < 4; i++) v += buf[pos + i]! * 2 ** (8 * i);
-        pos += 4;
-        fields.push({ field, wire, value: v });
-        break;
-      }
-      default:
-        throw new Error(`protobuf: unsupported wire type ${wire} (field ${field})`);
+/** Read a little-endian unsigned integer of `size` bytes at the cursor. */
+const fixedAt = (c: Cursor, size: number): number => {
+  let value = 0;
+  for (let i = 0; i < size; i++) value += c.input[c.pos + i]! * 2 ** (8 * i);
+  c.pos += size;
+  return value;
+};
+
+/** Read one field at the cursor, or the problem with it. */
+const fieldAt = (c: Cursor): Field | Problem => {
+  const start = c.pos;
+  const tag = varintAt(c);
+  if (typeof tag !== "number") return tag;
+  const field = Math.floor(tag / 8);
+  const wire = tag & 7;
+  const valueStart = c.pos;
+  switch (wire) {
+    case WIRE_VARINT: {
+      const value = varintAt(c);
+      return typeof value === "number" ? { field, wire, value } : value;
     }
+    case WIRE_I64:
+    case WIRE_I32: {
+      const size = wire === WIRE_I64 ? 8 : 4;
+      if (c.end - c.pos < size) return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
+      return { field, wire, value: fixedAt(c, size) };
+    }
+    case WIRE_LEN: {
+      const length = varintAt(c);
+      if (typeof length !== "number") return length;
+      if (c.end - c.pos < length) {
+        return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
+      }
+      const bytes = c.input.subarray(c.pos, c.pos + length);
+      c.pos += length;
+      return { field, wire, bytes };
+    }
+    default:
+      return { _tag: "UnsupportedWire", wire, field, at: start };
+  }
+};
+
+const isProblem = (r: Field | Problem): r is Problem => "_tag" in r;
+
+/** Report a problem as an effect-parse failure (always a cut: the input is malformed). */
+const fail = (state: Input.State<Uint8Array>, p: Problem): Input.Fail => {
+  switch (p._tag) {
+    case "VarintTruncated":
+      return state.cut("Take", ["varint byte"], state.end);
+    case "VarintTooLong":
+      return state.failMessage("Cut", "Verify", "varint longer than 10 bytes", p.at);
+    case "Truncated":
+      return state.failMessage(
+        "Cut", "Take", `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`, p.at
+      );
+    case "UnsupportedWire":
+      return state.failMessage("Cut", "Verify", `unsupported wire type ${p.wire} (field ${p.field})`, p.at);
+  }
+};
+
+/** A base-128 varint, as a `number` (exact up to 2^53), of at most 10 bytes. */
+export const varint: Parser.Parser<number, never, never, Uint8Array> = Parser.make<
+  number, never, never, Uint8Array
+>((state) => {
+  const start = state.pos;
+  if (start >= state.end) return state.eoi("Token", ["varint"], 1);
+  const value = varintAt(state);
+  return typeof value === "number" ? value : fail(state, value);
+}, "varint");
+
+/**
+ * One field: its tag (field number and wire type) and value. A truncated
+ * value or an unsupported wire type is a positioned error.
+ */
+export const field: Parser.Parser<Field, never, never, Uint8Array> = Parser.make<
+  Field, never, never, Uint8Array
+>((state) => {
+  if (state.pos >= state.end) return state.eoi("Token", ["field"], 1);
+  const result = fieldAt(state);
+  return isProblem(result) ? fail(state, result) : result;
+}, "protobuf field");
+
+/** A whole message: fields until the end of the input. */
+export const message: Parser.Parser<Field[], never, never, Uint8Array> = Parser.repeat(field);
+
+/**
+ * Read a base-128 varint at `pos`, returning the value and the new position.
+ * Throws a positioned `ParseError` if it is truncated or too long.
+ */
+export const readVarint = (buf: Uint8Array, pos: number): { value: number; pos: number } => {
+  const cursor: Cursor = { input: buf, pos, end: buf.length };
+  const value = varintAt(cursor);
+  if (typeof value === "number") return { value, pos: cursor.pos };
+  const result = Parser.parsePeek(varint, buf.subarray(pos));
+  throw Result.isFailure(result) ? result.failure : new Error("protobuf: bad varint");
+};
+
+/**
+ * Parse a message into an ordered list of field records. Throws a positioned
+ * `ParseError` on a truncated field or an unsupported wire type.
+ */
+export const parseMessage = (buf: Uint8Array): Field[] => {
+  const cursor: Cursor = { input: buf, pos: 0, end: buf.length };
+  const fields: Field[] = [];
+  while (cursor.pos < cursor.end) {
+    const result = fieldAt(cursor);
+    if (isProblem(result)) return Parser.parseSync(message, buf); // throws, with the position
+    fields.push(result);
   }
   return fields;
 };
