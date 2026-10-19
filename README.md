@@ -42,6 +42,7 @@ bun add effect @thomasfosterau/effect-document
 bun add @thomasfosterau/effect-csv     # CSV / TSV
 bun add @thomasfosterau/effect-ooxml   # XLSX, DOCX, PPTX
 bun add @thomasfosterau/effect-rtf     # RTF
+bun add @thomasfosterau/effect-pdf     # PDF
 bun add @thomasfosterau/effect-iwork   # Pages, Numbers, Keynote (experimental, read-only)
 ```
 
@@ -164,6 +165,7 @@ This repository is a monorepo of one core package and one package per format fam
 | `@thomasfosterau/effect-csv` | `packages/csv` | CSV/TSV reader, writer, streaming scanner and data synthesis |
 | `@thomasfosterau/effect-ooxml` | `packages/ooxml` | `Xlsx`, `Docx` and `Pptx` namespaces over shared XML/OPC infrastructure |
 | `@thomasfosterau/effect-rtf` | `packages/rtf` | RTF reader and writer |
+| `@thomasfosterau/effect-pdf` | `packages/pdf` | PDF reader and writer, and the PDF object layer (`./cos`) |
 | `@thomasfosterau/effect-iwork` | `packages/iwork` | `Pages`, `Numbers`, `Keynote` readers and the iWork container `Codec` |
 
 Subpath exports:
@@ -176,6 +178,7 @@ Subpath exports:
 | `@thomasfosterau/effect-document/io` | Content, Reader/Writer/Format, errors, `convert` |
 | `@thomasfosterau/effect-ooxml/{xlsx,docx,pptx}` | A single OOXML format |
 | `@thomasfosterau/effect-iwork/{pages,numbers,keynote,codec}` | A single iWork app, or the container codec |
+| `@thomasfosterau/effect-pdf/cos` | The PDF object layer: parsing (with repair), filters, cross-reference tables and streams, writing |
 
 ## Format support
 
@@ -186,6 +189,7 @@ Subpath exports:
 | DOCX | ✅ | ✅ | headings, runs (bold/italic/underline/strike/super/sub/small-caps), hyperlinks, bullet/ordered lists, tables |
 | PPTX | ✅ | ✅ | slides of text-box / placeholder shapes with paragraphs, headings and lists; no speaker notes / pictures yet |
 | RTF | ✅ | ✅ | paragraphs and headings with bold/italic/underline/strike runs |
+| PDF | ✅ | ✅ | reads structure back from the layout: headings, paragraphs, lists, code, bold/italic/code/links; writes with the standard 14 fonts (WinAnsi characters only); no encryption or OCR |
 | Keynote (.key) | ⚠️ | 🔜 | **experimental**, read-only: extracts slide text from real `.key` files |
 | Pages (.pages) | ⚠️ | 🔜 | **experimental**, read-only, best-effort: extracts body text |
 | Numbers (.numbers) | ⚠️ | 🔜 | **experimental**, read-only: sheet structure only (cell values deferred) |
@@ -201,7 +205,16 @@ extract *text* only and are experimental; writing requires the proprietary
 object-graph schemas and is a future phase. Password-protected documents are
 detected and refused.
 
-Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
+Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`, `Pdf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
+
+PDF has no structure of its own to read - only glyphs at coordinates - so the
+PDF reader infers it from the layout: the most common font size is body text,
+larger sizes are heading levels, gaps wider than the usual leading separate
+paragraphs, lines opening with a bullet or number are list items, and runs of
+monospaced lines are code. Documents from typical producers (word processors,
+browsers, report generators) come back with their headings,
+paragraphs and inline styling; complex layouts (multiple columns, tables) come
+back as text in content-stream order.
 
 ## Examples
 

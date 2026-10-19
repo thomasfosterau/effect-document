@@ -10,6 +10,7 @@
         "@thomasfosterau/effect-document": "workspace:*",
         "@thomasfosterau/effect-iwork": "workspace:*",
         "@thomasfosterau/effect-ooxml": "workspace:*",
+        "@thomasfosterau/effect-pdf": "workspace:*",
         "@thomasfosterau/effect-rtf": "workspace:*",
         "@types/bun": "latest",
         "effect": "^4.0.5",
@@ -53,6 +54,17 @@
       "dependencies": {
         "@thomasfosterau/effect-document": "^0.1.0",
         "@thomasfosterau/effect-parse": "^0.1.0",
+        "fflate": "^0.8.2",
+      },
+      "peerDependencies": {
+        "effect": "^4.0.0",
+      },
+    },
+    "packages/pdf": {
+      "name": "@thomasfosterau/effect-pdf",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thomasfosterau/effect-document": "^0.1.0",
         "fflate": "^0.8.2",
       },
       "peerDependencies": {
@@ -129,6 +141,8 @@
     "@thomasfosterau/effect-ooxml": ["@thomasfosterau/effect-ooxml@workspace:packages/ooxml"],
 
     "@thomasfosterau/effect-parse": ["@thomasfosterau/effect-parse@0.1.0", "", { "peerDependencies": { "effect": "^4.0.0" } }, "sha512-SQ9GwUsAqvrgT0R7z8GhYAKnRHQgSssFFG9k3HAGCYJWYjbdZyy9bOkhqSDbyBRwLjfNQ2mwkm0TratRRaa6JQ=="],
+
+    "@thomasfosterau/effect-pdf": ["@thomasfosterau/effect-pdf@workspace:packages/pdf"],
 
     "@thomasfosterau/effect-rtf": ["@thomasfosterau/effect-rtf@workspace:packages/rtf"],
 

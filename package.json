@@ -20,6 +20,7 @@
     "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-iwork": "workspace:*",
     "@thomasfosterau/effect-ooxml": "workspace:*",
+    "@thomasfosterau/effect-pdf": "workspace:*",
     "@thomasfosterau/effect-rtf": "workspace:*",
     "@types/bun": "latest",
     "effect": "^4.0.5",
