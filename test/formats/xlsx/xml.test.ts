@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { Result } from "effect";
 import {
   escapeAttr,
   escapeXml,
@@ -11,6 +12,7 @@ import {
   findChildren,
   getAttr,
   parseXml,
+  parseXmlResult,
   unescapeXml,
 } from "../../../src/formats/xlsx/index.js";
 
@@ -113,6 +115,34 @@ describe("parseXml", () => {
     expect(() => parseXml("")).toThrow();
     expect(() => parseXml("just text")).toThrow();
     expect(() => parseXml("<unclosed")).toThrow();
+  });
+
+  test("keeps CDATA verbatim and accepts a byte order mark", () => {
+    const root = parseXml('\uFEFF<?xml version="1.0"?>\n<t>a <![CDATA[<b> & c]]></t>');
+    expect(root.text).toBe("a <b> & c");
+  });
+
+  const failure = (xml: string) => {
+    const r = parseXmlResult(xml);
+    if (Result.isSuccess(r)) throw new Error("expected a parse failure");
+    return r.failure;
+  };
+
+  test("reports mismatched closing tags at the element", () => {
+    const e = failure("<a>\n  <b></a>");
+    expect(e.position).toEqual({ line: 2, column: 4 }); // the element name
+    expect(e.message).toContain("closing tag </a> does not match <b>");
+  });
+
+  test("reports unterminated elements, attributes and comments with positions", () => {
+    expect(failure("<a>").message).toContain("closing tag");
+    expect(failure('<a x="1>').position).toEqual({ line: 1, column: 9 });
+    expect(failure("<a x=1/>").message).toContain("attribute value");
+    expect(failure("<a><!-- x</a>").message).toContain('"-->"');
+  });
+
+  test("rejects content after the root element", () => {
+    expect(failure("<a/><b/>").position).toEqual({ line: 1, column: 5 });
   });
 });
 
