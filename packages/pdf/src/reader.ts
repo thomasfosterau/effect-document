@@ -13,7 +13,8 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Content, type Doc, document, makeReaderTag, type Meta, ParseError, type Reader, trustAs,
+  type Content, type Doc, document, limitNestingDepth, makeReaderTag, type Meta, ParseError,
+  type Reader, trustAs,
 } from "@thomasfosterau/effect-document";
 import { PdfFile } from "./cos/file.js";
 import { isString, latin1ToBytes } from "./cos/objects.js";
@@ -60,15 +61,24 @@ export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
 /** The positioned text of every page. */
 export const readPages = (file: PdfFile): PageText[] => file.pages().map((page) => extractPageText(file, page));
 
+export interface PdfReaderOptions {
+  /**
+   * The deepest nesting (e.g. lists inside lists) the reader accepts before
+   * failing with a `"LimitExceeded"` ParseError. Defaults to
+   * `DEFAULT_MAX_NESTING_DEPTH` (1000).
+   */
+  readonly maxDepth?: number;
+}
+
 /** Create a PDF Reader. */
-export const makePdfReader = (): Reader<PdfFeature> => {
+export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> => {
   const read = (input: Content): Effect.Effect<Doc<PdfFeature>, ParseError> =>
     Effect.flatMap(openPdf(input), (file) =>
       Effect.try({
         try: () => trustAs<PdfFeature>(document(layoutBlocks(readPages(file)), readMeta(file))),
         catch: (cause) => new ParseError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
       })
-    );
+    ).pipe(Effect.flatMap((doc) => limitNestingDepth("pdf", doc, options?.maxDepth)));
   return { format: "pdf", profile: Pdf, read };
 };
 

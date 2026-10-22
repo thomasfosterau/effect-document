@@ -13,7 +13,12 @@ export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
     return new ParseError({ format, reason: cause.message, position: { row: line, column }, cause });
   }
   if (cause instanceof OpcError) {
-    return new ParseError({ format, reason: `${cause.kind}: ${cause.message}`, cause });
+    return new ParseError({
+      format,
+      reason: `${cause.kind}: ${cause.message}`,
+      ...(cause.kind === "LimitExceeded" ? { code: "LimitExceeded" as const } : {}),
+      cause,
+    });
   }
   return new ParseError({ format, reason: `Failed to parse ${format}: ${String(cause)}`, cause });
 };

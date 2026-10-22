@@ -101,7 +101,7 @@ describe("readers (#55)", () => {
 
   test("reader limits apply and fail with a ParseError", () => {
     const error = Effect.runSync(Effect.flip(makeDocxReader({ limits: { maxPartBytes: 10 } }).read(docx())));
-    expect(error).toMatchObject({ _tag: "ParseError", format: "docx" });
+    expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
     expect(error.reason).toContain("LimitExceeded");
   });
 

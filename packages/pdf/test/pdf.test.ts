@@ -252,3 +252,12 @@ describe("real-world files", () => {
     expect(blocksToText(back.blocks)).toContain("ligatures: office affluent. Price €5.");
   });
 });
+
+describe("PDF nesting limit (#110)", () => {
+  test("output nested deeper than maxDepth fails with a LimitExceeded ParseError", () => {
+    const pdf = write([bulletList([[plainText("a")], [bulletList([[plainText("b")]])]])]);
+    expect(blocksToText(read(pdf).blocks)).toContain("b");
+    const error = run(Effect.flip(makePdfReader({ maxDepth: 2 }).read(bytes(pdf))));
+    expect(error).toMatchObject({ _tag: "ParseError", format: "pdf", code: "LimitExceeded" });
+  });
+});
