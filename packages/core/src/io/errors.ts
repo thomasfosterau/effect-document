@@ -10,6 +10,12 @@ export class ParseError extends Data.TaggedError("ParseError")<{
   /** The format identifier of the reader that failed (e.g. "csv", "xlsx"). */
   readonly format: string;
   readonly reason: string;
+  /**
+   * A machine-readable failure class. `"LimitExceeded"`: the input exceeds a
+   * configured resource limit (such as the maximum nesting depth) rather than
+   * being malformed.
+   */
+  readonly code?: "LimitExceeded";
   /** Best-effort source position of the failure. */
   readonly position?: {
     readonly row?: number;

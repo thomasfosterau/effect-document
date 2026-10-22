@@ -8,8 +8,8 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, BulletList, type Content, contentToBytes, type Doc, document, Emph, Header,
-  type Inline, LineBreak, Link, makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
+  type Block, BulletList, type Content, contentToBytes, DEFAULT_MAX_NESTING_DEPTH, type Doc,
+  document, Emph, Header, type Inline, LineBreak, limitNestingDepth, Link, makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
   SmallCaps, Str, Strikeout, Strong, Subscript, Superscript, Table, TableCell, TableRow, trustAs,
   Underline,
 } from "@thomasfosterau/effect-document";
@@ -21,6 +21,12 @@ import { Docx, type DocxFeature } from "./profile.js";
 export interface DocxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
   readonly limits?: Partial<OpcLimits>;
+  /**
+   * The deepest nesting (e.g. tables inside tables) the reader accepts before
+   * failing with a `"LimitExceeded"` ParseError. Defaults to
+   * `DEFAULT_MAX_NESTING_DEPTH` (1000).
+   */
+  readonly maxDepth?: number;
 }
 
 /** Main-part content types this reader accepts. */
@@ -130,17 +136,28 @@ const paragraphToBlock = (
   return new Para({ content: inlines });
 };
 
-const cellToBlocks = (tc: XmlElement, rels: ReadonlyMap<string, string>): Block[] =>
-  bodyToBlocks(tc, rels);
+/** Thrown when tables nest deeper than the reader's `maxDepth`. */
+class NestingLimit extends Error {}
 
-const tableToBlock = (tbl: XmlElement, rels: ReadonlyMap<string, string>): Table => {
+const cellToBlocks = (tc: XmlElement, rels: ReadonlyMap<string, string>, depth: Depth): Block[] =>
+  bodyToBlocks(tc, rels, depth);
+
+/** The current block depth and the limit, threaded through nested tables. */
+interface Depth {
+  readonly level: number;
+  readonly max: number;
+}
+
+const tableToBlock = (tbl: XmlElement, rels: ReadonlyMap<string, string>, depth: Depth): Table => {
+  if (depth.level > depth.max) throw new NestingLimit();
+  const inner: Depth = { level: depth.level + 1, max: depth.max };
   const head: TableRow[] = [];
   const body: TableRow[] = [];
   for (const tr of findChildren(tbl, "tr")) {
     const trPr = findChild(tr, "trPr");
     const isHeader = trPr !== undefined && findChild(trPr, "tblHeader") !== undefined;
     const cells = findChildren(tr, "tc").map(
-      (tc) => new TableCell({ content: cellToBlocks(tc, rels) })
+      (tc) => new TableCell({ content: cellToBlocks(tc, rels, inner) })
     );
     (isHeader ? head : body).push(new TableRow({ cells }));
   }
@@ -150,7 +167,8 @@ const tableToBlock = (tbl: XmlElement, rels: ReadonlyMap<string, string>): Table
 /** Convert an element's `w:p`/`w:tbl` children into blocks, grouping list items. */
 const bodyToBlocks = (
   parent: XmlElement,
-  rels: ReadonlyMap<string, string>
+  rels: ReadonlyMap<string, string>,
+  depth: Depth
 ): Block[] => {
   const out: Block[] = [];
   let listItems: Block[][] = [];
@@ -181,7 +199,7 @@ const bodyToBlocks = (
       out.push(paragraphToBlock(child, rels));
     } else if (child.name === "tbl") {
       flushList();
-      out.push(tableToBlock(child, rels));
+      out.push(tableToBlock(child, rels, depth));
     }
   }
   flushList();
@@ -190,6 +208,7 @@ const bodyToBlocks = (
 
 /** Create a DOCX Reader. */
 export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature> => {
+  const maxDepth = options?.maxDepth ?? DEFAULT_MAX_NESTING_DEPTH;
   const read = (input: Content): Effect.Effect<Doc<DocxFeature>, ParseError> =>
     Effect.try({
       try: () => {
@@ -203,12 +222,19 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
-        const blocks = body === undefined ? [] : bodyToBlocks(body, rels);
+        const blocks =
+          body === undefined ? [] : bodyToBlocks(body, rels, { level: 1, max: maxDepth });
         return trustAs<DocxFeature>(document(blocks));
       },
       catch: (cause) =>
-        ooxmlParseError("docx", cause),
-    });
+        cause instanceof NestingLimit
+          ? new ParseError({
+              format: "docx",
+              code: "LimitExceeded",
+              reason: `Document nests more than ${maxDepth} levels deep (maxDepth)`,
+            })
+          : ooxmlParseError("docx", cause),
+    }).pipe(Effect.flatMap((doc) => limitNestingDepth("docx", doc, maxDepth)));
   return { format: "docx", profile: Docx, read };
 };
 

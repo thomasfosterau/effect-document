@@ -76,3 +76,28 @@ describe("DOCX round-trip", () => {
     expect(Docx.is(back)).toBe(true);
   });
 });
+
+describe("DOCX nesting limit (#110)", () => {
+  /** A paragraph inside `n` nested single-cell tables. */
+  const nestedTables = (n: number): Block => {
+    let b: Block = para([str("x")]);
+    for (let i = 0; i < n; i++) b = table({ rows: [[[b]]] });
+    return b;
+  };
+  const docx = (n: number) => run(makeDocxWriter().write(doc([nestedTables(n)])));
+
+  test("tables nested past maxDepth fail with a LimitExceeded ParseError", () => {
+    const error = run(Effect.flip(makeDocxReader({ maxDepth: 10 }).read(docx(10))));
+    expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
+  });
+
+  test("tables nested within maxDepth read normally", () => {
+    const back = run(makeDocxReader({ maxDepth: 10 }).read(docx(8)));
+    expect(blocksToText(back.blocks)).toBe("x");
+  });
+
+  test("the default limit refuses very deep nesting", () => {
+    const error = run(Effect.flip(makeDocxReader().read(docx(1500))));
+    expect(error).toMatchObject({ code: "LimitExceeded" });
+  });
+});

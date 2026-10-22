@@ -8,3 +8,4 @@ export * from "./feature.js";
 export * from "./attributes.js";
 export * from "./ast.js";
 export * from "./document.js";
+export * from "./depth.js";

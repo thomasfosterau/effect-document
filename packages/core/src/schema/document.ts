@@ -150,115 +150,174 @@ export const document = (
 // Text-collapse utilities
 // ============================================================================
 
-/** Collapse a sequence of inlines to plain text. */
-export const inlinesToText = (inlines: ReadonlyArray<Inline>): string =>
-  inlines
-    .map((inline): string => {
-      switch (inline._tag) {
-        case "Str":
-          return inline.text;
-        case "Code":
-        case "Math":
-        case "RawInline":
-          return inline.text;
-        case "Space":
-        case "SoftBreak":
-          return " ";
-        case "LineBreak":
-          return "\n";
-        case "Image":
-          return inlinesToText(inline.alt);
-        case "Emph":
-        case "Strong":
-        case "Underline":
-        case "Strikeout":
-        case "Superscript":
-        case "Subscript":
-        case "SmallCaps":
-        case "Quoted":
-        case "Cite":
-        case "Link":
-        case "Span":
-          return inlinesToText(inline.content);
-        case "Note":
-          return "";
-      }
-    })
-    .join("");
+// The collapse runs on an explicit stack so arbitrarily deep documents can't
+// overflow the call stack: each node expands into the strings and child nodes
+// of its text, in order, until only strings remain.
 
-/** Collapse a single spreadsheet cell to plain text. */
-export const cellToText = (c: SheetCell): string => {
+type TextPart =
+  | string
+  | { readonly b: Block }
+  | { readonly i: Inline }
+  | { readonly s: Shape }
+  | { readonly c: SheetCell };
+
+const inlineParts = (inlines: ReadonlyArray<Inline>): TextPart[] => inlines.map((i) => ({ i }));
+const blockParts = (blocks: ReadonlyArray<Block>): TextPart[] => blocks.map((b) => ({ b }));
+
+/** `groups` joined by `sep`, like `groups.map(toText).join(sep)`. */
+const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string): TextPart[] => {
+  const out: TextPart[] = [];
+  groups.forEach((g, n) => {
+    if (n > 0) out.push(sep);
+    out.push(...g);
+  });
+  return out;
+};
+
+const expandInline = (inline: Inline): TextPart[] => {
+  switch (inline._tag) {
+    case "Str":
+      return [inline.text];
+    case "Code":
+    case "Math":
+    case "RawInline":
+      return [inline.text];
+    case "Space":
+    case "SoftBreak":
+      return [" "];
+    case "LineBreak":
+      return ["\n"];
+    case "Image":
+      return inlineParts(inline.alt);
+    case "Emph":
+    case "Strong":
+    case "Underline":
+    case "Strikeout":
+    case "Superscript":
+    case "Subscript":
+    case "SmallCaps":
+    case "Quoted":
+    case "Cite":
+    case "Link":
+    case "Span":
+      return inlineParts(inline.content);
+    case "Note":
+      return [];
+  }
+};
+
+const expandCell = (c: SheetCell): TextPart[] => {
   switch (c._tag) {
     case "CellText":
     case "CellError":
-      return c.value;
+      return [c.value];
     case "CellNumber":
-      return String(c.value);
+      return [String(c.value)];
     case "CellBoolean":
-      return c.value ? "true" : "false";
+      return [c.value ? "true" : "false"];
     case "CellDate":
-      return c.value.toISOString();
+      return [c.value.toISOString()];
     case "CellBlank":
-      return "";
+      return [""];
     case "CellFormula":
-      return c.result ?? "";
+      return [c.result ?? ""];
     case "CellRichText":
-      return inlinesToText(c.runs);
+      return inlineParts(c.runs);
   }
 };
 
-/** Collapse a single slide shape to plain text. */
-export const shapeToText = (shape: Shape): string => {
+const expandShape = (shape: Shape): TextPart[] => {
   switch (shape._tag) {
     case "Picture":
-      return shape.alt ?? "";
+      return [shape.alt ?? ""];
     case "TableShape":
-      return blocksToText([shape.table]);
+      return [{ b: shape.table }];
     case "TextBox":
     case "Placeholder":
-      return blocksToText(shape.content);
+      return joinParts(shape.content.map((b) => [{ b }]), "\n");
   }
 };
+
+const expandBlock = (block: Block): TextPart[] => {
+  const blocks = (bs: ReadonlyArray<Block>) => joinParts(bs.map((b) => [{ b }]), "\n");
+  switch (block._tag) {
+    case "Plain":
+    case "Para":
+    case "Header":
+      return inlineParts(block.content);
+    case "LineBlock":
+      return joinParts(block.lines.map(inlineParts), "\n");
+    case "CodeBlock":
+    case "RawBlock":
+      return [block.text];
+    case "BlockQuote":
+    case "Div":
+    case "Figure":
+      return blocks(block.content);
+    case "OrderedList":
+    case "BulletList":
+      return joinParts(block.items.map(blocks), "\n");
+    case "DefinitionList":
+      return joinParts(
+        block.items.map((it) => [
+          ...inlineParts(it.term),
+          "\n",
+          ...joinParts(it.definitions.map(blocks), "\n"),
+        ]),
+        "\n"
+      );
+    case "HorizontalRule":
+      return [""];
+    case "Table":
+      return joinParts(
+        [...block.head, ...block.body, ...block.foot].map((row) =>
+          joinParts(row.cells.map((cl) => blocks(cl.content)), "\t")
+        ),
+        "\n"
+      );
+    case "Worksheet":
+      return joinParts(
+        block.rows.map((row) => joinParts(row.cells.map((c) => [{ c }]), "\t")),
+        "\n"
+      );
+    case "SlideShow":
+      return joinParts(
+        block.slides.map((sl) => joinParts(sl.shapes.map((s) => [{ s }]), "\n")),
+        "\n\n"
+      );
+  }
+};
+
+const collapse = (parts: ReadonlyArray<TextPart>): string => {
+  let out = "";
+  const stack: TextPart[] = [...parts].reverse();
+  while (stack.length > 0) {
+    const part = stack.pop()!;
+    if (typeof part === "string") {
+      out += part;
+      continue;
+    }
+    const next =
+      "b" in part ? expandBlock(part.b)
+      : "i" in part ? expandInline(part.i)
+      : "s" in part ? expandShape(part.s)
+      : expandCell(part.c);
+    for (let n = next.length - 1; n >= 0; n--) stack.push(next[n]!);
+  }
+  return out;
+};
+
+/** Collapse a sequence of inlines to plain text. */
+export const inlinesToText = (inlines: ReadonlyArray<Inline>): string =>
+  collapse(inlineParts(inlines));
+
+/** Collapse a single spreadsheet cell to plain text. */
+export const cellToText = (c: SheetCell): string =>
+  c._tag === "CellRichText" ? collapse([{ c }]) : (expandCell(c)[0] as string);
+
+/** Collapse a single slide shape to plain text. */
+export const shapeToText = (shape: Shape): string => collapse([{ s: shape }]);
 
 /** Collapse a sequence of blocks to plain text (one line per block). */
 export const blocksToText = (blocks: ReadonlyArray<Block>): string =>
-  blocks
-    .map((block): string => {
-      switch (block._tag) {
-        case "Plain":
-        case "Para":
-        case "Header":
-          return inlinesToText(block.content);
-        case "LineBlock":
-          return block.lines.map(inlinesToText).join("\n");
-        case "CodeBlock":
-        case "RawBlock":
-          return block.text;
-        case "BlockQuote":
-        case "Div":
-        case "Figure":
-          return blocksToText(block.content);
-        case "OrderedList":
-        case "BulletList":
-          return block.items.map(blocksToText).join("\n");
-        case "DefinitionList":
-          return block.items
-            .map((it) => inlinesToText(it.term) + "\n" + it.definitions.map(blocksToText).join("\n"))
-            .join("\n");
-        case "HorizontalRule":
-          return "";
-        case "Table":
-          return [...block.head, ...block.body, ...block.foot]
-            .map((row) => row.cells.map((cl) => blocksToText(cl.content)).join("\t"))
-            .join("\n");
-        case "Worksheet":
-          return block.rows
-            .map((row) => row.cells.map(cellToText).join("\t"))
-            .join("\n");
-        case "SlideShow":
-          return block.slides
-            .map((s) => s.shapes.map(shapeToText).join("\n"))
-            .join("\n\n");
-      }
-    })
-    .join("\n");
+  collapse(joinParts(blocks.map((b) => [{ b }]), "\n"));

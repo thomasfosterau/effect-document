@@ -24,128 +24,138 @@ const addAttr = (n: unknown, acc: Set<Feature>): void => {
   for (const f of usedAttrFeatures(attrOf(n))) acc.add(f);
 };
 
-const walkInlines = (ns: ReadonlyArray<Inline>, acc: Set<Feature>): void => {
-  for (const n of ns) walkInline(n, acc);
+// Each walk adds a node's own features and pushes its children onto an
+// explicit work stack rather than recursing, so arbitrarily deep documents
+// can't overflow the call stack.
+type Work =
+  | { readonly k: "block"; readonly n: Block }
+  | { readonly k: "inline"; readonly n: Inline }
+  | { readonly k: "shape"; readonly n: Shape };
+
+type Stack = Work[];
+
+const pushInlines = (ns: ReadonlyArray<Inline>, stack: Stack): void => {
+  for (const n of ns) stack.push({ k: "inline", n });
 };
 
-const walkInline = (n: Inline, acc: Set<Feature>): void => {
+const pushBlocks = (ns: ReadonlyArray<Block>, stack: Stack): void => {
+  for (const n of ns) stack.push({ k: "block", n });
+};
+
+const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
   addTag(n._tag, acc);
   addAttr(n, acc);
   switch (n._tag) {
     case "Emph": case "Strong": case "Underline": case "Strikeout":
     case "Superscript": case "Subscript": case "SmallCaps": case "Quoted":
     case "Link": case "Span":
-      walkInlines(n.content, acc);
+      pushInlines(n.content, stack);
       break;
     case "Cite":
-      walkInlines(n.content, acc);
+      pushInlines(n.content, stack);
       for (const c of n.citations) {
-        walkInlines(c.prefix, acc);
-        walkInlines(c.suffix, acc);
+        pushInlines(c.prefix, stack);
+        pushInlines(c.suffix, stack);
       }
       break;
     case "Image":
-      walkInlines(n.alt, acc);
+      pushInlines(n.alt, stack);
       break;
     case "Note":
-      walkBlocks(n.content, acc);
+      pushBlocks(n.content, stack);
       break;
     default:
       break;
   }
 };
 
-const walkTable = (t: Table, acc: Set<Feature>): void => {
-  if (t.caption !== undefined) walkInlines(t.caption, acc);
+const walkTable = (t: Table, acc: Set<Feature>, stack: Stack): void => {
+  if (t.caption !== undefined) pushInlines(t.caption, stack);
   const rows = [...t.head, ...t.body, ...t.foot];
   for (const row of rows) {
     for (const cellNode of row.cells) {
       addAttr(cellNode, acc);
-      walkBlocks(cellNode.content, acc);
+      pushBlocks(cellNode.content, stack);
     }
   }
 };
 
-const walkCell = (c: SheetCell, acc: Set<Feature>): void => {
+const walkCell = (c: SheetCell, acc: Set<Feature>, stack: Stack): void => {
   addTag(c._tag, acc);
   if (c.style !== undefined) acc.add("cell.style");
-  if (c._tag === "CellRichText") walkInlines(c.runs, acc);
+  if (c._tag === "CellRichText") pushInlines(c.runs, stack);
 };
 
-const walkWorksheet = (w: Worksheet, acc: Set<Feature>): void => {
+const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   if (w.merges.length > 0) acc.add("sheet.merges");
   if (w.columns.length > 0) acc.add("sheet.columns");
   for (const col of w.columns) if (col.style !== undefined) acc.add("cell.style");
-  for (const row of w.rows) for (const c of row.cells) walkCell(c, acc);
+  for (const row of w.rows) for (const c of row.cells) walkCell(c, acc, stack);
 };
 
-const walkShape = (s: Shape, acc: Set<Feature>): void => {
+const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
   addTag(s._tag, acc);
   addAttr(s, acc);
   switch (s._tag) {
     case "TextBox":
     case "Placeholder":
-      walkBlocks(s.content, acc);
+      pushBlocks(s.content, stack);
       break;
     case "TableShape":
-      walkTable(s.table, acc);
+      walkTable(s.table, acc, stack);
       break;
     case "Picture":
       break;
   }
 };
 
-const walkSlideShow = (d: SlideShow, acc: Set<Feature>): void => {
+const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
   for (const sl of d.slides) {
     addAttr(sl, acc);
     if (sl.notes !== undefined) {
       acc.add("deck.notes");
-      walkBlocks(sl.notes, acc);
+      pushBlocks(sl.notes, stack);
     }
-    for (const sh of sl.shapes) walkShape(sh, acc);
+    for (const sh of sl.shapes) stack.push({ k: "shape", n: sh });
   }
 };
 
-const walkBlocks = (ns: ReadonlyArray<Block>, acc: Set<Feature>): void => {
-  for (const n of ns) walkBlock(n, acc);
-};
-
-const walkBlock = (b: Block, acc: Set<Feature>): void => {
+const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
   addTag(b._tag, acc);
   addAttr(b, acc);
   switch (b._tag) {
     case "Plain": case "Para": case "Header":
-      walkInlines(b.content, acc);
+      pushInlines(b.content, stack);
       break;
     case "LineBlock":
-      for (const line of b.lines) walkInlines(line, acc);
+      for (const line of b.lines) pushInlines(line, stack);
       break;
     case "CodeBlock": case "RawBlock": case "HorizontalRule":
       break;
     case "BlockQuote": case "Div":
-      walkBlocks(b.content, acc);
+      pushBlocks(b.content, stack);
       break;
     case "Figure":
-      walkBlocks(b.caption, acc);
-      walkBlocks(b.content, acc);
+      pushBlocks(b.caption, stack);
+      pushBlocks(b.content, stack);
       break;
     case "OrderedList": case "BulletList":
-      for (const item of b.items) walkBlocks(item, acc);
+      for (const item of b.items) pushBlocks(item, stack);
       break;
     case "DefinitionList":
       for (const item of b.items) {
-        walkInlines(item.term, acc);
-        for (const def of item.definitions) walkBlocks(def, acc);
+        pushInlines(item.term, stack);
+        for (const def of item.definitions) pushBlocks(def, stack);
       }
       break;
     case "Table":
-      walkTable(b, acc);
+      walkTable(b, acc, stack);
       break;
     case "Worksheet":
-      walkWorksheet(b, acc);
+      walkWorksheet(b, acc, stack);
       break;
     case "SlideShow":
-      walkSlideShow(b, acc);
+      walkSlideShow(b, acc, stack);
       break;
   }
 };
@@ -154,11 +164,19 @@ const walkBlock = (b: Block, acc: Set<Feature>): void => {
 export const collectFeatures = (doc: Document): Set<Feature> => {
   const acc = new Set<Feature>();
   let worksheetCount = 0;
-  for (const b of doc.blocks) {
-    if (b._tag === "Worksheet") worksheetCount += 1;
-    walkBlock(b, acc);
-  }
+  for (const b of doc.blocks) if (b._tag === "Worksheet") worksheetCount += 1;
   if (worksheetCount > 1) acc.add("sheet.multiple");
+
+  const stack: Stack = [];
+  pushBlocks(doc.blocks, stack);
+  while (stack.length > 0) {
+    const work = stack.pop()!;
+    switch (work.k) {
+      case "block": walkBlock(work.n, acc, stack); break;
+      case "inline": walkInline(work.n, acc, stack); break;
+      case "shape": walkShape(work.n, acc, stack); break;
+    }
+  }
   return acc;
 };
 
