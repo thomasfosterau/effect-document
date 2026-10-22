@@ -14,13 +14,22 @@ import {
   Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  OpcReader, type XmlElement, findChild, findChildren, getAttr, parseXml,
+  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
 } from "../shared/index.js";
 import { Docx, type DocxFeature } from "./profile.js";
 
 export interface DocxReaderOptions {
-  readonly _?: never;
+  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
+  readonly limits?: Partial<OpcLimits>;
 }
+
+/** Main-part content types this reader accepts. */
+const MAIN_CONTENT_TYPES = [
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+  "application/vnd.ms-word.document.macroEnabled.main+xml",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml",
+  "application/vnd.ms-word.template.macroEnabledTemplate.main+xml",
+];
 
 interface Fmt {
   b: boolean;
@@ -180,24 +189,25 @@ const bodyToBlocks = (
 };
 
 /** Create a DOCX Reader. */
-export const makeDocxReader = (_options?: DocxReaderOptions): Reader<DocxFeature> => {
+export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature> => {
   const read = (input: Content): Effect.Effect<Doc<DocxFeature>, ParseError> =>
     Effect.try({
       try: () => {
-        const pkg = new OpcReader(contentToBytes(input));
+        const pkg = new OpcReader(contentToBytes(input), options?.limits);
         const docPath = pkg.rootTarget("/officeDocument", "word/document.xml");
+        pkg.expectMainPart(docPath, "docx", MAIN_CONTENT_TYPES);
         const xml = pkg.text(docPath);
         if (xml === null) throw new Error(`missing document part: ${docPath}`);
         const rels = new Map<string, string>();
         for (const r of pkg.rels(docPath)) rels.set(r.id, r.target);
 
-        const root = parseXml(xml);
+        const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
         const blocks = body === undefined ? [] : bodyToBlocks(body, rels);
         return trustAs<DocxFeature>(document(blocks));
       },
       catch: (cause) =>
-        new ParseError({ format: "docx", reason: `Failed to parse docx: ${String(cause)}`, cause }),
+        ooxmlParseError("docx", cause),
     });
   return { format: "docx", profile: Docx, read };
 };

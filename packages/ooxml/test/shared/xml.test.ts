@@ -14,7 +14,7 @@ import {
   parseXml,
   parseXmlResult,
   unescapeXml,
-} from "../../src/xlsx/index.js";
+} from "../../src/shared/index.js";
 
 describe("escaping", () => {
   test("escapes text content", () => {
@@ -154,5 +154,54 @@ describe("getAttr", () => {
     expect(getAttr(root, "r:id")).toBe("rId1");
     expect(getAttr(root, "id")).toBe("rId1");
     expect(getAttr(root, "missing")).toBeUndefined();
+  });
+});
+
+describe("hardening (#55)", () => {
+  test("20,000 levels of nesting parse without overflowing the stack", () => {
+    const depth = 20_000;
+    const root = parseXml("<a>".repeat(depth) + "x" + "</a>".repeat(depth));
+    expect(root.name).toBe("a");
+    expect(findAll(root, "a")).toHaveLength(depth - 1);
+  });
+
+  test("parseXmlResult never throws, and invalid character references become U+FFFD", () => {
+    expect(Result.isFailure(parseXmlResult("<a>".repeat(50_000)))).toBe(true);
+    expect(parseXml("<a>&#99999999;&#xD800;&#65;</a>").text).toBe("��A");
+    expect(unescapeXml("&amp;lt;")).toBe("&lt;");
+  });
+
+  test("resolves element namespaces, and getAttr prefers the element's own namespace", () => {
+    const root = parseXml(
+      `<w:b xmlns:w="urn:w" xmlns:w14="urn:w14" w14:val="0" w:val="1"><x xmlns="urn:d"/><m:t xmlns:m="urn:m"/></w:b>`
+    );
+    expect(root.ns).toBe("urn:w");
+    expect(root.children.map((c) => c.ns)).toEqual(["urn:d", "urn:m"]);
+    expect(getAttr(root, "val")).toBe("1");
+  });
+
+  test("mc:AlternateContent resolves to an understood Choice, else the Fallback", () => {
+    const mc = `xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"`;
+    const w = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wps="urn:wps"`;
+    const root = parseXml(
+      `<w:body ${mc} ${w}>` +
+        `<mc:AlternateContent><mc:Choice Requires="wps"><w:p>choice</w:p></mc:Choice><mc:Fallback><w:p>fallback</w:p></mc:Fallback></mc:AlternateContent>` +
+        `<mc:AlternateContent><mc:Choice Requires="w"><w:p>understood</w:p></mc:Choice><mc:Fallback><w:p>no</w:p></mc:Fallback></mc:AlternateContent>` +
+        `<mc:AlternateContent/>` +
+        `</w:body>`
+    );
+    expect(root.children.map((c) => c.text)).toEqual(["fallback", "understood"]);
+  });
+
+  test("a DOCTYPE with an internal subset is skipped and its entities never expanded", () => {
+    const root = parseXml(`<!DOCTYPE a [ <!ENTITY e "boom"> <!ELEMENT a ANY> ]><a>&e;</a>`);
+    expect(root.text).toBe("&e;");
+  });
+
+  test("invalid names and duplicate attributes are rejected", () => {
+    expect(Result.isFailure(parseXmlResult(`<a"b/>`))).toBe(true);
+    expect(Result.isFailure(parseXmlResult(`<1a/>`))).toBe(true);
+    const dup = parseXmlResult(`<a x="1" x="2"/>`);
+    expect(Result.isFailure(dup) && dup.failure.message).toContain(`duplicate attribute "x"`);
   });
 });

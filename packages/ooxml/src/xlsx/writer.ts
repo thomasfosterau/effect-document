@@ -15,6 +15,7 @@ import {
 import { Xlsx, type XlsxFeature } from "./profile.js";
 import { toA1 } from "./a1.js";
 import { SharedStrings, cellToSpreadsheetMl } from "./cellTypes.js";
+import { ZIP_MTIME } from "../shared/opc.js";
 import { escapeAttr, escapeXml } from "./xml.js";
 
 
@@ -168,7 +169,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(xml);
         });
 
-        return bytes(zipSync(files, { level }));
+        return bytes(zipSync(files, { level, mtime: ZIP_MTIME }));
       },
       catch: (cause) =>
         new WriteError({
