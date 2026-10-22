@@ -26,7 +26,8 @@ export interface DocxFormatOptions {
 /** Create a DOCX Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: DocxFormatOptions): Format<DocxFeature> => ({
   id: "docx",
-  profile: Docx,
+  readProfile: Docx,
+  writeProfile: Docx,
   reader: makeDocxReader(options?.reader),
   writer: makeDocxWriter(options?.writer),
 });

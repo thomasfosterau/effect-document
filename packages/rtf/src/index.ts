@@ -20,7 +20,8 @@ export const profile = Rtf;
 /** The RTF format bundle, for use with `convert`. */
 export const format: Format<RtfFeature> = {
   id: "rtf",
-  profile: Rtf,
+  readProfile: Rtf,
+  writeProfile: Rtf,
   reader: makeRtfReader(),
   writer: makeRtfWriter(),
 };

@@ -1,5 +1,5 @@
 /**
- * The XLSX Writer: a Spreadsheet-profile document -> .xlsx bytes.
+ * The XLSX Writer: an XLSX-profile document -> .xlsx bytes.
  *
  * Generates a minimal but valid OOXML spreadsheet package (workbook,
  * worksheets, shared strings, content types, relationships) and zips it with
@@ -9,15 +9,14 @@
 import { Effect, Layer } from "effect";
 import { strToU8, zipSync } from "fflate";
 import {
-  bytes, type Content, type Doc, type FeaturesOf, makeWriterTag, type Worksheet, WriteError,
+  bytes, type Content, type Doc, makeWriterTag, type Worksheet, WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
-import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
+import { Xlsx, type XlsxFeature } from "./profile.js";
 import { toA1 } from "./a1.js";
 import { SharedStrings, cellToSpreadsheetMl } from "./cellTypes.js";
 import { escapeAttr, escapeXml } from "./xml.js";
 
-type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 
@@ -144,10 +143,10 @@ export interface XlsxWriterOptions {
 }
 
 /** Create an XLSX Writer with the given options baked in. */
-export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<SpreadsheetFeature> => {
+export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature> => {
   const level = options?.compressionLevel ?? 6;
 
-  const write = (doc: Doc<SpreadsheetFeature>): Effect.Effect<Content, WriteError> =>
+  const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> =>
     Effect.try({
       try: () => {
         const worksheets = doc.blocks.filter((b): b is Worksheet => b._tag === "Worksheet");
@@ -179,11 +178,11 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<SpreadsheetF
         }),
     });
 
-  return { format: "xlsx", profile: Spreadsheet, write };
+  return { format: "xlsx", profile: Xlsx, write };
 };
 
 /** Context tag for dependency-injection style usage. */
-export const XlsxWriterTag = makeWriterTag<SpreadsheetFeature>("xlsx");
+export const XlsxWriterTag = makeWriterTag<XlsxFeature>("xlsx");
 
 /** Layer providing an XLSX Writer with default options. */
 export const XlsxWriterLive = Layer.succeed(XlsxWriterTag, makeXlsxWriter());

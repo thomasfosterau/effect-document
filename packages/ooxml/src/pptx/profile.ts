@@ -4,7 +4,9 @@
  * lists with bold/italic/underline/strike runs.
  *
  * Speaker notes (`deck.notes`), pictures and table shapes are out of this v1
- * subset, so converting a richer deck to PPTX narrows those away.
+ * subset, so converting a richer deck to PPTX narrows those away. Headers are
+ * out too (#109): the writer renders them as bold paragraphs, which read back
+ * as `Para(Strong ...)`.
  */
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
@@ -15,7 +17,6 @@ export const pptxFeatures = [
   "shape.placeholder",
   "block.para",
   "block.plain",
-  "block.header",
   "block.bulletList",
   "block.orderedList",
   "inline.str",

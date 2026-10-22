@@ -10,18 +10,19 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
-import { makeXlsxReader, type SpreadsheetFeature, type XlsxReaderOptions } from "./reader.js";
+import { Xlsx, type XlsxFeature, XlsxRead, type XlsxReadFeature } from "./profile.js";
+import { makeXlsxReader, type XlsxReaderOptions } from "./reader.js";
 import { makeXlsxWriter, type XlsxWriterOptions } from "./writer.js";
 
 export * from "./a1.js";
 export * from "./xml.js";
 export * from "./cellTypes.js";
+export * from "./profile.js";
 export * from "./reader.js";
 export * from "./writer.js";
 
-/** The Spreadsheet profile: multi-sheet, all cell types, styling, merges. */
-export const profile = Spreadsheet;
+/** The XLSX (write) profile: what survives a write -> read round trip. */
+export const profile = Xlsx;
 
 export interface XlsxFormatOptions {
   readonly reader?: XlsxReaderOptions;
@@ -29,12 +30,13 @@ export interface XlsxFormatOptions {
 }
 
 /** Create an XLSX Format bundle with custom reader/writer options. */
-export const makeFormat = (options?: XlsxFormatOptions): Format<SpreadsheetFeature> => ({
+export const makeFormat = (options?: XlsxFormatOptions): Format<XlsxReadFeature, XlsxFeature> => ({
   id: "xlsx",
-  profile: Spreadsheet,
+  readProfile: XlsxRead,
+  writeProfile: Xlsx,
   reader: makeXlsxReader(options?.reader),
   writer: makeXlsxWriter(options?.writer),
 });
 
 /** The XLSX format bundle with default options, for use with `convert`. */
-export const format: Format<SpreadsheetFeature> = makeFormat();
+export const format: Format<XlsxReadFeature, XlsxFeature> = makeFormat();

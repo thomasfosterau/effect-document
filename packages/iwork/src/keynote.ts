@@ -68,7 +68,8 @@ export const profile = Keynote;
 /** The Keynote format bundle (read-only) for use with `convert`. */
 export const format: Format<KeynoteFeature> = {
   id: "keynote",
-  profile: Keynote,
+  readProfile: Keynote,
+  writeProfile: Keynote,
   reader: makeKeynoteReader(),
 };
 
