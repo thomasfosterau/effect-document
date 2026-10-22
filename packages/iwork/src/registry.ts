@@ -29,6 +29,9 @@ export const TP_DOCUMENT_ARCHIVE = 10000;
 export const TN_DOCUMENT_ARCHIVE = 1;
 export const TN_SHEET_ARCHIVE = 2;
 
+/** `TSP.Reference.identifier` - the object a reference points to. */
+export const REFERENCE_IDENTIFIER_FIELD = 1;
+
 /** Field numbers within `TSWP.StorageArchive`. */
 export const STORAGE_TEXT_FIELD = 3; // repeated string text
 export const STORAGE_KIND_FIELD = 1; // KindType (0=BODY, 1=HEADER, 2=FOOTNOTE, 3=TEXTBOX, 4=NOTE, 5=CELL)

@@ -4,7 +4,9 @@
  * A `.pages`/`.numbers`/`.key` is a zip whose serialized object graph lives in
  * `Index/*.iwa` components (older documents pack these into an inner `Index.zip`).
  * Media lives in `Data/`, light metadata in `Metadata/`. Password-protected
- * documents carry a top-level `.iwph` marker and are refused.
+ * documents carry a top-level `.iwph` marker and are refused, and so is a zip
+ * with no components: an iWork '09 package (XML in `index.apxl`/`index.xml`)
+ * or something else entirely (e.g. a `.docx`).
  *
  * Only the components are inflated: media and previews are listed and read on
  * demand with `readEntry`. Entry counts and declared sizes are checked before
@@ -50,6 +52,15 @@ export const DEFAULT_BUNDLE_LIMITS: Required<BundleLimits> = {
 };
 
 const ENCRYPTED_MARKER = ".iwph";
+
+/** The root document of an iWork '09 package: Keynote's `index.apxl`, Pages' and Numbers' `index.xml`. */
+const LEGACY_INDEX = /^index\.(?:apxl|xml)(?:\.gz)?$/i;
+
+/** Why a package with no components can't be read. */
+const noComponents = (names: ReadonlyArray<string>): IworkError =>
+  names.some((name) => LEGACY_INDEX.test(name))
+    ? codecError("LegacyIwork09Unsupported", "iWork '09 (XML) documents are not supported yet")
+    : codecError("NotIwork", "not an iWork document: the package has no Index/*.iwa components");
 
 const isIndexZip = (name: string): boolean => name.toLowerCase().endsWith("index.zip");
 const isComponent = (name: string): boolean => name.endsWith(".iwa");
@@ -148,6 +159,7 @@ export const openBundle = (
       if (isIndexZip(name)) innerComponents(data, budget, components);
       else components[name] = data;
     }
+    if (Object.keys(components).length === 0) throw noComponents(names);
     const readEntry = (path: string): Effect.Effect<Uint8Array, IworkError> =>
       Effect.suspend(() => {
         try {
@@ -223,15 +235,47 @@ export const openBundleDirectory = (
         components[name] = data;
       }
     }
+    if (Object.keys(components).length === 0) return yield* Effect.fail(noComponents(names));
     const readEntry = (entry: string) => readChecked(entry, { limits, total: 0 });
     return { components, entries: names, readEntry };
   });
 
-/** The component paths matching a predicate (e.g. slides), in sorted order. */
+const EXTENSION = /\.[^./]*$/;
+
+/**
+ * Compare paths with their digit runs as numbers, so `Slide-8060.iwa` sorts
+ * before `Slide-10000.iwa` and `Slide-8060.iwa` before `Slide-8060-2.iwa`.
+ */
+export const compareComponentPaths = (a: string, b: string): number => {
+  // compare the stems, so a path that ends (".iwa") sorts before one that goes on ("-2.iwa")
+  const as = a.replace(EXTENSION, "").split(/(\d+)/);
+  const bs = b.replace(EXTENSION, "").split(/(\d+)/);
+  for (let i = 0; i < Math.min(as.length, bs.length); i++) {
+    const x = as[i]!;
+    const y = bs[i]!;
+    if (x === y) continue;
+    // split() puts the digit runs at odd indexes
+    if (i % 2 === 1) {
+      const n = x.replace(/^0+/, "");
+      const m = y.replace(/^0+/, "");
+      if (n.length !== m.length) return n.length - m.length;
+      if (n !== m) return n < m ? -1 : 1;
+      continue;
+    }
+    return x < y ? -1 : 1;
+  }
+  return as.length !== bs.length ? as.length - bs.length : a < b ? -1 : a > b ? 1 : 0;
+};
+
+/**
+ * The component paths matching a predicate (e.g. slides), in natural order
+ * (see {@link compareComponentPaths}). Component ids are not document order:
+ * that comes from the document's object graph.
+ */
 export const componentPaths = (
   bundle: IworkBundle,
   match: (name: string) => boolean
-): string[] => Object.keys(bundle.components).filter(match).sort();
+): string[] => Object.keys(bundle.components).filter(match).sort(compareComponentPaths);
 
 /**
  * Decode a single component's archived objects (none if it is absent). A

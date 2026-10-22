@@ -8,7 +8,7 @@ import { Codec, Keynote, Numbers, Pages } from "@thomasfosterau/effect-iwork";
 import * as Keynote from "@thomasfosterau/effect-iwork/keynote";
 ```
 
-Malformed input fails with a typed, positioned `Codec.IworkError` (`NotZip`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed`, `Io`) that names the component, object and byte offset; the readers wrap it in a `ParseError`. Only `Index/*.iwa` components are inflated, under entry-count and size limits (`limits`), and media is read on demand with `bundle.readEntry`. Pass `{ lenient: true }` to a reader to skip a component that fails to decode, with a logged warning. `Codec.openBundleDirectory` opens a package saved as a directory through the `FileSystem` service.
+Malformed input fails with a typed, positioned `Codec.IworkError` (`NotZip`, `NotIwork`, `LegacyIwork09Unsupported`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed`, `Io`) that names the component, object and byte offset; the readers wrap it in a `ParseError`. Only `Index/*.iwa` components are inflated, under entry-count and size limits (`limits`), and media is read on demand with `bundle.readEntry`. Pass `{ lenient: true }` to a reader to skip a component that fails to decode, with a logged warning. `Codec.openBundleDirectory` opens a package saved as a directory through the `FileSystem` service.
 
 Test fixtures are vendored from MIT-licensed projects; see `test/fixtures/ATTRIBUTION.md`.
 
