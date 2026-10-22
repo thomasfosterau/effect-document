@@ -4,7 +4,9 @@
  * Emits a minimal-but-valid WordprocessingML package: paragraphs and runs with
  * bold/italic/underline/strike/super/sub/small-caps, headings via paragraph
  * styles, hyperlinks (with relationships), bullet/ordered lists (via a small
- * numbering part) and tables.
+ * numbering part: one numbering instance per ordered list, so each restarts at
+ * its `start`; nested lists by `w:ilvl`), code blocks and tables. A styles
+ * part defines the Heading1-6, Code and TableGrid styles it refers to.
  */
 
 import { Effect, Layer } from "effect";
@@ -13,7 +15,7 @@ import {
   WriteError, type Writer,
 } from "@thomasfosterau/effect-document";
 import {
-  NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeXml, zipParts,
+  NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts,
 } from "../shared/index.js";
 import { Docx, type DocxFeature } from "./profile.js";
 
@@ -23,13 +25,20 @@ const CT_DOCUMENT =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 const CT_NUMBERING =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
+const CT_STYLES =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";
 const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
 const REL_OFFICE_DOCUMENT = NS_REL_DOC + "/officeDocument";
 const REL_HYPERLINK = NS_REL_DOC + "/hyperlink";
 const REL_NUMBERING = NS_REL_DOC + "/numbering";
+const REL_STYLES = NS_REL_DOC + "/styles";
 
+/** The shared bullet numbering instance; ordered lists each get their own. */
 const NUM_BULLET = 1;
-const NUM_ORDERED = 2;
+const ABSTRACT_BULLET = 0;
+const ABSTRACT_ORDERED = 1;
+/** WordprocessingML list levels run 0-8. */
+const MAX_ILVL = 8;
 
 // ============================================================================
 // Run rendering
@@ -44,9 +53,10 @@ interface Fmt {
   caps?: boolean;
 }
 
-/** Collects hyperlink relationships while rendering. */
+/** Collects hyperlink relationships and ordered-list numbering while rendering. */
 class RelCollector {
   private readonly entries: Array<{ id: string; url: string }> = [];
+  private readonly ordered: number[] = [];
   addHyperlink(url: string): string {
     const id = `rIdH${this.entries.length + 1}`;
     this.entries.push({ id, url });
@@ -54,6 +64,15 @@ class RelCollector {
   }
   get hyperlinks(): ReadonlyArray<{ id: string; url: string }> {
     return this.entries;
+  }
+  /** A fresh numbering instance for one ordered list, starting at `start`. */
+  addOrderedList(start: number): number {
+    this.ordered.push(start);
+    return NUM_BULLET + this.ordered.length;
+  }
+  /** The ordered-list instances as (numId, start). */
+  get orderedLists(): ReadonlyArray<{ numId: number; start: number }> {
+    return this.ordered.map((start, n) => ({ numId: NUM_BULLET + n + 1, start }));
   }
 }
 
@@ -68,8 +87,19 @@ const rPr = (f: Fmt): string => {
   return parts.length > 0 ? `<w:rPr>${parts.join("")}</w:rPr>` : "";
 };
 
-const run = (text: string, f: Fmt): string =>
-  `<w:r>${rPr(f)}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+/** Run content for text: `\n` becomes `w:br` and `\t` becomes `w:tab`. */
+const runContent = (text: string): string =>
+  text
+    .split(/(\r\n|\n|\r|\t)/)
+    .map((part) =>
+      part === "\t" ? "<w:tab/>"
+      : part === "\n" || part === "\r\n" || part === "\r" ? "<w:br/>"
+      : part === "" ? ""
+      : `<w:t xml:space="preserve">${escapeXml(part)}</w:t>`
+    )
+    .join("");
+
+const run = (text: string, f: Fmt): string => `<w:r>${rPr(f)}${runContent(text)}</w:r>`;
 
 const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt, rel: RelCollector): string =>
   ns.map((n) => inlineToRuns(n, f, rel)).join("");
@@ -87,10 +117,16 @@ const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
     case "Subscript": return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
     case "SmallCaps": return inlineRuns(n.content, { ...f, caps: true }, rel);
     case "Code": return run(n.text, f);
-    case "Quoted": return inlineRuns(n.content, f, rel);
+    case "Quoted": {
+      const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
+      return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
+    }
     case "Link": {
-      const id = rel.addHyperlink(n.target.url);
-      return `<w:hyperlink r:id="${id}">${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
+      // "#name" links to a bookmark in this document; anything else is external.
+      const target = n.target.url.startsWith("#")
+        ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
+        : `r:id="${rel.addHyperlink(n.target.url)}"`;
+      return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
     }
     default: return "";
   }
@@ -100,18 +136,36 @@ const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
 // Block rendering
 // ============================================================================
 
-const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
-  blocks.flatMap((b) =>
-    b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : []
-  );
+const listParagraph = (inlines: ReadonlyArray<Inline>, numId: number, ilvl: number, rel: RelCollector): string =>
+  `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(inlines, {}, rel)}</w:p>`;
 
-const listItem = (blocks: ReadonlyArray<Block>, numId: number, rel: RelCollector): string =>
-  `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(itemInlines(blocks), {}, rel)}</w:p>`;
+/**
+ * Render a list. Each item's first paragraph carries the numbering; nested
+ * lists go one `w:ilvl` deeper, and any other blocks in the item follow as
+ * ordinary blocks rather than being dropped.
+ */
+const renderList = (
+  items: ReadonlyArray<ReadonlyArray<Block>>,
+  numId: number,
+  ilvl: number,
+  rel: RelCollector
+): string =>
+  items
+    .map((item) => {
+      const [first, ...rest] = item;
+      const lead =
+        first !== undefined && (first._tag === "Para" || first._tag === "Plain" || first._tag === "Header");
+      return (
+        listParagraph(lead ? first.content : [], numId, ilvl, rel) +
+        (lead ? rest : item).map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL))).join("")
+      );
+    })
+    .join("");
 
 const renderRow = (row: TableRow, isHeader: boolean, rel: RelCollector): string => {
   const cells = row.cells
     .map((c) => {
-      const inner = c.content.map((b) => renderBlock(b, rel)).join("") || "<w:p/>";
+      const inner = c.content.map((b) => renderBlock(b, rel, 0)).join("") || "<w:p/>";
       return `<w:tc><w:tcPr/>${inner}</w:tc>`;
     })
     .join("");
@@ -129,7 +183,8 @@ const renderTable = (t: Table, rel: RelCollector): string => {
   return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>${grid}${rows}</w:tbl>`;
 };
 
-const renderBlock = (b: Block, rel: RelCollector): string => {
+/** `ilvl`: the list level a nested list here would take (0 outside lists). */
+const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
   switch (b._tag) {
     case "Para": case "Plain":
       return `<w:p>${inlineRuns(b.content, {}, rel)}</w:p>`;
@@ -138,15 +193,15 @@ const renderBlock = (b: Block, rel: RelCollector): string => {
     case "HorizontalRule":
       return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
     case "BulletList":
-      return b.items.map((it) => listItem(it, NUM_BULLET, rel)).join("");
+      return renderList(b.items, NUM_BULLET, ilvl, rel);
     case "OrderedList":
-      return b.items.map((it) => listItem(it, NUM_ORDERED, rel)).join("");
+      return renderList(b.items, rel.addOrderedList(b.start ?? 1), ilvl, rel);
     case "BlockQuote": case "Div":
-      return b.content.map((x) => renderBlock(x, rel)).join("");
+      return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
     case "LineBlock":
       return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
     case "CodeBlock":
-      return `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(b.text)}</w:t></w:r></w:p>`;
+      return `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(b.text)}</w:r></w:p>`;
     case "Table":
       return renderTable(b, rel);
     default:
@@ -164,14 +219,52 @@ const documentXml = (body: string): string =>
   `<w:body>${body}<w:sectPr/></w:body>` +
   `</w:document>`;
 
-const numberingXml = (): string =>
+const levels = (fmt: (ilvl: number) => string): string =>
+  Array.from({ length: MAX_ILVL + 1 }, (_, ilvl) =>
+    `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/>${fmt(ilvl)}` +
+    `<w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr></w:lvl>`
+  ).join("");
+
+const numberingXml = (rel: RelCollector): string =>
   XML_DECL +
   `<w:numbering xmlns:w="${NS_W}">` +
-  `<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="&#8226;"/></w:lvl></w:abstractNum>` +
-  `<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>` +
-  `<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>` +
-  `<w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>` +
+  `<w:abstractNum w:abstractNumId="${ABSTRACT_BULLET}">` +
+  levels(() => `<w:numFmt w:val="bullet"/><w:lvlText w:val="&#8226;"/>`) +
+  `</w:abstractNum>` +
+  `<w:abstractNum w:abstractNumId="${ABSTRACT_ORDERED}">` +
+  levels((ilvl) => `<w:numFmt w:val="decimal"/><w:lvlText w:val="%${ilvl + 1}."/>`) +
+  `</w:abstractNum>` +
+  `<w:num w:numId="${NUM_BULLET}"><w:abstractNumId w:val="${ABSTRACT_BULLET}"/></w:num>` +
+  rel.orderedLists
+    .map(
+      ({ numId, start }) =>
+        `<w:num w:numId="${numId}"><w:abstractNumId w:val="${ABSTRACT_ORDERED}"/>` +
+        `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num>`
+    )
+    .join("") +
   `</w:numbering>`;
+
+const headingStyle = (level: number): string =>
+  `<w:style w:type="paragraph" w:styleId="Heading${level}"><w:name w:val="heading ${level}"/>` +
+  `<w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>` +
+  `<w:pPr><w:keepNext/><w:spacing w:before="240" w:after="60"/><w:outlineLvl w:val="${level - 1}"/></w:pPr>` +
+  `<w:rPr><w:b/><w:sz w:val="${[32, 28, 26, 24, 22, 22][level - 1]}"/></w:rPr></w:style>`;
+
+const stylesXml = (): string =>
+  XML_DECL +
+  `<w:styles xmlns:w="${NS_W}">` +
+  `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>` +
+  [1, 2, 3, 4, 5, 6].map(headingStyle).join("") +
+  `<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/>` +
+  `<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="20"/></w:rPr></w:style>` +
+  `<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/></w:style>` +
+  `<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/>` +
+  `<w:tblPr><w:tblBorders>` +
+  ["top", "left", "bottom", "right", "insideH", "insideV"]
+    .map((side) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="auto"/>`)
+    .join("") +
+  `</w:tblBorders></w:tblPr></w:style>` +
+  `</w:styles>`;
 
 const contentTypesXml = (): string =>
   XML_DECL +
@@ -180,6 +273,7 @@ const contentTypesXml = (): string =>
   `<Default Extension="xml" ContentType="application/xml"/>` +
   `<Override PartName="/word/document.xml" ContentType="${CT_DOCUMENT}"/>` +
   `<Override PartName="/word/numbering.xml" ContentType="${CT_NUMBERING}"/>` +
+  `<Override PartName="/word/styles.xml" ContentType="${CT_STYLES}"/>` +
   `</Types>`;
 
 const rootRelsXml = (): string =>
@@ -192,10 +286,11 @@ const documentRelsXml = (rel: RelCollector): string =>
   XML_DECL +
   `<Relationships xmlns="${NS_PKG_REL}">` +
   `<Relationship Id="rIdNum" Type="${REL_NUMBERING}" Target="numbering.xml"/>` +
+  `<Relationship Id="rIdStyles" Type="${REL_STYLES}" Target="styles.xml"/>` +
   rel.hyperlinks
     .map(
       (h) =>
-        `<Relationship Id="${h.id}" Type="${REL_HYPERLINK}" Target="${escapeXml(h.url)}" TargetMode="External"/>`
+        `<Relationship Id="${h.id}" Type="${REL_HYPERLINK}" Target="${escapeAttr(h.url)}" TargetMode="External"/>`
     )
     .join("") +
   `</Relationships>`;
@@ -215,12 +310,13 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
     Effect.try({
       try: () => {
         const rel = new RelCollector();
-        const body = doc.blocks.map((b) => renderBlock(b, rel)).join("");
+        const body = doc.blocks.map((b) => renderBlock(b, rel, 0)).join("");
         const files: Record<string, string> = {
           "[Content_Types].xml": contentTypesXml(),
           "_rels/.rels": rootRelsXml(),
           "word/document.xml": documentXml(body),
-          "word/numbering.xml": numberingXml(),
+          "word/numbering.xml": numberingXml(rel),
+          "word/styles.xml": stylesXml(),
           "word/_rels/document.xml.rels": documentRelsXml(rel),
         };
         return bytes(zipParts(files, level));
