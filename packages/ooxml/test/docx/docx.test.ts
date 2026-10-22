@@ -7,6 +7,7 @@ import {
   blocksToText,
   bulletList,
   bytes,
+  DEFAULT_MAX_NESTING_DEPTH,
   codeBlock,
   document,
   OrderedList,
@@ -114,25 +115,38 @@ describe("DOCX nesting limit (#110)", () => {
     expect(blocksToText(back.blocks)).toBe("x");
   });
 
-  test("the default limit refuses very deep nesting", () => {
-    // built as XML, not through the (recursive) writer, whose 1500-deep
-    // rendering would exhaust Node's stack before the reader is ever reached
+  /**
+   * `depth` nested single-cell tables around a paragraph, built as XML rather
+   * than through the (recursive) writer, whose rendering of a very deep
+   * document would exhaust Node's stack before the reader is ever reached.
+   */
+  const deepTables = (depth: number) => {
     const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
     const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
     const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    const depth = 1500;
     const body =
       "<w:tbl><w:tr><w:tc>".repeat(depth) +
       "<w:p><w:r><w:t>x</w:t></w:r></w:p>" +
       "</w:tc></w:tr></w:tbl>".repeat(depth);
-    const deep = zipSync({
-      "_rels/.rels": strToU8(
-        `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
-      ),
-      "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
-    });
-    const error = run(Effect.flip(makeDocxReader().read(bytes(deep))));
+    return bytes(
+      zipSync({
+        "_rels/.rels": strToU8(
+          `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
+        ),
+        "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
+      }),
+    );
+  };
+
+  test("the default limit refuses very deep nesting", () => {
+    const error = run(Effect.flip(makeDocxReader().read(deepTables(1500))));
     expect(error).toMatchObject({ code: "LimitExceeded" });
+  });
+
+  test("nesting exactly at the default limit reads without exhausting the stack", () => {
+    // 998 tables, their innermost paragraph and its text: 1000 levels
+    const back = run(makeDocxReader().read(deepTables(DEFAULT_MAX_NESTING_DEPTH - 2)));
+    expect(blocksToText(back.blocks)).toBe("x");
   });
 });
 

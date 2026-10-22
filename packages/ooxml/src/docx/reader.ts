@@ -435,9 +435,10 @@ const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
   for (const tr of tableRows(tbl)) {
     const trPr = findChild(tr, "trPr");
     const isHeader = trPr !== undefined && findChild(trPr, "tblHeader") !== undefined;
-    const cells = rowCells(tr).map(
-      (tc) => new TableCell({ content: bodyToBlocks(tc, ctx, inner) }),
-    );
+    // a loop rather than `map`, to spend two fewer stack frames per nesting level
+    const cells: TableCell[] = [];
+    for (const tc of rowCells(tr))
+      cells.push(new TableCell({ content: bodyToBlocks(tc, ctx, inner) }));
     (isHeader ? head : body).push(new TableRow({ cells }));
   }
   return new Table({ colSpecs: [], head, body, foot: [] });
