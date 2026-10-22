@@ -6,7 +6,9 @@
  * character formatting through groups (`{ }`), turns `\par` into paragraphs
  * and formatted text into runs (Str wrapped in Emph/Strong/Underline/
  * Strikeout), and skips destination groups it doesn't model (font/colour
- * tables, stylesheets, footnotes, field instructions, `\*` destinations).
+ * tables, footnotes, field instructions, `\*` destinations). From the
+ * stylesheet it reads only which paragraph styles are headings, so `\sN` and
+ * `\outlinelevelN` paragraphs become `Header`s.
  *
  * Bytes (`\'hh` escapes, and raw 8-bit bytes in `Bytes` input) are decoded
  * through the code page of the active font's `\fcharset` / `\cpg`, falling
@@ -17,7 +19,7 @@
 import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
 import { Effect, Layer, Result } from "effect";
 import {
-  type Block, type Content, type Doc, document, Emph, type Inline, LineBreak, makeReaderTag, Para,
+  type Block, type Content, type Doc, document, Emph, Header, type Inline, LineBreak, makeReaderTag, Para,
   ParseError, type Reader, Str, Strikeout, Strong, trustAs, Underline,
 } from "@thomasfosterau/effect-document";
 import { Rtf, type RtfFeature } from "./profile.js";
@@ -41,7 +43,20 @@ interface State extends Fmt {
   uc: number;
   /** Inside the font table, where `\fN` defines a font instead of selecting one. */
   fontTable: boolean;
+  /** Inside the stylesheet: the paragraph style (`\sN`) being defined, if any. */
+  styleDef: number | undefined;
 }
+
+/** A paragraph style, as far as headings need it. */
+interface Style {
+  name: string;
+  outlineLevel: number | undefined;
+  bold: boolean;
+}
+
+/** A heading level (1-6) from an outline level (0-8; 9 is body text). */
+const headingLevel = (outlineLevel: number | undefined): number | undefined =>
+  outlineLevel === undefined || outlineLevel < 0 || outlineLevel > 8 ? undefined : Math.min(6, outlineLevel + 1);
 
 const plainFmt: Fmt = { bold: false, italic: false, underline: false, strike: false };
 
@@ -245,9 +260,28 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
 
   const stack: State[] = [{
     ...plainFmt, skip: false, hidden: false, deleted: false, font: undefined, uc: 1, fontTable: false,
+    styleDef: undefined,
   }];
   const top = (): State => stack[stack.length - 1]!;
   const visible = (): boolean => !top().skip && !top().hidden && !top().deleted;
+
+  // paragraph properties, kept until \pard: the style (\sN) and outline level
+  const styles = new Map<number, Style>();
+  let paraStyle = 0;
+  let paraOutline: number | undefined;
+  const styleOf = (n: number): Style => {
+    let style = styles.get(n);
+    if (style === undefined) styles.set(n, (style = { name: "", outlineLevel: undefined, bold: false }));
+    return style;
+  };
+  /** The heading level of the current paragraph: its own outline level, else its style's. */
+  const paraHeading = (): number | undefined => {
+    if (paraOutline !== undefined) return headingLevel(paraOutline);
+    const style = styles.get(paraStyle);
+    if (style === undefined) return undefined;
+    const named = /^heading\s*([1-9])$/i.exec(style.name.replace(/;\s*$/, "").trim());
+    return headingLevel(style.outlineLevel ?? (named ? Number(named[1]) - 1 : undefined));
+  };
 
   const codePage = (): number => {
     const font = top().font ?? defaultFont;
@@ -266,14 +300,18 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     flushText();
     pendingCells = 0;
     if (para.length > 0) {
-      blocks.push(new Para({ content: para }));
+      const level = paraHeading();
+      blocks.push(level === undefined ? new Para({ content: para }) : new Header({ level, content: para }));
       para = [];
     }
   };
   const append = (s: string): void => {
-    const fmt = top();
+    // a heading style's own bold (repeated inline for readers that ignore styles) isn't Strong
+    const styleBold = paraHeading() !== undefined && styles.get(paraStyle)?.bold === true;
+    const state = top();
+    const fmt: Fmt = { bold: state.bold && !styleBold, italic: state.italic, underline: state.underline, strike: state.strike };
     if (pendingText !== "" && !fmtEq(fmt, pendingFmt)) flushText();
-    if (pendingText === "") pendingFmt = { bold: fmt.bold, italic: fmt.italic, underline: fmt.underline, strike: fmt.strike };
+    if (pendingText === "") pendingFmt = fmt;
     pendingText += s;
   };
   /** Write the tabs for cells that ended before this content. */
@@ -314,6 +352,17 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     const on = param !== "0";
     const n = param === "" ? undefined : Number(param);
     const state = top();
+    if (state.styleDef !== undefined || word === "stylesheet") {
+      switch (word) {
+        case "stylesheet": state.skip = true; state.styleDef = 0; break;
+        case "s": state.styleDef = n ?? 0; break;
+        // character, table and section styles are not paragraph styles
+        case "cs": case "ts": case "ds": state.styleDef = -1; break;
+        case "outlinelevel": styleOf(state.styleDef!).outlineLevel = n ?? 0; break;
+        case "b": styleOf(state.styleDef!).bold = on; break;
+      }
+      return 0;
+    }
     if (state.fontTable) {
       if (word === "f") fontDef = n;
       else if ((word === "fcharset" || word === "cpg") && fontDef !== undefined && n !== undefined) {
@@ -340,7 +389,10 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
         if (visible()) { flushBytes(); pendingCells++; }
         break;
       case "row": case "nestrow": if (!state.skip) flushPara(); break;
-      case "pard": case "sectd": break; // no paragraph or section properties are modelled
+      case "pard": paraStyle = 0; paraOutline = undefined; break; // char flags persist
+      case "sectd": break; // no section properties are modelled
+      case "s": paraStyle = n ?? 0; break;
+      case "outlinelevel": paraOutline = n ?? 0; break;
       case "plain":
         Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
         break;
@@ -395,6 +447,12 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
         fallback -= n;
       }
       if (text === "") continue;
+      // a style's name, inside the stylesheet
+      const def = top().styleDef;
+      if (def !== undefined) {
+        styleOf(def).name += text;
+        continue;
+      }
       // a double-byte character's trail byte may be written literally: `\'83e`
       if (awaitingTrailByte()) {
         pushByte(text.charCodeAt(0));

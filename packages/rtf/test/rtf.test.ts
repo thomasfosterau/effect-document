@@ -4,7 +4,7 @@ import {
   type Block, blocksToText, bytes, type Content, contentToText, document, emph, type FeaturesOf,
   header, para, str, strong, text, trustAs,
 } from "@thomasfosterau/effect-document";
-import { Rtf, makeRtfReader, makeRtfWriter } from "../src/index.js";
+import { Rtf, makeRtfReader, makeRtfWriter, type RtfWriterOptions } from "../src/index.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type RtfF = FeaturesOf<typeof Rtf>;
@@ -33,6 +33,45 @@ describe("RTF writer", () => {
     const out = contentToText(run(makeRtfWriter().write(doc([para([str("a{b}\\c")])]))));
     expect(out).toContain("a\\{b\\}\\\\c");
   });
+
+  const write = (blocks: ReadonlyArray<Block>, options?: RtfWriterOptions): string =>
+    contentToText(run(makeRtfWriter(options).write(doc(blocks))));
+
+  test("astral characters are written as a signed surrogate pair, and round-trip", () => {
+    const out = write([para([str("a\u{1f600}b￿")])]);
+    expect(out).toContain("a\\u-10179?\\u-8704?b\\u-1?");
+    const back = run(makeRtfReader().read(text(out)));
+    expect(blocksToText(back.blocks)).toBe("a\u{1f600}b￿");
+  });
+
+  test("control characters are escaped as \\uN, not passed through raw", () => {
+    const out = write([para([str("a\rb\u0001c\u007f")])]);
+    expect(out).toContain("a\\u13?b\\u1?c\\u127?");
+    expect(blocksToText(run(makeRtfReader().read(text(out))).blocks)).toBe("a\rb\u0001c\u007f");
+  });
+
+  test("the header declares the code page, \\uc1, a font table, colour table and stylesheet", () => {
+    const out = write([para([str("x")])]);
+    expect(out.startsWith("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1")).toBe(true);
+    expect(out).toContain("{\\fonttbl{\\f0\\fswiss\\fcharset0 Helvetica;}{\\f1\\fmodern\\fcharset0 Courier New;}}");
+    expect(out).toContain("{\\colortbl;}");
+    expect(out).toContain("{\\s1\\outlinelevel0\\b\\fs36\\sbasedon0\\snext0 heading 1;}");
+  });
+
+  test("headings use their heading style", () => {
+    expect(write([header(2, [str("H")])])).toContain("\\pard\\s2\\outlinelevel1\\b\\fs32 H\\b0\\fs24\\par");
+  });
+
+  test("options: line ending, default font and size, paper size and margins", () => {
+    const out = write([para([str("x")]), para([str("y")])], {
+      lineEnding: "\r\n", font: "Times New Roman", fontSize: 11,
+      paperWidth: 11906, paperHeight: 16838, marginLeft: 1440, marginRight: 1440, marginTop: 720, marginBottom: 720,
+    });
+    expect(out).toContain("{\\f0\\fswiss\\fcharset0 Times New Roman;}");
+    expect(out).toContain("\\paperw11906\\paperh16838\\margl1440\\margr1440\\margt720\\margb720\\f0\\fs22");
+    expect(out).toContain("\\pard x\\par\r\n\\pard y\\par\r\n");
+    expect(out.replaceAll("\r\n", "")).not.toContain("\n");
+  });
 });
 
 describe("RTF reader", () => {
@@ -53,11 +92,20 @@ describe("RTF reader", () => {
     expect(Rtf.is(back)).toBe(true);
   });
 
-  test("headings become bold paragraphs (RTF has no semantic headings)", () => {
-    const rtf = run(makeRtfWriter().write(doc([header(1, [str("Title")])])));
-    const back = run(makeRtfReader().read(rtf));
-    expect(back.blocks[0]?._tag).toBe("Para");
-    expect(blocksToText(back.blocks)).toBe("Title");
+  test("headings round-trip through heading styles", () => {
+    const input = doc([header(1, [str("Title")]), header(3, [str("Sub")]), para([str("body")])]);
+    const back = run(makeRtfReader().read(run(makeRtfWriter().write(input))));
+    expect(back.blocks).toEqual(input.blocks);
+    expect(Rtf.is(back)).toBe(true);
+  });
+
+  test("\\outlinelevelN and heading-named styles are read as headings, until \\pard", () => {
+    const styled = "{\\rtf1{\\stylesheet{\\s0 Normal;}{\\*\\cs10 heading 9;}{\\s2\\b Heading 2;}}"
+      + "\\pard\\s2\\b Named\\b0\\par Still\\par\\pard\\outlinelevel3 Outline\\par\\pard Body\\par}";
+    const back = run(makeRtfReader().read(text(styled)));
+    expect(back.blocks.map((b) => (b._tag === "Header" ? `h${b.level}` : b._tag))).toEqual(["h2", "h2", "h4", "Para"]);
+    // the style's own bold is not Strong
+    expect(back.blocks[0]).toEqual(header(2, [str("Named")]));
   });
 
   test("skips destination groups (font/colour tables)", () => {
