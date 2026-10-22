@@ -21,12 +21,20 @@ import {
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 import { parseA1, parseA1Range } from "./a1.js";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
+import { translateFormula } from "./formula.js";
 import { findChild, findChildren, getAttr, parseXml, type XmlElement } from "./xml.js";
 
 export type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
 
 const REL_OFFICE_DOCUMENT_SUFFIX = "/officeDocument";
 const REL_WORKSHEET_SUFFIX = "/worksheet";
+/** Sheet kinds without a cell grid, by relationship-type suffix. */
+const NON_GRID_SHEET_KINDS: ReadonlyArray<readonly [suffix: string, kind: string]> = [
+  ["/chartsheet", "chartsheet"],
+  ["/dialogsheet", "dialogsheet"],
+  ["/xlMacrosheet", "macrosheet"],
+  ["/xlIntlMacrosheet", "macrosheet"],
+];
 const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 
 export interface XlsxReaderOptions {
@@ -121,35 +129,60 @@ const parseWorksheetRows = (
   const sheetData = findChild(root, "sheetData");
   if (sheetData === undefined) return { _tag: "Grid", rows: [] };
 
+  // Rows and cells without an `r` attribute follow the previous one.
+  const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> = [];
+  let rowIndex = -1;
+  for (const rowEl of findChildren(sheetData, "row")) {
+    const rAttr = rowEl.attrs["r"];
+    rowIndex = rAttr !== undefined ? Number.parseInt(rAttr, 10) - 1 : rowIndex + 1;
+    let colIndex = -1;
+    for (const cellEl of findChildren(rowEl, "c")) {
+      const ref = cellEl.attrs["r"];
+      const parsed = ref === undefined ? null : parseA1(ref);
+      colIndex = parsed === null ? colIndex + 1 : parsed.col;
+      const row = parsed === null ? rowIndex : parsed.row;
+      if (Number.isSafeInteger(row) && row >= 0) positioned.push({ el: cellEl, row, col: colIndex });
+    }
+  }
+
+  // Shared formulas keep their text on the master cell only.
+  const sharedMasters = new Map<string, { formula: string; row: number; col: number }>();
+  for (const { el, row, col } of positioned) {
+    const f = findChild(el, "f");
+    const si = f?.attrs["si"];
+    if (f !== undefined && f.attrs["t"] === "shared" && si !== undefined && f.text !== "") {
+      if (!sharedMasters.has(si)) sharedMasters.set(si, { formula: f.text, row, col });
+    }
+  }
+
   // Only cells holding a value are kept, so this map is bounded by the input.
   const cellMap = new Map<number, Map<number, SheetCell>>();
   let maxRow = -1;
   let maxCol = -1;
 
-  for (const [rowOrdinal, rowEl] of findChildren(sheetData, "row").entries()) {
-    const rAttr = rowEl.attrs["r"];
-    const rowIndex = rAttr !== undefined ? Number.parseInt(rAttr, 10) - 1 : rowOrdinal;
+  for (const { el, row, col } of positioned) {
+    const f = findChild(el, "f");
+    const master =
+      f !== undefined && f.attrs["t"] === "shared" && f.text === ""
+        ? sharedMasters.get(f.attrs["si"] ?? "")
+        : undefined;
+    const formula =
+      master === undefined
+        ? undefined
+        : translateFormula(master.formula, row - master.row, col - master.col);
 
-    for (const [colOrdinal, cellEl] of findChildren(rowEl, "c").entries()) {
-      const ref = cellEl.attrs["r"];
-      const parsed = ref === undefined ? null : parseA1(ref);
-      const colIndex = parsed === null ? colOrdinal : parsed.col;
-      const effectiveRow = parsed === null ? rowIndex : parsed.row;
-      if (!Number.isSafeInteger(effectiveRow) || effectiveRow < 0) continue;
+    const value = spreadsheetMlToCell(el, sharedStrings, formula);
+    if (value._tag === "CellBlank") continue;
 
-      const value = spreadsheetMlToCell(cellEl, sharedStrings);
-      if (value._tag === "CellBlank") continue;
-
-      let rowCells = cellMap.get(effectiveRow);
-      if (rowCells === undefined) {
-        rowCells = new Map<number, SheetCell>();
-        cellMap.set(effectiveRow, rowCells);
-      }
-      rowCells.set(colIndex, value);
-
-      maxRow = Math.max(maxRow, effectiveRow);
-      maxCol = Math.max(maxCol, colIndex);
+    let rowCells = cellMap.get(row);
+    if (rowCells === undefined) {
+      rowCells = new Map<number, SheetCell>();
+      cellMap.set(row, rowCells);
     }
+    rowCells.set(col, value);
+
+    maxRow = Math.max(maxRow, row);
+    maxCol = Math.max(maxCol, col);
   }
 
   if (maxRow < 0 || maxCol < 0) return { _tag: "Grid", rows: [] };
@@ -233,10 +266,22 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetF
       for (const sheetEl of sheetEntries) {
         const name = getAttr(sheetEl, "name") ?? `Sheet${worksheets.length + 1}`;
         const relId = getAttr(sheetEl, "id");
-        const target = relationships.find(
-          (rel) => rel.id === relId && rel.type.endsWith(REL_WORKSHEET_SUFFIX)
-        )?.target;
+        const rel = relationships.find((r) => r.id === relId);
 
+        if (rel !== undefined && !rel.type.endsWith(REL_WORKSHEET_SUFFIX)) {
+          // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
+          // their place and name as an empty sheet tagged with its kind.
+          const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
+          if (kind !== undefined) {
+            worksheets.push(
+              new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] })
+            );
+            continue;
+          }
+        }
+
+        const target =
+          rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
         if (target === undefined) {
           return yield* new ParseError({
             format: "xlsx",
