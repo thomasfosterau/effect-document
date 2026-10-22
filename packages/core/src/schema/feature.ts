@@ -81,19 +81,10 @@ export type DeckFeature =
   | "shape.placeholder";
 
 /** Cross-cutting attribute-facet features (which kinds of `Attributes` are allowed). */
-export type AttrFeature =
-  | "attr.id"
-  | "attr.classes"
-  | "attr.keyValue"
-  | "attr.style";
+export type AttrFeature = "attr.id" | "attr.classes" | "attr.keyValue" | "attr.style";
 
 /** Any capability the universal document schema can express. */
-export type Feature =
-  | InlineFeature
-  | BlockFeature
-  | SheetFeature
-  | DeckFeature
-  | AttrFeature;
+export type Feature = InlineFeature | BlockFeature | SheetFeature | DeckFeature | AttrFeature;
 
 // ============================================================================
 // Tag -> feature map
@@ -159,44 +150,98 @@ export const TAG_FEATURE = {
   Placeholder: "shape.placeholder",
 } as const satisfies Record<string, Feature>;
 
+/** Any document node whose tag {@link TAG_FEATURE} maps to a feature. */
 export type TaggedNode = { readonly _tag: keyof typeof TAG_FEATURE };
 
+/** A by-name view of {@link TAG_FEATURE} for looking up arbitrary tags. */
+interface TagFeatureLookup {
+  readonly [tag: string]: Feature | undefined;
+}
+
+const tagFeatureLookup: TagFeatureLookup = TAG_FEATURE;
+
 /** The feature represented by a node's tag, if the tag is mapped. */
-export const featureOfTag = (tag: string): Feature | undefined =>
-  (TAG_FEATURE as Record<string, Feature>)[tag];
+export const featureOfTag = (tag: string): Feature | undefined => tagFeatureLookup[tag];
 
 // ============================================================================
 // Feature groups (handy when assembling profiles)
 // ============================================================================
 
+/** Every inline feature, for assembling profiles. */
 export const ALL_INLINE_FEATURES: ReadonlyArray<InlineFeature> = [
-  "inline.str", "inline.space", "inline.softBreak", "inline.lineBreak",
-  "inline.emph", "inline.strong", "inline.underline", "inline.strikeout",
-  "inline.superscript", "inline.subscript", "inline.smallCaps", "inline.quoted",
-  "inline.cite", "inline.code", "inline.math", "inline.rawInline",
-  "inline.link", "inline.image", "inline.note", "inline.span",
+  "inline.str",
+  "inline.space",
+  "inline.softBreak",
+  "inline.lineBreak",
+  "inline.emph",
+  "inline.strong",
+  "inline.underline",
+  "inline.strikeout",
+  "inline.superscript",
+  "inline.subscript",
+  "inline.smallCaps",
+  "inline.quoted",
+  "inline.cite",
+  "inline.code",
+  "inline.math",
+  "inline.rawInline",
+  "inline.link",
+  "inline.image",
+  "inline.note",
+  "inline.span",
 ];
 
+/** Every prose block feature, for assembling profiles. */
 export const ALL_BLOCK_FEATURES: ReadonlyArray<BlockFeature> = [
-  "block.plain", "block.para", "block.lineBlock", "block.codeBlock",
-  "block.rawBlock", "block.blockQuote", "block.orderedList", "block.bulletList",
-  "block.definitionList", "block.header", "block.horizontalRule", "block.figure",
-  "block.div", "block.table",
+  "block.plain",
+  "block.para",
+  "block.lineBlock",
+  "block.codeBlock",
+  "block.rawBlock",
+  "block.blockQuote",
+  "block.orderedList",
+  "block.bulletList",
+  "block.definitionList",
+  "block.header",
+  "block.horizontalRule",
+  "block.figure",
+  "block.div",
+  "block.table",
 ];
 
+/** Every spreadsheet feature (worksheets and cell types), for assembling profiles. */
 export const ALL_SHEET_FEATURES: ReadonlyArray<SheetFeature> = [
-  "sheet.worksheet", "sheet.multiple", "sheet.merges", "sheet.columns",
-  "cell.text", "cell.number", "cell.boolean", "cell.date", "cell.error",
-  "cell.blank", "cell.formula", "cell.richText", "cell.style",
+  "sheet.worksheet",
+  "sheet.multiple",
+  "sheet.merges",
+  "sheet.columns",
+  "cell.text",
+  "cell.number",
+  "cell.boolean",
+  "cell.date",
+  "cell.error",
+  "cell.blank",
+  "cell.formula",
+  "cell.richText",
+  "cell.style",
 ];
 
+/** Every presentation feature (slide shows and shapes), for assembling profiles. */
 export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
-  "deck.slideShow", "deck.notes", "shape.textBox", "shape.picture",
-  "shape.table", "shape.placeholder",
+  "deck.slideShow",
+  "deck.notes",
+  "shape.textBox",
+  "shape.picture",
+  "shape.table",
+  "shape.placeholder",
 ];
 
+/** Every attribute facet feature, for assembling profiles. */
 export const ALL_ATTR_FEATURES: ReadonlyArray<AttrFeature> = [
-  "attr.id", "attr.classes", "attr.keyValue", "attr.style",
+  "attr.id",
+  "attr.classes",
+  "attr.keyValue",
+  "attr.style",
 ];
 
 /** Every feature in the schema - the maximal ("Full") profile's allow-set. */

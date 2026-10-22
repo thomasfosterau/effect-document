@@ -1,49 +1,56 @@
 {
+  "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-rtf",
   "version": "0.0.0",
   "description": "Rich Text Format reader and writer for effect-document",
-  "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
+  "keywords": [
+    "document",
+    "effect",
+    "rtf"
+  ],
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/rtf#readme",
+  "bugs": {
+    "url": "https://github.com/thomasfosterau/effect-document/issues"
+  },
+  "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/rtf"
   },
   "files": [
-    "src",
     "dist",
     "README.md",
     "LICENSE"
   ],
-  "scripts": {
-    "build": "bun build src/index.ts --root src --outdir dist --target node --format esm --packages external",
-    "test": "bun test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thomasfosterau/effect-document.git",
-    "directory": "packages/rtf"
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "keywords": [
-    "effect",
-    "document",
-    "rtf"
-  ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
-  "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
-    "@thomasfosterau/effect-parse": "^0.1.0"
+    "@thomasfosterau/effect-document": "workspace:^",
+    "@thomasfosterau/effect-parse": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "catalog:peers"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

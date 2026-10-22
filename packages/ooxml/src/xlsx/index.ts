@@ -10,23 +10,24 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Xlsx, type XlsxFeature, XlsxRead, type XlsxReadFeature } from "./profile.js";
-import { makeXlsxReader, type XlsxReaderOptions } from "./reader.js";
-import { makeXlsxWriter, type XlsxWriterOptions } from "./writer.js";
+import { Xlsx, type XlsxFeature, XlsxRead, type XlsxReadFeature } from "./profile.ts";
+import { makeXlsxReader, type XlsxReaderOptions } from "./reader.ts";
+import { makeXlsxWriter, type XlsxWriterOptions } from "./writer.ts";
 
-export * from "./a1.js";
-export * from "./xml.js";
-export * from "./cellTypes.js";
-export * from "./profile.js";
-export * from "./reader.js";
-export * from "./writer.js";
+export * from "./a1.ts";
+export * from "./xml.ts";
+export * from "./cellTypes.ts";
+export * from "./profile.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
 
 /** The XLSX (write) profile: what survives a write -> read round trip. */
 export const profile = Xlsx;
 
+/** Options for the XLSX format bundle: its reader's and writer's options. */
 export interface XlsxFormatOptions {
-  readonly reader?: XlsxReaderOptions;
-  readonly writer?: XlsxWriterOptions;
+  readonly reader?: XlsxReaderOptions | undefined;
+  readonly writer?: XlsxWriterOptions | undefined;
 }
 
 /** Create an XLSX Format bundle with custom reader/writer options. */

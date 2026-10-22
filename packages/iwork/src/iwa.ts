@@ -8,9 +8,9 @@
  */
 
 import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
-import { Result } from "effect";
-import { fromParseError, isIworkError, shiftOffset } from "./errors.js";
-import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.js";
+import * as Result from "effect/Result";
+import { fromParseError, rethrowing, shiftOffset, toIworkError } from "./errors.ts";
+import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.ts";
 
 const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   let total = 0;
@@ -27,17 +27,18 @@ const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 /** One chunk: a 0x00 type byte, a 3-byte little-endian length, then that many bytes. */
 const chunkBody = Parser.preceded(
   Token.literal(new Uint8Array([0x00])).pipe(Parser.expected("chunk type 0x00")),
-  Parser.cut(Binary.lengthTake(Binary.leU24))
+  Parser.cut(Binary.lengthTake(Binary.leU24)),
 ).pipe(Parser.context("IWA chunk"));
 
 const chunks = Parser.compile(Parser.repeat(chunkBody));
 
+/** Options for {@link dechunk}: the limit on one `.iwa`'s decompressed size. */
 export interface DechunkOptions {
   /**
    * The most decompressed bytes one `.iwa` may produce, across all its chunks.
    * Defaults to {@link DEFAULT_MAX_STREAM_LENGTH}.
    */
-  readonly maxLength?: number;
+  readonly maxLength?: number | undefined;
 }
 
 /** The default {@link DechunkOptions.maxLength}: 256 MiB. */
@@ -58,12 +59,13 @@ export const dechunk = (data: Uint8Array, options?: DechunkOptions): Uint8Array 
     // each block is a view into `data`, so its offset is recoverable for errors;
     // the block limit shrinks as the stream fills, capping the whole stream
     const at = block.byteOffset - data.byteOffset;
-    let out: Uint8Array;
-    try {
-      out = decompressBlock(block, { maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total) });
-    } catch (e) {
-      throw isIworkError(e) ? shiftOffset(e, at) : e;
-    }
+    const out = rethrowing(
+      () =>
+        decompressBlock(block, {
+          maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total),
+        }),
+      (e) => shiftOffset(toIworkError(e), at),
+    );
     total += out.length;
     blocks.push(out);
   }

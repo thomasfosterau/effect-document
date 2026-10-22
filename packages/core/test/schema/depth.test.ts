@@ -1,11 +1,30 @@
-import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import {
-  type Block, BlockQuote, Emph, type Inline, blocksNestingDepth, blocksToText, cellToText,
-  collectFeatures, document, inlinesToText, limitNestingDepth, narrow, nestingDepth, para,
-  Profiles, Str, table, TableShape, textBox, slide, slideShow, CellRichText,
+  type Block,
+  BlockQuote,
+  Emph,
+  type Inline,
+  blocksNestingDepth,
+  blocksToText,
+  cellToText,
+  collectFeatures,
+  document,
+  inlinesToText,
+  limitNestingDepth,
+  narrow,
+  nestingDepth,
+  para,
+  Profiles,
+  Str,
+  table,
+  TableShape,
+  textBox,
+  slide,
+  slideShow,
+  CellRichText,
   DEFAULT_MAX_NESTING_DEPTH,
-} from "../../src/index.js";
+} from "../../src/index.ts";
 
 const DEEP = 20_000;
 
@@ -41,7 +60,10 @@ describe("deep nesting (#110)", () => {
     const blocks: Block[] = [
       para([new Str({ text: "a" })]),
       table({ rows: [[[para([new Str({ text: "b" })])], [para([new Str({ text: "c" })])]]] }),
-      slideShow([slide([textBox([para([new Str({ text: "d" })]), para([new Str({ text: "e" })])])]), slide([])]),
+      slideShow([
+        slide([textBox([para([new Str({ text: "d" })]), para([new Str({ text: "e" })])])]),
+        slide([]),
+      ]),
     ];
     expect(blocksToText(blocks)).toBe("a\nb\tc\nd\ne\n\n");
   });

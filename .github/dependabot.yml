@@ -1,0 +1,117 @@
+# Dependabot version updates.
+#
+# Groups collect dependencies that MUST move together, so a lockstep set
+# arrives as one PR instead of several that each go red alone. Dependabot puts
+# a dependency in the FIRST group that matches it, so the groups run from
+# specific to general:
+#
+# - `toolchain`: `vite-plus` pins `oxlint`, `oxfmt`, `oxlint-tsgolint` and
+#   `vitest` exactly (the `vite` / `vitest` catalog entries and
+#   `@vitest/coverage-istanbul` must equal its pins), and `effect-tsgo patch`
+#   (the `prepare` script) matches the native `tsc` (`@typescript/native`)
+#   and `oxlint` by gitHead / version, hard-erroring on any pairing it has no
+#   artifact for. The TS6 JS compiler (`typescript`, an alias of
+#   `@typescript/typescript6`) and the Effect oxlint plugin, which runs inside
+#   that oxlint, move with them. Read the `components` table in
+#   node_modules/@effect/tsgo/dist/effect-tsgo.cjs before merging.
+# - `effect`: the Effect 4 line is a lockstep-versioned singleton set
+#   (`@effect/platform-node` peers on the exact `effect` version);
+#   `@effect/tsgo` belongs to the toolchain instead.
+# - `zip`: `fflate` is the ZIP / DEFLATE codec the OOXML, iWork and PDF
+#   packages share; `parse`: `@thomasfosterau/effect-parse` is the combinator
+#   library the CSV, OOXML, iWork and RTF readers are written against. One
+#   version of each across the packages.
+# - `example-runner` (`tsx`, plus `@effect/docgen` should it be added),
+#   `changesets`, `fallow`: tooling that moves as a unit.
+# - `minor-and-patch`: everything else, minor and patch only; a major of an
+#   ungrouped dependency arrives on its own.
+#
+# `cooldown` mirrors pnpm-workspace.yaml's `minimumReleaseAge` (1 day), with
+# the first-party `@thomasfosterau/*` packages exempt in both.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 1
+      exclude:
+        - "@thomasfosterau/*"
+    groups:
+      toolchain:
+        applies-to: version-updates
+        patterns:
+          - "vite-plus"
+          - "vite"
+          - "vitest"
+          - "@vitest/*"
+          - "oxlint"
+          - "oxfmt"
+          - "oxlint-tsgolint"
+          - "@effect/tsgo"
+          - "@typescript/native"
+          - "typescript"
+          - "@typescript/typescript6"
+          - "@mpsuesser/oxlint-plugin-effect"
+        update-types: ["major", "minor", "patch"]
+      effect:
+        applies-to: version-updates
+        patterns:
+          - "effect"
+          - "@effect/*"
+        exclude-patterns:
+          - "@effect/tsgo"
+          - "@effect/docgen"
+        update-types: ["major", "minor", "patch"]
+      zip:
+        applies-to: version-updates
+        patterns:
+          - "fflate"
+        update-types: ["major", "minor", "patch"]
+      parse:
+        applies-to: version-updates
+        patterns:
+          - "@thomasfosterau/effect-parse"
+        update-types: ["major", "minor", "patch"]
+      example-runner:
+        applies-to: version-updates
+        patterns:
+          - "@effect/docgen"
+          - "tsx"
+        update-types: ["major", "minor", "patch"]
+      changesets:
+        applies-to: version-updates
+        patterns:
+          - "@changesets/*"
+        update-types: ["major", "minor", "patch"]
+      fallow:
+        applies-to: version-updates
+        patterns:
+          - "fallow"
+        update-types: ["major", "minor", "patch"]
+      minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

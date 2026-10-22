@@ -13,6 +13,7 @@
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
 
+/** The features the DOCX profile allows, as a list. */
 export const docxFeatures = [
   "block.plain",
   "block.para",
@@ -38,4 +39,5 @@ export const docxFeatures = [
 /** The DOCX (WordprocessingML) profile. */
 export const Docx = defineProfile("docx", docxFeatures);
 
+/** The features the DOCX profile allows, as a type: the phantom of its documents. */
 export type DocxFeature = FeaturesOf<typeof Docx>;

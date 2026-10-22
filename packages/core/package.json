@@ -1,71 +1,70 @@
 {
+  "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-document",
   "version": "0.1.0",
   "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with the Reader/Writer/Format abstractions and lossy-aware conversion",
-  "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./schema": {
-      "types": "./src/schema/index.ts",
-      "bun": "./src/schema/index.ts",
-      "import": "./src/schema/index.ts",
-      "default": "./src/schema/index.ts"
-    },
-    "./profile": {
-      "types": "./src/profile/index.ts",
-      "bun": "./src/profile/index.ts",
-      "import": "./src/profile/index.ts",
-      "default": "./src/profile/index.ts"
-    },
-    "./profiles": {
-      "types": "./src/profile/profiles.ts",
-      "bun": "./src/profile/profiles.ts",
-      "import": "./src/profile/profiles.ts",
-      "default": "./src/profile/profiles.ts"
-    },
-    "./io": {
-      "types": "./src/io/index.ts",
-      "bun": "./src/io/index.ts",
-      "import": "./src/io/index.ts",
-      "default": "./src/io/index.ts"
-    }
+  "keywords": [
+    "converter",
+    "document",
+    "effect",
+    "pandoc",
+    "schema"
+  ],
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/thomasfosterau/effect-document/issues"
+  },
+  "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/core"
   },
   "files": [
-    "src",
     "dist",
     "README.md",
     "LICENSE"
   ],
-  "scripts": {
-    "build": "bun build src/index.ts src/schema/index.ts src/profile/index.ts src/profile/profiles.ts src/io/index.ts --root src --outdir dist --target node --format esm --packages external",
-    "test": "bun test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thomasfosterau/effect-document.git",
-    "directory": "packages/core"
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./profile": {
+      "types": "./dist/profile.d.ts",
+      "default": "./dist/profile.js"
+    },
+    "./profiles": {
+      "types": "./dist/profiles.d.ts",
+      "default": "./dist/profiles.js"
+    },
+    "./io": {
+      "types": "./dist/io.d.ts",
+      "default": "./dist/io.js"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "keywords": [
-    "effect",
-    "document",
-    "schema",
-    "pandoc",
-    "converter"
-  ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
-  "license": "MIT",
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:"
+  },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "catalog:peers"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -1,9 +1,27 @@
 {
-  "extends": "./tsconfig.base.json",
-  "include": [
-    "packages/*/src/**/*",
-    "packages/*/test/**/*",
-    "test/**/*",
-    "examples/**/*"
+  "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
+  "files": [],
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/csv"
+    },
+    {
+      "path": "packages/iwork"
+    },
+    {
+      "path": "packages/ooxml"
+    },
+    {
+      "path": "packages/pdf"
+    },
+    {
+      "path": "packages/rtf"
+    },
+    {
+      "path": "./tsconfig.test.json"
+    }
   ]
 }

@@ -7,24 +7,52 @@
  * the result is a structurally valid deck.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  type Block, bytes, type Content, type Doc, type Inline, makeWriterTag, type Shape, Slide,
-  TextBox, WriteError, type Writer,
+  type Block,
+  bytes,
+  type Content,
+  type Doc,
+  type Inline,
+  makeWriterTag,
+  type Shape,
+  Slide,
+  TextBox,
+  WriteError,
+  type Writer,
 } from "@thomasfosterau/effect-document";
-import { NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts } from "../shared/index.js";
 import {
-  NS_A, NS_P, REL_SLIDE, REL_SLIDE_MASTER, contentTypesXml, rootRelsXml,
-  slideLayoutRelsXml, slideLayoutXml, slideMasterRelsXml, slideMasterXml,
-  slideRelsXml, themeXml,
-} from "./parts.js";
-import { Pptx, type PptxFeature } from "./profile.js";
+  NS_PKG_REL,
+  NS_REL_DOC,
+  XML_DECL,
+  escapeAttr,
+  escapeXml,
+  zipParts,
+} from "../shared/index.ts";
+import {
+  NS_A,
+  NS_P,
+  REL_SLIDE,
+  REL_SLIDE_MASTER,
+  contentTypesXml,
+  rootRelsXml,
+  slideLayoutRelsXml,
+  slideLayoutXml,
+  slideMasterRelsXml,
+  slideMasterXml,
+  slideRelsXml,
+  themeXml,
+} from "./parts.ts";
+import { Pptx, type PptxFeature } from "./profile.ts";
 
 interface Fmt {
-  b?: boolean;
-  i?: boolean;
-  u?: boolean;
-  strike?: boolean;
+  b?: boolean | undefined;
+  i?: boolean | undefined;
+  u?: boolean | undefined;
+  strike?: boolean | undefined;
 }
 
 const aRun = (text: string, f: Fmt): string =>
@@ -34,15 +62,22 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt): string =>
   ns.map((n) => inlineToRuns(n, f)).join("");
 
 const inlineToRuns = (n: Inline, f: Fmt): string => {
-  switch (n._tag) {
-    case "Str": return aRun(n.text, f);
-    case "Space": case "SoftBreak": return aRun(" ", f);
-    case "LineBreak": return "<a:br/>";
-    case "Emph": return inlineRuns(n.content, { ...f, i: true });
-    case "Strong": return inlineRuns(n.content, { ...f, b: true });
-    case "Underline": return inlineRuns(n.content, { ...f, u: true });
-    case "Strikeout": return inlineRuns(n.content, { ...f, strike: true });
-    default: return "";
+  if (Predicate.isTagged(n, "Str")) {
+    return aRun(n.text, f);
+  } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
+    return aRun(" ", f);
+  } else if (Predicate.isTagged(n, "LineBreak")) {
+    return "<a:br/>";
+  } else if (Predicate.isTagged(n, "Emph")) {
+    return inlineRuns(n.content, { ...f, i: true });
+  } else if (Predicate.isTagged(n, "Strong")) {
+    return inlineRuns(n.content, { ...f, b: true });
+  } else if (Predicate.isTagged(n, "Underline")) {
+    return inlineRuns(n.content, { ...f, u: true });
+  } else if (Predicate.isTagged(n, "Strikeout")) {
+    return inlineRuns(n.content, { ...f, strike: true });
+  } else {
+    return "";
   }
 };
 
@@ -51,7 +86,11 @@ const aPara = (bullet: string, runs: string, lvl = 0): string =>
 
 const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
   blocks.flatMap((b) =>
-    b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : []
+    Predicate.isTagged(b, "Para") ||
+    Predicate.isTagged(b, "Plain") ||
+    Predicate.isTagged(b, "Header")
+      ? [...b.content]
+      : [],
   );
 
 const BULLET = '<a:buChar char="&#8226;"/>';
@@ -65,44 +104,46 @@ const MAX_LVL = 8;
  * whose text the reader takes as headers, so headers there need no bold.
  */
 const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
-  switch (b._tag) {
-    case "Para": case "Plain":
-      return aPara("<a:buNone/>", inlineRuns(b.content, {}));
-    case "Header":
-      return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
-    case "BulletList":
-    case "OrderedList": {
-      const bullet = b._tag === "BulletList" ? BULLET : AUTO_NUM;
-      return b.items
-        .map(
-          (it) =>
-            aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
-            it
-              .filter((x) => x._tag === "BulletList" || x._tag === "OrderedList")
-              .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
-              .join("")
-        )
-        .join("");
-    }
-    default:
-      return "";
+  if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain"))
+    return aPara("<a:buNone/>", inlineRuns(b.content, {}));
+  if (Predicate.isTagged(b, "Header"))
+    return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
+  if (Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")) {
+    const bullet = Predicate.isTagged(b, "BulletList") ? BULLET : AUTO_NUM;
+    return b.items
+      .map(
+        (it) =>
+          aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
+          it
+            .filter(
+              (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
+            )
+            .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
+            .join(""),
+      )
+      .join("");
   }
+  return "";
 };
 
 const shapeXml = (shape: Shape, idx: number): string => {
   const id = idx + 2; // id 1 is the group shape
   const y = 457200 + idx * 1100000;
-  const isPlaceholder = shape._tag === "Placeholder";
+  const isPlaceholder = Predicate.isTagged(shape, "Placeholder");
   const ph = isPlaceholder
     ? `<p:ph type="${escapeAttr(shape.placeholderType)}"${shape.idx !== undefined ? ` idx="${shape.idx}"` : ""}/>`
     : "";
-  const txBox = shape._tag === "TextBox" ? ' txBox="1"' : "";
-  const content = shape._tag === "Picture" ? [] : shape._tag === "TableShape" ? [] : shape.content;
+  const txBox = Predicate.isTagged(shape, "TextBox") ? ' txBox="1"' : "";
+  const content = Predicate.isTagged(shape, "Picture")
+    ? []
+    : Predicate.isTagged(shape, "TableShape")
+      ? []
+      : shape.content;
   const inTitle =
     isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
   const paras =
     content.map((b) => blockToParas(b, 0, inTitle)).join("") ||
-    '<a:p><a:pPr><a:buNone/></a:pPr></a:p>';
+    "<a:p><a:pPr><a:buNone/></a:pPr></a:p>";
   return (
     `<p:sp>` +
     `<p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr${txBox}/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
@@ -127,7 +168,10 @@ const presentationXml = (slideCount: number): string =>
   `<p:presentation xmlns:p="${NS_P}" xmlns:r="${NS_REL_DOC}" xmlns:a="${NS_A}">` +
   `<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst>` +
   `<p:sldIdLst>` +
-  Array.from({ length: slideCount }, (_, i) => `<p:sldId id="${256 + i}" r:id="rIdSlide${i + 1}"/>`).join("") +
+  Array.from(
+    { length: slideCount },
+    (_, i) => `<p:sldId id="${256 + i}" r:id="rIdSlide${i + 1}"/>`,
+  ).join("") +
   `</p:sldIdLst>` +
   `<p:sldSz cx="9144000" cy="6858000" type="screen4x3"/><p:notesSz cx="6858000" cy="9144000"/>` +
   `</p:presentation>`;
@@ -138,12 +182,14 @@ const presentationRelsXml = (slideCount: number): string =>
   `<Relationship Id="rIdMaster" Type="${REL_SLIDE_MASTER}" Target="slideMasters/slideMaster1.xml"/>` +
   Array.from(
     { length: slideCount },
-    (_, i) => `<Relationship Id="rIdSlide${i + 1}" Type="${REL_SLIDE}" Target="slides/slide${i + 1}.xml"/>`
+    (_, i) =>
+      `<Relationship Id="rIdSlide${i + 1}" Type="${REL_SLIDE}" Target="slides/slide${i + 1}.xml"/>`,
   ).join("") +
   `</Relationships>`;
 
+/** Options for the PPTX writer. */
 export interface PptxWriterOptions {
-  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
 
 /** Create a PPTX Writer. */
@@ -156,13 +202,14 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
         const slides: Slide[] = [];
         const loose: Block[] = [];
         for (const b of doc.blocks) {
-          if (b._tag === "SlideShow") slides.push(...b.slides);
+          if (Predicate.isTagged(b, "SlideShow")) slides.push(...b.slides);
           else loose.push(b);
         }
-        if (loose.length > 0) slides.push(new Slide({ shapes: [new TextBox({ content: loose })] }));
-        if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
+        if (Arr.isReadonlyArrayNonEmpty(loose))
+          slides.push(new Slide({ shapes: [new TextBox({ content: loose })] }));
+        if (Arr.isReadonlyArrayEmpty(slides)) slides.push(new Slide({ shapes: [] }));
 
-        const files: Record<string, string> = {
+        const files = {
           "[Content_Types].xml": contentTypesXml(slides.length),
           "_rels/.rels": rootRelsXml(),
           "ppt/presentation.xml": presentationXml(slides.length),
@@ -172,19 +219,27 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
           "ppt/slideLayouts/slideLayout1.xml": slideLayoutXml(),
           "ppt/slideLayouts/_rels/slideLayout1.xml.rels": slideLayoutRelsXml(),
           "ppt/theme/theme1.xml": themeXml(),
+          ...Object.fromEntries(
+            slides.flatMap((slide, i) => [
+              [`ppt/slides/slide${i + 1}.xml`, slideXml(slide)],
+              [`ppt/slides/_rels/slide${i + 1}.xml.rels`, slideRelsXml()],
+            ]),
+          ),
         };
-        slides.forEach((slide, i) => {
-          files[`ppt/slides/slide${i + 1}.xml`] = slideXml(slide);
-          files[`ppt/slides/_rels/slide${i + 1}.xml.rels`] = slideRelsXml();
-        });
 
         return bytes(zipParts(files, level));
       },
       catch: (cause) =>
-        new WriteError({ format: "pptx", reason: `Failed to generate pptx: ${String(cause)}`, cause }),
+        new WriteError({
+          format: "pptx",
+          reason: `Failed to generate pptx: ${String(cause)}`,
+          cause,
+        }),
     });
   return { format: "pptx", profile: Pptx, write };
 };
 
+/** The Context tag for the PPTX writer, so a program can depend on a PPTX writer and have one provided. */
 export const PptxWriterTag = makeWriterTag<PptxFeature>("pptx");
+/** A Layer providing the default PPTX writer for {@link PptxWriterTag}. */
 export const PptxWriterLive = Layer.succeed(PptxWriterTag, makePptxWriter());

@@ -1,30 +1,48 @@
 {
-  "name": "effect-document-monorepo",
+  "$schema": "https://www.schemastore.org/package",
+  "name": "effect-document-workspace",
+  "version": "0.0.0",
   "private": true,
+  "description": "Workspace for the @thomasfosterau/effect-document package family: an Effect-native universal document schema with profile-based subsets, plus CSV, OOXML, iWork, PDF and RTF readers and writers.",
+  "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
-    "build": "bun run --filter '*' build",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
     "changeset": "changeset",
-    "version": "changeset version",
-    "release": "bun run build && changeset publish"
+    "version": "changeset version && vp fmt && pnpm install --lockfile-only",
+    "release": "vp run -r build && pnpm -r --filter './packages/*' publish --access public --no-git-checks --ignore-scripts && changeset tag",
+    "fallow": "fallow --summary",
+    "fallow:audit": "fallow audit",
+    "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
-    "@thomasfosterau/effect-document": "workspace:*",
+    "@changesets/changelog-github": "catalog:",
+    "@changesets/cli": "catalog:",
+    "@effect/language-service": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/tsgo": "catalog:",
+    "@mpsuesser/oxlint-plugin-effect": "catalog:",
     "@thomasfosterau/effect-csv": "workspace:*",
+    "@thomasfosterau/effect-document": "workspace:*",
     "@thomasfosterau/effect-iwork": "workspace:*",
     "@thomasfosterau/effect-ooxml": "workspace:*",
     "@thomasfosterau/effect-pdf": "workspace:*",
     "@thomasfosterau/effect-rtf": "workspace:*",
-    "@types/bun": "latest",
-    "effect": "^4.0.5",
-    "fflate": "^0.8.2",
-    "typescript": "^5.7.2"
-  }
+    "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:",
+    "fallow": "catalog:",
+    "fflate": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "packageManager": "pnpm@11.28.6"
 }

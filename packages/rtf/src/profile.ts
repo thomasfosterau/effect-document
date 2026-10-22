@@ -7,6 +7,7 @@
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
 
+/** The features the RTF profile allows, as a list. */
 export const rtfFeatures = [
   "block.para",
   "block.plain",
@@ -24,4 +25,5 @@ export const rtfFeatures = [
 /** The RTF profile. */
 export const Rtf = defineProfile("rtf", rtfFeatures);
 
+/** The features the RTF profile allows, as a type: the phantom of its documents. */
 export type RtfFeature = FeaturesOf<typeof Rtf>;

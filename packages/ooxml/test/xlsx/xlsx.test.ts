@@ -1,17 +1,32 @@
-import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  bytes, cell, cellToText, type SheetCell, type Doc, document, type FeaturesOf, trustAs, worksheet, Worksheet,
+  bytes,
+  cell,
+  cellToText,
+  type SheetCell,
+  type Doc,
+  document,
+  trustAs,
+  worksheet,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
-import { makeXlsxReader, makeXlsxWriter, sanitizeSheetNames, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.js";
+import {
+  makeXlsxReader,
+  makeXlsxWriter,
+  sanitizeSheetNames,
+  type XlsxFeature,
+  type XlsxReadFeature,
+} from "../../src/xlsx/index.ts";
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 type SpreadsheetF = XlsxFeature;
 
 const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet[] =>
-  doc.blocks.filter((b) => b._tag === "Worksheet") as Worksheet[];
+  doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet[];
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -27,34 +42,45 @@ const sheetXml = (body: string, head = "") =>
  */
 const packageWith = (
   sheets: string | ReadonlyArray<{ name: string; xml: string; type?: string }>,
-  sharedStrings?: string
+  sharedStrings?: string,
 ) => {
-  const list = typeof sheets === "string" ? [{ name: "S", xml: sheets }] : sheets;
-  const files: Record<string, Uint8Array> = {
+  const list = Predicate.isString(sheets) ? [{ name: "S", xml: sheets }] : sheets;
+  const files = {
     "_rels/.rels": strToU8(
-      `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+      `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
     ),
     "xl/workbook.xml": strToU8(
       `<workbook xmlns="${NS_MAIN}" xmlns:r="${REL}"><sheets>` +
-        list.map((s, i) => `<sheet name="${s.name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") +
-        `</sheets></workbook>`
+        list
+          .map((s, i) => `<sheet name="${s.name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+          .join("") +
+        `</sheets></workbook>`,
     ),
     "xl/_rels/workbook.xml.rels": strToU8(
       `<Relationships xmlns="${NS_PKG}">` +
         list
-          .map((s, i) => `<Relationship Id="rId${i + 1}" Type="${s.type?.includes("://") ? s.type : `${REL}/${s.type ?? "worksheet"}`}" Target="worksheets/sheet${i + 1}.xml"/>`)
+          .map(
+            (s, i) =>
+              `<Relationship Id="rId${i + 1}" Type="${s.type?.includes("://") ? s.type : `${REL}/${s.type ?? "worksheet"}`}" Target="worksheets/sheet${i + 1}.xml"/>`,
+          )
           .join("") +
-        (sharedStrings === undefined ? "" : `<Relationship Id="rIdS" Type="${REL}/sharedStrings" Target="sharedStrings.xml"/>`) +
-        `</Relationships>`
+        (sharedStrings === undefined
+          ? ""
+          : `<Relationship Id="rIdS" Type="${REL}/sharedStrings" Target="sharedStrings.xml"/>`) +
+        `</Relationships>`,
     ),
+    ...Object.fromEntries(list.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, strToU8(s.xml)])),
   };
-  list.forEach((s, i) => {
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(s.xml);
-  });
-  if (sharedStrings !== undefined) {
-    files["xl/sharedStrings.xml"] = strToU8(`<sst xmlns="${NS_MAIN}">${sharedStrings}</sst>`);
-  }
-  return bytes(zipSync(files));
+  return bytes(
+    zipSync(
+      sharedStrings === undefined
+        ? files
+        : {
+            ...files,
+            "xl/sharedStrings.xml": strToU8(`<sst xmlns="${NS_MAIN}">${sharedStrings}</sst>`),
+          },
+    ),
+  );
 };
 
 describe("XLSX round-trip", () => {
@@ -65,7 +91,7 @@ describe("XLSX round-trip", () => {
           [cell.text("alice"), cell.number(30), cell.boolean(true)],
           [cell.text("bob"), cell.number(25), cell.blank()],
         ]),
-      ])
+      ]),
     );
     const xlsx = await run(makeXlsxWriter().write(doc));
     expect(xlsx._tag).toBe("Bytes");
@@ -80,10 +106,7 @@ describe("XLSX round-trip", () => {
 
   test("preserves multiple sheets", async () => {
     const doc = trustAs<SpreadsheetF>(
-      document([
-        worksheet("A", [[cell.number(1)]]),
-        worksheet("B", [[cell.number(2)]]),
-      ])
+      document([worksheet("A", [[cell.number(1)]]), worksheet("B", [[cell.number(2)]])]),
     );
     const xlsx = await run(makeXlsxWriter().write(doc));
     const back = await run(makeXlsxReader().read(xlsx));
@@ -99,9 +122,7 @@ describe("XLSX round-trip", () => {
   });
 
   test("round-trips a formula cell as CellFormula (not flattened text)", async () => {
-    const doc = trustAs<SpreadsheetF>(
-      document([worksheet("S", [[cell.formula("A1+1", "42")]])])
-    );
+    const doc = trustAs<SpreadsheetF>(document([worksheet("S", [[cell.formula("A1+1", "42")]])]));
     const xlsx = await run(makeXlsxWriter().write(doc));
     const back = await run(makeXlsxReader().read(xlsx));
     expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({
@@ -118,7 +139,7 @@ describe("XLSX round-trip", () => {
           [cell.text("a"), cell.text("b"), cell.blank()],
           [cell.text("c"), cell.text("d"), cell.blank()],
         ]),
-      ])
+      ]),
     );
     const xlsx = await run(makeXlsxWriter().write(doc));
     const back = await run(makeXlsxReader().read(xlsx));
@@ -134,8 +155,8 @@ describe("XLSX reader grid extent (#62)", () => {
       sheetXml(
         `<row r="1"><c r="A1"><v>1</v></c><c r="Z1" s="3"/></row>` +
           `<row r="50000"/>` +
-          `<row r="1048576"><c r="XFD1048576" s="2"/></row>`
-      )
+          `<row r="1048576"><c r="XFD1048576" s="2"/></row>`,
+      ),
     );
     const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
     expect(extent(ws)).toEqual([1, 1]);
@@ -172,7 +193,7 @@ describe("XLSX reader grid extent (#62)", () => {
           [cell.text("a"), cell.blank(), cell.blank()],
           [cell.blank(), cell.blank(), cell.blank()],
         ]),
-      ])
+      ]),
     );
     const back = await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc))));
     expect(extent(worksheets(back)[0]!)).toEqual([2, 3]);
@@ -198,7 +219,10 @@ describe("XLSX reader fixes (#60)", () => {
     const sheets = await readSheets(xlsx);
     expect(sheets.map((s) => s.name)).toEqual(["Data", "Chart", "Dialog", "Macro"]);
     expect(sheets.map((s) => s.attr?.data?.["kind"])).toEqual([
-      undefined, "chartsheet", "dialogsheet", "macrosheet",
+      undefined,
+      "chartsheet",
+      "dialogsheet",
+      "macrosheet",
     ]);
     expect(sheets[1]!.rows).toEqual([]);
   });
@@ -207,8 +231,8 @@ describe("XLSX reader fixes (#60)", () => {
     const xlsx = packageWith(
       sheetXml(
         `<row r="1"><c r="C1"><v>1</v></c><c><v>2</v></c></row>` +
-          `<row><c><v>3</v></c><c><v>4</v></c></row>`
-      )
+          `<row><c><v>3</v></c><c><v>4</v></c></row>`,
+      ),
     );
     expect(grid((await readSheets(xlsx))[0]!)).toEqual([
       ["", "", "1", "2"],
@@ -221,19 +245,22 @@ describe("XLSX reader fixes (#60)", () => {
       sheetXml(
         `<row r="1"><c r="C1"><f t="shared" ref="C1:D2" si="0">A1+$B1+B$1+SUM(A:A)+LOG10(A1)+"A1"</f><v>1</v></c>` +
           `<c r="D1"><f t="shared" si="0"/><v>2</v></c></row>` +
-          `<row r="2"><c r="C2"><f t="shared" si="0"/><v>3</v></c></row>`
-      )
+          `<row r="2"><c r="C2"><f t="shared" si="0"/><v>3</v></c></row>`,
+      ),
     );
     const cells = (await readSheets(xlsx))[0]!.rows.map((r) => r.cells);
     expect(cells[0]![2]).toMatchObject({ formula: `A1+$B1+B$1+SUM(A:A)+LOG10(A1)+"A1"` });
-    expect(cells[0]![3]).toMatchObject({ formula: `B1+$B1+C$1+SUM(B:B)+LOG10(B1)+"A1"`, result: "2" });
+    expect(cells[0]![3]).toMatchObject({
+      formula: `B1+$B1+C$1+SUM(B:B)+LOG10(B1)+"A1"`,
+      result: "2",
+    });
     expect(cells[1]![2]).toMatchObject({ formula: `A2+$B2+B$1+SUM(A:A)+LOG10(A2)+"A1"` });
   });
 
   test("phonetic guide text is not part of the string", async () => {
     const xlsx = packageWith(
       sheetXml(`<row r="1"><c r="A1" t="s"><v>0</v></c></row>`),
-      `<si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si>`
+      `<si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si>`,
     );
     expect(grid((await readSheets(xlsx))[0]!)).toEqual([["東京"]]);
   });
@@ -242,20 +269,22 @@ describe("XLSX reader fixes (#60)", () => {
     const xlsx = packageWith(
       sheetXml(
         `<row r="1"><c r="A1" t="s"><v>0</v></c>` +
-          `<c r="B1" t="inlineStr"><is><t>tab_x0009_here _x005F_x0041_</t></is></c></row>`
+          `<c r="B1" t="inlineStr"><is><t>tab_x0009_here _x005F_x0041_</t></is></c></row>`,
       ),
-      `<si><t>line_x000D_break</t></si>`
+      `<si><t>line_x000D_break</t></si>`,
     );
     expect(grid((await readSheets(xlsx))[0]!)).toEqual([["line\rbreak", "tab\there _x0041_"]]);
   });
 
-  test("t=\"d\" cells read as dates", async () => {
+  test('t="d" cells read as dates', async () => {
     const xlsx = packageWith(
-      sheetXml(`<row r="1"><c r="A1" t="d"><v>2024-03-05T00:00:00Z</v></c></row>`)
+      sheetXml(`<row r="1"><c r="A1" t="d"><v>2024-03-05T00:00:00Z</v></c></row>`),
     );
     const c = (await readSheets(xlsx))[0]!.rows[0]!.cells[0]!;
     expect(c._tag).toBe("CellDate");
-    expect(c._tag === "CellDate" && c.value.toISOString()).toBe("2024-03-05T00:00:00.000Z");
+    expect(Predicate.isTagged(c, "CellDate") && c.value.toISOString()).toBe(
+      "2024-03-05T00:00:00.000Z",
+    );
   });
 });
 
@@ -264,7 +293,7 @@ describe("XLSX writer validity (#61)", () => {
     trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
   const parts = async (doc: Doc<SpreadsheetF>) => {
     const out = await run(makeXlsxWriter().write(doc));
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };
@@ -273,8 +302,14 @@ describe("XLSX writer validity (#61)", () => {
     const doc = sheetDoc(["S", [[cell.number(Number.NaN), cell.number(Infinity), cell.number(1)]]]);
     const part = await parts(doc);
     expect(part("xl/worksheets/sheet1.xml")).not.toContain("NaN");
-    const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))));
-    expect(back[0]!.rows[0]!.cells.map((c) => c._tag)).toEqual(["CellError", "CellError", "CellNumber"]);
+    const back = worksheets(
+      await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
+    );
+    expect(back[0]!.rows[0]!.cells.map((c) => c._tag)).toEqual([
+      "CellError",
+      "CellError",
+      "CellNumber",
+    ]);
     expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: "#NUM!" });
   });
 
@@ -284,26 +319,50 @@ describe("XLSX writer validity (#61)", () => {
     const part = await parts(doc);
     const sst = part("xl/sharedStrings.xml")!;
     expect(sst).toContain("a_x0001_b_x001F_c\td\ne_x005F_x0041_f_xD800_g");
+    // oxlint-disable-next-line eslint/no-control-regex -- asserts no C0 control survives the encoding
     expect(/[\u0000-\u0008]/.test(sst + part("xl/worksheets/sheet1.xml"))).toBe(false);
-    const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))));
+    const back = worksheets(
+      await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
+    );
     expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: tricky });
     expect(back[0]!.rows[0]!.cells[1]).toMatchObject({ formula: `"\u0002"`, result: "\u0003" });
   });
 
   test("sheet names are sanitised deterministically", () => {
     expect(
-      sanitizeSheetNames(["a[b]:c*?/\\d", "", "History", "data", "DATA", "x".repeat(40), "x".repeat(40), "'q'"])
+      sanitizeSheetNames([
+        "a[b]:c*?/\\d",
+        "",
+        "History",
+        "data",
+        "DATA",
+        "x".repeat(40),
+        "x".repeat(40),
+        "'q'",
+      ]),
     ).toEqual([
-      "a_b__c____d", "Sheet2", "History_", "data", "DATA (2)",
-      "x".repeat(31), `${"x".repeat(27)} (2)`, "q",
+      "a_b__c____d",
+      "Sheet2",
+      "History_",
+      "data",
+      "DATA (2)",
+      "x".repeat(31),
+      `${"x".repeat(27)} (2)`,
+      "q",
     ]);
   });
 
   test("written sheet names are the sanitised ones", async () => {
     const back = worksheets(
-      await run(makeXlsxReader().read(await run(makeXlsxWriter().write(
-        sheetDoc(["A/B", [[cell.number(1)]]], ["a/b", [[cell.number(2)]]])
-      ))))
+      await run(
+        makeXlsxReader().read(
+          await run(
+            makeXlsxWriter().write(
+              sheetDoc(["A/B", [[cell.number(1)]]], ["a/b", [[cell.number(2)]]]),
+            ),
+          ),
+        ),
+      ),
     );
     expect(back.map((w) => w.name)).toEqual(["A_B", "a_b (2)"]);
   });
@@ -314,9 +373,11 @@ describe("XLSX writer validity (#61)", () => {
   });
 
   test("fullCalcOnLoad is set only when a formula lacks a cached result", async () => {
-    expect((await parts(sheetDoc(["S", [[cell.formula("1+1", "2")]]])))("xl/workbook.xml")).not.toContain("calcPr");
+    expect(
+      (await parts(sheetDoc(["S", [[cell.formula("1+1", "2")]]])))("xl/workbook.xml"),
+    ).not.toContain("calcPr");
     expect((await parts(sheetDoc(["S", [[cell.formula("1+1")]]])))("xl/workbook.xml")).toContain(
-      `<calcPr fullCalcOnLoad="1"/>`
+      `<calcPr fullCalcOnLoad="1"/>`,
     );
   });
 
@@ -336,7 +397,7 @@ describe("XLSX writer validity (#61)", () => {
   test("random grids with edge-case values round-trip", async () => {
     // A small seeded generator (no property-testing dependency).
     let seed = 42;
-    const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    const rand = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
     const pick = <A>(xs: ReadonlyArray<A>): A => xs[Math.floor(rand() * xs.length)]!;
     const texts = ["", "plain", "_x0041_", "\u0000\u0007", "\uDC00", "<&>\"'", "東京", " lead"];
     for (let round = 0; round < 25; round++) {
@@ -347,17 +408,19 @@ describe("XLSX writer validity (#61)", () => {
             () => cell.number(pick([0, -1.5, 1e300, 42])),
             () => cell.boolean(rand() < 0.5),
             () => cell.blank(),
-          ])()
-        )
+          ])(),
+        ),
       );
       const doc = sheetDoc([pick(["S", "a:b", "History", ""]), rows]);
-      const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))))[0]!;
+      const back = worksheets(
+        await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
+      )[0]!;
       const expected = rows.map((r) => r.map((c) => cellToText(c)));
       const width = Math.max(...rows.map((r) => r.length));
       // A sheet with no valued cell reads back empty, whatever its declared size.
-      const allBlank = rows.every((r) => r.every((c) => c._tag === "CellBlank"));
+      const allBlank = rows.every((r) => r.every((c) => Predicate.isTagged(c, "CellBlank")));
       expect(back.rows.map((r) => r.cells.map((c) => cellToText(c)))).toEqual(
-        allBlank ? [] : expected.map((r) => [...r, ...Array(width - r.length).fill("")])
+        allBlank ? [] : expected.map((r) => [...r, ...Array(width - r.length).fill("")]),
       );
     }
   });

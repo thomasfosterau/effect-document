@@ -9,17 +9,31 @@
  * codec against real Numbers files and surfaces the workbook's sheets.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Order from "effect/Order";
 import {
-  type Content, defineProfile, type Doc, document, type FeaturesOf, type Format, makeReaderTag,
-  type ParseError, type Reader, trustAs, Worksheet,
+  type Content,
+  defineProfile,
+  type Doc,
+  document,
+  type FeaturesOf,
+  type Format,
+  makeReaderTag,
+  type ParseError,
+  type Reader,
+  trustAs,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
-import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.js";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
-import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.js";
+import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.ts";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.ts";
 
-export type { IworkReaderOptions } from "./read.js";
+export type { IworkReaderOptions } from "./read.ts";
 
+/** The features the Numbers profile allows, as a list. */
 export const numbersFeatures = [
   "sheet.worksheet",
   "sheet.multiple",
@@ -31,6 +45,7 @@ export const numbersFeatures = [
 
 /** The Numbers (read) profile. */
 export const Numbers = defineProfile("numbers", numbersFeatures);
+/** The features the Numbers profile allows, as a type: the phantom of its documents. */
 export type NumbersFeature = FeaturesOf<typeof Numbers>;
 
 const SHEET_NAME_FIELD = 1; // TN.SheetArchive.name
@@ -61,13 +76,13 @@ const find = (type: number, id: bigint, payload: Uint8Array): Found[] => {
  * its place after the listed ones, in component order.
  */
 const inDocumentOrder = (found: ReadonlyArray<Found>) => {
-  const sheets = found.filter((f) => f._tag === "Sheet");
-  const order = found.find((f) => f._tag === "Order")?.ids ?? [];
+  const sheets = found.filter((f) => Predicate.isTagged(f, "Sheet"));
+  const order = found.find((f) => Predicate.isTagged(f, "Order"))?.ids ?? [];
   const rank = new Map(order.map((id, i) => [id, i]));
-  return sheets
-    .map((sheet, i) => ({ sheet, key: rank.get(sheet.id) ?? order.length + i }))
-    .sort((a, b) => a.key - b.key)
-    .map(({ sheet }) => sheet);
+  return Arr.sort(
+    sheets.map((sheet, i) => ({ sheet, key: rank.get(sheet.id) ?? order.length + i })),
+    Order.mapInput(Order.Number, (s: { readonly key: number }) => s.key),
+  ).map(({ sheet }) => sheet);
 };
 
 /**
@@ -78,15 +93,19 @@ export const makeNumbersReader = (options?: IworkReaderOptions): Reader<NumbersF
   const read = (input: Content): Effect.Effect<Doc<NumbersFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("numbers", input, options);
-      const decoded = yield* eachComponent("numbers", bundle, Object.keys(bundle.components), options, (obj) =>
-        obj.messages.flatMap((msg) => find(msg.type, obj.identifier, msg.payload))
+      const decoded = yield* eachComponent(
+        "numbers",
+        bundle,
+        Object.keys(bundle.components),
+        options,
+        (obj) => obj.messages.flatMap((msg) => find(msg.type, obj.identifier, msg.payload)),
       );
       const names = inDocumentOrder(decoded.flatMap(({ items }) => items)).map(({ name }, i) =>
-        name === undefined ? `Sheet${i + 1}` : decodeUtf8(name)
+        name === undefined ? `Sheet${i + 1}` : decodeUtf8(name),
       );
-      if (names.length === 0) names.push("Sheet1");
+      if (Arr.isReadonlyArrayEmpty(names)) names.push("Sheet1");
       const sheets = names.map(
-        (name) => new Worksheet({ name, columns: [], rows: [], merges: [] })
+        (name) => new Worksheet({ name, columns: [], rows: [], merges: [] }),
       );
       return trustAs<NumbersFeature>(document(sheets));
     });
@@ -104,5 +123,7 @@ export const format: Format<NumbersFeature> = {
   reader: makeNumbersReader(),
 };
 
+/** The Context tag for the Numbers reader, so a program can depend on a Numbers reader and have one provided. */
 export const NumbersReaderTag = makeReaderTag<NumbersFeature>("numbers");
+/** A Layer providing the default Numbers reader for {@link NumbersReaderTag}. */
 export const NumbersReaderLive = Layer.succeed(NumbersReaderTag, makeNumbersReader());

@@ -10,20 +10,53 @@
  * relationship or part is missing fails the read, as in XLSX.
  */
 
-import { Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  type Block, BulletList, type Content, contentToBytes, type Doc, document, Emph, Header,
-  type Inline, LineBreak, makeReaderTag, OrderedList, Para, ParseError, Placeholder, Plain, type Reader,
-  type Shape, Slide, SlideShow, Str, Strikeout, Strong, TextBox, trustAs, Underline,
+  type Block,
+  BulletList,
+  type Content,
+  contentToBytes,
+  type Doc,
+  document,
+  Emph,
+  Header,
+  type Inline,
+  LineBreak,
+  makeReaderTag,
+  OrderedList,
+  Para,
+  ParseError,
+  Placeholder,
+  Plain,
+  type Reader,
+  type Shape,
+  Slide,
+  SlideShow,
+  Str,
+  Strikeout,
+  Strong,
+  TextBox,
+  trustAs,
+  Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
-} from "../shared/index.js";
-import { PptxRead, type PptxReadFeature } from "./profile.js";
+  OpcError,
+  type OpcLimits,
+  OpcReader,
+  type XmlElement,
+  findChild,
+  findChildren,
+  getAttr,
+  ooxmlParseError,
+} from "../shared/index.ts";
+import { PptxRead, type PptxReadFeature } from "./profile.ts";
 
+/** Options for the PPTX reader: zip resource limits. */
 export interface PptxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
 }
 
 /** Main-part content types this reader accepts. */
@@ -57,7 +90,8 @@ const isTrue = (v: string | undefined): boolean => v === "1" || v === "true";
 
 const runFmt = (r: XmlElement): Fmt => {
   const rPr = findChild(r, "rPr");
-  const attr = (name: string): string | undefined => (rPr === undefined ? undefined : getAttr(rPr, name));
+  const attr = (name: string): string | undefined =>
+    rPr === undefined ? undefined : getAttr(rPr, name);
   return {
     b: isTrue(attr("b")),
     i: isTrue(attr("i")),
@@ -117,7 +151,7 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const list = open.pop()!;
     const parent = open[open.length - 1];
     if (parent === undefined) out.push(listBlock(list));
-    else if (parent.items.length === 0) parent.items.push([listBlock(list)]);
+    else if (Arr.isReadonlyArrayEmpty(parent.items)) parent.items.push([listBlock(list)]);
     else parent.items[parent.items.length - 1]!.push(listBlock(list));
   };
 
@@ -125,19 +159,22 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const inlines = paragraphInlines(p);
     const bullet = paragraphBullet(p);
     if (bullet === null) {
-      while (open.length > 0) close();
-      out.push(asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }));
+      while (Arr.isReadonlyArrayNonEmpty(open)) close();
+      out.push(
+        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+      );
       continue;
     }
     const level = paragraphLevel(p);
-    while (open.length > 0 && open[open.length - 1]!.level > level) close();
+    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
     const top = open[open.length - 1];
     if (top !== undefined && top.level === level && top.kind !== bullet) close();
     const current = open[open.length - 1];
-    if (current === undefined || current.level < level) open.push({ kind: bullet, level, items: [] });
+    if (current === undefined || current.level < level)
+      open.push({ kind: bullet, level, items: [] });
     open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
   }
-  while (open.length > 0) close();
+  while (Arr.isReadonlyArrayNonEmpty(open)) close();
   return out;
 };
 
@@ -149,7 +186,7 @@ const shapeOf = (sp: XmlElement): Shape => {
   const nvPr = nvSpPr === undefined ? undefined : findChild(nvSpPr, "nvPr");
   const ph = nvPr === undefined ? undefined : findChild(nvPr, "ph");
   // A <p:ph> without a type is an "obj" placeholder (ST_PlaceholderType default).
-  const placeholderType = ph === undefined ? undefined : getAttr(ph, "type") ?? "obj";
+  const placeholderType = ph === undefined ? undefined : (getAttr(ph, "type") ?? "obj");
   const txBody = findChild(sp, "txBody");
   const asHeaders = placeholderType !== undefined && TITLE_PLACEHOLDERS.has(placeholderType);
   const content = txBody === undefined ? [] : txBodyToBlocks(txBody, asHeaders);
@@ -171,10 +208,11 @@ const shapeOf = (sp: XmlElement): Shape => {
 const shapeElements = (spTree: XmlElement): XmlElement[] => {
   const out: XmlElement[] = [];
   const stack: XmlElement[] = [...spTree.children].reverse();
-  while (stack.length > 0) {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const el = stack.pop()!;
     if (el.name === "sp") out.push(el);
-    else if (el.name === "grpSp") for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
+    else if (el.name === "grpSp")
+      for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
   }
   return out;
 };
@@ -188,7 +226,8 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
         const presPath = pkg.rootTarget("/officeDocument", "ppt/presentation.xml");
         pkg.expectMainPart(presPath, "pptx", MAIN_CONTENT_TYPES);
         const presXml = pkg.text(presPath);
-        if (presXml === null) throw new Error(`missing presentation part: ${presPath}`);
+        if (presXml === null)
+          throw new OpcError("MissingPart", `missing presentation part: ${presPath}`);
         const pres = pkg.xml(presPath)!;
 
         const rels = new Map<string, string>();
@@ -202,9 +241,10 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
           // use the relationship id (r:id), not the numeric slide id attribute
           const rid = getAttr(sldId, "r:id");
           const target = rid === undefined ? undefined : rels.get(rid);
-          if (target === undefined) throw new Error(`cannot resolve slide relationship "${rid}"`);
+          if (target === undefined)
+            throw new OpcError("MissingPart", `cannot resolve slide relationship "${rid}"`);
           const slideXml = pkg.text(target);
-          if (slideXml === null) throw new Error(`missing slide part: ${target}`);
+          if (slideXml === null) throw new OpcError("MissingPart", `missing slide part: ${target}`);
           const slideRoot = pkg.xml(target)!;
           const cSld = findChild(slideRoot, "cSld");
           const spTree = cSld === undefined ? undefined : findChild(cSld, "spTree");
@@ -214,11 +254,12 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
 
         return trustAs<PptxReadFeature>(document([new SlideShow({ slides })]));
       },
-      catch: (cause) =>
-        ooxmlParseError("pptx", cause),
+      catch: (cause) => ooxmlParseError("pptx", cause),
     });
   return { format: "pptx", profile: PptxRead, read };
 };
 
+/** The Context tag for the PPTX reader, so a program can depend on a PPTX reader and have one provided. */
 export const PptxReaderTag = makeReaderTag<PptxReadFeature>("pptx");
+/** A Layer providing the default PPTX reader for {@link PptxReaderTag}. */
 export const PptxReaderLive = Layer.succeed(PptxReaderTag, makePptxReader());

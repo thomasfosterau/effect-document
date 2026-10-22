@@ -8,8 +8,10 @@
  * (HTML, OOXML) allow `style` and arbitrary key/values too.
  */
 
-import { Schema } from "effect";
-import type { AttrFeature } from "./feature.js";
+import * as Arr from "effect/Array";
+import * as Rec from "effect/Record";
+import * as Schema from "effect/Schema";
+import type { AttrFeature } from "./feature.ts";
 
 // ============================================================================
 // Attribute values (JSON-ish, for the open `data` map)
@@ -31,23 +33,19 @@ export const AttrValue: Schema.Codec<AttrValue> = Schema.suspend(() =>
     Schema.Boolean,
     Schema.Null,
     Schema.Array(AttrValue),
-    Schema.Record(Schema.String, AttrValue)
-  ])
+    Schema.Record(Schema.String, AttrValue),
+  ]),
 );
 
 // ============================================================================
 // Style (structured presentation properties)
 // ============================================================================
 
-export const HorizontalAlign = Schema.Literals([
-  "left",
-  "right",
-  "center",
-  "justify",
-  "default"
-]);
+/** Horizontal alignment of text in a paragraph or cell. */
+export const HorizontalAlign = Schema.Literals(["left", "right", "center", "justify", "default"]);
 export type HorizontalAlign = Schema.Schema.Type<typeof HorizontalAlign>;
 
+/** Vertical alignment of content in a cell. */
 export const VerticalAlign = Schema.Literals(["top", "middle", "bottom"]);
 export type VerticalAlign = Schema.Schema.Type<typeof VerticalAlign>;
 
@@ -102,6 +100,7 @@ export type Attributes = Schema.Schema.Type<typeof Attributes>;
 
 /** An optional `attr` field for a node schema. */
 export const attrField = Schema.optional(Attributes);
+export type attrField = typeof attrField.Type;
 
 /** The empty attribute bundle. */
 export const noAttr: Attributes = {};
@@ -134,8 +133,8 @@ export const usedAttrFeatures = (a: Attributes | undefined): AttrFeature[] => {
   if (a === undefined) return [];
   const out: AttrFeature[] = [];
   if (a.id !== undefined) out.push("attr.id");
-  if (a.classes !== undefined && a.classes.length > 0) out.push("attr.classes");
-  if (a.data !== undefined && Object.keys(a.data).length > 0) out.push("attr.keyValue");
+  if (a.classes !== undefined && Arr.isReadonlyArrayNonEmpty(a.classes)) out.push("attr.classes");
+  if (a.data !== undefined && !Rec.isEmptyRecord(a.data)) out.push("attr.keyValue");
   if (a.style !== undefined) out.push("attr.style");
   return out;
 };

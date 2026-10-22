@@ -9,8 +9,11 @@
  * - Rich-text cells are written as their flattened text.
  */
 
-import { cell, cellToText, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
-import { escapeXml, findChild, type XmlElement } from "./xml.js";
+import * as HashMap from "effect/HashMap";
+import * as Match from "effect/Match";
+import * as Option from "effect/Option";
+import { cell, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
+import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
 // ============================================================================
 // Writing: SheetCell -> SpreadsheetML <c> fragment
@@ -24,8 +27,9 @@ import { escapeXml, findChild, type XmlElement } from "./xml.js";
  */
 export const encodeXstring = (s: string): string =>
   s.replace(
+    // oxlint-disable-next-line eslint/no-control-regex -- the C0 controls are among the characters to encode
     /_(?=x[0-9A-Fa-f]{4}_)|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
-    (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`
+    (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`,
   );
 
 /** Escape and ST_Xstring-encode text for a SpreadsheetML element. */
@@ -64,35 +68,30 @@ export class SharedStrings {
  */
 export const cellToSpreadsheetMl = (
   c: SheetCell,
-  sharedStrings: SharedStrings
+  sharedStrings: SharedStrings,
 ): { readonly type: string | null; readonly inner: string } | null => {
-  switch (c._tag) {
-    case "CellBlank":
-      return null;
-    case "CellNumber":
-      // SpreadsheetML numbers are finite; NaN and ±Infinity become #NUM!.
-      return Number.isFinite(c.value)
-        ? { type: null, inner: `<v>${String(c.value)}</v>` }
-        : { type: "e", inner: "<v>#NUM!</v>" };
-    case "CellBoolean":
-      return { type: "b", inner: `<v>${c.value ? "1" : "0"}</v>` };
-    case "CellError":
-      return { type: "e", inner: `<v>${escapeXstring(c.value)}</v>` };
-    case "CellFormula":
-      // SpreadsheetML stores formulas without the leading "=".
-      return {
-        type: "str",
-        inner:
-          `<f>${escapeXstring(c.formula.replace(/^=/, ""))}</f>` +
-          `<v>${escapeXstring(c.result ?? "")}</v>`,
-      };
-    case "CellText":
-      return { type: "s", inner: `<v>${sharedStrings.intern(c.value)}</v>` };
-    case "CellDate":
-      return { type: "s", inner: `<v>${sharedStrings.intern(c.value.toISOString())}</v>` };
-    case "CellRichText":
-      return { type: "s", inner: `<v>${sharedStrings.intern(inlinesToText(c.runs))}</v>` };
-  }
+  // a branch per cell type; `Match.valueTags` keeps the mapping exhaustive
+  const shared = (text: string) => ({ type: "s", inner: `<v>${sharedStrings.intern(text)}</v>` });
+  return Match.valueTags(c, {
+    CellBlank: () => null,
+    // SpreadsheetML numbers are finite; NaN and ±Infinity become #NUM!.
+    CellNumber: (n) =>
+      Number.isFinite(n.value)
+        ? { type: null, inner: `<v>${String(n.value)}</v>` }
+        : { type: "e", inner: "<v>#NUM!</v>" },
+    CellBoolean: (n) => ({ type: "b", inner: `<v>${n.value ? "1" : "0"}</v>` }),
+    CellError: (n) => ({ type: "e", inner: `<v>${escapeXstring(n.value)}</v>` }),
+    // SpreadsheetML stores formulas without the leading "=".
+    CellFormula: (n) => ({
+      type: "str",
+      inner:
+        `<f>${escapeXstring(n.formula.replace(/^=/, ""))}</f>` +
+        `<v>${escapeXstring(n.result ?? "")}</v>`,
+    }),
+    CellText: (n) => shared(n.value),
+    CellDate: (n) => shared(n.value.toISOString()),
+    CellRichText: (n) => shared(inlinesToText(n.runs)),
+  });
 };
 
 // ============================================================================
@@ -107,7 +106,7 @@ export const cellToSpreadsheetMl = (
 export const decodeXstring = (s: string): string =>
   s.includes("_x")
     ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) =>
-        String.fromCharCode(Number.parseInt(hex, 16))
+        String.fromCharCode(Number.parseInt(hex, 16)),
       )
     : s;
 
@@ -139,7 +138,7 @@ export const collectText = (element: XmlElement): string => {
 export const spreadsheetMlToCell = (
   c: XmlElement,
   sharedStrings: ReadonlyArray<string>,
-  formula?: string
+  formula?: string,
 ): SheetCell => {
   const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
@@ -150,37 +149,60 @@ export const spreadsheetMlToCell = (
   if (f !== undefined) {
     return cell.formula(
       formula ?? decodeXstring(f.text),
-      v === undefined ? undefined : decodeXstring(v.text)
+      v === undefined ? undefined : decodeXstring(v.text),
     );
   }
 
-  switch (type) {
-    case "s": {
-      if (v === undefined) return cell.blank();
-      const index = Number.parseInt(v.text, 10);
-      const value = sharedStrings[index];
+  const read = HashMap.get(CELL_READERS, type);
+  return Option.isSome(read) ? read.value(c, v, sharedStrings) : numberCell(v);
+};
+
+type CellReader = (
+  c: XmlElement,
+  v: XmlElement | undefined,
+  sharedStrings: ReadonlyArray<string>,
+) => SheetCell;
+
+/** A cell whose `<v>`, when present, maps to a cell through `f`. */
+const valued =
+  (f: (v: XmlElement) => SheetCell): CellReader =>
+  (_, v) =>
+    v === undefined ? cell.blank() : f(v);
+
+/** A numeric cell (`t="n"`, the default). */
+const numberCell = (v: XmlElement | undefined): SheetCell => {
+  if (v === undefined || v.text.trim() === "") return cell.blank();
+  const num = Number(v.text);
+  return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
+};
+
+/** The readers for each `t` cell type other than the numeric default. */
+const CELL_READERS = HashMap.make<ReadonlyArray<readonly [string, CellReader]>>(
+  [
+    "s",
+    (_, v, sharedStrings) => {
+      const value = v === undefined ? undefined : sharedStrings[Number.parseInt(v.text, 10)];
       return value === undefined ? cell.blank() : cell.text(value);
-    }
-    case "inlineStr": {
+    },
+  ],
+  [
+    "inlineStr",
+    (c) => {
       const is = findChild(c, "is");
       return is === undefined ? cell.blank() : cell.text(collectText(is));
-    }
-    case "str":
-      return v === undefined ? cell.blank() : cell.text(decodeXstring(v.text));
-    case "b":
-      return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
-    case "e":
-      return v === undefined ? cell.blank() : cell.error(v.text);
-    case "d": {
-      // An ISO 8601 date (Strict files and some producers).
+    },
+  ],
+  ["str", valued((v) => cell.text(decodeXstring(v.text)))],
+  ["b", valued((v) => cell.boolean(v.text.trim() === "1"))],
+  ["e", valued((v) => cell.error(v.text))],
+  [
+    // An ISO 8601 date (Strict files and some producers).
+    "d",
+    (_, v) => {
       if (v === undefined || v.text.trim() === "") return cell.blank();
+      // oxlint-disable-next-line effect/use-clock-service -- parses the cell's date, never reads the clock
       const date = new Date(v.text.trim());
       return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
-    }
-    default: {
-      if (v === undefined || v.text.trim() === "") return cell.blank();
-      const num = Number(v.text);
-      return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
-    }
-  }
-};
+    },
+  ],
+);

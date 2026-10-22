@@ -3,9 +3,9 @@
  * shared error types, and the `convert` pipeline.
  */
 
-export * from "./errors.js";
-export * from "./content.js";
-export * from "./reader.js";
-export * from "./writer.js";
-export * from "./format.js";
-export * from "./convert.js";
+export * from "./errors.ts";
+export * from "./content.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
+export * from "./format.ts";
+export * from "./convert.ts";

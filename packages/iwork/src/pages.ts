@@ -8,17 +8,30 @@
  * this path is unvalidated against real files - treat it as best-effort.
  */
 
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
-  makeReaderTag, Para, type ParseError, type Reader, Str, trustAs,
+  type Block,
+  type Content,
+  defineProfile,
+  type Doc,
+  document,
+  type FeaturesOf,
+  type Format,
+  makeReaderTag,
+  Para,
+  type ParseError,
+  type Reader,
+  Str,
+  trustAs,
 } from "@thomasfosterau/effect-document";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
-import { TSWP_STORAGE_ARCHIVE } from "./registry.js";
-import { storageParagraphs } from "./text.js";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
+import { storageParagraphs } from "./text.ts";
 
-export type { IworkReaderOptions } from "./read.js";
+export type { IworkReaderOptions } from "./read.ts";
 
+/** The features the Pages profile allows, as a list. */
 export const pagesFeatures = [
   "block.para",
   "block.plain",
@@ -30,6 +43,7 @@ export const pagesFeatures = [
 
 /** The Pages (read) profile. */
 export const Pages = defineProfile("pages", pagesFeatures);
+/** The features the Pages profile allows, as a type: the phantom of its documents. */
 export type PagesFeature = FeaturesOf<typeof Pages>;
 
 /** Create a Pages Reader. A component that fails to decode fails the read unless `lenient`. */
@@ -37,12 +51,19 @@ export const makePagesReader = (options?: IworkReaderOptions): Reader<PagesFeatu
   const read = (input: Content): Effect.Effect<Doc<PagesFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("pages", input, options);
-      const decoded = yield* eachComponent("pages", bundle, Object.keys(bundle.components), options, (obj) =>
-        obj.messages.flatMap((msg) =>
-          TSWP_STORAGE_ARCHIVE.has(msg.type)
-            ? storageParagraphs(msg.payload).map((line): Block => new Para({ content: [new Str({ text: line })] }))
-            : []
-        )
+      const decoded = yield* eachComponent(
+        "pages",
+        bundle,
+        Object.keys(bundle.components),
+        options,
+        (obj) =>
+          obj.messages.flatMap((msg) =>
+            TSWP_STORAGE_ARCHIVE.has(msg.type)
+              ? storageParagraphs(msg.payload).map(
+                  (line): Block => new Para({ content: [new Str({ text: line })] }),
+                )
+              : [],
+          ),
       );
       return trustAs<PagesFeature>(document(decoded.flatMap(({ items }) => items)));
     });
@@ -60,5 +81,7 @@ export const format: Format<PagesFeature> = {
   reader: makePagesReader(),
 };
 
+/** The Context tag for the Pages reader, so a program can depend on a Pages reader and have one provided. */
 export const PagesReaderTag = makeReaderTag<PagesFeature>("pages");
+/** A Layer providing the default Pages reader for {@link PagesReaderTag}. */
 export const PagesReaderLive = Layer.succeed(PagesReaderTag, makePagesReader());

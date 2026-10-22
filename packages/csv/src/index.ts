@@ -8,22 +8,23 @@
 
 import { type Format } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
-import { makeCsvReader, type CsvFeature, type CsvReaderOptions } from "./reader.js";
-import { makeCsvWriter, type CsvWriterOptions } from "./writer.js";
-import { TsvDialect } from "./dialect.js";
+import { makeCsvReader, type CsvFeature, type CsvReaderOptions } from "./reader.ts";
+import { makeCsvWriter, type CsvWriterOptions } from "./writer.ts";
+import { TsvDialect } from "./dialect.ts";
 
-export * from "./dialect.js";
-export * from "./scanner.js";
-export * from "./reader.js";
-export * from "./writer.js";
-export * from "./synthesize.js";
+export * from "./dialect.ts";
+export * from "./scanner.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
+export * from "./synthesize.ts";
 
 /** The CSV profile: a single worksheet of text/number/boolean/blank cells. */
 export const profile = Csv;
 
+/** Options for the CSV format bundle: its reader's and writer's options. */
 export interface CsvFormatOptions {
-  readonly reader?: CsvReaderOptions;
-  readonly writer?: CsvWriterOptions;
+  readonly reader?: CsvReaderOptions | undefined;
+  readonly writer?: CsvWriterOptions | undefined;
 }
 
 /** Create a CSV Format bundle with custom reader/writer options. */

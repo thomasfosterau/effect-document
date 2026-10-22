@@ -4,14 +4,17 @@
  * compiler knows exactly which subset of the schema a given format produces.
  */
 
-import { Context, Effect, type Stream } from "effect";
-import { type Doc, type Profile } from "../profile/profile.js";
-import { DEFAULT_MAX_NESTING_DEPTH, nestingDepth } from "../schema/depth.js";
-import type { Document } from "../schema/document.js";
-import type { Feature } from "../schema/feature.js";
-import { ParseError } from "./errors.js";
-import type { Content } from "./content.js";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import { type Doc, type Profile } from "../profile/profile.ts";
+import { DEFAULT_MAX_NESTING_DEPTH, nestingDepth } from "../schema/depth.ts";
+import type { Document } from "../schema/document.ts";
+import type { Feature } from "../schema/feature.ts";
+import { ParseError } from "./errors.ts";
+import type { Content } from "./content.ts";
 
+/** Parses `Content` into a document of its format's profile, failing with a `ParseError`. */
 export interface Reader<F extends Feature> {
   /** The format this reader parses (e.g. "csv", "xlsx"). */
   readonly format: string;
@@ -23,9 +26,7 @@ export interface Reader<F extends Feature> {
    * Stream raw rows without materializing the whole document (tabular formats
    * where streaming is natural, e.g. CSV).
    */
-  readonly readStream?: (
-    input: Content
-  ) => Stream.Stream<ReadonlyArray<string>, ParseError>;
+  readonly readStream?: (input: Content) => Stream.Stream<ReadonlyArray<string>, ParseError>;
 }
 
 /** A `Reader` for some (existentially-quantified) profile. */
@@ -33,7 +34,7 @@ export type AnyReader = Reader<Feature>;
 
 /** Create a Context tag for a format's Reader service. */
 export const makeReaderTag = <F extends Feature>(
-  format: string
+  format: string,
 ): Context.Service<Reader<F>, Reader<F>> =>
   Context.Service<Reader<F>>(`@effect-document/Reader/${format}`);
 
@@ -46,7 +47,7 @@ export const makeReaderTag = <F extends Feature>(
 export const limitNestingDepth = <D extends Document>(
   format: string,
   doc: D,
-  maxDepth: number = DEFAULT_MAX_NESTING_DEPTH
+  maxDepth: number = DEFAULT_MAX_NESTING_DEPTH,
 ): Effect.Effect<D, ParseError> => {
   const depth = nestingDepth(doc, maxDepth);
   return depth > maxDepth
@@ -55,7 +56,7 @@ export const limitNestingDepth = <D extends Document>(
           format,
           code: "LimitExceeded",
           reason: `Document nests more than ${maxDepth} levels deep (maxDepth)`,
-        })
+        }),
       )
     : Effect.succeed(doc);
 };

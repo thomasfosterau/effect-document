@@ -8,7 +8,7 @@
  * `$`-anchored parts alone, as Excel does when filling a formula.
  */
 
-import { colToIndex, indexToCol } from "./a1.js";
+import { colToIndex, indexToCol } from "./a1.ts";
 
 /** The largest 0-indexed column (XFD) and row (1048576) in a worksheet. */
 const MAX_COL = 16383;
@@ -43,16 +43,26 @@ export const translateFormula = (formula: string, rows: number, cols: number): s
   if (rows === 0 && cols === 0) return formula;
   return formula.replace(TOKEN, (match, ...groups) => {
     if (match.startsWith('"') || match.startsWith("'")) return match;
+    // SAFETY: TOKEN has 12 capture groups, so `replace` passes the match offset 13th
     const offset = groups[12] as number;
     const before = formula[offset - 1];
     const after = formula[offset + match.length];
     // Part of a longer name, a function call ("LOG10("), a sheet prefix
     // ("Sheet1!") or a table name ("Table1[") rather than a reference.
-    if (isNameChar(before) || isNameChar(after) || after === "(" || after === "!" || after === "[") {
+    if (
+      isNameChar(before) ||
+      isNameChar(after) ||
+      after === "(" ||
+      after === "!" ||
+      after === "["
+    ) {
       return match;
     }
 
-    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<string | undefined>;
+    // SAFETY: the first 12 replacer arguments after the match are TOKEN's capture groups
+    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<
+      string | undefined
+    >;
     if (cl !== undefined) {
       if (colToIndex(cl.toUpperCase()) > MAX_COL || Number.parseInt(rd!, 10) - 1 > MAX_ROW) {
         return match;

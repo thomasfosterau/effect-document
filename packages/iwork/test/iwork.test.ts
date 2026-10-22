@@ -1,20 +1,24 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { Effect, Result } from "effect";
+import * as Predicate from "effect/Predicate";
+import { describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { zipSync } from "fflate";
-import {
-  blocksToText, bytes, type SlideShow,
-} from "@thomasfosterau/effect-document";
-import { compressBlock, decompressBlock } from "../src/snappy.js";
-import { chunk, dechunk } from "../src/iwa.js";
-import { parseMessage, readVarint } from "../src/protobuf.js";
-import { openBundle } from "../src/bundle.js";
-import * as Keynote from "../src/keynote.js";
-import * as Numbers from "../src/numbers.js";
+import { blocksToText, bytes, type SlideShow } from "@thomasfosterau/effect-document";
+import { compressBlock, decompressBlock } from "../src/snappy.ts";
+import { chunk, dechunk } from "../src/iwa.ts";
+import { parseMessage, readVarint } from "../src/protobuf.ts";
+import { openBundle } from "../src/bundle.ts";
+import * as Keynote from "../src/keynote.ts";
+import * as Numbers from "../src/numbers.ts";
+import { loadFixtures } from "./fixture.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
-const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(`${import.meta.dir}/fixtures/${name}`));
+const fixture = await loadFixtures([
+  "multi-chunk.iwa",
+  "simple-oneslide.iwa",
+  "simple-oneslide.key",
+  "test-1.numbers",
+]);
 
 describe("Snappy block codec", () => {
   test("literals-only compress then decompress is identity", () => {
@@ -42,7 +46,9 @@ describe("IWA framing", () => {
   });
 
   test("rejects a bad chunk type or a truncated chunk at its offset", () => {
-    expect(() => dechunk(new Uint8Array([0x01, 0, 0, 0]))).toThrow(/offset 0[\s\S]*chunk type 0x00/);
+    expect(() => dechunk(new Uint8Array([0x01, 0, 0, 0]))).toThrow(
+      /offset 0[\s\S]*chunk type 0x00/,
+    );
     expect(() => dechunk(new Uint8Array([0x00, 5, 0, 0, 1]))).toThrow(/offset 4[\s\S]*IWA chunk/);
   });
 });
@@ -72,12 +78,14 @@ describe("Protobuf wire reader", () => {
 
   test("truncated fields and unknown wire types fail with their offset", () => {
     expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x12, 0x05, 0x68]))).toThrow(
-      /offset 4[\s\S]*needs 5 bytes, only 1 left/
+      /offset 4[\s\S]*needs 5 bytes, only 1 left/,
     );
-    expect(() => parseMessage(new Uint8Array([0x09, 1, 2, 3]))).toThrow(/needs 8 bytes, only 3 left/);
+    expect(() => parseMessage(new Uint8Array([0x09, 1, 2, 3]))).toThrow(
+      /needs 8 bytes, only 3 left/,
+    );
     expect(() => parseMessage(new Uint8Array([0x08, 0x80]))).toThrow(/varint/);
     expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x0b]))).toThrow(
-      /offset 2[\s\S]*unsupported wire type 3 \(field 1\)/
+      /offset 2[\s\S]*unsupported wire type 3 \(field 1\)/,
     );
   });
 });
@@ -86,7 +94,7 @@ describe("Keynote reader (real .key fixture)", () => {
   test("extracts slide text into a conforming presentation document", () => {
     const doc = run(Keynote.makeKeynoteReader().read(bytes(fixture("simple-oneslide.key"))));
     expect(Keynote.Keynote.is(doc)).toBe(true);
-    const ss = doc.blocks.find((b) => b._tag === "SlideShow") as SlideShow;
+    const ss = doc.blocks.find((b) => Predicate.isTagged(b, "SlideShow")) as SlideShow;
     expect(ss.slides).toHaveLength(1);
     const text = blocksToText(doc.blocks);
     expect(text).toContain("Example Presentation");
@@ -100,7 +108,9 @@ describe("Numbers reader (real .numbers fixture, structure only)", () => {
   test("reads the sheet names into (empty) worksheets", () => {
     const doc = run(Numbers.makeNumbersReader().read(bytes(fixture("test-1.numbers"))));
     expect(Numbers.Numbers.is(doc)).toBe(true);
-    const names = doc.blocks.filter((b) => b._tag === "Worksheet").map((b) => (b as { name: string }).name);
+    const names = doc.blocks
+      .filter((b) => Predicate.isTagged(b, "Worksheet"))
+      .map((b) => (b as { name: string }).name);
     expect(names).toEqual(["ZZZ_Sheet_1", "ZZZ_Sheet_2"]);
   });
 });

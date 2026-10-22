@@ -3,19 +3,28 @@
  * Supports seeded generation for reproducibility.
  */
 
-import { Effect } from "effect";
+import * as Random from "effect/Random";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
 import {
-  cell, type Doc, document, type FeaturesOf, trustAs, worksheet,
+  cell,
+  type Doc,
+  document,
+  type FeaturesOf,
+  trustAs,
+  worksheet,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 
 type CsvFeature = FeaturesOf<typeof Csv>;
 
+/** What to synthesize: the columns (names, or a count named `col0…`), the row count, an optional seed for reproducible data, and the field-length range (default 5–20). */
 export interface SynthesisSpec {
   readonly columns: ReadonlyArray<string> | number;
   readonly quantity: number;
-  readonly seed?: number;
-  readonly fieldLengthRange?: readonly [number, number];
+  readonly seed?: number | undefined;
+  readonly fieldLengthRange?: readonly [number, number] | undefined;
 }
 
 /** The raw result of synthesis: headers plus rows of string fields. */
@@ -43,32 +52,16 @@ class SeedableRng {
   }
 }
 
-const generateRandomContent = (
-  lengthRange: readonly [number, number],
-  rng: SeedableRng | null
-): Effect.Effect<string> =>
-  Effect.sync(() => {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    const len = rng
-      ? rng.between(lengthRange[0], lengthRange[1])
-      : Math.floor(Math.random() * (lengthRange[1] - lengthRange[0] + 1)) +
-        lengthRange[0];
+const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-    let result = "";
-    for (let i = 0; i < len; i++) {
-      const idx = rng
-        ? rng.between(0, chars.length - 1)
-        : Math.floor(Math.random() * chars.length);
-      result += chars[idx]!;
-    }
-    return result;
-  });
+const generateRandomContent = (lengthRange: readonly [number, number], rng: SeedableRng): string =>
+  // `Array.from`, not `Arr.makeBy`: a zero length must stay empty.
+  Array.from({ length: rng.between(lengthRange[0], lengthRange[1]) }, () =>
+    CHARS.charAt(rng.between(0, CHARS.length - 1)),
+  ).join("");
 
 /** Generate a table of random string data according to the spec. */
-export const synthesizeTable = (
-  spec: SynthesisSpec
-): Effect.Effect<SynthesizedTable, never> =>
+export const synthesizeTable = (spec: SynthesisSpec): Effect.Effect<SynthesizedTable, never> =>
   Effect.gen(function* () {
     const rawLengthRange = spec.fieldLengthRange ?? [5, 20];
     const lower = Math.min(rawLengthRange[0], rawLengthRange[1]);
@@ -76,24 +69,20 @@ export const synthesizeTable = (
     const min = Math.max(0, lower);
     const max = Math.max(min, upper);
     const lengthRange: readonly [number, number] = [min, max];
-    const rng = spec.seed !== undefined ? new SeedableRng(spec.seed) : null;
+    // Unseeded runs draw their seed from Effect's `Random` service (a valid
+    // seed for the Lehmer generator is in [1, 2^31 - 2]).
+    const rng = new SeedableRng(spec.seed ?? (yield* Random.nextIntBetween(1, 2147483646)));
 
-    const columns = Array.isArray(spec.columns)
-      ? spec.columns
-      : Array.from({ length: spec.columns as number }, (_, i) => `col${i}`);
+    const columns = Predicate.isNumber(spec.columns)
+      ? Array.from({ length: spec.columns }, (_, i) => `col${i}`)
+      : spec.columns;
 
-    const rows: string[][] = [];
     const rawQuantity = spec.quantity;
-    const quantity =
-      Number.isFinite(rawQuantity) && rawQuantity > 0 ? Math.floor(rawQuantity) : 0;
-
-    for (let rowIdx = 0; rowIdx < quantity; rowIdx++) {
-      const row: string[] = [];
-      for (let colIdx = 0; colIdx < columns.length; colIdx++) {
-        row.push(yield* generateRandomContent(lengthRange, rng));
-      }
-      rows.push(row);
-    }
+    const quantity = Number.isFinite(rawQuantity) && rawQuantity > 0 ? Math.floor(rawQuantity) : 0;
+    // Row-major, one field at a time: a seed reproduces the same table.
+    const rows = Array.from({ length: quantity }, () =>
+      Arr.map(columns, () => generateRandomContent(lengthRange, rng)),
+    );
 
     return { headers: columns, rows };
   });
@@ -103,7 +92,7 @@ export const synthesizeTable = (
  */
 export const synthesizeDocument = (
   spec: SynthesisSpec,
-  sheetName: string = "Sheet1"
+  sheetName: string = "Sheet1",
 ): Effect.Effect<Doc<CsvFeature>, never> =>
   Effect.map(synthesizeTable(spec), ({ headers, rows }) =>
     trustAs<CsvFeature>(
@@ -111,8 +100,8 @@ export const synthesizeDocument = (
         worksheet(
           sheetName,
           rows.map((row) => row.map((v) => cell.text(v))),
-          headers
+          headers,
         ),
-      ])
-    )
+      ]),
+    ),
   );

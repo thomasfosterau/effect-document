@@ -6,24 +6,29 @@
  * fflate. The input type guarantees only worksheet blocks reach the writer.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  bytes, type Content, type Doc, makeWriterTag, type Worksheet, WriteError,
+  bytes,
+  type Content,
+  type Doc,
+  makeWriterTag,
+  type Worksheet,
+  WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
-import { Xlsx, type XlsxFeature } from "./profile.js";
-import { toA1 } from "./a1.js";
-import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.js";
-import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.js";
-import { escapeAttr } from "./xml.js";
-
+import { Xlsx, type XlsxFeature } from "./profile.ts";
+import { toA1 } from "./a1.ts";
+import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
+import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
+import { escapeAttr } from "./xml.ts";
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
-const CT_WORKBOOK =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
-const CT_WORKSHEET =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+const CT_WORKBOOK = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
+const CT_WORKSHEET = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 const CT_SHARED_STRINGS =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
 const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
@@ -54,6 +59,10 @@ const truncate = (s: string, max: number): string => {
   return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
 };
 
+/** Characters a sheet name may not contain: `[]:*?/\` and the C0 controls. */
+// oxlint-disable-next-line eslint/no-control-regex -- the C0 controls are among the characters a sheet name forbids
+const SHEET_NAME_FORBIDDEN = /[[\]:*?/\\\u0000-\u001F]/g;
+
 /**
  * Make sheet names Excel accepts, deterministically: `[ ] : * ? / \` and
  * control characters become `_`, leading/trailing apostrophes are dropped, empty names become
@@ -63,7 +72,7 @@ const truncate = (s: string, max: number): string => {
 export const sanitizeSheetNames = (names: ReadonlyArray<string>): ReadonlyArray<string> => {
   const used = new Set<string>();
   return names.map((raw, i) => {
-    let base = raw.replace(/[[\]:*?/\\\u0000-\u001F]/g, "_").replace(/^'+|'+$/g, "");
+    let base = raw.replace(SHEET_NAME_FORBIDDEN, "_").replace(/^'+|'+$/g, "");
     if (base === "") base = `Sheet${i + 1}`;
     if (base.toLowerCase() === "history") base = `${base}_`;
     base = truncate(base, MAX_SHEET_NAME);
@@ -85,7 +94,7 @@ const contentTypesXml = (sheetCount: number): string => {
   const overrides = Array.from(
     { length: sheetCount },
     (_, i) =>
-      `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`
+      `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`,
   ).join("");
   return (
     XML_DECL +
@@ -139,7 +148,7 @@ const workbookRelsXml = (sheetCount: number): string => {
   const sheetRels = Array.from(
     { length: sheetCount },
     (_, i) =>
-      `<Relationship Id="rId${i + 1}" Type="${REL_WORKSHEET}" Target="worksheets/sheet${i + 1}.xml"/>`
+      `<Relationship Id="rId${i + 1}" Type="${REL_WORKSHEET}" Target="worksheets/sheet${i + 1}.xml"/>`,
   ).join("");
   return (
     XML_DECL +
@@ -168,7 +177,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
   // rows and columns) is declared in <dimension> for the reader to recover.
   const maxCols = ws.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
   const dimension =
-    ws.rows.length === 0 || maxCols === 0
+    Arr.isReadonlyArrayEmpty(ws.rows) || maxCols === 0
       ? ""
       : `<dimension ref="A1:${toA1(maxCols - 1, ws.rows.length - 1)}"/>`;
   const rows = ws.rows
@@ -193,47 +202,48 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
 // Writer
 // ============================================================================
 
+/** Options for the XLSX writer. */
 export interface XlsxWriterOptions {
   /** Zip compression level 0-9 (defaults to 6). */
-  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
 
 /** Create an XLSX Writer with the given options baked in. */
 export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature> => {
   const level = options?.compressionLevel ?? 6;
 
-  const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> =>
-    Effect.try({
+  const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> => {
+    const worksheets = doc.blocks.filter((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
+    if (Arr.isReadonlyArrayEmpty(worksheets))
+      return Effect.fail(
+        new WriteError({ format: "xlsx", reason: "document contains no worksheets to write" }),
+      );
+    return Effect.try({
       try: () => {
-        const worksheets = doc.blocks.filter((b): b is Worksheet => b._tag === "Worksheet");
-        if (worksheets.length === 0) {
-          throw new Error("document contains no worksheets to write");
-        }
-
         const sharedStrings = new SharedStrings();
         const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings));
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
-            row.cells.some((c) => c._tag === "CellFormula" && c.result === undefined)
-          )
+            row.cells.some((c) => Predicate.isTagged(c, "CellFormula") && c.result === undefined),
+          ),
         );
 
-        const files: Record<string, string> = {
+        const files = {
           "[Content_Types].xml": contentTypesXml(worksheets.length),
           "_rels/.rels": rootRelsXml(),
           "docProps/core.xml": corePropsXml(),
           "docProps/app.xml": appPropsXml(),
           "xl/workbook.xml": workbookXml(
             sanitizeSheetNames(worksheets.map((w) => w.name)),
-            recalculate
+            recalculate,
           ),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
+          ...Object.fromEntries(
+            sheetXmls.map((xml, i) => [`xl/worksheets/sheet${i + 1}.xml`, xml]),
+          ),
         };
-        sheetXmls.forEach((xml, i) => {
-          files[`xl/worksheets/sheet${i + 1}.xml`] = xml;
-        });
 
         return bytes(zipParts(files, level));
       },
@@ -244,6 +254,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           cause,
         }),
     });
+  };
 
   return { format: "xlsx", profile: Xlsx, write };
 };

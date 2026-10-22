@@ -10,8 +10,8 @@
  * TypeScript the plain-JSON shape it needs to type those suspended references.
  */
 
-import { Schema } from "effect";
-import { Attributes, Style, attrField } from "./attributes.js";
+import * as Schema from "effect/Schema";
+import { Attributes, Style, attrField } from "./attributes.ts";
 
 // ============================================================================
 // Encoded (plain JSON) forms
@@ -20,8 +20,13 @@ import { Attributes, Style, attrField } from "./attributes.js";
 type Attrs = Attributes; // attr encodes 1:1 (no Date/class-valued fields)
 type CellAlign = "left" | "right" | "center" | "default";
 type NumberStyle =
-  | "default" | "example" | "decimal" | "lower-roman" | "upper-roman"
-  | "lower-alpha" | "upper-alpha";
+  | "default"
+  | "example"
+  | "decimal"
+  | "lower-roman"
+  | "upper-roman"
+  | "lower-alpha"
+  | "upper-alpha";
 type NumberDelim = "default" | "period" | "one-paren" | "two-parens";
 
 interface WrapInlineEncoded<T extends string> {
@@ -29,70 +34,84 @@ interface WrapInlineEncoded<T extends string> {
   readonly content: ReadonlyArray<InlineEncoded>;
 }
 
+/** The JSON (encoded) form of {@link Str}. */
 export interface StrEncoded {
   readonly _tag: "Str";
   readonly text: string;
 }
+/** The JSON (encoded) form of a node with no fields (`Space`, `SoftBreak`, `LineBreak`, …). */
 export interface NoFieldEncoded<T extends string> {
   readonly _tag: T;
 }
+/** The JSON (encoded) form of {@link Quoted}. */
 export interface QuotedEncoded {
   readonly _tag: "Quoted";
   readonly quoteType: "single" | "double";
   readonly content: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link Citation}. */
 export interface CitationEncoded {
   readonly id: string;
   readonly mode: "author-in-text" | "suppress-author" | "normal";
   readonly prefix: ReadonlyArray<InlineEncoded>;
   readonly suffix: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link Cite}. */
 export interface CiteEncoded {
   readonly _tag: "Cite";
   readonly citations: ReadonlyArray<CitationEncoded>;
   readonly content: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link Code}. */
 export interface CodeEncoded {
   readonly _tag: "Code";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly text: string;
 }
+/** The JSON (encoded) form of {@link Math}. */
 export interface MathEncoded {
   readonly _tag: "Math";
   readonly mathType: "inline" | "display";
   readonly text: string;
 }
+/** The JSON (encoded) form of {@link RawInline}. */
 export interface RawInlineEncoded {
   readonly _tag: "RawInline";
   readonly format: string;
   readonly text: string;
 }
+/** The JSON (encoded) form of {@link Target}. */
 export interface TargetEncoded {
   readonly url: string;
-  readonly title?: string;
+  readonly title?: string | undefined;
 }
+/** The JSON (encoded) form of {@link Link}. */
 export interface LinkEncoded {
   readonly _tag: "Link";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
   readonly target: TargetEncoded;
 }
+/** The JSON (encoded) form of {@link Image}. */
 export interface ImageEncoded {
   readonly _tag: "Image";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly alt: ReadonlyArray<InlineEncoded>;
   readonly target: TargetEncoded;
 }
+/** The JSON (encoded) form of {@link Note}. */
 export interface NoteEncoded {
   readonly _tag: "Note";
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link Span}. */
 export interface SpanEncoded {
   readonly _tag: "Span";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
 }
 
+/** The JSON (encoded) form of {@link Inline}. */
 export type InlineEncoded =
   | StrEncoded
   | NoFieldEncoded<"Space">
@@ -115,90 +134,107 @@ export type InlineEncoded =
   | NoteEncoded
   | SpanEncoded;
 
+/** The JSON (encoded) form of {@link Plain}. */
 export interface PlainEncoded {
   readonly _tag: "Plain";
   readonly content: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link Para}. */
 export interface ParaEncoded {
   readonly _tag: "Para";
   readonly content: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link LineBlock}. */
 export interface LineBlockEncoded {
   readonly _tag: "LineBlock";
   readonly lines: ReadonlyArray<ReadonlyArray<InlineEncoded>>;
 }
+/** The JSON (encoded) form of {@link CodeBlock}. */
 export interface CodeBlockEncoded {
   readonly _tag: "CodeBlock";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly text: string;
-  readonly language?: string;
+  readonly language?: string | undefined;
 }
+/** The JSON (encoded) form of {@link RawBlock}. */
 export interface RawBlockEncoded {
   readonly _tag: "RawBlock";
   readonly format: string;
   readonly text: string;
 }
+/** The JSON (encoded) form of {@link BlockQuote}. */
 export interface BlockQuoteEncoded {
   readonly _tag: "BlockQuote";
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link OrderedList}. */
 export interface OrderedListEncoded {
   readonly _tag: "OrderedList";
-  readonly attr?: Attrs;
-  readonly start?: number;
-  readonly numberStyle?: NumberStyle;
-  readonly numberDelim?: NumberDelim;
+  readonly attr?: Attrs | undefined;
+  readonly start?: number | undefined;
+  readonly numberStyle?: NumberStyle | undefined;
+  readonly numberDelim?: NumberDelim | undefined;
   readonly items: ReadonlyArray<ReadonlyArray<BlockEncoded>>;
 }
+/** The JSON (encoded) form of {@link BulletList}. */
 export interface BulletListEncoded {
   readonly _tag: "BulletList";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly items: ReadonlyArray<ReadonlyArray<BlockEncoded>>;
 }
+/** The JSON (encoded) form of {@link DefinitionItem}. */
 export interface DefinitionItemEncoded {
   readonly term: ReadonlyArray<InlineEncoded>;
   readonly definitions: ReadonlyArray<ReadonlyArray<BlockEncoded>>;
 }
+/** The JSON (encoded) form of {@link DefinitionList}. */
 export interface DefinitionListEncoded {
   readonly _tag: "DefinitionList";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly items: ReadonlyArray<DefinitionItemEncoded>;
 }
+/** The JSON (encoded) form of {@link Header}. */
 export interface HeaderEncoded {
   readonly _tag: "Header";
   readonly level: number;
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
 }
+/** The JSON (encoded) form of {@link Figure}. */
 export interface FigureEncoded {
   readonly _tag: "Figure";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly caption: ReadonlyArray<BlockEncoded>;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link Div}. */
 export interface DivEncoded {
   readonly _tag: "Div";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link ColSpec}. */
 export interface ColSpecEncoded {
-  readonly align?: CellAlign;
-  readonly width?: number | null;
+  readonly align?: CellAlign | undefined;
+  readonly width?: number | null | undefined;
 }
+/** The JSON (encoded) form of {@link TableCell}. */
 export interface TableCellEncoded {
-  readonly attr?: Attrs;
-  readonly align?: CellAlign;
-  readonly rowSpan?: number;
-  readonly colSpan?: number;
+  readonly attr?: Attrs | undefined;
+  readonly align?: CellAlign | undefined;
+  readonly rowSpan?: number | undefined;
+  readonly colSpan?: number | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link TableRow}. */
 export interface TableRowEncoded {
   readonly cells: ReadonlyArray<TableCellEncoded>;
 }
+/** The JSON (encoded) form of {@link Table}. */
 export interface TableEncoded {
   readonly _tag: "Table";
-  readonly attr?: Attrs;
-  readonly caption?: ReadonlyArray<InlineEncoded>;
+  readonly attr?: Attrs | undefined;
+  readonly caption?: ReadonlyArray<InlineEncoded> | undefined;
   readonly colSpecs: ReadonlyArray<ColSpecEncoded>;
   readonly head: ReadonlyArray<TableRowEncoded>;
   readonly body: ReadonlyArray<TableRowEncoded>;
@@ -207,46 +243,55 @@ export interface TableEncoded {
 
 // Spreadsheet encoded forms
 type StyleE = Style;
+/** The JSON (encoded) form of {@link CellText}. */
 export interface CellTextEncoded {
   readonly _tag: "CellText";
   readonly value: string;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellNumber}. */
 export interface CellNumberEncoded {
   readonly _tag: "CellNumber";
   readonly value: number;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellBoolean}. */
 export interface CellBooleanEncoded {
   readonly _tag: "CellBoolean";
   readonly value: boolean;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellDate}. */
 export interface CellDateEncoded {
   readonly _tag: "CellDate";
   readonly value: string; // ISO-8601 (Date encodes to string)
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellError}. */
 export interface CellErrorEncoded {
   readonly _tag: "CellError";
   readonly value: string;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellBlank}. */
 export interface CellBlankEncoded {
   readonly _tag: "CellBlank";
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellFormula}. */
 export interface CellFormulaEncoded {
   readonly _tag: "CellFormula";
   readonly formula: string;
-  readonly result?: string;
-  readonly style?: StyleE;
+  readonly result?: string | undefined;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link CellRichText}. */
 export interface CellRichTextEncoded {
   readonly _tag: "CellRichText";
   readonly runs: ReadonlyArray<InlineEncoded>;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link SheetCell}. */
 export type SheetCellEncoded =
   | CellTextEncoded
   | CellNumberEncoded
@@ -256,23 +301,27 @@ export type SheetCellEncoded =
   | CellBlankEncoded
   | CellFormulaEncoded
   | CellRichTextEncoded;
+/** The JSON (encoded) form of {@link SheetColumn}. */
 export interface SheetColumnEncoded {
-  readonly width?: number;
-  readonly style?: StyleE;
+  readonly width?: number | undefined;
+  readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of {@link SheetRow}. */
 export interface SheetRowEncoded {
   readonly cells: ReadonlyArray<SheetCellEncoded>;
-  readonly height?: number;
+  readonly height?: number | undefined;
 }
+/** The JSON (encoded) form of {@link MergeRange}. */
 export interface MergeRangeEncoded {
   readonly fromRow: number;
   readonly fromCol: number;
   readonly toRow: number;
   readonly toCol: number;
 }
+/** The JSON (encoded) form of {@link Worksheet}. */
 export interface WorksheetEncoded {
   readonly _tag: "Worksheet";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly name: string;
   readonly columns: ReadonlyArray<SheetColumnEncoded>;
   readonly rows: ReadonlyArray<SheetRowEncoded>;
@@ -280,51 +329,56 @@ export interface WorksheetEncoded {
 }
 
 // Presentation encoded forms
+/** The JSON (encoded) form of {@link TextBox}. */
 export interface TextBoxEncoded {
   readonly _tag: "TextBox";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
+/** The JSON (encoded) form of {@link Picture}. */
 export interface PictureEncoded {
   readonly _tag: "Picture";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly src: string;
-  readonly alt?: string;
+  readonly alt?: string | undefined;
 }
+/** The JSON (encoded) form of {@link TableShape}. */
 export interface TableShapeEncoded {
   readonly _tag: "TableShape";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly table: TableEncoded;
 }
+/** The JSON (encoded) form of {@link Placeholder}. */
 export interface PlaceholderEncoded {
   readonly _tag: "Placeholder";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly placeholderType: string;
-  readonly idx?: number;
+  readonly idx?: number | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
-export type ShapeEncoded =
-  | TextBoxEncoded
-  | PictureEncoded
-  | TableShapeEncoded
-  | PlaceholderEncoded;
+/** The JSON (encoded) form of {@link Shape}. */
+export type ShapeEncoded = TextBoxEncoded | PictureEncoded | TableShapeEncoded | PlaceholderEncoded;
+/** The JSON (encoded) form of {@link Slide}. */
 export interface SlideEncoded {
-  readonly attr?: Attrs;
-  readonly layout?: string;
+  readonly attr?: Attrs | undefined;
+  readonly layout?: string | undefined;
   readonly shapes: ReadonlyArray<ShapeEncoded>;
-  readonly notes?: ReadonlyArray<BlockEncoded>;
+  readonly notes?: ReadonlyArray<BlockEncoded> | undefined;
 }
+/** The JSON (encoded) form of {@link SlideSize}. */
 export interface SlideSizeEncoded {
   readonly width: number;
   readonly height: number;
 }
+/** The JSON (encoded) form of {@link SlideShow}. */
 export interface SlideShowEncoded {
   readonly _tag: "SlideShow";
-  readonly attr?: Attrs;
-  readonly size?: SlideSizeEncoded;
+  readonly attr?: Attrs | undefined;
+  readonly size?: SlideSizeEncoded | undefined;
   readonly slides: ReadonlyArray<SlideEncoded>;
 }
 
+/** The JSON (encoded) form of {@link Block}. */
 export type BlockEncoded =
   | PlainEncoded
   | ParaEncoded
@@ -348,13 +402,9 @@ export type BlockEncoded =
 // ============================================================================
 
 /** `ReadonlyArray<Inline>` as a schema, deferring the recursive reference. */
-const InlineArray = Schema.Array(
-  Schema.suspend((): Schema.Codec<Inline, InlineEncoded> => Inline)
-);
+const InlineArray = Schema.Array(Schema.suspend((): Schema.Codec<Inline, InlineEncoded> => Inline));
 /** `ReadonlyArray<Block>` as a schema, deferring the recursive reference. */
-const BlockArray = Schema.Array(
-  Schema.suspend((): Schema.Codec<Block, BlockEncoded> => Block)
-);
+const BlockArray = Schema.Array(Schema.suspend((): Schema.Codec<Block, BlockEncoded> => Block));
 
 // ============================================================================
 // Inline nodes
@@ -375,16 +425,27 @@ export class Emph extends Schema.TaggedClass<Emph>()("Emph", { content: InlineAr
 /** Strongly emphasized (bold) content. */
 export class Strong extends Schema.TaggedClass<Strong>()("Strong", { content: InlineArray }) {}
 /** Underlined content. */
-export class Underline extends Schema.TaggedClass<Underline>()("Underline", { content: InlineArray }) {}
+export class Underline extends Schema.TaggedClass<Underline>()("Underline", {
+  content: InlineArray,
+}) {}
 /** Struck-out content. */
-export class Strikeout extends Schema.TaggedClass<Strikeout>()("Strikeout", { content: InlineArray }) {}
+export class Strikeout extends Schema.TaggedClass<Strikeout>()("Strikeout", {
+  content: InlineArray,
+}) {}
 /** Superscripted content. */
-export class Superscript extends Schema.TaggedClass<Superscript>()("Superscript", { content: InlineArray }) {}
+export class Superscript extends Schema.TaggedClass<Superscript>()("Superscript", {
+  content: InlineArray,
+}) {}
 /** Subscripted content. */
-export class Subscript extends Schema.TaggedClass<Subscript>()("Subscript", { content: InlineArray }) {}
+export class Subscript extends Schema.TaggedClass<Subscript>()("Subscript", {
+  content: InlineArray,
+}) {}
 /** Small-caps content. */
-export class SmallCaps extends Schema.TaggedClass<SmallCaps>()("SmallCaps", { content: InlineArray }) {}
+export class SmallCaps extends Schema.TaggedClass<SmallCaps>()("SmallCaps", {
+  content: InlineArray,
+}) {}
 
+/** Which quotation marks a `Quoted` inline uses. */
 export const QuoteType = Schema.Literals(["single", "double"]);
 export type QuoteType = Schema.Schema.Type<typeof QuoteType>;
 /** Quoted content (rendered with locale-appropriate quotation marks). */
@@ -393,6 +454,7 @@ export class Quoted extends Schema.TaggedClass<Quoted>()("Quoted", {
   content: InlineArray,
 }) {}
 
+/** How a citation renders: author in the text, author suppressed, or the normal form (Pandoc `CitationMode`). */
 export const CitationMode = Schema.Literals(["author-in-text", "suppress-author", "normal"]);
 export type CitationMode = Schema.Schema.Type<typeof CitationMode>;
 /** A single citation within a `Cite`. */
@@ -414,6 +476,7 @@ export class Code extends Schema.TaggedClass<Code>()("Code", {
   text: Schema.String,
 }) {}
 
+/** Whether a `Math` inline is set inline or as display math. */
 export const MathType = Schema.Literals(["inline", "display"]);
 export type MathType = Schema.Schema.Type<typeof MathType>;
 /** Inline or display math (TeX). */
@@ -459,14 +522,48 @@ export class Span extends Schema.TaggedClass<Span>()("Span", {
 
 /** Any inline-level node. */
 export type Inline =
-  | Str | Space | SoftBreak | LineBreak | Emph | Strong | Underline | Strikeout
-  | Superscript | Subscript | SmallCaps | Quoted | Cite | Code | Math | RawInline
-  | Link | Image | Note | Span;
+  | Str
+  | Space
+  | SoftBreak
+  | LineBreak
+  | Emph
+  | Strong
+  | Underline
+  | Strikeout
+  | Superscript
+  | Subscript
+  | SmallCaps
+  | Quoted
+  | Cite
+  | Code
+  | Math
+  | RawInline
+  | Link
+  | Image
+  | Note
+  | Span;
 
 export const Inline: Schema.Codec<Inline, InlineEncoded> = Schema.Union([
-  Str, Space, SoftBreak, LineBreak, Emph, Strong, Underline, Strikeout,
-  Superscript, Subscript, SmallCaps, Quoted, Cite, Code, Math, RawInline,
-  Link, Image, Note, Span
+  Str,
+  Space,
+  SoftBreak,
+  LineBreak,
+  Emph,
+  Strong,
+  Underline,
+  Strikeout,
+  Superscript,
+  Subscript,
+  SmallCaps,
+  Quoted,
+  Cite,
+  Code,
+  Math,
+  RawInline,
+  Link,
+  Image,
+  Note,
+  Span,
 ]);
 
 // ============================================================================
@@ -497,10 +594,18 @@ export class BlockQuote extends Schema.TaggedClass<BlockQuote>()("BlockQuote", {
   content: BlockArray,
 }) {}
 
+/** The numbering style of an ordered list (Pandoc `ListNumberStyle`). */
 export const ListNumberStyle = Schema.Literals([
-  "default", "example", "decimal", "lower-roman", "upper-roman", "lower-alpha", "upper-alpha"
+  "default",
+  "example",
+  "decimal",
+  "lower-roman",
+  "upper-roman",
+  "lower-alpha",
+  "upper-alpha",
 ]);
 export type ListNumberStyle = Schema.Schema.Type<typeof ListNumberStyle>;
+/** The punctuation after an ordered list number (Pandoc `ListNumberDelim`). */
 export const ListNumberDelim = Schema.Literals(["default", "period", "one-paren", "two-parens"]);
 export type ListNumberDelim = Schema.Schema.Type<typeof ListNumberDelim>;
 
@@ -551,7 +656,10 @@ export class Div extends Schema.TaggedClass<Div>()("Div", {
 
 // ---- prose table ----------------------------------------------------------
 
+/** A table column width as a fraction of the text width, or `null` for the default. */
 export const ColWidth = Schema.NullOr(Schema.Number);
+/** A table column width as a fraction of the text width, or `null` for the default. */
+export type ColWidth = typeof ColWidth.Type;
 /** A column specification: alignment and relative width. */
 export class ColSpec extends Schema.Class<ColSpec>("ColSpec")({
   align: Schema.optional(Schema.Literals(["left", "right", "center", "default"])),
@@ -632,10 +740,23 @@ export class CellRichText extends Schema.TaggedClass<CellRichText>()("CellRichTe
 
 /** Any typed spreadsheet cell. */
 export type SheetCell =
-  | CellText | CellNumber | CellBoolean | CellDate | CellError | CellBlank
-  | CellFormula | CellRichText;
+  | CellText
+  | CellNumber
+  | CellBoolean
+  | CellDate
+  | CellError
+  | CellBlank
+  | CellFormula
+  | CellRichText;
 export const SheetCell: Schema.Codec<SheetCell, SheetCellEncoded> = Schema.Union([
-  CellText, CellNumber, CellBoolean, CellDate, CellError, CellBlank, CellFormula, CellRichText
+  CellText,
+  CellNumber,
+  CellBoolean,
+  CellDate,
+  CellError,
+  CellBlank,
+  CellFormula,
+  CellRichText,
 ]);
 
 /** A column definition (width / default style). */
@@ -695,7 +816,10 @@ export class Placeholder extends Schema.TaggedClass<Placeholder>()("Placeholder"
 /** Any slide shape. */
 export type Shape = TextBox | Picture | TableShape | Placeholder;
 export const Shape: Schema.Codec<Shape, ShapeEncoded> = Schema.Union([
-  TextBox, Picture, TableShape, Placeholder
+  TextBox,
+  Picture,
+  TableShape,
+  Placeholder,
 ]);
 
 /** A single slide: shapes plus optional speaker notes. */
@@ -723,12 +847,38 @@ export class SlideShow extends Schema.TaggedClass<SlideShow>()("SlideShow", {
 
 /** Any block-level node (prose, spreadsheet, or presentation). */
 export type Block =
-  | Plain | Para | LineBlock | CodeBlock | RawBlock | BlockQuote | OrderedList
-  | BulletList | DefinitionList | Header | HorizontalRule | Figure | Div | Table
-  | Worksheet | SlideShow;
+  | Plain
+  | Para
+  | LineBlock
+  | CodeBlock
+  | RawBlock
+  | BlockQuote
+  | OrderedList
+  | BulletList
+  | DefinitionList
+  | Header
+  | HorizontalRule
+  | Figure
+  | Div
+  | Table
+  | Worksheet
+  | SlideShow;
 
 export const Block: Schema.Codec<Block, BlockEncoded> = Schema.Union([
-  Plain, Para, LineBlock, CodeBlock, RawBlock, BlockQuote, OrderedList,
-  BulletList, DefinitionList, Header, HorizontalRule, Figure, Div, Table,
-  Worksheet, SlideShow
+  Plain,
+  Para,
+  LineBlock,
+  CodeBlock,
+  RawBlock,
+  BlockQuote,
+  OrderedList,
+  BulletList,
+  DefinitionList,
+  Header,
+  HorizontalRule,
+  Figure,
+  Div,
+  Table,
+  Worksheet,
+  SlideShow,
 ]);

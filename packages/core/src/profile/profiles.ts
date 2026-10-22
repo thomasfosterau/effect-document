@@ -8,10 +8,14 @@
  */
 
 import {
-  ALL_ATTR_FEATURES, ALL_BLOCK_FEATURES, ALL_DECK_FEATURES, ALL_FEATURES,
-  ALL_INLINE_FEATURES, ALL_SHEET_FEATURES,
-} from "../schema/feature.js";
-import { defineProfile } from "./profile.js";
+  ALL_ATTR_FEATURES,
+  ALL_BLOCK_FEATURES,
+  ALL_DECK_FEATURES,
+  ALL_FEATURES,
+  ALL_INLINE_FEATURES,
+  ALL_SHEET_FEATURES,
+} from "../schema/feature.ts";
+import { defineProfile } from "./profile.ts";
 
 // ---- spreadsheets ---------------------------------------------------------
 
@@ -23,6 +27,7 @@ export const csvFeatures = [
   "cell.boolean",
   "cell.blank",
 ] as const;
+/** The CSV profile: one worksheet of text, number, boolean and blank cells (with an optional header row). */
 export const Csv = defineProfile("csv", csvFeatures);
 
 /** A full spreadsheet (XLSX/ODS): multi-sheet, all cell types, styling, merges. */
@@ -36,13 +41,29 @@ export const Spreadsheet = defineProfile("spreadsheet", [
 
 /** Markdown/Wikitext: common prose with ids & classes, no inline styling. */
 export const Markdown = defineProfile("markdown", [
-  "block.plain", "block.para", "block.header", "block.codeBlock",
-  "block.blockQuote", "block.orderedList", "block.bulletList",
-  "block.horizontalRule", "block.table", "block.div",
-  "inline.str", "inline.space", "inline.softBreak", "inline.lineBreak",
-  "inline.emph", "inline.strong", "inline.strikeout", "inline.code",
-  "inline.link", "inline.image", "inline.quoted",
-  "attr.id", "attr.classes",
+  "block.plain",
+  "block.para",
+  "block.header",
+  "block.codeBlock",
+  "block.blockQuote",
+  "block.orderedList",
+  "block.bulletList",
+  "block.horizontalRule",
+  "block.table",
+  "block.div",
+  "inline.str",
+  "inline.space",
+  "inline.softBreak",
+  "inline.lineBreak",
+  "inline.emph",
+  "inline.strong",
+  "inline.strikeout",
+  "inline.code",
+  "inline.link",
+  "inline.image",
+  "inline.quoted",
+  "attr.id",
+  "attr.classes",
 ]);
 
 /** HTML/OOXML/ODF prose: the full prose vocabulary with rich attributes. */

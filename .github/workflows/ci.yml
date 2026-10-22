@@ -1,35 +1,63 @@
 name: CI
 
+# ONE required job, ONE required check: the pipeline's task graph lives in
+# vite.config.ts (the root `check`, `check:dist`, `test:integration` and
+# `examples` tasks and every package's `test:unit` / `build`), not in GitHub
+# Actions `needs:`. Copied in shape from the effect-web library: nothing here
+# needs a database, a stage or a credential, so every PR class runs the whole
+# gate.
+
 on:
   pull_request:
+    branches: [trunk]
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
-    branches:
-      - main
+    branches: [trunk]
 
-# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/trunk' }}
+
+# No permissions by default; the single job grants only read access.
+permissions: {}
 
 jobs:
-  test:
-    name: Test & typecheck
+  ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # A modest ceiling for every Node process in the pipeline. NODE_OPTIONS
+      # is inherited by every child, including each vitest fork.
+      NODE_OPTIONS: --max-old-space-size=2048
+      VITEST_MAX_WORKERS: 2
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Test
-        run: bun test
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Restore the Vite+ task cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/task-cache
+          key: vp-task-v1-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            vp-task-v1-${{ runner.os }}-
+      - name: Format and lint
+        run: vp check
+      - name: Type gates (src + tests + examples)
+        run: vp run --concurrency-limit 2 check
+      - name: Unit tests
+        run: vp run -r test:unit
+      - name: Integration tests (cross-format conversions)
+        run: vp run test:integration
       - name: Build
-        run: bun run build
+        run: vp run -r build
+      - name: Dist import guard (no effect/unstable)
+        run: vp run check:dist
+      # Runs every program under examples/ against the built dist/.
+      - name: Run the examples
+        run: vp run examples
+      - name: Audit
+        run: pnpm audit --audit-level high

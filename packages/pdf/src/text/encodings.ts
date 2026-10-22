@@ -4,7 +4,10 @@
  * conventions), standard-14 font metrics, and text strings (§7.9.2.2).
  */
 
-import { ENCODING_NAMES, GLYPH_LIST, STANDARD_WIDTHS } from "./data.js";
+import * as Rec from "effect/Record";
+import * as Option from "effect/Option";
+import * as HashMap from "effect/HashMap";
+import { ENCODING_NAMES, GLYPH_LIST, STANDARD_WIDTHS } from "./data.ts";
 
 /** A base encoding's name. */
 export type BaseEncodingName = keyof typeof ENCODING_NAMES;
@@ -21,7 +24,8 @@ export const baseEncoding = (name: BaseEncodingName): ReadonlyArray<string | und
   return enc;
 };
 
-export const isBaseEncodingName = (name: string): name is BaseEncodingName => name in ENCODING_NAMES;
+export const isBaseEncodingName = (name: string): name is BaseEncodingName =>
+  name in ENCODING_NAMES;
 
 let glyphs: Map<string, number> | undefined;
 
@@ -29,7 +33,8 @@ const glyphTable = (): Map<string, number> => {
   if (glyphs === undefined) {
     glyphs = new Map();
     const parts = GLYPH_LIST.split(" ");
-    for (let i = 0; i + 1 < parts.length; i += 2) glyphs.set(parts[i]!, Number.parseInt(parts[i + 1]!, 16));
+    for (let i = 0; i + 1 < parts.length; i += 2)
+      glyphs.set(parts[i]!, Number.parseInt(parts[i + 1]!, 16));
   }
   return glyphs;
 };
@@ -50,9 +55,15 @@ export const glyphToUnicode = (name: string): string | undefined => {
     const parts = name.split("_").map(glyphToUnicode);
     return parts.every((p) => p !== undefined) ? parts.join("") : undefined;
   }
-  if (name.startsWith("uni") && name.length >= 7 && (name.length - 3) % 4 === 0 && isHex(name.slice(3))) {
+  if (
+    name.startsWith("uni") &&
+    name.length >= 7 &&
+    (name.length - 3) % 4 === 0 &&
+    isHex(name.slice(3))
+  ) {
     let out = "";
-    for (let i = 3; i < name.length; i += 4) out += String.fromCharCode(Number.parseInt(name.slice(i, i + 4), 16));
+    for (let i = 3; i < name.length; i += 4)
+      out += String.fromCharCode(Number.parseInt(name.slice(i, i + 4), 16));
     return out;
   }
   if (name.startsWith("u") && name.length >= 5 && name.length <= 7 && isHex(name.slice(1))) {
@@ -71,7 +82,9 @@ let pdfDoc: ReadonlyArray<string> | undefined;
 const utf16 = (bytes: Uint8Array, littleEndian: boolean): string => {
   let s = "";
   for (let i = 0; i + 1 < bytes.length; i += 2) {
-    s += String.fromCharCode(littleEndian ? bytes[i]! | (bytes[i + 1]! << 8) : (bytes[i]! << 8) | bytes[i + 1]!);
+    s += String.fromCharCode(
+      littleEndian ? bytes[i]! | (bytes[i + 1]! << 8) : (bytes[i]! << 8) | bytes[i + 1]!,
+    );
   }
   return s;
 };
@@ -80,9 +93,10 @@ const utf16 = (bytes: Uint8Array, littleEndian: boolean): string => {
 export const decodeTextString = (bytes: Uint8Array): string => {
   if (bytes[0] === 0xfe && bytes[1] === 0xff) return utf16(bytes.subarray(2), false);
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return utf16(bytes.subarray(2), true);
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return new TextDecoder().decode(bytes.subarray(3));
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf)
+    return new TextDecoder().decode(bytes.subarray(3));
   pdfDoc ??= baseEncoding("PDFDocEncoding").map((n, code) =>
-    n === undefined ? (code < 0x20 ? String.fromCharCode(code) : "") : (glyphToUnicode(n) ?? "")
+    n === undefined ? (code < 0x20 ? String.fromCharCode(code) : "") : (glyphToUnicode(n) ?? ""),
   );
   let out = "";
   for (const b of bytes) out += pdfDoc[b] ?? "";
@@ -102,7 +116,8 @@ export const winAnsiCode = (ch: string): number | undefined => {
     baseEncoding("WinAnsiEncoding").forEach((name, code) => {
       if (name === undefined || code < 0x20) return;
       const u = glyphToUnicode(name);
-      if (u !== undefined && !winAnsi!.has(u.codePointAt(0)!)) winAnsi!.set(u.codePointAt(0)!, code);
+      if (u !== undefined && !winAnsi!.has(u.codePointAt(0)!))
+        winAnsi!.set(u.codePointAt(0)!, code);
     });
     winAnsi.set(0xa0, 0xa0); // no-break space
     winAnsi.set(0xad, 0xad); // soft hyphen
@@ -115,38 +130,67 @@ export const winAnsiCode = (ch: string): number | undefined => {
 // ============================================================================
 
 /** The standard 14 fonts' names. */
-export const STANDARD_FONTS = [
-  "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-  "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
-  "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
-  "Symbol", "ZapfDingbats",
+const STANDARD_FONTS = [
+  "Helvetica",
+  "Helvetica-Bold",
+  "Helvetica-Oblique",
+  "Helvetica-BoldOblique",
+  "Times-Roman",
+  "Times-Bold",
+  "Times-Italic",
+  "Times-BoldItalic",
+  "Courier",
+  "Courier-Bold",
+  "Courier-Oblique",
+  "Courier-BoldOblique",
+  "Symbol",
+  "ZapfDingbats",
 ] as const;
 export type StandardFont = (typeof STANDARD_FONTS)[number];
 
 /** Common aliases of the standard fonts (as found in real files). */
-const ALIASES: Record<string, StandardFont> = {
-  Arial: "Helvetica", "Arial,Bold": "Helvetica-Bold", "Arial,Italic": "Helvetica-Oblique",
-  "Arial,BoldItalic": "Helvetica-BoldOblique", ArialMT: "Helvetica", "Arial-BoldMT": "Helvetica-Bold",
-  "Arial-ItalicMT": "Helvetica-Oblique", "Arial-BoldItalicMT": "Helvetica-BoldOblique",
-  TimesNewRoman: "Times-Roman", "TimesNewRoman,Bold": "Times-Bold", "TimesNewRoman,Italic": "Times-Italic",
-  "TimesNewRoman,BoldItalic": "Times-BoldItalic", TimesNewRomanPSMT: "Times-Roman",
-  "TimesNewRomanPS-BoldMT": "Times-Bold", "TimesNewRomanPS-ItalicMT": "Times-Italic",
-  "TimesNewRomanPS-BoldItalicMT": "Times-BoldItalic", CourierNew: "Courier", CourierNewPSMT: "Courier",
-  "CourierNew,Bold": "Courier-Bold", "CourierNewPS-BoldMT": "Courier-Bold",
-};
+const ALIASES = HashMap.fromIterable<string, StandardFont>(
+  Rec.toEntries({
+    Arial: "Helvetica",
+    "Arial,Bold": "Helvetica-Bold",
+    "Arial,Italic": "Helvetica-Oblique",
+    "Arial,BoldItalic": "Helvetica-BoldOblique",
+    ArialMT: "Helvetica",
+    "Arial-BoldMT": "Helvetica-Bold",
+    "Arial-ItalicMT": "Helvetica-Oblique",
+    "Arial-BoldItalicMT": "Helvetica-BoldOblique",
+    TimesNewRoman: "Times-Roman",
+    "TimesNewRoman,Bold": "Times-Bold",
+    "TimesNewRoman,Italic": "Times-Italic",
+    "TimesNewRoman,BoldItalic": "Times-BoldItalic",
+    TimesNewRomanPSMT: "Times-Roman",
+    "TimesNewRomanPS-BoldMT": "Times-Bold",
+    "TimesNewRomanPS-ItalicMT": "Times-Italic",
+    "TimesNewRomanPS-BoldItalicMT": "Times-BoldItalic",
+    CourierNew: "Courier",
+    CourierNewPSMT: "Courier",
+    "CourierNew,Bold": "Courier-Bold",
+    "CourierNewPS-BoldMT": "Courier-Bold",
+  } satisfies Record<string, StandardFont>),
+);
 
 /** The standard font a base font name refers to (after stripping a subset tag), if any. */
 export const standardFont = (baseFont: string): StandardFont | undefined => {
   const name = baseFont.replace(/^[A-Z]{6}\+/, "");
-  if ((STANDARD_FONTS as ReadonlyArray<string>).includes(name)) return name as StandardFont;
-  return ALIASES[name];
+  return (
+    STANDARD_FONTS.find((font) => font === name) ??
+    Option.getOrUndefined(HashMap.get(ALIASES, name))
+  );
 };
 
 const widthTables = new Map<string, Map<string, number>>();
 
 /** A standard font's glyph widths (1/1000 em) by glyph name. */
-export const standardWidths = (font: StandardFont): (glyph: string) => number | undefined => {
+export const standardWidths = (font: StandardFont): ((glyph: string) => number | undefined) => {
   if (font.startsWith("Courier")) return () => 600;
+  // SAFETY: every non-Courier standard font, with "Oblique" and a trailing
+  // dash removed, is one of the STANDARD_WIDTHS families (Helvetica[-Bold],
+  // Times-*, Symbol, ZapfDingbats).
   const key = font.replace("Oblique", "").replace(/-$/, "") as keyof typeof STANDARD_WIDTHS;
   let table = widthTables.get(key);
   if (table === undefined) {

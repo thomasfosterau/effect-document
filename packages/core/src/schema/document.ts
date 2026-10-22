@@ -3,13 +3,42 @@
  * ergonomic constructors and text-collapse utilities.
  */
 
-import { Schema } from "effect";
+import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import {
-  Block, BulletList, CellBlank, CellBoolean, CellDate, CellError, CellFormula,
-  CellNumber, CellRichText, CellText, CodeBlock, ColSpec, Emph, Header, type Inline, Link,
-  OrderedList, Para, Plain, type SheetCell, SheetRow, Slide, SlideShow,
-  type Shape, Str, Strong, Table, TableCell, TableRow, TextBox, Worksheet,
-} from "./ast.js";
+  Block,
+  BulletList,
+  CellBlank,
+  CellBoolean,
+  CellDate,
+  CellError,
+  CellFormula,
+  CellNumber,
+  CellRichText,
+  CellText,
+  CodeBlock,
+  ColSpec,
+  Emph,
+  Header,
+  type Inline,
+  Link,
+  OrderedList,
+  Para,
+  Plain,
+  type SheetCell,
+  SheetRow,
+  Slide,
+  SlideShow,
+  type Shape,
+  Str,
+  Strong,
+  Table,
+  TableCell,
+  TableRow,
+  TextBox,
+  Worksheet,
+} from "./ast.ts";
 
 // ============================================================================
 // Document
@@ -32,53 +61,56 @@ export type DocumentEncoded = Schema.Codec.Encoded<typeof Document>;
 // Constructors - inline
 // ============================================================================
 
+/** A `Str`: a run of text. */
 export const str = (text: string): Str => new Str({ text });
+/** An `Emph` (emphasis, usually italic) around `content`. */
 export const emph = (content: ReadonlyArray<Inline>): Emph => new Emph({ content });
+/** A `Strong` (strong emphasis, usually bold) around `content`. */
 export const strong = (content: ReadonlyArray<Inline>): Strong => new Strong({ content });
-export const link = (
-  content: ReadonlyArray<Inline>,
-  url: string,
-  title?: string
-): Link => new Link({ content, target: { url, title } });
+/** A `Link` to `url` (with an optional `title`) around `content`. */
+export const link = (content: ReadonlyArray<Inline>, url: string, title?: string): Link =>
+  new Link({ content, target: { url, title } });
 
 // ============================================================================
 // Constructors - block
 // ============================================================================
 
+/** A `Para`: a paragraph of inline content. */
 export const para = (content: ReadonlyArray<Inline>): Para => new Para({ content });
+/** A `Plain` block: inline content with no paragraph semantics (as in a tight list item). */
 export const plain = (content: ReadonlyArray<Inline>): Plain => new Plain({ content });
+/** A `Plain` block holding a single `Str` of `text`. */
 export const plainText = (text: string): Plain => new Plain({ content: [new Str({ text })] });
+/** A `Header` of `level` 1–6 around `content`. */
 export const header = (level: number, content: ReadonlyArray<Inline>): Header =>
   new Header({ level, content });
+/** A `CodeBlock` of verbatim `text`, optionally tagged with its `language`. */
 export const codeBlock = (text: string, language?: string): CodeBlock =>
   new CodeBlock({ text, language });
+/** A `BulletList`; each item is a sequence of blocks. */
 export const bulletList = (items: ReadonlyArray<ReadonlyArray<Block>>): BulletList =>
   new BulletList({ items });
+/** An `OrderedList` with default numbering; each item is a sequence of blocks. */
 export const orderedList = (items: ReadonlyArray<ReadonlyArray<Block>>): OrderedList =>
   new OrderedList({ items });
 
 /** A prose table from header strings and a grid of block-cell content. */
 export const table = (options: {
-  readonly caption?: ReadonlyArray<Inline>;
-  readonly headers?: ReadonlyArray<string>;
+  readonly caption?: ReadonlyArray<Inline> | undefined;
+  readonly headers?: ReadonlyArray<string> | undefined;
   readonly rows: ReadonlyArray<ReadonlyArray<ReadonlyArray<Block>>>;
 }): Table => {
-  const colCount = Math.max(
-    options.headers?.length ?? 0,
-    ...options.rows.map((r) => r.length)
-  );
+  const colCount = Math.max(options.headers?.length ?? 0, ...options.rows.map((r) => r.length));
   const head =
     options.headers === undefined
       ? []
       : [
           new TableRow({
-            cells: options.headers.map(
-              (h) => new TableCell({ content: [plainText(h)] })
-            ),
+            cells: options.headers.map((h) => new TableCell({ content: [plainText(h)] })),
           }),
         ];
   const body = options.rows.map(
-    (row) => new TableRow({ cells: row.map((blocks) => new TableCell({ content: blocks })) })
+    (row) => new TableRow({ cells: row.map((blocks) => new TableCell({ content: blocks })) }),
   );
   return new Table({
     caption: options.caption,
@@ -101,8 +133,7 @@ export const cell = {
   date: (value: Date): CellDate => new CellDate({ value }),
   error: (value: string): CellError => new CellError({ value }),
   blank: (): CellBlank => new CellBlank(),
-  formula: (formula: string, result?: string): CellFormula =>
-    new CellFormula({ formula, result }),
+  formula: (formula: string, result?: string): CellFormula => new CellFormula({ formula, result }),
   richText: (runs: ReadonlyArray<Inline>): CellRichText => new CellRichText({ runs }),
 } as const;
 
@@ -110,12 +141,9 @@ export const cell = {
 export const worksheet = (
   name: string,
   rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-  headers?: ReadonlyArray<string>
+  headers?: ReadonlyArray<string>,
 ): Worksheet => {
-  const allRows =
-    headers === undefined
-      ? rows
-      : [headers.map((h) => cell.text(h)), ...rows];
+  const allRows = headers === undefined ? rows : [headers.map((h) => cell.text(h)), ...rows];
   return new Worksheet({
     name,
     columns: [],
@@ -128,23 +156,21 @@ export const worksheet = (
 // Constructors - presentation
 // ============================================================================
 
+/** A `TextBox` shape holding prose blocks. */
 export const textBox = (content: ReadonlyArray<Block>): TextBox => new TextBox({ content });
-export const slide = (
-  shapes: ReadonlyArray<Shape>,
-  notes?: ReadonlyArray<Block>
-): Slide => new Slide({ shapes, notes });
-export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow =>
-  new SlideShow({ slides });
+/** A `Slide` of `shapes`, with optional speaker `notes`. */
+export const slide = (shapes: ReadonlyArray<Shape>, notes?: ReadonlyArray<Block>): Slide =>
+  new Slide({ shapes, notes });
+/** A `SlideShow` block: the presentation as a sequence of slides. */
+export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow => new SlideShow({ slides });
 
 // ============================================================================
 // Document constructor
 // ============================================================================
 
 /** Construct a document from blocks (with optional metadata). */
-export const document = (
-  blocks: ReadonlyArray<Block>,
-  meta: Meta = {}
-): Document => new Document({ meta, blocks });
+export const document = (blocks: ReadonlyArray<Block>, meta: Meta = {}): Document =>
+  new Document({ meta, blocks });
 
 // ============================================================================
 // Text-collapse utilities
@@ -162,7 +188,6 @@ type TextPart =
   | { readonly c: SheetCell };
 
 const inlineParts = (inlines: ReadonlyArray<Inline>): TextPart[] => inlines.map((i) => ({ i }));
-const blockParts = (blocks: ReadonlyArray<Block>): TextPart[] => blocks.map((b) => ({ b }));
 
 /** `groups` joined by `sep`, like `groups.map(toText).join(sep)`. */
 const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string): TextPart[] => {
@@ -175,133 +200,145 @@ const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string):
 };
 
 const expandInline = (inline: Inline): TextPart[] => {
-  switch (inline._tag) {
-    case "Str":
-      return [inline.text];
-    case "Code":
-    case "Math":
-    case "RawInline":
-      return [inline.text];
-    case "Space":
-    case "SoftBreak":
-      return [" "];
-    case "LineBreak":
-      return ["\n"];
-    case "Image":
-      return inlineParts(inline.alt);
-    case "Emph":
-    case "Strong":
-    case "Underline":
-    case "Strikeout":
-    case "Superscript":
-    case "Subscript":
-    case "SmallCaps":
-    case "Quoted":
-    case "Cite":
-    case "Link":
-    case "Span":
-      return inlineParts(inline.content);
-    case "Note":
-      return [];
-  }
+  const text = (n: { readonly text: string }): TextPart[] => [n.text];
+  const content = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
+    inlineParts(n.content);
+  const space = (): TextPart[] => [" "];
+  return Match.valueTags(inline, {
+    Str: text,
+    Code: text,
+    Math: text,
+    RawInline: text,
+    Space: space,
+    SoftBreak: space,
+    LineBreak: () => ["\n"],
+    Image: (n) => inlineParts(n.alt),
+    Emph: content,
+    Strong: content,
+    Underline: content,
+    Strikeout: content,
+    Superscript: content,
+    Subscript: content,
+    SmallCaps: content,
+    Quoted: content,
+    Cite: content,
+    Link: content,
+    Span: content,
+    Note: () => [],
+  });
 };
 
 const expandCell = (c: SheetCell): TextPart[] => {
-  switch (c._tag) {
-    case "CellText":
-    case "CellError":
-      return [c.value];
-    case "CellNumber":
-      return [String(c.value)];
-    case "CellBoolean":
-      return [c.value ? "true" : "false"];
-    case "CellDate":
-      return [c.value.toISOString()];
-    case "CellBlank":
-      return [""];
-    case "CellFormula":
-      return [c.result ?? ""];
-    case "CellRichText":
-      return inlineParts(c.runs);
-  }
+  const value = (n: { readonly value: string }): TextPart[] => [n.value];
+  return Match.valueTags(c, {
+    CellText: value,
+    CellError: value,
+    CellNumber: (n) => [String(n.value)],
+    CellBoolean: (n) => [n.value ? "true" : "false"],
+    CellDate: (n) => [n.value.toISOString()],
+    CellBlank: () => [""],
+    CellFormula: (n) => [n.result ?? ""],
+    CellRichText: (n) => inlineParts(n.runs),
+  });
 };
 
 const expandShape = (shape: Shape): TextPart[] => {
-  switch (shape._tag) {
-    case "Picture":
-      return [shape.alt ?? ""];
-    case "TableShape":
-      return [{ b: shape.table }];
-    case "TextBox":
-    case "Placeholder":
-      return joinParts(shape.content.map((b) => [{ b }]), "\n");
-  }
+  const prose = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] =>
+    joinParts(
+      n.content.map((b) => [{ b }]),
+      "\n",
+    );
+  return Match.valueTags(shape, {
+    Picture: (n) => [n.alt ?? ""],
+    TableShape: (n) => [{ b: n.table }],
+    TextBox: prose,
+    Placeholder: prose,
+  });
 };
 
 const expandBlock = (block: Block): TextPart[] => {
-  const blocks = (bs: ReadonlyArray<Block>) => joinParts(bs.map((b) => [{ b }]), "\n");
-  switch (block._tag) {
-    case "Plain":
-    case "Para":
-    case "Header":
-      return inlineParts(block.content);
-    case "LineBlock":
-      return joinParts(block.lines.map(inlineParts), "\n");
-    case "CodeBlock":
-    case "RawBlock":
-      return [block.text];
-    case "BlockQuote":
-    case "Div":
-    case "Figure":
-      return blocks(block.content);
-    case "OrderedList":
-    case "BulletList":
-      return joinParts(block.items.map(blocks), "\n");
-    case "DefinitionList":
-      return joinParts(
-        block.items.map((it) => [
+  const blocks = (bs: ReadonlyArray<Block>) =>
+    joinParts(
+      bs.map((b) => [{ b }]),
+      "\n",
+    );
+  const inlines = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
+    inlineParts(n.content);
+  const text = (n: { readonly text: string }): TextPart[] => [n.text];
+  const nested = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] => blocks(n.content);
+  const items = (n: { readonly items: ReadonlyArray<ReadonlyArray<Block>> }): TextPart[] =>
+    joinParts(n.items.map(blocks), "\n");
+  return Match.valueTags(block, {
+    Plain: inlines,
+    Para: inlines,
+    Header: inlines,
+    LineBlock: (n) => joinParts(n.lines.map(inlineParts), "\n"),
+    CodeBlock: text,
+    RawBlock: text,
+    BlockQuote: nested,
+    Div: nested,
+    Figure: nested,
+    OrderedList: items,
+    BulletList: items,
+    DefinitionList: (n) =>
+      joinParts(
+        n.items.map((it) => [
           ...inlineParts(it.term),
           "\n",
           ...joinParts(it.definitions.map(blocks), "\n"),
         ]),
-        "\n"
-      );
-    case "HorizontalRule":
-      return [""];
-    case "Table":
-      return joinParts(
-        [...block.head, ...block.body, ...block.foot].map((row) =>
-          joinParts(row.cells.map((cl) => blocks(cl.content)), "\t")
+        "\n",
+      ),
+    HorizontalRule: () => [""],
+    Table: (n) =>
+      joinParts(
+        [...n.head, ...n.body, ...n.foot].map((row) =>
+          joinParts(
+            row.cells.map((cl) => blocks(cl.content)),
+            "\t",
+          ),
         ),
-        "\n"
-      );
-    case "Worksheet":
-      return joinParts(
-        block.rows.map((row) => joinParts(row.cells.map((c) => [{ c }]), "\t")),
-        "\n"
-      );
-    case "SlideShow":
-      return joinParts(
-        block.slides.map((sl) => joinParts(sl.shapes.map((s) => [{ s }]), "\n")),
-        "\n\n"
-      );
-  }
+        "\n",
+      ),
+    Worksheet: (n) =>
+      joinParts(
+        n.rows.map((row) =>
+          joinParts(
+            row.cells.map((c) => [{ c }]),
+            "\t",
+          ),
+        ),
+        "\n",
+      ),
+    SlideShow: (n) =>
+      joinParts(
+        n.slides.map((sl) =>
+          joinParts(
+            sl.shapes.map((s) => [{ s }]),
+            "\n",
+          ),
+        ),
+        "\n\n",
+      ),
+  });
 };
 
 const collapse = (parts: ReadonlyArray<TextPart>): string => {
   let out = "";
   const stack: TextPart[] = [...parts].reverse();
-  while (stack.length > 0) {
-    const part = stack.pop()!;
-    if (typeof part === "string") {
+  for (let part = stack.pop(); part !== undefined; part = stack.pop()) {
+    if (Predicate.isString(part)) {
       out += part;
       continue;
     }
     const next =
-      "b" in part ? expandBlock(part.b)
-      : "i" in part ? expandInline(part.i)
-      : "s" in part ? expandShape(part.s)
-      : expandCell(part.c);
+      "b" in part
+        ? expandBlock(part.b)
+        : "i" in part
+          ? expandInline(part.i)
+          : "s" in part
+            ? expandShape(part.s)
+            : expandCell(part.c);
     for (let n = next.length - 1; n >= 0; n--) stack.push(next[n]!);
   }
   return out;
@@ -312,12 +349,16 @@ export const inlinesToText = (inlines: ReadonlyArray<Inline>): string =>
   collapse(inlineParts(inlines));
 
 /** Collapse a single spreadsheet cell to plain text. */
-export const cellToText = (c: SheetCell): string =>
-  c._tag === "CellRichText" ? collapse([{ c }]) : (expandCell(c)[0] as string);
+export const cellToText = (c: SheetCell): string => collapse([{ c }]);
 
 /** Collapse a single slide shape to plain text. */
 export const shapeToText = (shape: Shape): string => collapse([{ s: shape }]);
 
 /** Collapse a sequence of blocks to plain text (one line per block). */
 export const blocksToText = (blocks: ReadonlyArray<Block>): string =>
-  collapse(joinParts(blocks.map((b) => [{ b }]), "\n"));
+  collapse(
+    joinParts(
+      blocks.map((b) => [{ b }]),
+      "\n",
+    ),
+  );

@@ -16,13 +16,35 @@
  * 950) combine lead and trail bytes.
  */
 
+import * as Rec from "effect/Record";
+import * as Option from "effect/Option";
+import * as HashMap from "effect/HashMap";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
 import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
-import { Effect, Layer, Result } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import {
-  type Block, type Content, type Doc, document, Emph, Header, type Inline, LineBreak, makeReaderTag, Para,
-  ParseError, type Reader, Str, Strikeout, Strong, trustAs, Underline,
+  type Block,
+  type Content,
+  type Doc,
+  document,
+  Emph,
+  Header,
+  type Inline,
+  LineBreak,
+  makeReaderTag,
+  Para,
+  ParseError,
+  type Reader,
+  Str,
+  Strikeout,
+  Strong,
+  trustAs,
+  Underline,
 } from "@thomasfosterau/effect-document";
-import { Rtf, type RtfFeature } from "./profile.js";
+import { Rtf, type RtfFeature } from "./profile.ts";
 
 interface Fmt {
   bold: boolean;
@@ -56,13 +78,18 @@ interface Style {
 
 /** A heading level (1-6) from an outline level (0-8; 9 is body text). */
 const headingLevel = (outlineLevel: number | undefined): number | undefined =>
-  outlineLevel === undefined || outlineLevel < 0 || outlineLevel > 8 ? undefined : Math.min(6, outlineLevel + 1);
+  outlineLevel === undefined || outlineLevel < 0 || outlineLevel > 8
+    ? undefined
+    : Math.min(6, outlineLevel + 1);
 
 const plainFmt: Fmt = { bold: false, italic: false, underline: false, strike: false };
 
 const cloneState = (s: State): State => ({ ...s });
 const fmtEq = (a: Fmt, b: Fmt): boolean =>
-  a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && a.strike === b.strike;
+  a.bold === b.bold &&
+  a.italic === b.italic &&
+  a.underline === b.underline &&
+  a.strike === b.strike;
 
 const wrapRun = (text: string, fmt: Fmt): Inline => {
   // a lone surrogate from an unpaired `\uN` becomes U+FFFD
@@ -77,54 +104,142 @@ const wrapRun = (text: string, fmt: Fmt): Inline => {
 /** Destinations whose text never belongs in the body, with or without `\*`. */
 const DESTINATIONS = new Set([
   // document tables and metadata
-  "fonttbl", "colortbl", "stylesheet", "info", "revtbl", "pgdsctbl", "filetbl", "listtable",
-  "listoverridetable", "rsidtbl", "generator", "xmlnstbl", "themedata", "colorschememapping",
-  "datastore", "latentstyles", "mmathPr", "operator", "company",
+  "fonttbl",
+  "colortbl",
+  "stylesheet",
+  "info",
+  "revtbl",
+  "pgdsctbl",
+  "filetbl",
+  "listtable",
+  "listoverridetable",
+  "rsidtbl",
+  "generator",
+  "xmlnstbl",
+  "themedata",
+  "colorschememapping",
+  "datastore",
+  "latentstyles",
+  "mmathPr",
+  "operator",
+  "company",
   // headers, footers and footnotes
-  "header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf",
-  "footnote", "ftnsep", "ftnsepc", "ftncn", "aftnsep", "aftnsepc", "aftncn",
+  "header",
+  "headerl",
+  "headerr",
+  "headerf",
+  "footer",
+  "footerl",
+  "footerr",
+  "footerf",
+  "footnote",
+  "ftnsep",
+  "ftnsepc",
+  "ftncn",
+  "aftnsep",
+  "aftnsepc",
+  "aftncn",
   // comments, index and table-of-contents entries
-  "annotation", "atnid", "atnauthor", "xe", "tc",
+  "annotation",
+  "atnid",
+  "atnauthor",
+  "xe",
+  "tc",
   // pictures, objects and shapes
-  "pict", "object", "objdata", "nonshppict", "shp", "shpinst", "shprslt",
+  "pict",
+  "object",
+  "objdata",
+  "nonshppict",
+  "shp",
+  "shpinst",
+  "shprslt",
   // field instructions (the result, `\fldrslt`, is the visible text)
   "fldinst",
   // list numbering text, which is regenerated from the list definition
-  "listtext", "pntext", "pn", "pntxta", "pntxtb",
+  "listtext",
+  "pntext",
+  "pn",
+  "pntxta",
+  "pntxtb",
 ]);
 
 /** Control words that stand for a single character. */
-const SPECIAL_CHARACTERS: Record<string, string> = {
-  lquote: "\u2018", rquote: "\u2019", ldblquote: "\u201c", rdblquote: "\u201d",
-  endash: "\u2013", emdash: "\u2014", bullet: "\u2022",
-  enspace: "\u2002", emspace: "\u2003", qmspace: "\u2005",
-  zwj: "\u200d", zwnj: "\u200c", zwbo: "\u200b", zwnbo: "\u2060",
-};
+const SPECIAL_CHARACTERS = HashMap.fromIterable<string, string>(
+  Rec.toEntries({
+    lquote: "\u2018",
+    rquote: "\u2019",
+    ldblquote: "\u201c",
+    rdblquote: "\u201d",
+    endash: "\u2013",
+    emdash: "\u2014",
+    bullet: "\u2022",
+    enspace: "\u2002",
+    emspace: "\u2003",
+    qmspace: "\u2005",
+    zwj: "\u200d",
+    zwnj: "\u200c",
+    zwbo: "\u200b",
+    zwnbo: "\u2060",
+  }),
+);
+
+/** The text of the control symbols that stand for a character. */
+const SYMBOL_TEXT = HashMap.make(
+  ["\\", "\\"],
+  ["{", "{"],
+  ["}", "}"],
+  ["~", "\u00a0"], // non-breaking space
+  ["-", "\u00ad"], // optional (soft) hyphen
+  ["_", "\u2011"], // non-breaking hyphen
+);
 
 // ============================================================================
 // Code pages
 // ============================================================================
 
 /** `\fcharsetN` -> Windows code page. Charsets 1 (default) and 2 (symbol) use the document's. */
-const CHARSET_CODE_PAGES: Record<number, number> = {
-  0: 1252, 77: 10000, 128: 932, 129: 949, 134: 936, 136: 950, 161: 1253, 162: 1254, 163: 1258,
-  177: 1255, 178: 1256, 186: 1257, 204: 1251, 222: 874, 238: 1250,
-};
+const CHARSET_CODE_PAGES = HashMap.make(
+  [0, 1252],
+  [77, 10000],
+  [128, 932],
+  [129, 949],
+  [134, 936],
+  [136, 950],
+  [161, 1253],
+  [162, 1254],
+  [163, 1258],
+  [177, 1255],
+  [178, 1256],
+  [186, 1257],
+  [204, 1251],
+  [222, 874],
+  [238, 1250],
+);
 
 /** A Windows code page's WHATWG encoding label, or `undefined` if unsupported. */
 const codePageLabel = (cp: number): string | undefined => {
-  switch (cp) {
-    case 874: return "windows-874";
-    case 932: return "shift_jis";
-    case 936: return "gbk";
-    case 949: return "euc-kr";
-    case 950: return "big5";
-    case 10000: return "macintosh";
-    case 10007: return "x-mac-cyrillic";
-    case 20866: return "koi8-r";
-    case 21866: return "koi8-u";
-    case 54936: return "gb18030";
-    case 65001: return "utf-8";
+  if (cp === 874) {
+    return "windows-874";
+  } else if (cp === 932) {
+    return "shift_jis";
+  } else if (cp === 936) {
+    return "gbk";
+  } else if (cp === 949) {
+    return "euc-kr";
+  } else if (cp === 950) {
+    return "big5";
+  } else if (cp === 10000) {
+    return "macintosh";
+  } else if (cp === 10007) {
+    return "x-mac-cyrillic";
+  } else if (cp === 20866) {
+    return "koi8-r";
+  } else if (cp === 21866) {
+    return "koi8-u";
+  } else if (cp === 54936) {
+    return "gb18030";
+  } else if (cp === 65001) {
+    return "utf-8";
   }
   if (cp >= 1250 && cp <= 1258) return `windows-${cp}`;
   if (cp >= 28592 && cp <= 28606) return `iso-8859-${cp - 28590}`;
@@ -137,13 +252,16 @@ const decoders = new Map<number, TextDecoder>();
 const decoderFor = (cp: number): TextDecoder => {
   let decoder = decoders.get(cp);
   if (decoder === undefined) {
-    // Bun types the label as a fixed union; any WHATWG label is accepted at runtime
-    const label = (codePageLabel(cp) ?? "windows-1252") as ConstructorParameters<typeof TextDecoder>[0];
-    try {
-      decoder = new TextDecoder(label);
-    } catch {
-      decoder = new TextDecoder("windows-1252");
-    }
+    // SAFETY: some TypeScript DOM libs type the label as a fixed union, but
+    // any WHATWG encoding label is accepted at runtime (and an unknown one
+    // throws, which falls back to cp1252 below)
+    const label = (codePageLabel(cp) ?? "windows-1252") as ConstructorParameters<
+      typeof TextDecoder
+    >[0];
+    decoder = Result.getOrElse(
+      Result.try(() => new TextDecoder(label)),
+      () => new TextDecoder("windows-1252"),
+    );
     decoders.set(cp, decoder);
   }
   return decoder;
@@ -151,10 +269,12 @@ const decoderFor = (cp: number): TextDecoder => {
 
 /** Whether `byte` starts a two-byte character in a double-byte code page. */
 const isLeadByte = (cp: number, byte: number): boolean => {
-  switch (cp) {
-    case 932: return (byte >= 0x81 && byte <= 0x9f) || (byte >= 0xe0 && byte <= 0xfc);
-    case 936: case 949: case 950: case 54936: return byte >= 0x81 && byte <= 0xfe;
-    default: return false;
+  if (cp === 932) {
+    return (byte >= 0x81 && byte <= 0x9f) || (byte >= 0xe0 && byte <= 0xfc);
+  } else if (cp === 936 || cp === 949 || cp === 950 || cp === 54936) {
+    return byte >= 0x81 && byte <= 0xfe;
+  } else {
+    return false;
   }
 };
 
@@ -184,7 +304,10 @@ type RtfToken =
   | { readonly _tag: "Newline"; readonly text: string };
 
 const letters = Token.takeWhile([Token.range("a", "z"), Token.range("A", "Z")], { min: 1 });
-const hexByte = Token.takeWhile([Token.range("0", "9"), Token.range("a", "f"), Token.range("A", "F")], 2);
+const hexByte = Token.takeWhile(
+  [Token.range("0", "9"), Token.range("a", "f"), Token.range("A", "F")],
+  2,
+);
 
 /** `\word` with an optional integer parameter; one trailing space is part of it.
  * A `-` belongs to the parameter only when a digit follows it. */
@@ -192,36 +315,40 @@ const controlWord = Parser.map(
   Parser.seq(
     letters,
     Parser.taken(Parser.opt(Parser.seq(Parser.opt(Token.literal("-")), Ascii.digit1))),
-    Parser.opt(Token.literal(" "))
+    Parser.opt(Token.literal(" ")),
   ),
-  ([word, param]): RtfToken => ({ _tag: "Word", word, param })
+  ([word, param]): RtfToken => ({ _tag: "Word", word, param }),
 );
+
+const BIN: RtfToken = { _tag: "Bin" };
+const OPEN: RtfToken = { _tag: "Open" };
+const CLOSE: RtfToken = { _tag: "Close" };
 
 /** `\binN` is followed by N raw bytes, which must not be lexed as RTF. */
 const controlWordOrBin = Parser.flatMap(controlWord, (token): Parser.Parser<RtfToken> => {
-  if (token._tag !== "Word" || token.word !== "bin") return Parser.succeed(token);
+  if (!Predicate.isTagged(token, "Word") || token.word !== "bin") return Parser.succeed(token);
   const count = Math.max(0, Number(token.param || "0"));
-  return Parser.as(Parser.alt(Token.take(count), Token.rest), { _tag: "Bin" } as RtfToken);
+  return Parser.as(Parser.alt(Token.take(count), Token.rest), BIN);
 });
 
 /** `\'hh`: one byte, by its hex code. */
-const hexEscape = Parser.map(
-  Parser.preceded(Token.literal("'"), hexByte),
-  (hex): RtfToken => ({ _tag: "Hex", byte: Number.parseInt(hex, 16) })
-);
+const hexEscape = Parser.map(Parser.preceded(Token.literal("'"), hexByte), (hex): RtfToken => ({
+  _tag: "Hex",
+  byte: Number.parseInt(hex, 16),
+}));
 
 /** `\` followed by a single non-letter: `\\`, `\{`, `\~`, `\*`, ... */
 const controlSymbol = Parser.map(Token.any, (symbol): RtfToken => ({ _tag: "Symbol", symbol }));
 
 const rtfToken: Parser.Parser<RtfToken | null> = Parser.alt(
-  Parser.as(Token.literal("{"), { _tag: "Open" } as RtfToken),
-  Parser.as(Token.literal("}"), { _tag: "Close" } as RtfToken),
+  Parser.as(Token.literal("{"), OPEN),
+  Parser.as(Token.literal("}"), CLOSE),
   Parser.preceded(
     Token.literal("\\"),
-    Parser.alt(controlWordOrBin, hexEscape, controlSymbol, Parser.as(Parser.eof, null))
+    Parser.alt(controlWordOrBin, hexEscape, controlSymbol, Parser.as(Parser.eof, null)),
   ),
   Parser.map(Token.takeWhile("\r\n", { min: 1 }), (text): RtfToken => ({ _tag: "Newline", text })),
-  Parser.map(Token.takeTill("\\{}\r\n", { min: 1 }), (text): RtfToken => ({ _tag: "Text", text }))
+  Parser.map(Token.takeTill("\\{}\r\n", { min: 1 }), (text): RtfToken => ({ _tag: "Text", text })),
 );
 
 /** RTF source as a flat token list. Every input lexes; there is no syntax error. */
@@ -258,10 +385,18 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   // bytes waiting to be decoded together, so double-byte characters combine
   let bytes: number[] = [];
 
-  const stack: State[] = [{
-    ...plainFmt, skip: false, hidden: false, deleted: false, font: undefined, uc: 1, fontTable: false,
-    styleDef: undefined,
-  }];
+  const stack: State[] = [
+    {
+      ...plainFmt,
+      skip: false,
+      hidden: false,
+      deleted: false,
+      font: undefined,
+      uc: 1,
+      fontTable: false,
+      styleDef: undefined,
+    },
+  ];
   const top = (): State => stack[stack.length - 1]!;
   const visible = (): boolean => !top().skip && !top().hidden && !top().deleted;
 
@@ -271,7 +406,8 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   let paraOutline: number | undefined;
   const styleOf = (n: number): Style => {
     let style = styles.get(n);
-    if (style === undefined) styles.set(n, (style = { name: "", outlineLevel: undefined, bold: false }));
+    if (style === undefined)
+      styles.set(n, (style = { name: "", outlineLevel: undefined, bold: false }));
     return style;
   };
   /** The heading level of the current paragraph: its own outline level, else its style's. */
@@ -299,9 +435,11 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     flushBytes();
     flushText();
     pendingCells = 0;
-    if (para.length > 0) {
+    if (Arr.isReadonlyArrayNonEmpty(para)) {
       const level = paraHeading();
-      blocks.push(level === undefined ? new Para({ content: para }) : new Header({ level, content: para }));
+      blocks.push(
+        level === undefined ? new Para({ content: para }) : new Header({ level, content: para }),
+      );
       para = [];
     }
   };
@@ -309,7 +447,12 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     // a heading style's own bold (repeated inline for readers that ignore styles) isn't Strong
     const styleBold = paraHeading() !== undefined && styles.get(paraStyle)?.bold === true;
     const state = top();
-    const fmt: Fmt = { bold: state.bold && !styleBold, italic: state.italic, underline: state.underline, strike: state.strike };
+    const fmt: Fmt = {
+      bold: state.bold && !styleBold,
+      italic: state.italic,
+      underline: state.underline,
+      strike: state.strike,
+    };
     if (pendingText !== "" && !fmtEq(fmt, pendingFmt)) flushText();
     if (pendingText === "") pendingFmt = fmt;
     pendingText += s;
@@ -327,7 +470,7 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     append(s);
   };
   const flushBytes = (): void => {
-    if (bytes.length === 0) return;
+    if (Arr.isReadonlyArrayEmpty(bytes)) return;
     const decoded = decoderFor(codePage()).decode(Uint8Array.from(bytes));
     bytes = [];
     emit(decoded);
@@ -347,89 +490,184 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     return i > bytes.length;
   };
 
+  /** A control word inside the stylesheet: style numbers, outline levels and bold. */
+  const styleSheetWord = (state: State, word: string, n: number | undefined, on: boolean) => {
+    if (word === "stylesheet") {
+      state.skip = true;
+      state.styleDef = 0;
+    } else if (word === "s") state.styleDef = n ?? 0;
+    // character, table and section styles are not paragraph styles
+    else if (word === "cs" || word === "ts" || word === "ds") state.styleDef = -1;
+    else if (word === "outlinelevel") styleOf(state.styleDef!).outlineLevel = n ?? 0;
+    else if (word === "b") styleOf(state.styleDef!).bold = on;
+  };
+
+  /** A control word inside the font table: each font's number and code page. */
+  const fontTableWord = (word: string, n: number | undefined) => {
+    if (word === "f") fontDef = n;
+    if ((word !== "fcharset" && word !== "cpg") || fontDef === undefined || n === undefined) return;
+    const entry = fontCodePages.get(fontDef) ?? {};
+    if (word === "cpg") entry.cpg = n;
+    else {
+      const charset = HashMap.get(CHARSET_CODE_PAGES, n);
+      if (Option.isSome(charset)) entry.charset = charset.value;
+    }
+    fontCodePages.set(fontDef, entry);
+  };
+
+  /** `\uN`: a signed 16-bit UTF-16 code unit; returns the fallback characters to skip. */
+  const unicodeWord = (state: State, n: number | undefined, param: string): number => {
+    // negative values are N + 65536; surrogate pairs (two `\u`s) combine in the string itself
+    if (n === undefined) return 0;
+    if (!Number.isInteger(n) || n < -32768 || n > 65535)
+      fail(`\\u parameter out of range: ${param}`);
+    if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
+    return state.uc;
+  };
+
+  type WordHandler = (state: State, n: number | undefined, on: boolean) => void;
+  const breakPara: WordHandler = (state) => {
+    if (!state.skip) flushPara();
+  };
+  const cell: WordHandler = () => {
+    // no tables in the profile yet: cells are tab-separated, rows are paragraphs
+    if (visible()) {
+      flushBytes();
+      pendingCells++;
+    }
+  };
+  const codePageWord =
+    (cp: number): WordHandler =>
+    () => {
+      documentCodePage = cp;
+    };
+  /** The body's control words; any other is ignored, or skipped as a destination. */
+  const BODY_WORDS = HashMap.fromIterable<string, WordHandler>(
+    Rec.toEntries<string, WordHandler>({
+      par: breakPara,
+      // no sections or pages in the profile: a paragraph break at least
+      sect: breakPara,
+      page: breakPara,
+      column: breakPara,
+      row: breakPara,
+      nestrow: breakPara,
+      cell,
+      nestcell: cell,
+      pard: () => {
+        paraStyle = 0;
+        paraOutline = undefined; // char flags persist
+      },
+      // no section properties are modelled
+      sectd: () => {},
+      s: (_, n) => {
+        paraStyle = n ?? 0;
+      },
+      outlinelevel: (_, n) => {
+        paraOutline = n ?? 0;
+      },
+      plain: (state) => {
+        Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
+      },
+      line: () => {
+        if (!visible()) return;
+        flushBytes();
+        emitCells();
+        flushText();
+        para.push(new LineBreak());
+      },
+      tab: () => pushText("\t"),
+      b: (state, _, on) => {
+        state.bold = on;
+      },
+      i: (state, _, on) => {
+        state.italic = on;
+      },
+      ul: (state, _, on) => {
+        state.underline = on;
+      },
+      ulnone: (state) => {
+        state.underline = false;
+      },
+      strike: (state, _, on) => {
+        state.strike = on;
+      },
+      v: (state, _, on) => {
+        state.hidden = on;
+      },
+      deleted: (state, _, on) => {
+        state.deleted = on;
+      },
+      f: (state, n) => {
+        state.font = n;
+      },
+      deff: (_, n) => {
+        defaultFont = n;
+      },
+      ansi: codePageWord(1252),
+      mac: codePageWord(10000),
+      pc: codePageWord(437),
+      pca: codePageWord(850),
+      ansicpg: (_, n) => {
+        if (n !== undefined) documentCodePage = n;
+      },
+      uc: (state, n) => {
+        if (n !== undefined && n >= 0) state.uc = n;
+      },
+      fonttbl: (state) => {
+        state.skip = true;
+        state.fontTable = true;
+      },
+    }),
+  );
+
   /** Handle a control word. Returns the number of fallback characters to skip. */
   const controlWord = (word: string, param: string): number => {
     const on = param !== "0";
     const n = param === "" ? undefined : Number(param);
     const state = top();
     if (state.styleDef !== undefined || word === "stylesheet") {
-      switch (word) {
-        case "stylesheet": state.skip = true; state.styleDef = 0; break;
-        case "s": state.styleDef = n ?? 0; break;
-        // character, table and section styles are not paragraph styles
-        case "cs": case "ts": case "ds": state.styleDef = -1; break;
-        case "outlinelevel": styleOf(state.styleDef!).outlineLevel = n ?? 0; break;
-        case "b": styleOf(state.styleDef!).bold = on; break;
-      }
+      styleSheetWord(state, word, n, on);
       return 0;
     }
     if (state.fontTable) {
-      if (word === "f") fontDef = n;
-      else if ((word === "fcharset" || word === "cpg") && fontDef !== undefined && n !== undefined) {
-        const entry = fontCodePages.get(fontDef) ?? {};
-        if (word === "cpg") entry.cpg = n;
-        else if (CHARSET_CODE_PAGES[n] !== undefined) entry.charset = CHARSET_CODE_PAGES[n];
-        fontCodePages.set(fontDef, entry);
-      }
+      fontTableWord(word, n);
       return 0;
     }
-    const special = SPECIAL_CHARACTERS[word];
-    if (special !== undefined) {
-      pushText(special);
+    const special = HashMap.get(SPECIAL_CHARACTERS, word);
+    if (Option.isSome(special)) {
+      pushText(special.value);
       return 0;
     }
-    switch (word) {
-      case "par": if (!state.skip) flushPara(); break;
-      case "sect": case "page": case "column":
-        // no sections or pages in the profile: a paragraph break at least
-        if (!state.skip) flushPara();
-        break;
-      case "cell": case "nestcell":
-        // no tables in the profile yet: cells are tab-separated, rows are paragraphs
-        if (visible()) { flushBytes(); pendingCells++; }
-        break;
-      case "row": case "nestrow": if (!state.skip) flushPara(); break;
-      case "pard": paraStyle = 0; paraOutline = undefined; break; // char flags persist
-      case "sectd": break; // no section properties are modelled
-      case "s": paraStyle = n ?? 0; break;
-      case "outlinelevel": paraOutline = n ?? 0; break;
-      case "plain":
-        Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
-        break;
-      case "line": if (visible()) { flushBytes(); emitCells(); flushText(); para.push(new LineBreak()); } break;
-      case "tab": pushText("\t"); break;
-      case "b": state.bold = on; break;
-      case "i": state.italic = on; break;
-      case "ul": state.underline = on; break;
-      case "ulnone": state.underline = false; break;
-      case "strike": state.strike = on; break;
-      case "v": state.hidden = on; break;
-      case "deleted": state.deleted = on; break;
-      case "f": state.font = n; break;
-      case "deff": defaultFont = n; break;
-      case "ansi": documentCodePage = 1252; break;
-      case "mac": documentCodePage = 10000; break;
-      case "pc": documentCodePage = 437; break;
-      case "pca": documentCodePage = 850; break;
-      case "ansicpg": if (n !== undefined) documentCodePage = n; break;
-      case "uc": if (n !== undefined && n >= 0) state.uc = n; break;
-      case "u": {
-        // a signed 16-bit UTF-16 code unit: negative values are N + 65536.
-        // Surrogate pairs (two `\u`s) combine in the string itself.
-        if (n === undefined) break;
-        if (!Number.isInteger(n) || n < -32768 || n > 65535) fail(`\\u parameter out of range: ${param}`);
-        if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
-        return state.uc;
-      }
-      case "fonttbl":
-        state.skip = true;
-        state.fontTable = true;
-        break;
-      default:
-        if (DESTINATIONS.has(word)) state.skip = true;
-        break;
-    }
+    if (word === "u") return unicodeWord(state, n, param);
+    const handler = HashMap.get(BODY_WORDS, word);
+    if (Option.isSome(handler)) handler.value(state, n, on);
+    else if (DESTINATIONS.has(word)) state.skip = true;
     return 0;
+  };
+
+  /** A run of source text (after any `\uN` fallback is skipped). */
+  const textRun = (source: string): void => {
+    let text = source;
+    // a style's name, inside the stylesheet
+    const def = top().styleDef;
+    if (def !== undefined) {
+      styleOf(def).name += text;
+      return;
+    }
+    // a double-byte character's trail byte may be written literally: `\'83e`
+    if (awaitingTrailByte()) {
+      pushByte(text.charCodeAt(0));
+      text = text.slice(1);
+    }
+    if (!binary) {
+      pushText(text);
+      return;
+    }
+    for (const run of text.match(/[\x80-\xff]+|[^\x80-\xff]+/g) ?? []) {
+      if (run.charCodeAt(0) >= 0x80)
+        for (let i = 0; i < run.length; i++) pushByte(run.charCodeAt(i));
+      else pushText(run);
+    }
   };
 
   // the lexer accepts any input, so this never falls back
@@ -437,74 +675,50 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   // after \uN, the next \ucN characters are its ANSI fallback and are skipped;
   // a \'hh escape, control word or control symbol counts as one character
   let fallback = 0;
+
+  /** Skip what remains of a `\uN` fallback at the start of a text run. */
+  const skipFallback = (text: string): string => {
+    const n = Math.min(fallback, text.length);
+    fallback -= n;
+    return text.slice(n);
+  };
+
+  const symbol = (sym: string): void => {
+    const text = HashMap.get(SYMBOL_TEXT, sym);
+    if (Option.isSome(text)) pushText(text.value);
+    else if (sym === "*") top().skip = true;
+    // other control symbols (\| formula, \: index subentry, ...) have no text
+  };
+
+  /** A token that is not text: a group boundary, escape, control word or symbol. */
+  const control = (token: Exclude<RtfToken, { readonly _tag: "Text" | "Newline" }>): void => {
+    const group = Predicate.isTagged(token, "Open") || Predicate.isTagged(token, "Close");
+    if (group) fallback = 0; // a group boundary ends a fallback
+    else if (fallback > 0) {
+      fallback--;
+      return;
+    }
+    if (Predicate.isTagged(token, "Hex")) return pushByte(token.byte);
+    flushBytes();
+    if (group) flushText();
+    if (Predicate.isTagged(token, "Open")) stack.push(cloneState(top()));
+    else if (Predicate.isTagged(token, "Close")) stack.pop();
+    else if (Predicate.isTagged(token, "Word")) fallback = controlWord(token.word, token.param);
+    else if (Predicate.isTagged(token, "Symbol")) symbol(token.symbol);
+    // a Bin token's binary data (pictures, objects) is never text
+  };
+
   for (const token of tokens) {
     if (token === null) continue;
-    if (token._tag === "Text") {
-      let text = token.text;
-      if (fallback > 0) {
-        const n = Math.min(fallback, text.length);
-        text = text.slice(n);
-        fallback -= n;
-      }
-      if (text === "") continue;
-      // a style's name, inside the stylesheet
-      const def = top().styleDef;
-      if (def !== undefined) {
-        styleOf(def).name += text;
-        continue;
-      }
-      // a double-byte character's trail byte may be written literally: `\'83e`
-      if (awaitingTrailByte()) {
-        pushByte(text.charCodeAt(0));
-        text = text.slice(1);
-      }
-      if (binary) {
-        for (const run of text.match(/[\x80-\xff]+|[^\x80-\xff]+/g) ?? []) {
-          if (run.charCodeAt(0) >= 0x80) for (let i = 0; i < run.length; i++) pushByte(run.charCodeAt(i));
-          else pushText(run);
-        }
-      } else {
-        pushText(text);
-      }
-      continue;
+    if (Predicate.isTagged(token, "Text")) {
+      const text = skipFallback(token.text);
+      if (text !== "") textRun(text);
+    } else if (!Predicate.isTagged(token, "Newline")) {
+      // raw line breaks in RTF source are insignificant
+      control(token);
+      // the outermost group has closed: anything after it is not part of the document
+      if (stack.length === 1) break;
     }
-    if (token._tag === "Newline") continue; // raw line breaks in RTF source are insignificant
-    if (token._tag === "Open" || token._tag === "Close") {
-      fallback = 0; // a group boundary ends a fallback
-    } else if (fallback > 0) {
-      fallback--;
-      continue;
-    }
-    if (token._tag === "Hex") {
-      pushByte(token.byte);
-      continue;
-    }
-    flushBytes();
-    switch (token._tag) {
-      case "Open":
-        flushText();
-        stack.push(cloneState(top()));
-        break;
-      case "Close":
-        flushText();
-        stack.pop();
-        break;
-      case "Word":
-        fallback = controlWord(token.word, token.param);
-        break;
-      case "Symbol":
-        if (token.symbol === "\\" || token.symbol === "{" || token.symbol === "}") pushText(token.symbol);
-        else if (token.symbol === "~") pushText("\u00a0"); // non-breaking space
-        else if (token.symbol === "-") pushText("\u00ad"); // optional (soft) hyphen
-        else if (token.symbol === "_") pushText("\u2011"); // non-breaking hyphen
-        else if (token.symbol === "*") top().skip = true;
-        // other control symbols (\| formula, \: index subentry, ...) have no text
-        break;
-      case "Bin":
-        break; // binary data (pictures, objects) is never text
-    }
-    // the outermost group has closed: anything after it is not part of the document
-    if (stack.length === 1) break;
   }
   flushPara();
   return blocks;
@@ -515,16 +729,24 @@ export const makeRtfReader = (): Reader<RtfFeature> => {
   const read = (input: Content): Effect.Effect<Doc<RtfFeature>, ParseError> =>
     Effect.try({
       try: () => {
-        const blocks = input._tag === "Text" ? parseRtf(input.text, false) : parseRtf(latin1(input.bytes), true);
+        const blocks = Predicate.isTagged(input, "Text")
+          ? parseRtf(input.text, false)
+          : parseRtf(latin1(input.bytes), true);
         return trustAs<RtfFeature>(document(blocks));
       },
       catch: (cause) =>
         cause instanceof ParseError
           ? cause
-          : new ParseError({ format: "rtf", reason: `Failed to read rtf: ${String(cause)}`, cause }),
+          : new ParseError({
+              format: "rtf",
+              reason: `Failed to read rtf: ${String(cause)}`,
+              cause,
+            }),
     });
   return { format: "rtf", profile: Rtf, read };
 };
 
+/** The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. */
 export const RtfReaderTag = makeReaderTag<RtfFeature>("rtf");
+/** A Layer providing the default RTF reader for {@link RtfReaderTag}. */
 export const RtfReaderLive = Layer.succeed(RtfReaderTag, makeRtfReader());

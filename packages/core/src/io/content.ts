@@ -4,6 +4,8 @@
  * deal in bytes. Either can be viewed as the other on demand.
  */
 
+import * as Match from "effect/Match";
+
 /** Textual content. */
 export interface Text {
   readonly _tag: "Text";
@@ -27,8 +29,14 @@ export const bytes = (bytes: Uint8Array): Bytes => ({ _tag: "Bytes", bytes });
 
 /** View any content as a string (bytes are decoded as UTF-8). */
 export const contentToText = (content: Content): string =>
-  content._tag === "Text" ? content.text : new TextDecoder().decode(content.bytes);
+  Match.valueTags(content, {
+    Text: (t) => t.text,
+    Bytes: (b) => new TextDecoder().decode(b.bytes),
+  });
 
 /** View any content as bytes (text is encoded as UTF-8). */
 export const contentToBytes = (content: Content): Uint8Array =>
-  content._tag === "Bytes" ? content.bytes : new TextEncoder().encode(content.text);
+  Match.valueTags(content, {
+    Bytes: (b) => b.bytes,
+    Text: (t) => new TextEncoder().encode(t.text),
+  });

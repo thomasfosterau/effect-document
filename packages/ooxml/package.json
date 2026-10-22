@@ -1,74 +1,75 @@
 {
+  "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-ooxml",
   "version": "0.0.0",
   "description": "Office Open XML (xlsx, docx, pptx) readers and writers for effect-document",
-  "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./xlsx": {
-      "types": "./src/xlsx/index.ts",
-      "bun": "./src/xlsx/index.ts",
-      "import": "./src/xlsx/index.ts",
-      "default": "./src/xlsx/index.ts"
-    },
-    "./docx": {
-      "types": "./src/docx/index.ts",
-      "bun": "./src/docx/index.ts",
-      "import": "./src/docx/index.ts",
-      "default": "./src/docx/index.ts"
-    },
-    "./pptx": {
-      "types": "./src/pptx/index.ts",
-      "bun": "./src/pptx/index.ts",
-      "import": "./src/pptx/index.ts",
-      "default": "./src/pptx/index.ts"
-    }
+  "keywords": [
+    "document",
+    "docx",
+    "effect",
+    "excel",
+    "ooxml",
+    "powerpoint",
+    "pptx",
+    "word",
+    "xlsx"
+  ],
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/ooxml#readme",
+  "bugs": {
+    "url": "https://github.com/thomasfosterau/effect-document/issues"
+  },
+  "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/ooxml"
   },
   "files": [
-    "src",
     "dist",
     "README.md",
     "LICENSE"
   ],
-  "scripts": {
-    "build": "bun build src/index.ts src/xlsx/index.ts src/docx/index.ts src/pptx/index.ts --root src --outdir dist --target node --format esm --packages external",
-    "test": "bun test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thomasfosterau/effect-document.git",
-    "directory": "packages/ooxml"
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./xlsx": {
+      "types": "./dist/xlsx.d.ts",
+      "default": "./dist/xlsx.js"
+    },
+    "./docx": {
+      "types": "./dist/docx.d.ts",
+      "default": "./dist/docx.js"
+    },
+    "./pptx": {
+      "types": "./dist/pptx.d.ts",
+      "default": "./dist/pptx.js"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "keywords": [
-    "effect",
-    "document",
-    "ooxml",
-    "xlsx",
-    "excel",
-    "docx",
-    "word",
-    "pptx",
-    "powerpoint"
-  ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
-  "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
-    "@thomasfosterau/effect-parse": "^0.1.0",
-    "fflate": "^0.8.2"
+    "@thomasfosterau/effect-document": "workspace:^",
+    "@thomasfosterau/effect-parse": "catalog:",
+    "fflate": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "catalog:peers"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

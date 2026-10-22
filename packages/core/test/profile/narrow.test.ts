@@ -1,9 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
 import {
-  cell, document, header, para, str, strong, worksheet, blocksToText,
-  SheetColumn, SheetRow, Worksheet,
-} from "../../src/schema/index.js";
-import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.js";
+  cell,
+  Header,
+  document,
+  header,
+  para,
+  str,
+  strong,
+  worksheet,
+  blocksToText,
+  SheetColumn,
+  SheetRow,
+  Worksheet,
+} from "../../src/schema/index.ts";
+import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.ts";
 
 describe("widen", () => {
   test("is an identity at runtime", () => {
@@ -26,7 +37,7 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
     const { document: csv, loss } = narrow(excel, Profiles.Csv);
 
     // only the first worksheet survives
-    const worksheets = csv.blocks.filter((b) => b._tag === "Worksheet");
+    const worksheets = csv.blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));
     expect(worksheets).toHaveLength(1);
 
     // the date became text, the formula became its cached result
@@ -38,7 +49,7 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
     // the loss report names exactly what changed
     const features = loss.entries.map((e) => e.feature);
     expect(features).toEqual(
-      expect.arrayContaining(["sheet.multiple", "cell.date", "cell.formula"])
+      expect.arrayContaining(["sheet.multiple", "cell.date", "cell.formula"]),
     );
     expect(loss.isLossless).toBe(false);
 
@@ -71,10 +82,44 @@ describe("narrow: prose -> markdown subset", () => {
   });
 });
 
+describe("narrow: attributes", () => {
+  const attr = {
+    id: "intro",
+    classes: ["lead"],
+    style: { font: { bold: true } },
+    data: { source: "import" },
+  };
+
+  test("keeps the facets the target allows and reports each one it drops, in order", () => {
+    const doc = document([new Header({ level: 1, attr, content: [str("Title")] })]);
+    const { document: md, loss } = narrow(doc, Profiles.Markdown);
+    const h = md.blocks[0];
+    assert(Predicate.isTagged(h, "Header"));
+    expect(h.attr).toEqual({ id: "intro", classes: ["lead"] });
+    expect(loss.entries.map((e) => [e.feature, e.action])).toEqual([
+      ["attr.style", "dropped"],
+      ["attr.keyValue", "dropped"],
+    ]);
+  });
+
+  test("an attribute set with nothing left is removed entirely", () => {
+    const doc = document([
+      new Header({ level: 1, attr: { style: attr.style, classes: [] }, content: [str("T")] }),
+    ]);
+    const { document: md } = narrow(doc, Profiles.Markdown);
+    const h = md.blocks[0];
+    assert(Predicate.isTagged(h, "Header"));
+    expect(h.attr).toBeUndefined();
+  });
+});
+
 describe("narrow: column-level styling", () => {
   // a profile allowing column metadata but not styling
   const Columns = defineProfile("columns", [
-    "sheet.worksheet", "sheet.columns", "cell.text", "cell.number",
+    "sheet.worksheet",
+    "sheet.columns",
+    "cell.text",
+    "cell.number",
   ] as const);
 
   test("strips per-column styles the target can't represent (and reports it)", () => {

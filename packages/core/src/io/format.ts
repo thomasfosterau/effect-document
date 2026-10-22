@@ -5,11 +5,12 @@
  * keeps conversions tree-shakeable and free of import side effects.
  */
 
-import { type Profile } from "../profile/profile.js";
-import type { Feature } from "../schema/feature.js";
-import type { Reader } from "./reader.js";
-import type { Writer } from "./writer.js";
+import { type Profile } from "../profile/profile.ts";
+import type { Feature } from "../schema/feature.ts";
+import type { Reader } from "./reader.ts";
+import type { Writer } from "./writer.ts";
 
+/** A format bundle for `convert`: its id, its profile, and its reader and/or writer. */
 export interface Format<R extends Feature, W extends Feature = R> {
   /** Unique format identifier (e.g. "csv", "tsv", "xlsx"). */
   readonly id: string;
@@ -22,9 +23,9 @@ export interface Format<R extends Feature, W extends Feature = R> {
    */
   readonly writeProfile: Profile<W>;
   /** Reader implementation, if this format supports reading. */
-  readonly reader?: Reader<R>;
+  readonly reader?: Reader<R> | undefined;
   /** Writer implementation, if this format supports writing. */
-  readonly writer?: Writer<W>;
+  readonly writer?: Writer<W> | undefined;
 }
 
 /** A `Format` for some (existentially-quantified) profiles. */

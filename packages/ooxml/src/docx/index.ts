@@ -7,20 +7,21 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Docx, type DocxFeature } from "./profile.js";
-import { makeDocxReader, type DocxReaderOptions } from "./reader.js";
-import { makeDocxWriter, type DocxWriterOptions } from "./writer.js";
+import { Docx, type DocxFeature } from "./profile.ts";
+import { makeDocxReader, type DocxReaderOptions } from "./reader.ts";
+import { makeDocxWriter, type DocxWriterOptions } from "./writer.ts";
 
-export * from "./profile.js";
-export * from "./reader.js";
-export * from "./writer.js";
+export * from "./profile.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
 
 /** The DOCX profile. */
 export const profile = Docx;
 
+/** Options for the DOCX format bundle: its reader's and writer's options. */
 export interface DocxFormatOptions {
-  readonly reader?: DocxReaderOptions;
-  readonly writer?: DocxWriterOptions;
+  readonly reader?: DocxReaderOptions | undefined;
+  readonly writer?: DocxWriterOptions | undefined;
 }
 
 /** Create a DOCX Format bundle with custom reader/writer options. */

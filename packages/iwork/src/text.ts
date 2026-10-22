@@ -7,15 +7,15 @@
  * speaker-note storages by default. Character/paragraph styling is not yet read.
  */
 
-import { decodeUtf8, getAllBytes, getVarint, parseMessage } from "./protobuf.js";
-import { STORAGE_KIND_FIELD, STORAGE_KIND_NOTE, STORAGE_TEXT_FIELD } from "./registry.js";
+import { decodeUtf8, getAllBytes, getVarint, parseMessage } from "./protobuf.ts";
+import { STORAGE_KIND_FIELD, STORAGE_KIND_NOTE, STORAGE_TEXT_FIELD } from "./registry.ts";
 
 const OBJECT_REPLACEMENT = /￼/g;
 
 /** Split a `StorageArchive` payload into its text paragraphs (non-empty lines). */
 export const storageParagraphs = (
   payload: Uint8Array,
-  options?: { readonly includeNotes?: boolean }
+  options?: { readonly includeNotes?: boolean },
 ): string[] => {
   const fields = parseMessage(payload);
   const kind = getVarint(fields, STORAGE_KIND_FIELD);

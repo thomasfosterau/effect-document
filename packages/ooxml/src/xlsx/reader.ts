@@ -13,20 +13,37 @@
  * rather than allocating the grid.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  cell, type Content, contentToBytes, type Doc, document, makeReaderTag,
-  ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
+  cell,
+  type Content,
+  contentToBytes,
+  type Doc,
+  document,
+  makeReaderTag,
+  ParseError,
+  type Reader,
+  type SheetCell,
+  SheetRow,
+  trustAs,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
-import { parseA1, parseA1Range } from "./a1.js";
-import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
-import { translateFormula } from "./formula.js";
-import { type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.js";
-import { findChild, findChildren, getAttr, type XmlElement } from "./xml.js";
+import { parseA1, parseA1Range } from "./a1.ts";
+import { collectText, spreadsheetMlToCell } from "./cellTypes.ts";
+import { translateFormula } from "./formula.ts";
+import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
+import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
-import { XlsxRead, type XlsxReadFeature } from "./profile.js";
+import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
-/** @deprecated The reader's features are now {@link XlsxReadFeature}. */
+/**
+ * The XLSX reader's features under their old name.
+ *
+ * @deprecated The reader's features are now {@link XlsxReadFeature}.
+ */
 export type SpreadsheetFeature = XlsxReadFeature;
 
 const REL_OFFICE_DOCUMENT_SUFFIX = "/officeDocument";
@@ -40,15 +57,16 @@ const NON_GRID_SHEET_KINDS: ReadonlyArray<readonly [suffix: string, kind: string
 ];
 const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 
+/** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
    * The most cells (rows × columns) a single worksheet's dense grid may hold.
    * A sheet whose populated extent is larger fails the read with a ParseError
    * instead of exhausting memory. Defaults to {@link DEFAULT_MAX_CELLS}.
    */
-  readonly maxCells?: number;
+  readonly maxCells?: number | undefined;
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
 }
 
 /** Main-part content types of spreadsheet packages (workbook, macro-enabled, template). */
@@ -71,7 +89,8 @@ const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, Pars
   Effect.try({
     try: () => {
       const root = pkg.xml(path);
-      if (root === null) throw new Error(`Missing required package part: ${path}`);
+      if (root === null)
+        throw new OpcError("MissingPart", `Missing required package part: ${path}`);
       return root;
     },
     catch: (cause) => ooxmlParseError("xlsx", cause),
@@ -102,13 +121,14 @@ const declaredExtent = (root: XmlElement): { rows: number; columns: number } | n
 const parseWorksheetRows = (
   root: XmlElement,
   sharedStrings: ReadonlyArray<string>,
-  maxCells: number
+  maxCells: number,
 ): WorksheetGrid => {
   const sheetData = findChild(root, "sheetData");
   if (sheetData === undefined) return { _tag: "Grid", rows: [] };
 
   // Rows and cells without an `r` attribute follow the previous one.
-  const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> = [];
+  const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> =
+    [];
   let rowIndex = -1;
   for (const rowEl of findChildren(sheetData, "row")) {
     const rAttr = rowEl.attrs["r"];
@@ -119,7 +139,8 @@ const parseWorksheetRows = (
       const parsed = ref === undefined ? null : parseA1(ref);
       colIndex = parsed === null ? colIndex + 1 : parsed.col;
       const row = parsed === null ? rowIndex : parsed.row;
-      if (Number.isSafeInteger(row) && row >= 0) positioned.push({ el: cellEl, row, col: colIndex });
+      if (Number.isSafeInteger(row) && row >= 0)
+        positioned.push({ el: cellEl, row, col: colIndex });
     }
   }
 
@@ -150,7 +171,7 @@ const parseWorksheetRows = (
         : translateFormula(master.formula, row - master.row, col - master.col);
 
     const value = spreadsheetMlToCell(el, sharedStrings, formula);
-    if (value._tag === "CellBlank") continue;
+    if (Predicate.isTagged(value, "CellBlank")) continue;
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
@@ -206,16 +227,21 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const { pkg, workbookPath, relationships } = yield* Effect.try({
         try: () => {
           const pkg = new OpcReader(contentToBytes(input), options?.limits);
-          if (pkg.text("_rels/.rels") === null) throw new Error("Missing required package part: _rels/.rels");
+          if (pkg.text("_rels/.rels") === null)
+            throw new OpcError("MissingPart", "Missing required package part: _rels/.rels");
           const workbookPath = pkg.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
           pkg.expectMainPart(workbookPath, "xlsx", WORKBOOK_CONTENT_TYPES);
-          return { pkg, workbookPath, relationships: pkg.rels(workbookPath).filter((r) => !r.external) };
+          return {
+            pkg,
+            workbookPath,
+            relationships: pkg.rels(workbookPath).filter((r) => !r.external),
+          };
         },
         catch: (cause) => ooxmlParseError("xlsx", cause),
       });
 
       const sharedStringsRel = relationships.find((rel) =>
-        rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX)
+        rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX),
       );
       const sharedStrings: ReadonlyArray<string> =
         sharedStringsRel === undefined
@@ -226,56 +252,60 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const sheetsEl = findChild(workbookRoot, "sheets");
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
 
-      if (sheetEntries.length === 0) {
+      if (Arr.isReadonlyArrayEmpty(sheetEntries)) {
         return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
       }
 
-      const worksheets: Worksheet[] = [];
-      for (const sheetEl of sheetEntries) {
-        const name = getAttr(sheetEl, "name") ?? `Sheet${worksheets.length + 1}`;
-        const relId = getAttr(sheetEl, "id");
-        const rel = relationships.find((r) => r.id === relId);
+      const worksheets = yield* Effect.forEach(
+        sheetEntries,
+        (sheetEl, index) =>
+          Effect.gen(function* () {
+            const name = getAttr(sheetEl, "name") ?? `Sheet${index + 1}`;
+            const relId = getAttr(sheetEl, "id");
+            const rel = relationships.find((r) => r.id === relId);
 
-        if (rel !== undefined && !rel.type.endsWith(REL_WORKSHEET_SUFFIX)) {
-          // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
-          // their place and name as an empty sheet tagged with its kind.
-          const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
-          if (kind !== undefined) {
-            worksheets.push(
-              new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] })
-            );
-            continue;
-          }
-        }
+            if (rel !== undefined && !rel.type.endsWith(REL_WORKSHEET_SUFFIX)) {
+              // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
+              // their place and name as an empty sheet tagged with its kind.
+              const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
+              if (kind !== undefined)
+                return new Worksheet({
+                  attr: { data: { kind } },
+                  name,
+                  columns: [],
+                  rows: [],
+                  merges: [],
+                });
+            }
 
-        const target =
-          rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
-        if (target === undefined) {
-          return yield* new ParseError({
-            format: "xlsx",
-            reason: `Cannot resolve worksheet part for sheet "${name}" (relationship "${relId}")`,
-          });
-        }
+            const target =
+              rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
+            if (target === undefined) {
+              return yield* new ParseError({
+                format: "xlsx",
+                reason: `Cannot resolve worksheet part for sheet "${name}" (relationship "${relId}")`,
+              });
+            }
 
-        const worksheetRoot = yield* parsePart(pkg, target);
-        const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
-        if (grid._tag === "TooLarge") {
-          return yield* new ParseError({
-            format: "xlsx",
-            reason:
-              `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
-              `more than the ${maxCells}-cell limit (maxCells)`,
-          });
-        }
-        worksheets.push(
-          new Worksheet({
-            name,
-            columns: [],
-            rows: grid.rows.map((cells) => new SheetRow({ cells })),
-            merges: [],
-          })
-        );
-      }
+            const worksheetRoot = yield* parsePart(pkg, target);
+            const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
+            if (Predicate.isTagged(grid, "TooLarge")) {
+              return yield* new ParseError({
+                format: "xlsx",
+                reason:
+                  `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
+                  `more than the ${maxCells}-cell limit (maxCells)`,
+              });
+            }
+            return new Worksheet({
+              name,
+              columns: [],
+              rows: grid.rows.map((cells) => new SheetRow({ cells })),
+              merges: [],
+            });
+          }),
+        { concurrency: 1 },
+      );
 
       return trustAs<XlsxReadFeature>(document(worksheets));
     });

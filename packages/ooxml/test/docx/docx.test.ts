@@ -1,11 +1,31 @@
-import { describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  type Block, blocksToText, bulletList, bytes, codeBlock, document, OrderedList, Quoted, emph, type FeaturesOf, header, type Inline, link,
-  orderedList, para, plainText, str, strong, table, trustAs,
+  type Block,
+  blocksToText,
+  bulletList,
+  bytes,
+  DEFAULT_MAX_NESTING_DEPTH,
+  codeBlock,
+  document,
+  OrderedList,
+  Quoted,
+  emph,
+  type FeaturesOf,
+  header,
+  type Inline,
+  link,
+  orderedList,
+  para,
+  plainText,
+  str,
+  strong,
+  table,
+  trustAs,
 } from "@thomasfosterau/effect-document";
-import { Docx, makeDocxReader, makeDocxWriter } from "../../src/docx/index.js";
+import { Docx, makeDocxReader, makeDocxWriter } from "../../src/docx/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type DocxF = FeaturesOf<typeof Docx>;
@@ -34,19 +54,17 @@ describe("DOCX round-trip", () => {
     const back = roundtrip([para([strong([str("b")]), emph([str("i")])])]);
     const p = back.blocks[0];
     expect(p?._tag).toBe("Para");
-    if (p?._tag === "Para") {
-      expect(findInline(p.content, "Strong")).toBeDefined();
-      expect(findInline(p.content, "Emph")).toBeDefined();
-    }
+    assert(p?._tag === "Para");
+    expect(findInline(p.content, "Strong")).toBeDefined();
+    expect(findInline(p.content, "Emph")).toBeDefined();
   });
 
   test("preserves a hyperlink and its URL", () => {
     const back = roundtrip([para([str("see "), link([str("here")], "https://example.com")])]);
     const p = back.blocks[0];
-    if (p?._tag === "Para") {
-      const lnk = p.content.find((i) => i._tag === "Link");
-      expect(lnk).toMatchObject({ _tag: "Link", target: { url: "https://example.com" } });
-    }
+    assert(p?._tag === "Para");
+    const lnk = p.content.find((i) => Predicate.isTagged(i, "Link"));
+    expect(lnk).toMatchObject({ _tag: "Link", target: { url: "https://example.com" } });
   });
 
   test("preserves bullet and ordered lists", () => {
@@ -56,7 +74,8 @@ describe("DOCX round-trip", () => {
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["BulletList", "OrderedList"]);
     const bl = back.blocks[0];
-    if (bl?._tag === "BulletList") expect(bl.items).toHaveLength(2);
+    assert(bl?._tag === "BulletList");
+    expect(bl.items).toHaveLength(2);
   });
 
   test("preserves a table with a header row", () => {
@@ -65,11 +84,10 @@ describe("DOCX round-trip", () => {
     ]);
     const t = back.blocks[0];
     expect(t?._tag).toBe("Table");
-    if (t?._tag === "Table") {
-      expect(t.head).toHaveLength(1);
-      expect(t.body).toHaveLength(1);
-      expect(blocksToText([t])).toContain("Name\tAge");
-    }
+    assert(t?._tag === "Table");
+    expect(t.head).toHaveLength(1);
+    expect(t.body).toHaveLength(1);
+    expect(blocksToText([t])).toContain("Name\tAge");
   });
 
   test("output conforms to the DOCX profile", () => {
@@ -97,9 +115,38 @@ describe("DOCX nesting limit (#110)", () => {
     expect(blocksToText(back.blocks)).toBe("x");
   });
 
+  /**
+   * `depth` nested single-cell tables around a paragraph, built as XML rather
+   * than through the (recursive) writer, whose rendering of a very deep
+   * document would exhaust Node's stack before the reader is ever reached.
+   */
+  const deepTables = (depth: number) => {
+    const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+    const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const body =
+      "<w:tbl><w:tr><w:tc>".repeat(depth) +
+      "<w:p><w:r><w:t>x</w:t></w:r></w:p>" +
+      "</w:tc></w:tr></w:tbl>".repeat(depth);
+    return bytes(
+      zipSync({
+        "_rels/.rels": strToU8(
+          `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
+        ),
+        "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
+      }),
+    );
+  };
+
   test("the default limit refuses very deep nesting", () => {
-    const error = run(Effect.flip(makeDocxReader().read(docx(1500))));
+    const error = run(Effect.flip(makeDocxReader().read(deepTables(1500))));
     expect(error).toMatchObject({ code: "LimitExceeded" });
+  });
+
+  test("nesting exactly at the default limit reads without exhausting the stack", () => {
+    // 998 tables, their innermost paragraph and its text: 1000 levels
+    const back = run(makeDocxReader().read(deepTables(DEFAULT_MAX_NESTING_DEPTH - 2)));
+    expect(blocksToText(back.blocks)).toBe("x");
   });
 });
 
@@ -110,26 +157,45 @@ describe("DOCX correctness (#72)", () => {
 
   /** A hand-built package around a `w:body`, with optional numbering and hyperlink rels. */
   const docxWith = (body: string, numbering?: string, rels = "") => {
-    const files: Record<string, Uint8Array> = {
-      "_rels/.rels": strToU8(`<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`),
+    const files = {
+      "_rels/.rels": strToU8(
+        `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
+      ),
       "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
       "word/_rels/document.xml.rels": strToU8(
         `<Relationships xmlns="${PKG}">` +
-          (numbering === undefined ? "" : `<Relationship Id="rIdN" Type="${REL}/numbering" Target="numbering.xml"/>`) +
-          rels + `</Relationships>`
+          (numbering === undefined
+            ? ""
+            : `<Relationship Id="rIdN" Type="${REL}/numbering" Target="numbering.xml"/>`) +
+          rels +
+          `</Relationships>`,
       ),
     };
-    if (numbering !== undefined) files["word/numbering.xml"] = strToU8(`<w:numbering ${W}>${numbering}</w:numbering>`);
-    return bytes(zipSync(files));
+    return bytes(
+      zipSync(
+        numbering === undefined
+          ? files
+          : {
+              ...files,
+              "word/numbering.xml": strToU8(`<w:numbering ${W}>${numbering}</w:numbering>`),
+            },
+      ),
+    );
   };
   const read = (body: string, numbering?: string, rels?: string) =>
     run(makeDocxReader().read(docxWith(body, numbering, rels)));
-  const r = (text: string, rPr = "") => `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const r = (text: string, rPr = "") =>
+    `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
   const inlinesOf = (b: Block | undefined): ReadonlyArray<Inline> =>
-    b !== undefined && (b._tag === "Para" || b._tag === "Plain" || b._tag === "Header") ? b.content : [];
+    b !== undefined &&
+    (Predicate.isTagged(b, "Para") ||
+      Predicate.isTagged(b, "Plain") ||
+      Predicate.isTagged(b, "Header"))
+      ? b.content
+      : [];
   const parts = (blocks: ReadonlyArray<Block>) => {
     const out = run(makeDocxWriter().write(doc(blocks)));
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };
@@ -151,7 +217,9 @@ describe("DOCX correctness (#72)", () => {
     expect(back.blocks.map((b) => b._tag)).toEqual(["OrderedList", "Para", "OrderedList"]);
     expect(back.blocks[0]).toMatchObject({ start: undefined });
     expect(back.blocks[2]).toMatchObject({ start: 5 });
-    const numbering = parts([orderedList([[plainText("a")]]), orderedList([[plainText("b")]])])("word/numbering.xml")!;
+    const numbering = parts([orderedList([[plainText("a")]]), orderedList([[plainText("b")]])])(
+      "word/numbering.xml",
+    )!;
     expect(numbering.match(/<w:num w:numId=/g)).toHaveLength(3);
     expect(numbering).toContain(`<w:startOverride w:val="1"/>`);
   });
@@ -167,7 +235,12 @@ describe("DOCX correctness (#72)", () => {
   });
 
   test("4. Quoted keeps its quotation marks", () => {
-    const back = roundtrip([para([new Quoted({ quoteType: "double", content: [str("hi")] }), new Quoted({ quoteType: "single", content: [str("yo")] })])]);
+    const back = roundtrip([
+      para([
+        new Quoted({ quoteType: "double", content: [str("hi")] }),
+        new Quoted({ quoteType: "single", content: [str("yo")] }),
+      ]),
+    ]);
     expect(blocksToText(back.blocks)).toBe("“hi”‘yo’");
   });
 
@@ -180,9 +253,14 @@ describe("DOCX correctness (#72)", () => {
   });
 
   test("6. a styles part defines the styles the document uses", () => {
-    const get = parts([header(1, [str("h")]), codeBlock("c"), table({ rows: [[[para([str("t")])]]] })]);
+    const get = parts([
+      header(1, [str("h")]),
+      codeBlock("c"),
+      table({ rows: [[[para([str("t")])]]] }),
+    ]);
     const styles = get("word/styles.xml")!;
-    for (const id of ["Heading1", "Heading6", "Code", "TableGrid"]) expect(styles).toContain(`w:styleId="${id}"`);
+    for (const id of ["Heading1", "Heading6", "Code", "TableGrid"])
+      expect(styles).toContain(`w:styleId="${id}"`);
     expect(get("word/_rels/document.xml.rels")).toContain(`Target="styles.xml"`);
     expect(get("[Content_Types].xml")).toContain("/word/styles.xml");
   });
@@ -191,7 +269,7 @@ describe("DOCX correctness (#72)", () => {
 
   test("7. explicit off values of toggle properties are off", () => {
     const back = read(
-      `<w:p>${r("a", `<w:b w:val="0"/><w:i w:val="false"/><w:strike w:val="off"/><w:u w:val="none"/>`)}${r("b", `<w:b/><w:u w:val="single"/>`)}</w:p>`
+      `<w:p>${r("a", `<w:b w:val="0"/><w:i w:val="false"/><w:strike w:val="off"/><w:u w:val="none"/>`)}${r("b", `<w:b/><w:u w:val="single"/>`)}</w:p>`,
     );
     const content = inlinesOf(back.blocks[0]);
     expect(content[0]).toMatchObject({ _tag: "Str", text: "a" });
@@ -199,7 +277,9 @@ describe("DOCX correctness (#72)", () => {
   });
 
   test("8. numId 0 is not a list", () => {
-    const back = read(`<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr></w:pPr>${r("x")}</w:p>`);
+    const back = read(
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr></w:pPr>${r("x")}</w:p>`,
+    );
     expect(back.blocks[0]!._tag).toBe("Para");
   });
 
@@ -210,18 +290,22 @@ describe("DOCX correctness (#72)", () => {
     const li = (t: string, ilvl: number) =>
       `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="9"/></w:numPr></w:pPr>${r(t)}</w:p>`;
     const back = read(li("i", 0) + li("dot", 1), numbering);
-    expect(back.blocks).toEqual([orderedList([[plainText("i"), bulletList([[plainText("dot")]])]])]);
+    expect(back.blocks).toEqual([
+      orderedList([[plainText("i"), bulletList([[plainText("dot")]])]]),
+    ]);
   });
 
   test("10. tracked insertions are kept and deletions dropped", () => {
-    const back = read(`<w:p>${r("a")}<w:ins w:id="1">${r("b")}</w:ins><w:del w:id="2"><w:r><w:delText>gone</w:delText></w:r></w:del></w:p>`);
+    const back = read(
+      `<w:p>${r("a")}<w:ins w:id="1">${r("b")}</w:ins><w:del w:id="2"><w:r><w:delText>gone</w:delText></w:r></w:del></w:p>`,
+    );
     expect(blocksToText(back.blocks)).toBe("ab");
   });
 
   test("11. inline and block content controls are kept", () => {
     const back = read(
       `<w:sdt><w:sdtPr/><w:sdtContent><w:p>${r("toc")}</w:p></w:sdtContent></w:sdt>` +
-        `<w:p>${r("name: ")}<w:sdt><w:sdtContent>${r("Ada")}</w:sdtContent></w:sdt></w:p>`
+        `<w:p>${r("name: ")}<w:sdt><w:sdtContent>${r("Ada")}</w:sdtContent></w:sdt></w:p>`,
     );
     expect(blocksToText(back.blocks)).toBe("toc\nname: Ada");
   });
@@ -231,12 +315,15 @@ describe("DOCX correctness (#72)", () => {
       `<w:p><w:fldSimple w:instr=" PAGE ">${r("3")}</w:fldSimple>` +
         `<w:fldSimple w:instr='HYPERLINK "https://a.example"'>${r("A")}</w:fldSimple>` +
         `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> HYPERLINK "https://b.example" </w:instrText></w:r>` +
-        `<w:r><w:fldChar w:fldCharType="separate"/></w:r>${r("B")}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
+        `<w:r><w:fldChar w:fldCharType="separate"/></w:r>${r("B")}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`,
     );
     const content = inlinesOf(back.blocks[0]);
     expect(content.map((i) => i._tag)).toEqual(["Str", "Link", "Link"]);
     expect(content[1]).toMatchObject({ target: { url: "https://a.example" } });
-    expect(content[2]).toMatchObject({ target: { url: "https://b.example" }, content: [{ text: "B" }] });
+    expect(content[2]).toMatchObject({
+      target: { url: "https://b.example" },
+      content: [{ text: "B" }],
+    });
   });
 
   test("13. internal hyperlinks become #anchor and round-trip", () => {
@@ -247,7 +334,9 @@ describe("DOCX correctness (#72)", () => {
   });
 
   test("14. a page break splits the paragraph", () => {
-    const back = read(`<w:p>${r("one")}<w:r><w:br w:type="page"/></w:r>${r("two")}<w:r><w:br/></w:r>${r("three")}</w:p>`);
+    const back = read(
+      `<w:p>${r("one")}<w:r><w:br w:type="page"/></w:r>${r("two")}<w:r><w:br/></w:r>${r("three")}</w:p>`,
+    );
     expect(back.blocks.map((b) => b._tag)).toEqual(["Para", "Para"]);
     expect(blocksToText(back.blocks)).toBe("one\ntwo\nthree");
   });

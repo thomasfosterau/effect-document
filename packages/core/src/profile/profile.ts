@@ -12,12 +12,14 @@
  * and a branded `Schema` that checks conformance (structure + subset).
  */
 
-import { Effect, Schema } from "effect";
-import { type AttrPolicy } from "../schema/attributes.js";
-import { Document, type DocumentEncoded } from "../schema/document.js";
-import { type Feature } from "../schema/feature.js";
-import { ProfileViolation } from "../io/errors.js";
-import { collectFeatures, unsupportedFeatures } from "./collect.js";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import { type AttrPolicy } from "../schema/attributes.ts";
+import { Document, type DocumentEncoded } from "../schema/document.ts";
+import { type Feature } from "../schema/feature.ts";
+import { ProfileViolation } from "../io/errors.ts";
+import { unsupportedFeatures } from "./collect.ts";
 
 // ============================================================================
 // Phantom-typed document
@@ -51,6 +53,7 @@ export type FeaturesOf<P> = P extends Profile<infer F> ? F : never;
 // Profile
 // ============================================================================
 
+/** A named subset of the schema: the features it allows, its attribute policy, and the checks and schema derived from them. */
 export interface Profile<F extends Feature> {
   /** Unique profile identifier (e.g. "csv", "spreadsheet", "markdown"). */
   readonly id: string;
@@ -88,28 +91,25 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
  */
 export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   id: string,
-  features: FS
+  features: FS,
 ): Profile<FS[number]> => {
   const set: ReadonlySet<Feature> = new Set(features);
-  const conforms = (doc: Document): boolean => {
-    for (const f of collectFeatures(doc)) if (!set.has(f)) return false;
-    return true;
-  };
+  const conforms = (doc: Document): boolean =>
+    Arr.isReadonlyArrayEmpty(unsupportedFeatures(doc, set));
   const is = (doc: Document): doc is Doc<FS[number]> => conforms(doc);
-  const validate = (doc: Document): Effect.Effect<Doc<FS[number]>, ProfileViolation> => {
-    const unsupported = unsupportedFeatures(doc, set);
-    return unsupported.length === 0
-      ? Effect.succeed(doc as Doc<FS[number]>)
-      : Effect.fail(new ProfileViolation({ profile: id, unsupported }));
-  };
-  const schema = Document.pipe(
-    Schema.check(
-      Schema.makeFilter((doc: Document): boolean => conforms(doc), {
-        identifier: `${id}Document`,
-        description: `A Document conforming to the "${id}" profile`,
-      })
-    )
-  ) as unknown as Schema.Codec<Doc<FS[number]>, DocumentEncoded>;
+  const validate = (doc: Document): Effect.Effect<Doc<FS[number]>, ProfileViolation> =>
+    Arr.match(unsupportedFeatures(doc, set), {
+      // SAFETY: the document uses no feature outside the profile's allow-set.
+      onEmpty: () => Effect.succeed(doc as Doc<FS[number]>),
+      onNonEmpty: (unsupported) => Effect.fail(new ProfileViolation({ profile: id, unsupported })),
+    });
+  const schema: Schema.Codec<Doc<FS[number]>, DocumentEncoded> = Document.pipe(
+    Schema.refine(is, {
+      identifier: `${id}Document`,
+      title: `${id} document`,
+      description: `A Document conforming to the "${id}" profile`,
+    }),
+  );
 
   return { id, features: set, attributes: attrPolicyOf(set), is, validate, schema };
 };
@@ -119,4 +119,6 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
  * runtime check. Use only where a reader has already constructed the document
  * within the profile by construction.
  */
-export const trustAs = <F extends Feature>(doc: Document): Doc<F> => doc as Doc<F>;
+export const trustAs = <F extends Feature>(doc: Document): Doc<F> =>
+  // SAFETY: the caller guarantees the document was built within the profile `F`.
+  doc as Doc<F>;

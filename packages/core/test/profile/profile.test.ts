@@ -1,18 +1,13 @@
-import { describe, expect, test } from "bun:test";
-import { Effect, Result, Schema } from "effect";
-import {
-  cell, document, header, para, str, strong, worksheet,
-} from "../../src/schema/index.js";
-import {
-  Profiles, collectFeatures, defineProfile,
-} from "../../src/profile/index.js";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
+import { cell, document, header, para, str, strong, worksheet } from "../../src/schema/index.ts";
+import { Profiles, collectFeatures, defineProfile } from "../../src/profile/index.ts";
 
 describe("collectFeatures", () => {
   test("reports node + attribute features used", () => {
-    const doc = document([
-      header(1, [str("T")]),
-      para([str("x "), strong([str("y")])]),
-    ]);
+    const doc = document([header(1, [str("T")]), para([str("x "), strong([str("y")])])]);
     const used = collectFeatures(doc);
     expect(used.has("block.header")).toBe(true);
     expect(used.has("block.para")).toBe(true);
@@ -57,24 +52,23 @@ describe("profile conformance", () => {
   test("validate: fails with the exact unsupported features", () => {
     const r = Effect.runSync(Effect.result(Profiles.Csv.validate(richDoc)));
     expect(Result.isFailure(r)).toBe(true);
-    if (Result.isFailure(r)) {
-      expect(r.failure._tag).toBe("ProfileViolation");
-      expect(r.failure.unsupported).toEqual(
-        expect.arrayContaining(["cell.date", "sheet.multiple"])
-      );
-    }
+    assert(Result.isFailure(r));
+    expect(r.failure._tag).toBe("ProfileViolation");
+    expect(r.failure.unsupported).toEqual(expect.arrayContaining(["cell.date", "sheet.multiple"]));
   });
 
   test("profile.schema decodes a conforming document and rejects a rich one", () => {
-    const mkJson = (cellJson: object) => ({
+    const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => ({
       meta: {},
       blocks: [
         { _tag: "Worksheet", name: "S", columns: [], merges: [], rows: [{ cells: [cellJson] }] },
       ],
     });
-    const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(mkJson({ _tag: "CellText", value: "a" }));
+    const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(
+      mkJson({ _tag: "CellText", value: "a" }),
+    );
     const bad = Schema.decodeUnknownResult(Profiles.Csv.schema)(
-      mkJson({ _tag: "CellDate", value: "2026-06-26T00:00:00.000Z" })
+      mkJson({ _tag: "CellDate", value: "2026-06-26T00:00:00.000Z" }),
     );
     expect(Result.isSuccess(ok)).toBe(true);
     expect(Result.isFailure(bad)).toBe(true);

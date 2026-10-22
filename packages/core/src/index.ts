@@ -24,11 +24,10 @@
  */
 
 // The universal document schema
-export * from "./schema/index.js";
+export * from "./schema/index.ts";
 
 // The profile / subset system
-export * from "./profile/index.js";
+export * from "./profile/index.ts";
 
 // The IO layer (Reader/Writer/Format, content, errors, convert)
-export * from "./io/index.js";
-
+export * from "./io/index.ts";

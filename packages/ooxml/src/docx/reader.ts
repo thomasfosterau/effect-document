@@ -11,28 +11,68 @@
  * and a page break ends the paragraph.
  */
 
-import { Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
+import * as HashSet from "effect/HashSet";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
-  type Block, BulletList, CodeBlock, type Content, contentToBytes, DEFAULT_MAX_NESTING_DEPTH,
-  type Doc, document, Emph, Header, type Inline, inlinesToText, LineBreak, limitNestingDepth, Link,
-  makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
-  SmallCaps, Str, Strikeout, Strong, Subscript, Superscript, Table, TableCell, TableRow, trustAs,
+  type Block,
+  BulletList,
+  CodeBlock,
+  type Content,
+  contentToBytes,
+  DEFAULT_MAX_NESTING_DEPTH,
+  type Doc,
+  document,
+  Emph,
+  Header,
+  type Inline,
+  inlinesToText,
+  LineBreak,
+  limitNestingDepth,
+  Link,
+  makeReaderTag,
+  OrderedList,
+  Para,
+  ParseError,
+  Plain,
+  type Reader,
+  SmallCaps,
+  Str,
+  Strikeout,
+  Strong,
+  Subscript,
+  Superscript,
+  Table,
+  TableCell,
+  TableRow,
+  trustAs,
   Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
-} from "../shared/index.js";
-import { Docx, type DocxFeature } from "./profile.js";
+  OpcError,
+  type OpcLimits,
+  OpcReader,
+  type XmlElement,
+  findChild,
+  findChildren,
+  getAttr,
+  ooxmlParseError,
+} from "../shared/index.ts";
+import { Docx, type DocxFeature } from "./profile.ts";
 
+/** Options for the DOCX reader: zip resource limits and the nesting-depth limit. */
 export interface DocxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
   /**
    * The deepest nesting (e.g. tables inside tables) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
    * `DEFAULT_MAX_NESTING_DEPTH` (1000).
    */
-  readonly maxDepth?: number;
+  readonly maxDepth?: number | undefined;
 }
 
 /** Main-part content types this reader accepts. */
@@ -115,6 +155,12 @@ const hyperlinkField = (instr: string): string | null => {
   return url === null ? null : url[1]!;
 };
 
+/** Run children that stand for a fixed character. */
+const RUN_TEXT = HashMap.make(["tab", "\t"], ["noBreakHyphen", "\u2011"], ["softHyphen", "\u00ad"]);
+
+/** Wrappers whose runs are visible text: tracked insertions and moves, smart tags, custom XML. */
+const TRANSPARENT_WRAPPERS = HashSet.make("ins", "moveTo", "smartTag", "customXml");
+
 /**
  * Collects a paragraph's inlines, threading complex-field state
  * (`w:fldChar` begin/separate/end, `w:instrText`) across runs: a field's
@@ -124,7 +170,11 @@ class InlineCollector {
   readonly out: Piece[] = [];
   private readonly fields: Field[] = [];
 
-  constructor(private readonly rels: ReadonlyMap<string, string>) {}
+  private readonly rels: ReadonlyMap<string, string>;
+
+  constructor(rels: ReadonlyMap<string, string>) {
+    this.rels = rels;
+  }
 
   push(piece: Piece): void {
     const field = this.fields[this.fields.length - 1];
@@ -141,94 +191,83 @@ class InlineCollector {
 
   /** Close any field left open at the end of the paragraph. */
   finish(): Piece[] {
-    while (this.fields.length > 0) this.emitField(this.fields.pop()!);
+    while (Arr.isReadonlyArrayNonEmpty(this.fields)) this.emitField(this.fields.pop()!);
     return this.out;
   }
 
   run(r: XmlElement): void {
     const f = readFmt(r);
-    for (const child of r.children) {
-      switch (child.name) {
-        case "t":
-          this.push(wrap(new Str({ text: child.text }), f));
-          break;
-        case "br":
-          this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
-          break;
-        case "cr":
-          this.push(new LineBreak());
-          break;
-        case "tab":
-          this.push(wrap(new Str({ text: "\t" }), f));
-          break;
-        case "noBreakHyphen":
-          this.push(wrap(new Str({ text: "‑" }), f));
-          break;
-        case "softHyphen":
-          this.push(wrap(new Str({ text: "­" }), f));
-          break;
-        case "instrText": {
-          const field = this.fields[this.fields.length - 1];
-          if (field !== undefined && field.phase === "instr") field.instr += child.text;
-          break;
-        }
-        case "fldChar": {
-          const type = getAttr(child, "fldCharType");
-          if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
-          else if (type === "separate") {
-            const field = this.fields[this.fields.length - 1];
-            if (field !== undefined) field.phase = "result";
-          } else if (type === "end") {
-            const field = this.fields.pop();
-            if (field !== undefined) this.emitField(field);
-          }
-          break;
-        }
-      }
+    for (const child of r.children) this.runChild(child, f);
+  }
+
+  private runChild(child: XmlElement, f: Fmt): void {
+    const text = child.name === "t" ? Option.some(child.text) : HashMap.get(RUN_TEXT, child.name);
+    if (Option.isSome(text)) this.push(wrap(new Str({ text: text.value }), f));
+    else if (child.name === "br")
+      this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
+    else if (child.name === "cr") this.push(new LineBreak());
+    else if (child.name === "instrText") this.instrText(child.text);
+    else if (child.name === "fldChar") this.fldChar(getAttr(child, "fldCharType"));
+  }
+
+  private instrText(text: string): void {
+    const field = this.fields[this.fields.length - 1];
+    if (field !== undefined && field.phase === "instr") field.instr += text;
+  }
+
+  private fldChar(type: string | undefined): void {
+    if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
+    else if (type === "separate") {
+      const field = this.fields[this.fields.length - 1];
+      if (field !== undefined) field.phase = "result";
+    } else if (type === "end") {
+      const field = this.fields.pop();
+      if (field !== undefined) this.emitField(field);
     }
   }
 
   /** Paragraph-level content: runs and the containers that wrap them. */
   content(parent: XmlElement): void {
-    for (const child of parent.children) {
-      switch (child.name) {
-        case "r":
-          this.run(child);
-          break;
-        // Tracked insertions, moves and wrappers whose runs are visible text.
-        case "ins": case "moveTo": case "smartTag": case "customXml":
-          this.content(child);
-          break;
-        case "sdt": {
-          const sdtContent = findChild(child, "sdtContent");
-          if (sdtContent !== undefined) this.content(sdtContent);
-          break;
-        }
-        case "hyperlink": {
-          const inner = new InlineCollector(this.rels);
-          inner.content(child);
-          const id = getAttr(child, "id");
-          const anchor = getAttr(child, "anchor");
-          const url =
-            id !== undefined ? this.rels.get(id) ?? "" : anchor !== undefined ? `#${anchor}` : "";
-          const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
-          this.push(new Link({ content, target: { url } }));
-          break;
-        }
-        case "fldSimple": {
-          const inner = new InlineCollector(this.rels);
-          inner.content(child);
-          const result = inner.finish();
-          const url = hyperlinkField(getAttr(child, "instr") ?? "");
-          if (url !== null) {
-            const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
-            this.push(new Link({ content, target: { url } }));
-          } else for (const x of result) this.push(x);
-          break;
-        }
-        // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
-      }
+    for (const child of parent.children) this.contentChild(child);
+  }
+
+  private contentChild(child: XmlElement): void {
+    if (child.name === "r") this.run(child);
+    // Tracked insertions, moves and wrappers whose runs are visible text.
+    else if (HashSet.has(TRANSPARENT_WRAPPERS, child.name)) this.content(child);
+    else if (child.name === "sdt") {
+      const sdtContent = findChild(child, "sdtContent");
+      if (sdtContent !== undefined) this.content(sdtContent);
+    } else if (child.name === "hyperlink") this.hyperlink(child);
+    else if (child.name === "fldSimple") this.fldSimple(child);
+    // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+  }
+
+  /** The inlines inside `el`, collected on their own (fields do not cross it). */
+  private inner(el: XmlElement): Piece[] {
+    const inner = new InlineCollector(this.rels);
+    inner.content(el);
+    return inner.finish();
+  }
+
+  private hyperlink(el: XmlElement): void {
+    const id = getAttr(el, "id");
+    const anchor = getAttr(el, "anchor");
+    const url =
+      id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
+    const content = this.inner(el).filter((x): x is Inline => x !== PAGE_BREAK);
+    this.push(new Link({ content, target: { url } }));
+  }
+
+  private fldSimple(el: XmlElement): void {
+    const result = this.inner(el);
+    const url = hyperlinkField(getAttr(el, "instr") ?? "");
+    if (url === null) {
+      for (const x of result) this.push(x);
+      return;
     }
+    const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
+    this.push(new Link({ content, target: { url } }));
   }
 }
 
@@ -241,8 +280,8 @@ const paragraphSegments = (p: XmlElement, rels: ReadonlyMap<string, string>): In
     if (piece === PAGE_BREAK) segments.push([]);
     else segments[segments.length - 1]!.push(piece);
   }
-  const nonEmpty = segments.filter((s) => s.length > 0);
-  return nonEmpty.length > 0 ? nonEmpty : [[]];
+  const nonEmpty = segments.filter((s) => Arr.isReadonlyArrayNonEmpty(s));
+  return Arr.isReadonlyArrayNonEmpty(nonEmpty) ? nonEmpty : [[]];
 };
 
 const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[] =>
@@ -273,7 +312,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
       for (const lvl of findChildren(abs, "lvl")) {
         const numFmt = findChild(lvl, "numFmt");
         levels.set(intAttr(lvl, "ilvl") ?? 0, {
-          fmt: numFmt === undefined ? "" : getAttr(numFmt, "val") ?? "",
+          fmt: numFmt === undefined ? "" : (getAttr(numFmt, "val") ?? ""),
           start: intAttr(findChild(lvl, "start"), "val") ?? 1,
         });
       }
@@ -287,7 +326,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
         if (start !== undefined) starts.set(intAttr(o, "ilvl") ?? 0, start);
       }
       nums.set(getAttr(num, "numId") ?? "", {
-        abstractId: abs === undefined ? "" : getAttr(abs, "val") ?? "",
+        abstractId: abs === undefined ? "" : (getAttr(abs, "val") ?? ""),
         starts,
       });
     }
@@ -329,10 +368,10 @@ const listInfo = (p: XmlElement): { numId: string; ilvl: number } | null => {
   const numPr = findChild(pPr, "numPr");
   if (numPr === undefined) return null;
   const numIdEl = findChild(numPr, "numId");
-  const numId = numIdEl === undefined ? "1" : getAttr(numIdEl, "val") ?? "1";
+  const numId = numIdEl === undefined ? "1" : (getAttr(numIdEl, "val") ?? "1");
   if (numId === "0") return null;
   const ilvlEl = findChild(numPr, "ilvl");
-  const ilvl = Number.parseInt(ilvlEl === undefined ? "0" : getAttr(ilvlEl, "val") ?? "0", 10);
+  const ilvl = Number.parseInt(ilvlEl === undefined ? "0" : (getAttr(ilvlEl, "val") ?? "0"), 10);
   return { numId, ilvl: Number.isFinite(ilvl) ? Math.min(Math.max(ilvl, 0), 8) : 0 };
 };
 
@@ -346,12 +385,29 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   return segments.map((inlines, n) =>
     heading && n === 0
       ? new Header({ level: Number.parseInt(heading[1]!, 10), content: inlines })
-      : new Para({ content: inlines })
+      : new Para({ content: inlines }),
   );
 };
 
 /** Thrown when tables nest deeper than the reader's `maxDepth`. */
 class NestingLimit extends Error {}
+
+/**
+ * The deepest chain of nested `w:tbl` elements under `el`, counted with an
+ * explicit stack: the recursive conversion below would exhaust Node's call
+ * stack on a document nested far past `maxDepth` before it could refuse it.
+ */
+const tableNesting = (el: XmlElement): number => {
+  let deepest = 0;
+  const stack: Array<readonly [XmlElement, number]> = [[el, 0]];
+  for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+    const [node, outer] = next;
+    const tables = node.name === "tbl" ? outer + 1 : outer;
+    deepest = Math.max(deepest, tables);
+    for (const child of node.children) stack.push([child, tables]);
+  }
+  return deepest;
+};
 
 /** The current block depth and the limit, threaded through nested tables. */
 interface Depth {
@@ -362,17 +418,13 @@ interface Depth {
 /** A table's rows, including those wrapped in row-level content controls. */
 const tableRows = (tbl: XmlElement): XmlElement[] =>
   tbl.children.flatMap((c) =>
-    c.name === "tr" ? [c]
-    : c.name === "sdt" ? tableRows(findChild(c, "sdtContent") ?? c)
-    : []
+    c.name === "tr" ? [c] : c.name === "sdt" ? tableRows(findChild(c, "sdtContent") ?? c) : [],
   );
 
 /** A row's cells, including those wrapped in cell-level content controls. */
 const rowCells = (tr: XmlElement): XmlElement[] =>
   tr.children.flatMap((c) =>
-    c.name === "tc" ? [c]
-    : c.name === "sdt" ? rowCells(findChild(c, "sdtContent") ?? c)
-    : []
+    c.name === "tc" ? [c] : c.name === "sdt" ? rowCells(findChild(c, "sdtContent") ?? c) : [],
   );
 
 const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
@@ -383,7 +435,10 @@ const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
   for (const tr of tableRows(tbl)) {
     const trPr = findChild(tr, "trPr");
     const isHeader = trPr !== undefined && findChild(trPr, "tblHeader") !== undefined;
-    const cells = rowCells(tr).map((tc) => new TableCell({ content: bodyToBlocks(tc, ctx, inner) }));
+    // a loop rather than `map`, to spend two fewer stack frames per nesting level
+    const cells: TableCell[] = [];
+    for (const tc of rowCells(tr))
+      cells.push(new TableCell({ content: bodyToBlocks(tc, ctx, inner) }));
     (isHeader ? head : body).push(new TableRow({ cells }));
   }
   return new Table({ colSpecs: [], head, body, foot: [] });
@@ -416,11 +471,11 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
     const list = open.pop()!;
     const outer = open[open.length - 1];
     if (outer === undefined) out.push(listBlock(list));
-    else if (outer.items.length === 0) outer.items.push([listBlock(list)]);
+    else if (Arr.isReadonlyArrayEmpty(outer.items)) outer.items.push([listBlock(list)]);
     else outer.items[outer.items.length - 1]!.push(listBlock(list));
   };
   const closeAll = (): void => {
-    while (open.length > 0) close();
+    while (Arr.isReadonlyArrayNonEmpty(open)) close();
   };
 
   const visit = (el: XmlElement): void => {
@@ -433,16 +488,23 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
           continue;
         }
         const kind = ctx.numbering.kind(li.numId, li.ilvl);
-        while (open.length > 0 && open[open.length - 1]!.level > li.ilvl) close();
+        while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
         const top = open[open.length - 1];
         // A different kind or numbering instance at the same level is a new list.
-        if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId)) close();
+        if (
+          top !== undefined &&
+          top.level === li.ilvl &&
+          (top.kind !== kind || top.numId !== li.numId)
+        )
+          close();
         const current = open[open.length - 1];
         if (current === undefined || current.level < li.ilvl) {
           const start = ctx.numbering.start(li.numId, li.ilvl);
           open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
         }
-        open[open.length - 1]!.items.push([new Plain({ content: paragraphInlines(child, ctx.rels) })]);
+        open[open.length - 1]!.items.push([
+          new Plain({ content: paragraphInlines(child, ctx.rels) }),
+        ]);
       } else if (child.name === "tbl") {
         closeAll();
         out.push(tableToBlock(child, ctx, depth));
@@ -469,17 +531,20 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
         const docPath = pkg.rootTarget("/officeDocument", "word/document.xml");
         pkg.expectMainPart(docPath, "docx", MAIN_CONTENT_TYPES);
         const xml = pkg.text(docPath);
-        if (xml === null) throw new Error(`missing document part: ${docPath}`);
+        if (xml === null) throw new OpcError("MissingPart", `missing document part: ${docPath}`);
         const rels = new Map<string, string>();
         let numberingPath: string | undefined;
         for (const r of pkg.rels(docPath)) {
           rels.set(r.id, r.target);
           if (r.type.endsWith("/numbering")) numberingPath = r.target;
         }
-        const numbering = parseNumbering(numberingPath === undefined ? null : pkg.xml(numberingPath));
+        const numbering = parseNumbering(
+          numberingPath === undefined ? null : pkg.xml(numberingPath),
+        );
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
+        if (body !== undefined && tableNesting(body) > maxDepth) throw new NestingLimit();
         const blocks =
           body === undefined
             ? []
@@ -498,5 +563,7 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
   return { format: "docx", profile: Docx, read };
 };
 
+/** The Context tag for the DOCX reader, so a program can depend on a DOCX reader and have one provided. */
 export const DocxReaderTag = makeReaderTag<DocxFeature>("docx");
+/** A Layer providing the default DOCX reader for {@link DocxReaderTag}. */
 export const DocxReaderLive = Layer.succeed(DocxReaderTag, makeDocxReader());

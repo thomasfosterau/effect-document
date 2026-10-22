@@ -10,13 +10,14 @@
  * The writer therefore always receives a document it can represent.
  */
 
-import { Effect } from "effect";
-import { type Feature } from "../schema/feature.js";
-import { type LossReport, narrow } from "../profile/narrow.js";
-import { ConversionError, type ParseError, type WriteError } from "./errors.js";
-import type { Content } from "./content.js";
-import type { Format } from "./format.js";
+import * as Effect from "effect/Effect";
+import { type Feature } from "../schema/feature.ts";
+import { type LossReport, narrow } from "../profile/narrow.ts";
+import { ConversionError, type ParseError, type WriteError } from "./errors.ts";
+import type { Content } from "./content.ts";
+import type { Format } from "./format.ts";
 
+/** Options for {@link convert}: the source and target formats, and the content to convert. */
 export interface ConvertOptions<A extends Feature, B extends Feature> {
   /** Source format. */
   readonly from: Format<A, any>;
@@ -26,6 +27,7 @@ export interface ConvertOptions<A extends Feature, B extends Feature> {
   readonly input: Content;
 }
 
+/** The rendered target content and what was lost getting there. */
 export interface ConvertResult {
   /** The rendered target content. */
   readonly content: Content;
@@ -33,6 +35,7 @@ export interface ConvertResult {
   readonly loss: LossReport;
 }
 
+/** Every way `convert` can fail: reading the input, rendering the output, or a format with no reader/writer. */
 export type ConvertError = ParseError | WriteError | ConversionError;
 
 /**

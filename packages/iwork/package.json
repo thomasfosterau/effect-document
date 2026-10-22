@@ -1,77 +1,77 @@
 {
+  "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-iwork",
   "version": "0.0.0",
   "description": "Experimental, read-only Apple iWork (Pages, Numbers, Keynote) readers for effect-document",
-  "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./pages": {
-      "types": "./src/pages.ts",
-      "bun": "./src/pages.ts",
-      "import": "./src/pages.ts",
-      "default": "./src/pages.ts"
-    },
-    "./numbers": {
-      "types": "./src/numbers.ts",
-      "bun": "./src/numbers.ts",
-      "import": "./src/numbers.ts",
-      "default": "./src/numbers.ts"
-    },
-    "./keynote": {
-      "types": "./src/keynote.ts",
-      "bun": "./src/keynote.ts",
-      "import": "./src/keynote.ts",
-      "default": "./src/keynote.ts"
-    },
-    "./codec": {
-      "types": "./src/codec.ts",
-      "bun": "./src/codec.ts",
-      "import": "./src/codec.ts",
-      "default": "./src/codec.ts"
-    }
+  "keywords": [
+    "document",
+    "effect",
+    "iwork",
+    "keynote",
+    "numbers",
+    "pages"
+  ],
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/iwork#readme",
+  "bugs": {
+    "url": "https://github.com/thomasfosterau/effect-document/issues"
+  },
+  "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/iwork"
   },
   "files": [
-    "src",
     "dist",
     "README.md",
     "LICENSE"
   ],
-  "scripts": {
-    "build": "bun build src/index.ts src/pages.ts src/numbers.ts src/keynote.ts src/codec.ts --root src --outdir dist --target node --format esm --packages external",
-    "test": "bun test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thomasfosterau/effect-document.git",
-    "directory": "packages/iwork"
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pages": {
+      "types": "./dist/pages.d.ts",
+      "default": "./dist/pages.js"
+    },
+    "./numbers": {
+      "types": "./dist/numbers.d.ts",
+      "default": "./dist/numbers.js"
+    },
+    "./keynote": {
+      "types": "./dist/keynote.d.ts",
+      "default": "./dist/keynote.js"
+    },
+    "./codec": {
+      "types": "./dist/codec.d.ts",
+      "default": "./dist/codec.js"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "keywords": [
-    "effect",
-    "document",
-    "iwork",
-    "pages",
-    "numbers",
-    "keynote"
-  ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
-  "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
-    "@thomasfosterau/effect-parse": "^0.1.0",
-    "fflate": "^0.8.2"
+    "@thomasfosterau/effect-document": "workspace:^",
+    "@thomasfosterau/effect-parse": "catalog:",
+    "fflate": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "catalog:peers"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

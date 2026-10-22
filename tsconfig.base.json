@@ -1,29 +1,72 @@
 {
+  "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
-
-    // Bundler mode
+    // Copied from the effect-web library family's base so every package here
+    // compiles under exactly the options its consumers use. `erasableSyntaxOnly` because the
+    // apps load TypeScript under Node's strip-only loader; a library file that
+    // uses enums / namespaces / parameter properties would fail there.
+    "erasableSyntaxOnly": true,
+    "module": "preserve",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-
-    // Best practices
-    "strict": true,
+    "target": "esnext",
+    "lib": ["esnext", "dom", "dom.iterable"],
+    // Source imports are written `./x.ts`; the build rewrites them to `./x.js`
+    // in the emitted JavaScript. The emitted `.d.ts` keeps `./x.ts`, which
+    // both `bundler` and `nodenext` consumers resolve (verified 2026-09-18).
+    "rewriteRelativeImportExtensions": true,
+    "allowJs": true,
+    "checkJs": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
+    "sourceMap": true,
+    "strict": true,
+    // Optional members are spelled `?: T | undefined` because of this flag: a
+    // consumer forwarding an optional of its own must still compile.
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
     "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    // Stricter than the family base, kept from this repo's original config:
+    // every index read is `T | undefined`, and no switch case falls through.
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        // The severities below keep every Effect rule visible in the editor,
+        // but a "warning" still fails the patched tsc by default — this flag
+        // is what actually makes warnings non-blocking in the check tasks.
+        "ignoreEffectWarningsInTscExitCode": true,
+        "diagnosticSeverity": {
+          "abortControllerInEffect": "warning",
+          "asyncFunction": "warning",
+          "cryptoRandomUUID": "warning",
+          "cryptoRandomUUIDInEffect": "warning",
+          "extendsNativeError": "warning",
+          "globalConsole": "warning",
+          "globalConsoleInEffect": "warning",
+          "globalDate": "warning",
+          "globalDateInEffect": "warning",
+          "globalFetch": "warning",
+          "globalFetchInEffect": "warning",
+          "globalRandom": "warning",
+          "globalRandomInEffect": "warning",
+          "globalTimers": "warning",
+          "globalTimersInEffect": "warning",
+          "instanceOfSchema": "warning",
+          "newPromise": "warning",
+          "nodeBuiltinImport": "warning",
+          "preferSchemaOverJson": "warning",
+          "processEnv": "warning",
+          "processEnvInEffect": "warning",
+          "unsafeEffectTypeAssertion": "warning",
+          "unstableApiUsage": "suggestion"
+        }
+      }
+    ]
   }
 }

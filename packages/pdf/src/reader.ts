@@ -11,25 +11,39 @@
  * no text (there is no OCR).
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
-  type Content, type Doc, document, limitNestingDepth, makeReaderTag, type Meta, ParseError,
-  type Reader, trustAs,
+  type Content,
+  type Doc,
+  document,
+  limitNestingDepth,
+  makeReaderTag,
+  type Meta,
+  ParseError,
+  type Reader,
+  trustAs,
 } from "@thomasfosterau/effect-document";
-import { PdfFile } from "./cos/file.js";
-import { isString, latin1ToBytes } from "./cos/objects.js";
-import { decodeTextString } from "./text/encodings.js";
-import { type PageText, extractPageText } from "./text/extract.js";
-import { layoutBlocks } from "./text/layout.js";
-import { Pdf, type PdfFeature } from "./profile.js";
+import { describeCause } from "./describe.ts";
+import { PdfFile } from "./cos/file.ts";
+import { isString, latin1ToBytes } from "./cos/objects.ts";
+import { decodeTextString } from "./text/encodings.ts";
+import { type PageText, extractPageText } from "./text/extract.ts";
+import { layoutBlocks } from "./text/layout.ts";
+import { Pdf, type PdfFeature } from "./profile.ts";
 
 /** PDF bytes from content; text is taken one byte per character (Latin-1). */
 export const pdfBytes = (input: Content): Uint8Array =>
-  input._tag === "Bytes" ? input.bytes : latin1ToBytes(input.text);
+  Predicate.isTagged(input, "Bytes") ? input.bytes : latin1ToBytes(input.text);
 
 const META_KEYS = [
-  ["Title", "title"], ["Author", "author"], ["Subject", "subject"], ["Keywords", "keywords"],
-  ["Creator", "creator"], ["Producer", "producer"],
+  ["Title", "title"],
+  ["Author", "author"],
+  ["Subject", "subject"],
+  ["Keywords", "keywords"],
+  ["Creator", "creator"],
+  ["Producer", "producer"],
 ] as const;
 
 /** The document information dictionary as metadata. */
@@ -49,25 +63,32 @@ export const readMeta = (file: PdfFile): Meta => {
 export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
   Effect.try({
     try: () => PdfFile.open(pdfBytes(input)),
-    catch: (cause) => new ParseError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
+    catch: (cause) =>
+      new ParseError({
+        format: "pdf",
+        reason: describeCause(cause),
+        cause,
+      }),
   }).pipe(
     Effect.flatMap((file) =>
       file.encrypted
         ? Effect.fail(new ParseError({ format: "pdf", reason: "encrypted PDFs are not supported" }))
-        : Effect.succeed(file)
-    )
+        : Effect.succeed(file),
+    ),
   );
 
 /** The positioned text of every page. */
-export const readPages = (file: PdfFile): PageText[] => file.pages().map((page) => extractPageText(file, page));
+export const readPages = (file: PdfFile): PageText[] =>
+  file.pages().map((page) => extractPageText(file, page));
 
+/** Options for the PDF reader: the nesting-depth limit. */
 export interface PdfReaderOptions {
   /**
    * The deepest nesting (e.g. lists inside lists) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
    * `DEFAULT_MAX_NESTING_DEPTH` (1000).
    */
-  readonly maxDepth?: number;
+  readonly maxDepth?: number | undefined;
 }
 
 /** Create a PDF Reader. */
@@ -76,11 +97,18 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
     Effect.flatMap(openPdf(input), (file) =>
       Effect.try({
         try: () => trustAs<PdfFeature>(document(layoutBlocks(readPages(file)), readMeta(file))),
-        catch: (cause) => new ParseError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
-      })
+        catch: (cause) =>
+          new ParseError({
+            format: "pdf",
+            reason: describeCause(cause),
+            cause,
+          }),
+      }),
     ).pipe(Effect.flatMap((doc) => limitNestingDepth("pdf", doc, options?.maxDepth)));
   return { format: "pdf", profile: Pdf, read };
 };
 
+/** The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. */
 export const PdfReaderTag = makeReaderTag<PdfFeature>("pdf");
+/** A Layer providing the default PDF reader for {@link PdfReaderTag}. */
 export const PdfReaderLive = Layer.succeed(PdfReaderTag, makePdfReader());
