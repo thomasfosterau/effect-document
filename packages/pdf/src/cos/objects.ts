@@ -8,6 +8,11 @@
  * Dictionaries keep their entries in a `Map` keyed by the decoded name.
  */
 
+import * as Arr from "effect/Array";
+import * as Predicate from "effect/Predicate";
+import * as Rec from "effect/Record";
+import { makeEntries } from "./entries.ts";
+
 /** A PDF string: raw bytes, remembering whether it was written in hex form. */
 export interface PdfString {
   readonly _tag: "String";
@@ -63,12 +68,10 @@ export type PdfObject =
 // Constructors
 // ============================================================================
 
-const latin1 = (s: string): Uint8Array => {
-  const out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
-  return out;
-};
+const latin1 = (s: string): Uint8Array =>
+  Uint8Array.from({ length: s.length }, (_, i) => s.charCodeAt(i) & 0xff);
 
+/** A PDF string object from raw bytes, written in hex (`<…>`) when `hex` is set. */
 export const pdfString = (bytes: Uint8Array, hex = false): PdfString => ({
   _tag: "String",
   bytes,
@@ -84,28 +87,34 @@ export const pdfLatin1 = (s: string): PdfString => pdfString(latin1(s));
  */
 export const pdfTextString = (s: string): PdfString => {
   if (/^[\x20-\x7e\t\n\r]*$/.test(s)) return pdfLatin1(s);
-  const out = [0xfe, 0xff];
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    out.push(c >> 8, c & 0xff);
-  }
-  return pdfString(new Uint8Array(out), true);
+  // a byte order mark, then each UTF-16 code unit high byte first
+  const utf16 = Uint8Array.from({ length: 2 + s.length * 2 }, (_, i) =>
+    i < 2 ? (i === 0 ? 0xfe : 0xff) : (s.charCodeAt((i - 2) >> 1) >> (i % 2 === 0 ? 8 : 0)) & 0xff,
+  );
+  return pdfString(utf16, true);
 };
 
+/** A PDF name object (`/Name`). */
 export const pdfName = (name: string): PdfName => ({ _tag: "Name", name });
+/** A PDF array object. */
 export const pdfArray = (items: PdfObject[]): PdfArray => ({ _tag: "Array", items });
+/** An indirect reference (`num gen R`) to object `num`, generation `gen` (default 0). */
 export const pdfRef = (num: number, gen = 0): PdfRef => ({ _tag: "Ref", num, gen });
 
 /** A dictionary from a record; `undefined` values are left out. */
 export const pdfDict = (
   entries: Record<string, PdfObject | undefined> | Map<string, PdfObject> = {},
 ): PdfDict => {
-  if (entries instanceof Map) return { _tag: "Dict", entries };
-  const map = new Map<string, PdfObject>();
-  for (const [k, v] of Object.entries(entries)) if (v !== undefined) map.set(k, v);
-  return { _tag: "Dict", entries: map };
+  if (Predicate.isMap(entries)) return { _tag: "Dict", entries };
+  return {
+    _tag: "Dict",
+    entries: makeEntries(
+      Arr.filter(Rec.toEntries(entries), (e): e is [string, PdfObject] => e[1] !== undefined),
+    ),
+  };
 };
 
+/** A PDF stream object: a dictionary and its (encoded) data. */
 export const pdfStream = (dict: PdfDict, data: Uint8Array): PdfStream => ({
   _tag: "Stream",
   dict,
@@ -116,33 +125,34 @@ export const pdfStream = (dict: PdfDict, data: Uint8Array): PdfStream => ({
 // Guards
 // ============================================================================
 
+/** Whether an object is a PDF string. */
 export const isString = (o: PdfObject | undefined): o is PdfString =>
-  typeof o === "object" && o !== null && o._tag === "String";
+  Predicate.isTagged(o, "String");
+/** Whether an object is a PDF name, and (when given) that name. */
 export const isName = (o: PdfObject | undefined, name?: string): o is PdfName =>
-  typeof o === "object" &&
-  o !== null &&
-  o._tag === "Name" &&
-  (name === undefined || o.name === name);
-export const isArray = (o: PdfObject | undefined): o is PdfArray =>
-  typeof o === "object" && o !== null && o._tag === "Array";
-export const isDict = (o: PdfObject | undefined): o is PdfDict =>
-  typeof o === "object" && o !== null && o._tag === "Dict";
+  Predicate.isTagged(o, "Name") && (name === undefined || o.name === name);
+/** Whether an object is a PDF array. */
+export const isArray = (o: PdfObject | undefined): o is PdfArray => Predicate.isTagged(o, "Array");
+/** Whether an object is a PDF dictionary. */
+export const isDict = (o: PdfObject | undefined): o is PdfDict => Predicate.isTagged(o, "Dict");
+/** Whether an object is a PDF stream. */
 export const isStream = (o: PdfObject | undefined): o is PdfStream =>
-  typeof o === "object" && o !== null && o._tag === "Stream";
-export const isRef = (o: PdfObject | undefined): o is PdfRef =>
-  typeof o === "object" && o !== null && o._tag === "Ref";
+  Predicate.isTagged(o, "Stream");
+/** Whether an object is an indirect reference. */
+export const isRef = (o: PdfObject | undefined): o is PdfRef => Predicate.isTagged(o, "Ref");
 
 /** The dictionary of a dictionary or a stream. */
 export const dictOf = (o: PdfObject | undefined): PdfDict | undefined =>
   isDict(o) ? o : isStream(o) ? o.dict : undefined;
 
-/** Decode a string's bytes one byte per character (Latin-1). */
-export const bytesToLatin1 = (bytes: Uint8Array): string => {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x2000) {
-    s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x2000, bytes.length)));
-  }
-  return s;
-};
+const LATIN1_CHUNK = 0x2000;
 
+/** Decode a string's bytes one byte per character (Latin-1). */
+export const bytesToLatin1 = (bytes: Uint8Array): string =>
+  // in chunks, to stay under the engine's limit on spread arguments
+  Arr.makeBy(Math.ceil(bytes.length / LATIN1_CHUNK), (k) =>
+    String.fromCharCode(...bytes.subarray(k * LATIN1_CHUNK, (k + 1) * LATIN1_CHUNK)),
+  ).join("");
+
+/** A string's characters as bytes, one byte per character (Latin-1; higher code points are truncated). */
 export const latin1ToBytes = latin1;

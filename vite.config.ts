@@ -60,9 +60,9 @@ export default defineConfig({
       ],
       "eslint/prefer-const": "warn",
       // The `Buffer` global is typed `any` wherever a consumer loads
-      // @cloudflare/workers-types next to @types/node (every application this
-      // family serves), so every call on it is unchecked there. Use
-      // Uint8Array / TextEncoder / DataView instead.
+      // @cloudflare/workers-types next to @types/node, so every call on it is
+      // unchecked there. These readers and writers work on bytes, so the rule
+      // is load-bearing: use Uint8Array / TextEncoder / DataView instead.
       "eslint/no-restricted-globals": [
         "error",
         {
@@ -72,29 +72,47 @@ export default defineConfig({
         },
       ],
       // `casting-awareness` is an awareness prompt, not a defect rule — it
-      // fires on every `as`, including the narrowings the Fetch / Workers
-      // types structurally require. Stays visible as a warning.
+      // fires on every `as`, including the narrowings a byte-level decoder
+      // structurally requires. Stays visible as a warning.
       "effect/casting-awareness": "warn",
       // Hard-codes abbreviations (`Arr`, `P`, `R`, …) with no options, so it is
       // unsatisfiable under the full-name convention (`import * as Option from
       // "effect/Option"`) this family shares with its consumers.
       "effect/prefer-namespace-imports": "off",
+      // "Shape" here is the presentation-domain term, not a description of
+      // structure: a slide's drawing objects are shapes (PresentationML
+      // `<p:sp>`, Keynote's drawables), and `Shape` / `TextBox` / `Picture` /
+      // `TableShape` are the document model's public schema for them. The
+      // rule cannot tell the domain noun from the structural one.
+      "effect/no-shape-in-symbol-names": "off",
+      // Name-based: it flags any relative import of a `make[A-Z]…` function
+      // as an Effect service constructor. Every `make*` this workspace
+      // exports (`makeCsvReader`, `makeXlsxWriter`, `makePdfReader`, …) is a
+      // dependency-free factory returning a plain `Reader` / `Writer` value
+      // with no `R` requirement, and each package's `format` bundle is built
+      // from them by design; there is no service or Layer to yield instead.
+      "effect/no-service-constructor-imports": "off",
 
       // ---- Effect preset: ported-code allowances ---------------------------
-      // The modules under packages/*/src are ports of behaviour the
-      // applications carry today, which predates the Effect oxlint preset. The
-      // rules below sit at `warn` so a port stays committable while each site
-      // stays reported; a new site is a defect, not headroom. Once a rule's
-      // count reaches zero its line is deleted, so it is back at the preset's
-      // `error` (effect-web#48).
+      // The modules under packages/*/src predate the Effect oxlint preset.
+      // The rules below sit at `warn` so the code stays committable while each
+      // site stays reported; a new site is a defect, not headroom. Once a
+      // rule's count reaches zero its line is deleted, so it is back at the
+      // preset's `error`.
+      // Remaining sites are listed in effect-document#155, which also says
+      // why each rule could not reach zero in the migration PR.
+      // 181 sites, most in the PDF lexer / parser / text layout: indexed
+      // loops over bytes and glyphs in the decoders' hot paths.
       "effect/imperative-loops": "warn",
-      "effect/avoid-native-object-helpers": "warn",
+      // 180 sites: `buf[i]!`-style reads beside a bounds check the compiler
+      // cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
-      "effect/avoid-untagged-errors": "warn",
-      "effect/avoid-direct-json": "warn",
-      "effect/effect-run-in-body": "warn",
-      "effect/avoid-direct-tag-checks": "warn",
-      "effect/avoid-option-getorthrow": "warn",
+      // 42 sites: `PdfDict.entries` is a public `Map` in the `./cos` object
+      // model and `Profile.features` / `collectFeatures` are public `Set`s
+      // (a `HashMap` / `HashSet` would change that API), the rest are decoder
+      // caches and identity-keyed cycle guards; plus the CSV compiled-parser
+      // memo (a bounded cache keyed by the option string).
+      "effect/avoid-native-object-helpers": "warn",
       // ---- Effect preset: rules this workspace's conventions cut across ----
       // `prefer-option-over-null` also fires on `?: T | undefined`, which is
       // the ONLY spelling of an optional member `exactOptionalPropertyTypes`
@@ -102,11 +120,9 @@ export default defineConfig({
       // `null` / `undefined` in a return type is still a finding to read; the
       // options-object members are not.
       "effect/prefer-option-over-null": "warn",
-      // `unknown` is the honest type at the two boundaries these libraries
-      // sit on: a caught failure handed to an error tracker or a log line
-      // (`describeError`, `describeSessionDegraded`), and the free-form
-      // fields of a structured log event. Parsing them would change the
-      // applications' log shape.
+      // `unknown` is the honest type at a decoder's input boundary (a cell
+      // value, a JSON metadata entry), and a PDF object is a union of
+      // primitives that `typeof` discriminates. Each stays visible.
       "effect/no-unknown-parameters": "warn",
       "effect/no-unsafe-dictionary-type": "warn",
       "effect/no-runtime-typeof": "warn",
@@ -144,11 +160,19 @@ export default defineConfig({
           "effect/no-conditional-empty-object-spread": "off",
         },
       },
+      // The runnable examples are entrypoints: each ends by running its
+      // program, which is exactly what the rule asks to keep at the boundary.
+      {
+        files: ["examples/**/*.ts"],
+        rules: {
+          "effect/effect-run-in-body": "off",
+        },
+      },
       // Type-level tests: the expect-error directives ARE the assertions
       // (a statement that must fail to compile), and every binding exists to
       // be asserted against, never to be read.
       {
-        files: ["**/tests/**/*.types.ts"],
+        files: ["**/test/**/*.types.ts"],
         rules: {
           "eslint/no-unused-vars": "off",
           "effect/avoid-ts-ignore": "off",
@@ -159,8 +183,12 @@ export default defineConfig({
       // variable toggled to drive a reporter. Each stays visible as a
       // warning, because a fixture cannot be written another way.
       {
-        files: ["**/tests/**/*.ts"],
+        files: ["**/test/**/*.ts"],
         rules: {
+          // A test body is the boundary that runs the effect under test, and
+          // the rule has no entrypoint detection (effect-web disables it per
+          // file in its suites; here it is one override for every suite).
+          "effect/effect-run-in-body": "off",
           "effect/require-safety-comment-for-type-assertion": "warn",
           "effect/use-clock-service": "warn",
           "effect/avoid-process-env": "warn",
@@ -206,6 +234,24 @@ export default defineConfig({
       // `dist/`, hence the build edges.
       "check:dist": {
         command: "node scripts/check-dist-imports.mjs",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      // Runs every program under `examples/` (the README's worked examples)
+      // against the built packages, as a consumer would: each imports the
+      // packages by name, which resolves through `exports` to `dist/` — hence
+      // the build edges. `convert-csv-to-xlsx` writes a git-ignored
+      // `output.xlsx` to the workspace root.
+      examples: {
+        command:
+          "tsx examples/document-ast.ts && tsx examples/streaming.ts && tsx examples/convert-csv-to-xlsx.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",

@@ -10,6 +10,12 @@
  * layout step can attach URLs to the text under them.
  */
 
+import * as Rec from "effect/Record";
+import * as Option from "effect/Option";
+import * as HashMap from "effect/HashMap";
+import * as Result from "effect/Result";
+import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import type { PdfFile, PdfPage } from "../cos/file.ts";
 import {
   type PdfDict,
@@ -80,9 +86,15 @@ const apply = (m: Matrix, x: number, y: number): [number, number] => [
 ];
 
 const toMatrix = (operands: ReadonlyArray<PdfObject>): Matrix | undefined => {
-  if (operands.length < 6 || !operands.slice(0, 6).every((o) => typeof o === "number"))
-    return undefined;
-  return operands.slice(0, 6) as unknown as Matrix;
+  const [a, b, c, d, e, f] = operands;
+  return Predicate.isNumber(a) &&
+    Predicate.isNumber(b) &&
+    Predicate.isNumber(c) &&
+    Predicate.isNumber(d) &&
+    Predicate.isNumber(e) &&
+    Predicate.isNumber(f)
+    ? [a, b, c, d, e, f]
+    : undefined;
 };
 
 /** The matrix taking user space to an upright page with its origin at the bottom-left. */
@@ -91,16 +103,20 @@ const pageMatrix = (page: PdfPage): { matrix: Matrix; width: number; height: num
   const w = x1 - x0;
   const h = y1 - y0;
   const origin: Matrix = [1, 0, 0, 1, -x0, -y0];
-  switch (page.rotate) {
-    case 90:
+  return Match.value(page.rotate).pipe(
+    Match.when(90, () => {
       return { matrix: mul(origin, [0, -1, 1, 0, 0, w]), width: h, height: w };
-    case 180:
+    }),
+    Match.when(180, () => {
       return { matrix: mul(origin, [-1, 0, 0, -1, w, h]), width: w, height: h };
-    case 270:
+    }),
+    Match.when(270, () => {
       return { matrix: mul(origin, [0, 1, -1, 0, h, 0]), width: h, height: w };
-    default:
+    }),
+    Match.orElse(() => {
       return { matrix: origin, width: w, height: h };
-  }
+    }),
+  );
 };
 
 interface TextState {
@@ -119,6 +135,9 @@ interface GState {
 }
 
 const MAX_FORM_DEPTH = 12;
+
+/** Applies one content-stream operator; `n(i)` reads operand `i` as a number (0 if absent). */
+type OperatorHandler = (operands: ReadonlyArray<PdfObject>, n: (i: number) => number) => void;
 
 /** Extract the positioned text of one page. */
 export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
@@ -185,98 +204,88 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
       tm = tlm;
     };
 
-    for (const { op, operands } of ops) {
-      const n = (i: number): number => {
-        const v = operands[i];
-        return typeof v === "number" ? v : 0;
-      };
-      switch (op) {
-        case "q":
+    /** One handler per content-stream operator; unknown operators are ignored. */
+    const operators = HashMap.fromIterable<string, OperatorHandler>(
+      Rec.toEntries({
+        q: (operands, n) => {
           stack.push({ ctm: gs.ctm, text: { ...gs.text } });
-          break;
-        case "Q":
+        },
+        Q: (operands, n) => {
           gs = stack.pop() ?? gs;
-          break;
-        case "cm": {
+        },
+        cm: (operands, n) => {
           const m = toMatrix(operands);
           if (m !== undefined) gs = { ...gs, ctm: mul(m, gs.ctm) };
-          break;
-        }
-        case "BT":
+        },
+        BT: (operands, n) => {
           tm = IDENTITY;
           tlm = IDENTITY;
-          break;
-        case "Tc":
+        },
+        Tc: (operands, n) => {
           gs.text.charSpace = n(0);
-          break;
-        case "Tw":
+        },
+        Tw: (operands, n) => {
           gs.text.wordSpace = n(0);
-          break;
-        case "Tz":
+        },
+        Tz: (operands, n) => {
           gs.text.scale = n(0) / 100;
-          break;
-        case "TL":
+        },
+        TL: (operands, n) => {
           gs.text.leading = n(0);
-          break;
-        case "Ts":
+        },
+        Ts: (operands, n) => {
           gs.text.rise = n(0);
-          break;
-        case "Tf": {
+        },
+        Tf: (operands, n) => {
           const name = operands[0];
           if (isName(name)) gs.text.font = fontFor(resources, name.name);
           gs.text.size = n(1);
-          break;
-        }
-        case "Td":
+        },
+        Td: (operands, n) => {
           nextLine(n(0), n(1));
-          break;
-        case "TD":
+        },
+        TD: (operands, n) => {
           gs.text.leading = -n(1);
           nextLine(n(0), n(1));
-          break;
-        case "Tm": {
+        },
+        Tm: (operands, n) => {
           const m = toMatrix(operands);
           if (m !== undefined) {
             tm = m;
             tlm = m;
           }
-          break;
-        }
-        case "T*":
+        },
+        "T*": (operands, n) => {
           nextLine(0, -gs.text.leading);
-          break;
-        case "Tj": {
+        },
+        Tj: (operands, n) => {
           const s = operands[0];
           if (isString(s)) show(s.bytes);
-          break;
-        }
-        case "'": {
+        },
+        "'": (operands, n) => {
           nextLine(0, -gs.text.leading);
           const s = operands[0];
           if (isString(s)) show(s.bytes);
-          break;
-        }
-        case '"': {
+        },
+        '"': (operands, n) => {
           gs.text.wordSpace = n(0);
           gs.text.charSpace = n(1);
           nextLine(0, -gs.text.leading);
           const s = operands[2];
           if (isString(s)) show(s.bytes);
-          break;
-        }
-        case "TJ": {
+        },
+        TJ: (operands, n) => {
           const a = operands[0];
-          if (!isArray(a)) break;
+          if (!isArray(a)) return;
           for (const item of a.items) {
             if (isString(item)) show(item.bytes);
-            else if (typeof item === "number") {
+            else if (Predicate.isNumber(item)) {
               const tx = (-item / 1000) * gs.text.size * gs.text.scale;
               tm = mul([1, 0, 0, 1, tx, 0], tm);
             }
           }
-          break;
-        }
-        case "gs": {
+        },
+        gs: (operands, n) => {
           const name = operands[0];
           const ext = isName(name)
             ? file.lookupDict(file.lookupDict(resources, "ExtGState"), name.name)
@@ -285,26 +294,22 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           if (f !== undefined) {
             const size = file.resolve(f.items[1]);
             gs.text.font = loadFont(file, f.items[0]);
-            if (typeof size === "number") gs.text.size = size;
+            if (Predicate.isNumber(size)) gs.text.size = size;
           }
-          break;
-        }
-        case "Do": {
+        },
+        Do: (operands, n) => {
           const name = operands[0];
-          if (!isName(name) || depth >= MAX_FORM_DEPTH) break;
+          if (!isName(name) || depth >= MAX_FORM_DEPTH) return;
           const xobj = file.lookup(file.lookupDict(resources, "XObject"), name.name);
           if (
             !isStream(xobj) ||
             file.lookupName(xobj.dict, "Subtype") !== "Form" ||
             forms.has(xobj)
           )
-            break;
-          let contents: ReadonlyArray<Operation>;
-          try {
-            contents = parseContentStream(file.decode(xobj).data);
-          } catch {
-            break;
-          }
+            return;
+          const parsed = Result.try(() => parseContentStream(file.decode(xobj).data));
+          if (Result.isFailure(parsed)) return;
+          const contents = parsed.success;
           const m =
             toMatrix(
               file.lookupArray(xobj.dict, "Matrix")?.items.map((x) => file.resolve(x) ?? 0) ?? [],
@@ -318,12 +323,11 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             forms,
           );
           forms.delete(xobj);
-          break;
-        }
-        case "BMC":
+        },
+        BMC: (operands, n) => {
           marked.push({ start: glyphs.length });
-          break;
-        case "BDC": {
+        },
+        BDC: (operands, n) => {
           let props = operands[1];
           if (isName(props))
             props = file.lookup(file.lookupDict(resources, "Properties"), props.name);
@@ -332,18 +336,25 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             start: glyphs.length,
             actual: isString(actual) ? decodeTextString(actual.bytes) : undefined,
           });
-          break;
-        }
-        case "EMC": {
+        },
+        EMC: (operands, n) => {
           const m = marked.pop();
-          if (m?.actual === undefined || m.start >= glyphs.length) break;
+          if (m?.actual === undefined || m.start >= glyphs.length) return;
           // the replacement text goes on the first glyph; the rest are silenced
           const first = glyphs[m.start]!;
           glyphs[m.start] = { ...first, text: m.actual };
           for (let i = m.start + 1; i < glyphs.length; i++) glyphs[i] = { ...glyphs[i]!, text: "" };
-          break;
-        }
-      }
+        },
+      }),
+    );
+
+    for (const { op, operands } of ops) {
+      const n = (i: number): number => {
+        const v = operands[i];
+        return Predicate.isNumber(v) ? v : 0;
+      };
+      const handler = HashMap.get(operators, op);
+      if (Option.isSome(handler)) handler.value(operands, n);
     }
   };
 
@@ -358,11 +369,10 @@ const contentOf = (file: PdfFile, page: PdfPage): Operation[] => {
   const parts: Uint8Array[] = [];
   for (const s of streams) {
     if (!isStream(s)) continue;
-    try {
+    // skip an undecodable content stream
+    Result.try(() => {
       parts.push(file.decode(s).data, Uint8Array.of(0x0a));
-    } catch {
-      // skip an undecodable content stream
-    }
+    });
   }
   let length = 0;
   for (const p of parts) length += p.length;
@@ -384,10 +394,17 @@ const linksOf = (file: PdfFile, page: PdfPage, base: Matrix): PageLink[] => {
     const uri = file.lookup(action, "URI");
     if (file.lookupName(action, "S") !== "URI" || !isString(uri)) continue;
     const r = file.lookupArray(annot, "Rect")?.items.map((x) => file.resolve(x));
-    if (r === undefined || r.length < 4 || !r.every((x) => typeof x === "number")) continue;
-    const [x0, y0, x1, y1] = r as number[];
-    const [ax, ay] = apply(base, x0!, y0!);
-    const [bx, by] = apply(base, x1!, y1!);
+    if (r === undefined || !r.every((x) => Predicate.isNumber(x))) continue;
+    const [x0, y0, x1, y1] = r;
+    if (
+      !Predicate.isNumber(x0) ||
+      !Predicate.isNumber(y0) ||
+      !Predicate.isNumber(x1) ||
+      !Predicate.isNumber(y1)
+    )
+      continue; // fewer than four numbers
+    const [ax, ay] = apply(base, x0, y0);
+    const [bx, by] = apply(base, x1, y1);
     links.push({
       rect: [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)],
       url: decodeTextString(uri.bytes),

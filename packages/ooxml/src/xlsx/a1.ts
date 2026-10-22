@@ -6,28 +6,19 @@
  */
 
 import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
-import { Option, Result } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 
 /** Convert a 0-indexed column number to letters: 0 -> "A", 25 -> "Z", 26 -> "AA" */
-export const indexToCol = (index: number): string => {
-  let result = "";
-  let n = index;
-  while (n >= 0) {
-    result = String.fromCharCode(65 + (n % 26)) + result;
-    n = Math.floor(n / 26) - 1;
-  }
-  return result;
-};
+export const indexToCol = (index: number): string =>
+  index < 0 ? "" : indexToCol(Math.floor(index / 26) - 1) + String.fromCharCode(65 + (index % 26));
 
 /** Convert column letters to a 0-indexed column number: "A" -> 0, "AA" -> 26 */
-export const colToIndex = (col: string): number => {
-  let result = 0;
-  for (const ch of col) {
-    result = result * 26 + (ch.charCodeAt(0) - 64);
-  }
-  return result - 1;
-};
+export const colToIndex = (col: string): number =>
+  Arr.reduce(Arr.fromIterable(col), 0, (result, ch) => result * 26 + (ch.charCodeAt(0) - 64)) - 1;
 
+/** A cell position, 0-indexed (`A1` is `{ col: 0, row: 0 }`). */
 export interface CellRef {
   /** 0-indexed column */
   readonly col: number;

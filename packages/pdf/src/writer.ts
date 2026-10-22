@@ -1,3 +1,4 @@
+import * as Str from "effect/String";
 /**
  * The PDF Writer: a PDF-profile document -> .pdf bytes.
  *
@@ -16,7 +17,13 @@
  * metadata go into the document information dictionary.
  */
 
-import { Effect, Layer } from "effect";
+import * as Schema from "effect/Schema";
+import * as Order from "effect/Order";
+import { describeCause } from "./describe.ts";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   bytes,
@@ -26,6 +33,10 @@ import {
   makeWriterTag,
   WriteError,
   type Writer,
+  type Meta,
+  type BulletList,
+  type CodeBlock,
+  type OrderedList,
 } from "@thomasfosterau/effect-document";
 import {
   type PdfObject,
@@ -49,6 +60,7 @@ export const PAGE_SIZES = {
   a5: [419.53, 595.28],
 } as const;
 
+/** Options for the PDF writer. */
 export interface PdfWriterOptions {
   /** Page size: a named size or `[width, height]` in points (default `a4`). */
   readonly pageSize?: keyof typeof PAGE_SIZES | readonly [number, number] | undefined;
@@ -129,38 +141,26 @@ const flatten = (
   out: Array<Piece | null> = [],
 ): Array<Piece | null> => {
   for (const n of inlines) {
-    switch (n._tag) {
-      case "Str":
-        out.push({ text: n.text, style });
-        break;
-      case "Space":
-      case "SoftBreak":
-        out.push({ text: " ", style });
-        break;
-      case "LineBreak":
-        out.push(null);
-        break;
-      case "Emph":
-        flatten(n.content, { ...style, italic: true }, out);
-        break;
-      case "Strong":
-        flatten(n.content, { ...style, bold: true }, out);
-        break;
-      case "Underline":
-        flatten(n.content, { ...style, underline: true }, out);
-        break;
-      case "Strikeout":
-        flatten(n.content, { ...style, strike: true }, out);
-        break;
-      case "Code":
-        out.push({ text: n.text, style: { ...style, mono: true } });
-        break;
-      case "Link":
-        flatten(n.content, { ...style, url: n.target.url }, out);
-        break;
-      default:
-        // outside the PDF profile; narrowing removes these before we get here
-        break;
+    if (Predicate.isTagged(n, "Str")) {
+      out.push({ text: n.text, style });
+    } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
+      out.push({ text: " ", style });
+    } else if (Predicate.isTagged(n, "LineBreak")) {
+      out.push(null);
+    } else if (Predicate.isTagged(n, "Emph")) {
+      flatten(n.content, { ...style, italic: true }, out);
+    } else if (Predicate.isTagged(n, "Strong")) {
+      flatten(n.content, { ...style, bold: true }, out);
+    } else if (Predicate.isTagged(n, "Underline")) {
+      flatten(n.content, { ...style, underline: true }, out);
+    } else if (Predicate.isTagged(n, "Strikeout")) {
+      flatten(n.content, { ...style, strike: true }, out);
+    } else if (Predicate.isTagged(n, "Code")) {
+      out.push({ text: n.text, style: { ...style, mono: true } });
+    } else if (Predicate.isTagged(n, "Link")) {
+      flatten(n.content, { ...style, url: n.target.url }, out);
+    } else {
+      // outside the PDF profile; narrowing removes these before we get here
     }
   }
   return out;
@@ -211,7 +211,8 @@ const breakLines = (
   };
   const flush = (): void => {
     // trailing spaces don't count
-    while (segs.length > 0 && segs[segs.length - 1]!.text.trim() === "") x -= segs.pop()!.width;
+    while (Arr.isReadonlyArrayNonEmpty(segs) && segs[segs.length - 1]!.text.trim() === "")
+      x -= segs.pop()!.width;
     const last = segs[segs.length - 1];
     if (last !== undefined && /\s$/.test(last.text)) {
       const text = last.text.replace(/\s+$/, "");
@@ -225,13 +226,14 @@ const breakLines = (
   };
 
   for (let i = 0; i < toks.length; i++) {
+    // SAFETY: `i < toks.length`, so the element exists
     const t = toks[i] as Tok;
     if (t === null) {
       flush();
       continue;
     }
     if (t.space) {
-      if (segs.length > 0) push(" ", t.style);
+      if (Arr.isReadonlyArrayNonEmpty(segs)) push(" ", t.style);
       continue;
     }
     // a word together with any directly attached words in other styles
@@ -261,7 +263,7 @@ const breakLines = (
     }
     i = j - 1;
   }
-  if (segs.length > 0 || lines.length === 0) flush();
+  if (Arr.isReadonlyArrayNonEmpty(segs) || Arr.isReadonlyArrayEmpty(lines)) flush();
   return lines;
 };
 
@@ -290,6 +292,12 @@ const pdfText = (text: string): string => {
 };
 
 const HEADING_SIZES = [24, 20, 17, 15, 13.5, 12.5];
+
+/** Where the typesetter is: the current page and the baseline on it. */
+interface Position {
+  readonly page: PageOut;
+  readonly y: number;
+}
 
 class Typesetter {
   readonly pages: PageOut[] = [];
@@ -390,12 +398,76 @@ class Typesetter {
     this.page.ops.push(`0.6 g ${num(this.margin + x)} ${num(toY)} 2 ${num(fromY - toY)} re f 0 g`);
   }
 
-  get position(): { page: PageOut; y: number } {
+  get position(): Position {
     return { page: this.page, y: this.y };
   }
 }
 
 const fontKey = (font: StandardFont): string => "F" + font.replace(/[^A-Za-z]/g, "");
+
+/** A code block: monospaced, hard-wrapped at the column limit, line breaks and indentation kept. */
+const layoutCodeBlock = (ts: Typesetter, b: CodeBlock, left: number, textWidth: number): void => {
+  const body = ts.body;
+  const size = body * 0.85;
+  const charWidth = size * 0.6;
+  const perLine = Math.max(8, Math.floor(textWidth / charWidth));
+  const out: LaidLine[] = [];
+  for (const raw of b.text.replace(/\t/g, "    ").split(/\r?\n/)) {
+    for (let start = 0; start === 0 || start < raw.length; start += perLine) {
+      const chunk = raw.slice(start, start + perLine);
+      // leading spaces become an offset, so the text starts where its ink does
+      const indent = chunk.length - chunk.trimStart().length;
+      const text = chunk.trimStart();
+      out.push({
+        segments:
+          text === ""
+            ? []
+            : [
+                {
+                  text,
+                  style: { ...PLAIN, mono: true },
+                  x: indent * charWidth,
+                  width: text.length * charWidth,
+                },
+              ],
+        width: chunk.length * charWidth,
+      });
+      if (Str.isEmpty(raw)) break;
+    }
+  }
+  ts.lines(out, left, size, size * 1.3);
+  ts.space(body * 0.8);
+};
+
+/** A bullet or ordered list: each item's first paragraph beside its marker, the rest indented. */
+const layoutList = (
+  ts: Typesetter,
+  b: BulletList | OrderedList,
+  left: number,
+  textWidth: number,
+  tight: boolean,
+): void => {
+  const body = ts.body;
+  const indent = 18;
+  b.items.forEach((item, k) => {
+    const marker = Predicate.isTagged(b, "BulletList") ? "•" : `${(b.start ?? 1) + k}.`;
+    item.forEach((child, c) => {
+      if (c === 0 && (Predicate.isTagged(child, "Plain") || Predicate.isTagged(child, "Para"))) {
+        const lines = breakLines(flatten(child.content, PLAIN), body, textWidth - indent);
+        ts.lines(lines, left + indent, body, body * 1.35, { text: marker, x: left + 4 });
+        ts.space(body * 0.15);
+      } else {
+        if (c === 0)
+          ts.lines([{ segments: [], width: 0 }], left + indent, body, body * 1.35, {
+            text: marker,
+            x: left + 4,
+          });
+        layoutBlocks(ts, [child], left + indent, true);
+      }
+    });
+  });
+  if (!tight) ts.space(body * 0.65);
+};
 
 /** Lay out a sequence of blocks. */
 const layoutBlocks = (
@@ -407,93 +479,31 @@ const layoutBlocks = (
   const body = ts.body;
   const textWidth = ts.width - 2 * ts.margin - left;
   blocks.forEach((b, i) => {
-    switch (b._tag) {
-      case "Para":
-      case "Plain": {
-        const lines = breakLines(flatten(b.content, PLAIN), body, textWidth);
-        ts.lines(lines, left, body, body * 1.35);
-        if (!tight || i < blocks.length - 1)
-          ts.space(b._tag === "Para" ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
-        break;
-      }
-      case "Header": {
-        const size = HEADING_SIZES[b.level - 1] ?? body;
-        ts.space(size * 0.6);
-        const lines = breakLines(flatten(b.content, { ...PLAIN, bold: true }), size, textWidth);
-        ts.lines(lines, left, size, size * 1.25);
-        ts.space(size * 0.4);
-        break;
-      }
-      case "CodeBlock": {
-        const size = body * 0.85;
-        const charWidth = size * 0.6;
-        const perLine = Math.max(8, Math.floor(textWidth / charWidth));
-        const out: LaidLine[] = [];
-        for (const raw of b.text.replace(/\t/g, "    ").split(/\r?\n/)) {
-          for (let start = 0; start === 0 || start < raw.length; start += perLine) {
-            const chunk = raw.slice(start, start + perLine);
-            // leading spaces become an offset, so the text starts where its ink does
-            const indent = chunk.length - chunk.trimStart().length;
-            const text = chunk.trimStart();
-            out.push({
-              segments:
-                text === ""
-                  ? []
-                  : [
-                      {
-                        text,
-                        style: { ...PLAIN, mono: true },
-                        x: indent * charWidth,
-                        width: text.length * charWidth,
-                      },
-                    ],
-              width: chunk.length * charWidth,
-            });
-            if (raw.length === 0) break;
-          }
-        }
-        ts.lines(out, left, size, size * 1.3);
-        ts.space(body * 0.8);
-        break;
-      }
-      case "BulletList":
-      case "OrderedList": {
-        const indent = 18;
-        b.items.forEach((item, k) => {
-          const marker = b._tag === "BulletList" ? "•" : `${(b.start ?? 1) + k}.`;
-          item.forEach((child, c) => {
-            if (c === 0 && (child._tag === "Plain" || child._tag === "Para")) {
-              const lines = breakLines(flatten(child.content, PLAIN), body, textWidth - indent);
-              ts.lines(lines, left + indent, body, body * 1.35, { text: marker, x: left + 4 });
-              ts.space(body * 0.15);
-            } else {
-              if (c === 0)
-                ts.lines([{ segments: [], width: 0 }], left + indent, body, body * 1.35, {
-                  text: marker,
-                  x: left + 4,
-                });
-              layoutBlocks(ts, [child], left + indent, true);
-            }
-          });
-        });
-        if (!tight) ts.space(body * 0.65);
-        break;
-      }
-      case "BlockQuote": {
-        const start = ts.position;
-        layoutBlocks(ts, b.content, left + 24);
-        const end = ts.position;
-        if (start.page === end.page) ts.bar(left + 8, start.y, end.y + body * 0.8);
-        break;
-      }
-      case "HorizontalRule":
-        ts.rule(left);
-        ts.space(body * 0.5);
-        break;
-      default:
-        // outside the PDF profile; narrowing removes these before we get here
-        break;
+    if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain")) {
+      const lines = breakLines(flatten(b.content, PLAIN), body, textWidth);
+      ts.lines(lines, left, body, body * 1.35);
+      if (!tight || i < blocks.length - 1)
+        ts.space(Predicate.isTagged(b, "Para") ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
+    } else if (Predicate.isTagged(b, "Header")) {
+      const size = HEADING_SIZES[b.level - 1] ?? body;
+      ts.space(size * 0.6);
+      const lines = breakLines(flatten(b.content, { ...PLAIN, bold: true }), size, textWidth);
+      ts.lines(lines, left, size, size * 1.25);
+      ts.space(size * 0.4);
+    } else if (Predicate.isTagged(b, "CodeBlock")) {
+      layoutCodeBlock(ts, b, left, textWidth);
+    } else if (Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")) {
+      layoutList(ts, b, left, textWidth, tight);
+    } else if (Predicate.isTagged(b, "BlockQuote")) {
+      const start = ts.position;
+      layoutBlocks(ts, b.content, left + 24);
+      const end = ts.position;
+      if (start.page === end.page) ts.bar(left + 8, start.y, end.y + body * 0.8);
+    } else if (Predicate.isTagged(b, "HorizontalRule")) {
+      ts.rule(left);
+      ts.space(body * 0.5);
     }
+    // other blocks are outside the PDF profile; narrowing removes them first
   });
 };
 
@@ -501,15 +511,21 @@ const layoutBlocks = (
 // File assembly
 // ============================================================================
 
-const metaString = (meta: Record<string, unknown>, key: string): PdfObject | undefined => {
+const metaString = (meta: Meta, key: string): PdfObject | undefined => {
   const v = meta[key];
-  return typeof v === "string" && v !== "" ? pdfTextString(v) : undefined;
+  return Predicate.isString(v) && v !== "" ? pdfTextString(v) : undefined;
 };
+
+/** The metadata as JSON text, a stable input to the file identifier. */
+const MetaJson = Schema.fromJsonString(Schema.Unknown);
 
 /** Render a PDF-profile document to PDF bytes. */
 export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}): Uint8Array => {
+  const pageSize = options.pageSize;
   const [width, height] =
-    typeof options.pageSize === "object" ? options.pageSize : PAGE_SIZES[options.pageSize ?? "a4"];
+    pageSize === undefined || Predicate.isString(pageSize)
+      ? PAGE_SIZES[pageSize ?? "a4"]
+      : pageSize;
   const ts = new Typesetter(width, height, options.margin ?? 72, options.fontSize ?? 11);
   layoutBlocks(ts, doc.blocks, 0);
 
@@ -517,7 +533,7 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
   const catalogRef = pdf.alloc();
   const pagesRef = pdf.alloc();
   const fontRefs: Record<string, PdfRef> = {};
-  for (const font of [...ts.fonts].sort()) {
+  for (const font of Arr.sort(Array.from(ts.fonts), Order.String)) {
     fontRefs[fontKey(font)] = pdf.add(
       pdfDict({
         Type: pdfName("Font"),
@@ -557,7 +573,7 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
           MediaBox: pdfArray([0, 0, width, height]),
           Resources: resources,
           Contents: contentRef,
-          Annots: annots.length > 0 ? pdfArray(annots) : undefined,
+          Annots: Arr.isReadonlyArrayNonEmpty(annots) ? pdfArray(annots) : undefined,
         }),
       ),
     );
@@ -565,7 +581,7 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
   pdf.set(pagesRef, pdfDict({ Type: pdfName("Pages"), Kids: pdfArray(kids), Count: kids.length }));
   pdf.set(catalogRef, pdfDict({ Type: pdfName("Catalog"), Pages: pagesRef }));
 
-  const meta = doc.meta as Record<string, unknown>;
+  const meta = doc.meta;
   const info = pdf.add(
     pdfDict({
       Title: metaString(meta, "title"),
@@ -575,7 +591,9 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
       Producer: pdfTextString("effect-document"),
     }),
   );
-  const seed = latin1ToBytes(JSON.stringify(meta) + ts.pages.map((p) => p.ops.join("")).join(""));
+  const seed = latin1ToBytes(
+    Schema.encodeSync(MetaJson)(meta) + ts.pages.map((p) => p.ops.join("")).join(""),
+  );
   return pdf.build({ root: catalogRef, info, extra: { ID: fileId(seed) }, version: "1.7" });
 };
 
@@ -587,12 +605,14 @@ export const makePdfWriter = (options: PdfWriterOptions = {}): Writer<PdfFeature
       catch: (cause) =>
         new WriteError({
           format: "pdf",
-          reason: cause instanceof Error ? cause.message : String(cause),
+          reason: describeCause(cause),
           cause,
         }),
     });
   return { format: "pdf", profile: Pdf, write };
 };
 
+/** The Context tag for the PDF writer, so a program can depend on a PDF writer and have one provided. */
 export const PdfWriterTag = makeWriterTag<PdfFeature>("pdf");
+/** A Layer providing the default PDF writer for {@link PdfWriterTag}. */
 export const PdfWriterLive = Layer.succeed(PdfWriterTag, makePdfWriter());

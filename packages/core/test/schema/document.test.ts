@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import {
   Document,
   Header,
@@ -69,8 +70,10 @@ describe("JSON round-trip via Schema", () => {
       title: "t",
     });
     const encoded = await run(Schema.encodeEffect(Document)(doc));
-    // encoded is plain JSON
-    expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded as unknown as object);
+    // encoded is plain JSON: it survives a JSON text round trip unchanged
+    const Json = Schema.fromJsonString(Schema.Unknown);
+    const json = await run(Schema.encodeEffect(Json)(encoded));
+    expect(await run(Schema.decodeEffect(Json)(json))).toEqual(encoded);
     const decoded = await run(Schema.decodeEffect(Document)(encoded));
     expect(decoded).toEqual(doc);
   });

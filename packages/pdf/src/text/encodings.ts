@@ -4,6 +4,9 @@
  * conventions), standard-14 font metrics, and text strings (§7.9.2.2).
  */
 
+import * as Rec from "effect/Record";
+import * as Option from "effect/Option";
+import * as HashMap from "effect/HashMap";
 import { ENCODING_NAMES, GLYPH_LIST, STANDARD_WIDTHS } from "./data.ts";
 
 /** A base encoding's name. */
@@ -127,7 +130,7 @@ export const winAnsiCode = (ch: string): number | undefined => {
 // ============================================================================
 
 /** The standard 14 fonts' names. */
-export const STANDARD_FONTS = [
+const STANDARD_FONTS = [
   "Helvetica",
   "Helvetica-Bold",
   "Helvetica-Oblique",
@@ -146,34 +149,38 @@ export const STANDARD_FONTS = [
 export type StandardFont = (typeof STANDARD_FONTS)[number];
 
 /** Common aliases of the standard fonts (as found in real files). */
-const ALIASES: Record<string, StandardFont> = {
-  Arial: "Helvetica",
-  "Arial,Bold": "Helvetica-Bold",
-  "Arial,Italic": "Helvetica-Oblique",
-  "Arial,BoldItalic": "Helvetica-BoldOblique",
-  ArialMT: "Helvetica",
-  "Arial-BoldMT": "Helvetica-Bold",
-  "Arial-ItalicMT": "Helvetica-Oblique",
-  "Arial-BoldItalicMT": "Helvetica-BoldOblique",
-  TimesNewRoman: "Times-Roman",
-  "TimesNewRoman,Bold": "Times-Bold",
-  "TimesNewRoman,Italic": "Times-Italic",
-  "TimesNewRoman,BoldItalic": "Times-BoldItalic",
-  TimesNewRomanPSMT: "Times-Roman",
-  "TimesNewRomanPS-BoldMT": "Times-Bold",
-  "TimesNewRomanPS-ItalicMT": "Times-Italic",
-  "TimesNewRomanPS-BoldItalicMT": "Times-BoldItalic",
-  CourierNew: "Courier",
-  CourierNewPSMT: "Courier",
-  "CourierNew,Bold": "Courier-Bold",
-  "CourierNewPS-BoldMT": "Courier-Bold",
-};
+const ALIASES = HashMap.fromIterable<string, StandardFont>(
+  Rec.toEntries({
+    Arial: "Helvetica",
+    "Arial,Bold": "Helvetica-Bold",
+    "Arial,Italic": "Helvetica-Oblique",
+    "Arial,BoldItalic": "Helvetica-BoldOblique",
+    ArialMT: "Helvetica",
+    "Arial-BoldMT": "Helvetica-Bold",
+    "Arial-ItalicMT": "Helvetica-Oblique",
+    "Arial-BoldItalicMT": "Helvetica-BoldOblique",
+    TimesNewRoman: "Times-Roman",
+    "TimesNewRoman,Bold": "Times-Bold",
+    "TimesNewRoman,Italic": "Times-Italic",
+    "TimesNewRoman,BoldItalic": "Times-BoldItalic",
+    TimesNewRomanPSMT: "Times-Roman",
+    "TimesNewRomanPS-BoldMT": "Times-Bold",
+    "TimesNewRomanPS-ItalicMT": "Times-Italic",
+    "TimesNewRomanPS-BoldItalicMT": "Times-BoldItalic",
+    CourierNew: "Courier",
+    CourierNewPSMT: "Courier",
+    "CourierNew,Bold": "Courier-Bold",
+    "CourierNewPS-BoldMT": "Courier-Bold",
+  } satisfies Record<string, StandardFont>),
+);
 
 /** The standard font a base font name refers to (after stripping a subset tag), if any. */
 export const standardFont = (baseFont: string): StandardFont | undefined => {
   const name = baseFont.replace(/^[A-Z]{6}\+/, "");
-  if ((STANDARD_FONTS as ReadonlyArray<string>).includes(name)) return name as StandardFont;
-  return ALIASES[name];
+  return (
+    STANDARD_FONTS.find((font) => font === name) ??
+    Option.getOrUndefined(HashMap.get(ALIASES, name))
+  );
 };
 
 const widthTables = new Map<string, Map<string, number>>();
@@ -181,6 +188,9 @@ const widthTables = new Map<string, Map<string, number>>();
 /** A standard font's glyph widths (1/1000 em) by glyph name. */
 export const standardWidths = (font: StandardFont): ((glyph: string) => number | undefined) => {
   if (font.startsWith("Courier")) return () => 600;
+  // SAFETY: every non-Courier standard font, with "Oblique" and a trailing
+  // dash removed, is one of the STANDARD_WIDTHS families (Helvetica[-Bold],
+  // Times-*, Symbol, ZapfDingbats).
   const key = font.replace("Oblique", "").replace(/-$/, "") as keyof typeof STANDARD_WIDTHS;
   let table = widthTables.get(key);
   if (table === undefined) {

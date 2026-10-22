@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import {
   document,
   header,
@@ -21,11 +22,13 @@ import {
   type FeaturesOf,
   convert,
   contentToText,
+  type SlideShow,
 } from "@thomasfosterau/effect-document";
 import { Docx, Pptx } from "@thomasfosterau/effect-ooxml";
 import * as Rtf from "@thomasfosterau/effect-rtf";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
+const isSlideShow = (block: Block): block is SlideShow => Predicate.isTagged(block, "SlideShow");
 
 // A rich Word document touching links, lists and tables.
 const richDocx = trustAs<FeaturesOf<typeof Docx.profile>>(
@@ -130,9 +133,9 @@ describe("DOCX -> PPTX (prose wrapped into a slide)", () => {
     const { content } = run(convert({ from: Docx.format, to: Pptx.format, input: docxBytes() }));
     const back = run(Pptx.makePptxReader().read(content));
     expect(Pptx.Pptx.is(back)).toBe(true);
-    const ss = back.blocks.find((b: Block) => b._tag === "SlideShow");
-    expect(ss?._tag).toBe("SlideShow");
-    if (ss?._tag === "SlideShow") expect(ss.slides.length).toBeGreaterThanOrEqual(1);
+    const ss = back.blocks.find(isSlideShow);
+    assert(ss !== undefined, "the deck has a slide show");
+    expect(ss.slides.length).toBeGreaterThanOrEqual(1);
     expect(blocksToText(back.blocks)).toContain("Report");
   });
 });

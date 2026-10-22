@@ -150,16 +150,24 @@ export const TAG_FEATURE = {
   Placeholder: "shape.placeholder",
 } as const satisfies Record<string, Feature>;
 
+/** Any document node whose tag {@link TAG_FEATURE} maps to a feature. */
 export type TaggedNode = { readonly _tag: keyof typeof TAG_FEATURE };
 
+/** A by-name view of {@link TAG_FEATURE} for looking up arbitrary tags. */
+interface TagFeatureLookup {
+  readonly [tag: string]: Feature | undefined;
+}
+
+const tagFeatureLookup: TagFeatureLookup = TAG_FEATURE;
+
 /** The feature represented by a node's tag, if the tag is mapped. */
-export const featureOfTag = (tag: string): Feature | undefined =>
-  (TAG_FEATURE as Record<string, Feature>)[tag];
+export const featureOfTag = (tag: string): Feature | undefined => tagFeatureLookup[tag];
 
 // ============================================================================
 // Feature groups (handy when assembling profiles)
 // ============================================================================
 
+/** Every inline feature, for assembling profiles. */
 export const ALL_INLINE_FEATURES: ReadonlyArray<InlineFeature> = [
   "inline.str",
   "inline.space",
@@ -183,6 +191,7 @@ export const ALL_INLINE_FEATURES: ReadonlyArray<InlineFeature> = [
   "inline.span",
 ];
 
+/** Every prose block feature, for assembling profiles. */
 export const ALL_BLOCK_FEATURES: ReadonlyArray<BlockFeature> = [
   "block.plain",
   "block.para",
@@ -200,6 +209,7 @@ export const ALL_BLOCK_FEATURES: ReadonlyArray<BlockFeature> = [
   "block.table",
 ];
 
+/** Every spreadsheet feature (worksheets and cell types), for assembling profiles. */
 export const ALL_SHEET_FEATURES: ReadonlyArray<SheetFeature> = [
   "sheet.worksheet",
   "sheet.multiple",
@@ -216,6 +226,7 @@ export const ALL_SHEET_FEATURES: ReadonlyArray<SheetFeature> = [
   "cell.style",
 ];
 
+/** Every presentation feature (slide shows and shapes), for assembling profiles. */
 export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
   "deck.slideShow",
   "deck.notes",
@@ -225,6 +236,7 @@ export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
   "shape.placeholder",
 ];
 
+/** Every attribute facet feature, for assembling profiles. */
 export const ALL_ATTR_FEATURES: ReadonlyArray<AttrFeature> = [
   "attr.id",
   "attr.classes",

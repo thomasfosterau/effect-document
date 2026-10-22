@@ -1,12 +1,90 @@
 # @thomasfosterau/effect-csv
 
-CSV/TSV reader and writer for [effect-document](https://github.com/thomasfosterau/effect-document): dialects, quoting, comments, type inference, streaming, and synthetic data.
+CSV and TSV for [`@thomasfosterau/effect-document`](https://www.npmjs.com/package/@thomasfosterau/effect-document): a reader and writer for the `Csv` profile (one worksheet of text, number, boolean and blank cells), dialects, quoting, comments, type inference, a chunked streaming scanner, and seeded synthetic data. Parsing is built on [`@thomasfosterau/effect-parse`](https://www.npmjs.com/package/@thomasfosterau/effect-parse).
 
-```ts
-import { text } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
+> **Experimental.** The API is in flux; expect breaking changes before 1.0.
 
-const doc = yield * Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
+## Install
+
+```sh
+pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-csv
 ```
 
-See the [repository README](https://github.com/thomasfosterau/effect-document#readme) for the schema, profiles and conversion model.
+## Reading and writing
+
+```ts
+import * as Effect from "effect/Effect";
+import { contentToText, text } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-csv";
+
+const program = Effect.gen(function* () {
+  // a single worksheet; "30" and "true" are inferred as number and boolean cells
+  const doc = yield* Csv.makeCsvReader({ treatFirstRowAsHeader: true }).read(
+    text("name,age,admin\nalice,30,true\n"),
+  );
+  const out = yield* Csv.makeCsvWriter().write(doc);
+  return contentToText(out); // "name,age,admin\nalice,30,true\n"
+});
+```
+
+`Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
+
+## Streaming
+
+`readStream` yields rows without building the document, and `scanCsvStream` scans text that arrives in chunks; a field, a quoted line break or a CRLF may span chunk boundaries:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Csv from "@thomasfosterau/effect-csv";
+
+const chunks = Stream.make("id,na", "me\n1,a", "lice\n2,bob\n");
+const rows = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHeader: true });
+const all = Stream.runCollect(rows); // [["1", "alice"], ["2", "bob"]]
+```
+
+## Synthetic data
+
+```ts
+import * as Csv from "@thomasfosterau/effect-csv";
+
+// the same seed always gives the same table
+const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, seed: 42 });
+```
+
+## API reference
+
+### `@thomasfosterau/effect-csv`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The CSV profile. |
+| `CsvFormatOptions` | interface | Options for the CSV format bundle. |
+| `makeFormat` | function | Create a CSV Format bundle with custom reader/writer options. |
+| `format` | const | The CSV format bundle with default options, for use with `convert`. |
+| `tsvFormat` | const | The TSV (tab-separated values) format bundle. |
+| `CsvDialect` | interface | How a CSV variant spells its fields. |
+| `StandardDialect` | const | The standard dialect. |
+| `TsvDialect` | const | The tab-separated (TSV) dialect. |
+| `CsvScanOptions` | interface | How to scan CSV text into rows. |
+| `ScannedTable` | interface | The result of scanning CSV text. |
+| `scanCsv` | function | Scan CSV text into headers and raw string rows. |
+| `scanCsvStream` | function | Scan a stream of CSV text chunks into data rows, emitting each row as soon as it is complete. |
+| `CsvFeature` | type | The features the CSV profile allows, as a type. |
+| `CsvReaderOptions` | interface | Options for the CSV reader. |
+| `inferCell` | function | Infer a typed cell from a raw CSV string value. |
+| `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
+| `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
+| `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |
+| `makeCsvReaderLayer` | function | Layer providing a CSV Reader with custom options. |
+| `CsvWriterOptions` | interface | Options for the CSV writer. |
+| `renderField` | function | Render a single field, quoting it if necessary. |
+| `renderTable` | function | Render rows of string fields to CSV text (with trailing newline). |
+| `makeCsvWriter` | function | Create a CSV Writer with the given options baked in. |
+| `CsvWriterTag` | const | Context tag for dependency-injection style usage. |
+| `CsvWriterLive` | const | Layer providing a CSV Writer with default options. |
+| `makeCsvWriterLayer` | function | Layer providing a CSV Writer with custom options. |
+| `SynthesisSpec` | interface | What to synthesize. |
+| `SynthesizedTable` | interface | The raw result of synthesis. |
+| `synthesizeTable` | function | Generate a table of random string data according to the spec. |
+| `synthesizeDocument` | function | Generate a single-worksheet CSV-profile document of random string data. |

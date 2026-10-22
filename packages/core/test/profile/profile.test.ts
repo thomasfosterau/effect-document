@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect, Result, Schema } from "effect";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { cell, document, header, para, str, strong, worksheet } from "../../src/schema/index.ts";
 import { Profiles, collectFeatures, defineProfile } from "../../src/profile/index.ts";
 
@@ -50,16 +52,13 @@ describe("profile conformance", () => {
   test("validate: fails with the exact unsupported features", () => {
     const r = Effect.runSync(Effect.result(Profiles.Csv.validate(richDoc)));
     expect(Result.isFailure(r)).toBe(true);
-    if (Result.isFailure(r)) {
-      expect(r.failure._tag).toBe("ProfileViolation");
-      expect(r.failure.unsupported).toEqual(
-        expect.arrayContaining(["cell.date", "sheet.multiple"]),
-      );
-    }
+    assert(Result.isFailure(r));
+    expect(r.failure._tag).toBe("ProfileViolation");
+    expect(r.failure.unsupported).toEqual(expect.arrayContaining(["cell.date", "sheet.multiple"]));
   });
 
   test("profile.schema decodes a conforming document and rejects a rich one", () => {
-    const mkJson = (cellJson: object) => ({
+    const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => ({
       meta: {},
       blocks: [
         { _tag: "Worksheet", name: "S", columns: [], merges: [], rows: [{ cells: [cellJson] }] },

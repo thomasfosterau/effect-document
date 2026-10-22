@@ -7,17 +7,21 @@
  * that encoding, reporting the filter it stopped at.
  */
 
+import * as Result from "effect/Result";
+import * as Predicate from "effect/Predicate";
+import * as Match from "effect/Match";
+import * as Schema from "effect/Schema";
+import * as Arr from "effect/Array";
 import { inflateSync, unzlibSync, zlibSync } from "fflate";
 import { type PdfDict, type PdfName, type PdfObject, isArray, isDict, isName } from "./objects.ts";
 
-/** A stream could not be decoded. */
-export class PdfFilterError extends Error {
-  readonly filter: string;
-
-  constructor(filter: string, message: string) {
-    super(`${filter}: ${message}`);
-    this.filter = filter;
-    this.name = "PdfFilterError";
+/** A stream could not be decoded: the filter that failed and why. */
+export class PdfFilterError extends Schema.TaggedError<PdfFilterError>()("PdfFilterError", {
+  filter: Schema.String,
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return `${this.filter}: ${this.reason}`;
   }
 }
 
@@ -33,53 +37,54 @@ export const IMAGE_FILTERS = new Set([
 
 const num = (dict: PdfDict | undefined, key: string, fallback: number): number => {
   const v = dict?.entries.get(key);
-  return typeof v === "number" ? v : fallback;
+  return Predicate.isNumber(v) ? v : fallback;
 };
 
 // ============================================================================
 // Flate
 // ============================================================================
 
-const flateDecode = (data: Uint8Array): Uint8Array => {
-  try {
-    return unzlibSync(data);
-  } catch {
-    // a bad zlib header or checksum is common; fall back to the raw deflate data
-    try {
-      return inflateSync(data.subarray(2));
-    } catch {
-      try {
-        return inflateSync(data);
-      } catch (cause) {
-        throw new PdfFilterError("FlateDecode", `corrupt data (${String(cause)})`);
-      }
-    }
-  }
-};
+const flateDecode = (data: Uint8Array): Uint8Array =>
+  // a bad zlib header or checksum is common; fall back to the raw deflate data
+  Result.try(() => unzlibSync(data)).pipe(
+    Result.orElse(() => Result.try(() => inflateSync(data.subarray(2)))),
+    Result.orElse(() => Result.try(() => inflateSync(data))),
+    Result.getOrThrowWith(
+      (cause) =>
+        new PdfFilterError({ filter: "FlateDecode", reason: `corrupt data (${String(cause)})` }),
+    ),
+  );
 
 /** Deflate data for a FlateDecode stream. */
 export const flateEncode = (data: Uint8Array): Uint8Array => zlibSync(data);
 
 /** Undo a PNG (10-15) or TIFF (2) predictor. */
-const unpredict = (data: Uint8Array, parms: PdfDict | undefined): Uint8Array => {
-  const predictor = num(parms, "Predictor", 1);
-  if (predictor <= 1) return data;
-  const colors = num(parms, "Colors", 1);
-  const bpc = num(parms, "BitsPerComponent", 8);
-  const columns = num(parms, "Columns", 1);
-  const bpp = Math.max(1, Math.ceil((colors * bpc) / 8));
-  const rowLength = Math.ceil((colors * bpc * columns) / 8);
+/** The PNG predictor's addend for one byte (types 1–4; 0 for None and unknown types). */
+const pngDelta = (type: number, left: number, up: number, upLeft: number): number => {
+  if (type === 1) return left;
+  if (type === 2) return up;
+  if (type === 3) return (left + up) >> 1;
+  if (type !== 4) return 0;
+  // Paeth
+  const p = left + up - upLeft;
+  const pa = Math.abs(p - left);
+  const pb = Math.abs(p - up);
+  const pc = Math.abs(p - upLeft);
+  return pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+};
 
-  if (predictor === 2) {
-    if (bpc !== 8) return data; // sub-byte TIFF prediction is vanishingly rare
-    const out = data.slice();
-    for (let row = 0; row + rowLength <= out.length; row += rowLength) {
-      for (let i = bpp; i < rowLength; i++)
-        out[row + i] = (out[row + i]! + out[row + i - bpp]!) & 0xff;
-    }
-    return out;
+/** TIFF predictor 2 on 8-bit components: each byte adds the one `bpp` before it. */
+const tiffUnpredict = (data: Uint8Array, bpp: number, rowLength: number): Uint8Array => {
+  const out = data.slice();
+  for (let row = 0; row + rowLength <= out.length; row += rowLength) {
+    for (let i = bpp; i < rowLength; i++)
+      out[row + i] = (out[row + i]! + out[row + i - bpp]!) & 0xff;
   }
+  return out;
+};
 
+/** PNG predictors (10–15): each row starts with its own predictor type byte. */
+const pngUnpredict = (data: Uint8Array, bpp: number, rowLength: number): Uint8Array => {
   const rows = Math.floor(data.length / (rowLength + 1));
   const out = new Uint8Array(rows * rowLength);
   let prev = new Uint8Array(rowLength);
@@ -89,33 +94,25 @@ const unpredict = (data: Uint8Array, parms: PdfDict | undefined): Uint8Array => 
     const cur = out.subarray(r * rowLength, (r + 1) * rowLength);
     for (let i = 0; i < rowLength; i++) {
       const left = i >= bpp ? cur[i - bpp]! : 0;
-      const up = prev[i]!;
       const upLeft = i >= bpp ? prev[i - bpp]! : 0;
-      let v = src[i]!;
-      switch (type) {
-        case 1:
-          v += left;
-          break;
-        case 2:
-          v += up;
-          break;
-        case 3:
-          v += (left + up) >> 1;
-          break;
-        case 4: {
-          const p = left + up - upLeft;
-          const pa = Math.abs(p - left);
-          const pb = Math.abs(p - up);
-          const pc = Math.abs(p - upLeft);
-          v += pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
-          break;
-        }
-      }
-      cur[i] = v & 0xff;
+      cur[i] = (src[i]! + pngDelta(type, left, prev[i]!, upLeft)) & 0xff;
     }
     prev = cur;
   }
   return out;
+};
+
+const unpredict = (data: Uint8Array, parms: PdfDict | undefined): Uint8Array => {
+  const predictor = num(parms, "Predictor", 1);
+  if (predictor <= 1) return data;
+  const colors = num(parms, "Colors", 1);
+  const bpc = num(parms, "BitsPerComponent", 8);
+  const columns = num(parms, "Columns", 1);
+  const bpp = Math.max(1, Math.ceil((colors * bpc) / 8));
+  const rowLength = Math.ceil((colors * bpc * columns) / 8);
+  if (predictor !== 2) return pngUnpredict(data, bpp, rowLength);
+  // sub-byte TIFF prediction is vanishingly rare
+  return bpc === 8 ? tiffUnpredict(data, bpp, rowLength) : data;
 };
 
 // ============================================================================
@@ -152,7 +149,7 @@ const lzwDecode = (data: Uint8Array, earlyChange: number): Uint8Array => {
       let entry: number[];
       if (code < dict.length) entry = dict[code]!;
       else if (prev !== undefined) entry = [...prev, prev[0]!];
-      else throw new PdfFilterError("LZWDecode", `invalid code ${code}`);
+      else throw new PdfFilterError({ filter: "LZWDecode", reason: `invalid code ${code}` });
       out.push(...entry);
       if (prev !== undefined) dict.push([...prev, entry[0]!]);
       prev = entry;
@@ -199,7 +196,7 @@ const ascii85Decode = (data: Uint8Array): Uint8Array => {
   for (; i < data.length; i++) {
     const c = data[i]!;
     if (c === 0x7e) break; // ~>
-    if (c === 0x7a && group.length === 0) {
+    if (c === 0x7a && Arr.isReadonlyArrayEmpty(group)) {
       out.push(0, 0, 0, 0);
       continue;
     }
@@ -250,27 +247,20 @@ export const applyFilter = (
   data: Uint8Array,
   parms: PdfDict | undefined,
 ): Uint8Array => {
-  switch (name) {
-    case "FlateDecode":
-    case "Fl":
-      return unpredict(flateDecode(data), parms);
-    case "LZWDecode":
-    case "LZW":
-      return unpredict(lzwDecode(data, num(parms, "EarlyChange", 1)), parms);
-    case "ASCIIHexDecode":
-    case "AHx":
-      return asciiHexDecode(data);
-    case "ASCII85Decode":
-    case "A85":
-      return ascii85Decode(data);
-    case "RunLengthDecode":
-    case "RL":
-      return runLengthDecode(data);
-    case "Crypt":
-      return data; // only the Identity crypt filter is meaningful without decryption
-    default:
-      throw new PdfFilterError(name, "unsupported filter");
-  }
+  return Match.value(name).pipe(
+    Match.when(Match.is("FlateDecode", "Fl"), () => unpredict(flateDecode(data), parms)),
+    Match.when(Match.is("LZWDecode", "LZW"), () =>
+      unpredict(lzwDecode(data, num(parms, "EarlyChange", 1)), parms),
+    ),
+    Match.when(Match.is("ASCIIHexDecode", "AHx"), () => asciiHexDecode(data)),
+    Match.when(Match.is("ASCII85Decode", "A85"), () => ascii85Decode(data)),
+    Match.when(Match.is("RunLengthDecode", "RL"), () => runLengthDecode(data)),
+    // only the Identity crypt filter is meaningful without decryption
+    Match.when("Crypt", () => data),
+    Match.orElse(() => {
+      throw new PdfFilterError({ filter: name, reason: "unsupported filter" });
+    }),
+  );
 };
 
 /** The result of decoding a stream. */

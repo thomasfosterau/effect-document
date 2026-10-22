@@ -27,6 +27,7 @@ export const csvFeatures = [
   "cell.boolean",
   "cell.blank",
 ] as const;
+/** The CSV profile: one worksheet of text, number, boolean and blank cells (with an optional header row). */
 export const Csv = defineProfile("csv", csvFeatures);
 
 /** A full spreadsheet (XLSX/ODS): multi-sheet, all cell types, styling, merges. */

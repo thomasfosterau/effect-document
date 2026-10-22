@@ -1,0 +1,16 @@
+{
+  "$schema": "https://www.schemastore.org/package",
+  "name": "@thomasfosterau/effect-document-examples",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The runnable worked examples from the root README, consuming the published packages through their built dist/.",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@thomasfosterau/effect-csv": "workspace:*",
+    "@thomasfosterau/effect-document": "workspace:*",
+    "@thomasfosterau/effect-ooxml": "workspace:*",
+    "effect": "catalog:"
+  }
+}

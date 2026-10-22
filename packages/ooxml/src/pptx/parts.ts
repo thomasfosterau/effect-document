@@ -9,21 +9,21 @@ import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL } from "../shared/in
 export const NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main";
 export const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";
 
-export const CT_PRESENTATION =
+const CT_PRESENTATION =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml";
-export const CT_SLIDE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
-export const CT_SLIDE_MASTER =
+const CT_SLIDE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
+const CT_SLIDE_MASTER =
   "application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml";
-export const CT_SLIDE_LAYOUT =
+const CT_SLIDE_LAYOUT =
   "application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml";
-export const CT_THEME = "application/vnd.openxmlformats-officedocument.theme+xml";
-export const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
+const CT_THEME = "application/vnd.openxmlformats-officedocument.theme+xml";
+const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
 
-export const REL_OFFICE_DOCUMENT = NS_REL_DOC + "/officeDocument";
+const REL_OFFICE_DOCUMENT = NS_REL_DOC + "/officeDocument";
 export const REL_SLIDE = NS_REL_DOC + "/slide";
 export const REL_SLIDE_MASTER = NS_REL_DOC + "/slideMaster";
-export const REL_SLIDE_LAYOUT = NS_REL_DOC + "/slideLayout";
-export const REL_THEME = NS_REL_DOC + "/theme";
+const REL_SLIDE_LAYOUT = NS_REL_DOC + "/slideLayout";
+const REL_THEME = NS_REL_DOC + "/theme";
 
 const emptySpTree =
   `<p:spTree>` +

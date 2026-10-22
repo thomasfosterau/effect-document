@@ -10,6 +10,9 @@
  * and descriptor.
  */
 
+import * as Result from "effect/Result";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
 import type { PdfFile } from "../cos/file.ts";
 import { type PdfDict, type PdfObject, isArray, isName, isStream } from "../cos/objects.ts";
 import { CMap, parseCMap } from "./cmap.ts";
@@ -58,7 +61,7 @@ const MONO_NAME = /courier|mono|consol|menlo|inconsolata|lucidaconsole|code/i;
 const numbers = (file: PdfFile, o: PdfObject | undefined): number[] => {
   const a = file.resolve(o);
   return isArray(a)
-    ? a.items.map((x) => file.resolve(x)).map((x) => (typeof x === "number" ? x : 0))
+    ? a.items.map((x) => file.resolve(x)).map((x) => (Predicate.isNumber(x) ? x : 0))
     : [];
 };
 
@@ -77,12 +80,13 @@ const style = (file: PdfFile, name: string, descriptor: PdfDict | undefined) => 
 const loadToUnicode = (file: PdfFile, dict: PdfDict): CMap | undefined => {
   const tu = file.lookup(dict, "ToUnicode");
   if (!isStream(tu)) return undefined;
-  try {
-    const cmap = parseCMap(file.decode(tu).data, glyphToUnicode);
-    return cmap.hasUnicode ? cmap : undefined;
-  } catch {
-    return undefined;
-  }
+  return Result.getOrElse(
+    Result.try(() => {
+      const cmap = parseCMap(file.decode(tu).data, glyphToUnicode);
+      return cmap.hasUnicode ? cmap : undefined;
+    }),
+    () => undefined,
+  );
 };
 
 // ============================================================================
@@ -110,19 +114,14 @@ const loadSimpleFont = (file: PdfFile, dict: PdfDict, subtype: string): PdfFont 
   if (isName(encoding) && isBaseEncodingName(encoding.name)) {
     base = encoding.name;
     explicit = true;
-  } else if (
-    encoding !== undefined &&
-    encoding !== null &&
-    typeof encoding === "object" &&
-    encoding._tag === "Dict"
-  ) {
+  } else if (Predicate.isTagged(encoding, "Dict")) {
     const b = file.lookupName(encoding, "BaseEncoding");
     if (b !== undefined && isBaseEncodingName(b)) base = b;
     explicit = true;
     let code = 0;
     for (const item of file.lookupArray(encoding, "Differences")?.items ?? []) {
       const x = file.resolve(item);
-      if (typeof x === "number") code = x;
+      if (Predicate.isNumber(x)) code = x;
       else if (isName(x)) names[code++] = x.name;
     }
   }
@@ -149,7 +148,7 @@ const loadSimpleFont = (file: PdfFile, dict: PdfDict, subtype: string): PdfFont 
   const widths = numbers(file, dict.entries.get("Widths"));
   const missing = file.lookupNumber(descriptor, "MissingWidth");
   const matrix = numbers(file, dict.entries.get("FontMatrix"));
-  const scale = subtype === "Type3" && matrix.length >= 1 ? matrix[0]! : 0.001;
+  const scale = subtype === "Type3" && Arr.isReadonlyArrayNonEmpty(matrix) ? matrix[0]! : 0.001;
   const stdWidth = standard === undefined ? undefined : standardWidths(standard);
   const width = (code: number): number => {
     const w = widths[code - firstChar];
@@ -191,10 +190,7 @@ const loadType0Font = (file: PdfFile, dict: PdfDict): PdfFont => {
   const baseFont = (file.lookupName(dict, "BaseFont") ?? "").replace(/^[A-Z]{6}\+/, "");
   const descendants = file.lookupArray(dict, "DescendantFonts");
   const cidFont = descendants === undefined ? undefined : file.resolve(descendants.items[0]);
-  const cid =
-    cidFont !== null && typeof cidFont === "object" && cidFont._tag === "Dict"
-      ? cidFont
-      : undefined;
+  const cid = Predicate.isTagged(cidFont, "Dict") ? cidFont : undefined;
   const descriptor = file.lookupDict(cid, "FontDescriptor");
 
   // the encoding CMap: codes -> CIDs
@@ -206,16 +202,15 @@ const loadType0Font = (file: PdfFile, dict: PdfDict): PdfFont => {
     vertical = encoding.name.endsWith("-V");
     if (/UCS2|UTF16/.test(encoding.name)) unicodeCodes = true;
   } else if (isStream(encoding)) {
-    try {
+    // keep Identity-H
+    Result.try(() => {
       const parsed = parseCMap(file.decode(encoding).data);
-      if (parsed.codespaces.length === 0) {
+      if (Arr.isReadonlyArrayEmpty(parsed.codespaces)) {
         for (const space of identity().codespaces) parsed.codespaces.push(space);
       }
       cmap = parsed;
       vertical = parsed.vertical;
-    } catch {
-      // keep Identity-H
-    }
+    });
   }
   const toCid = (code: number, len: number): number => cmap.toCid(code, len) ?? code;
 
@@ -234,17 +229,17 @@ const loadType0Font = (file: PdfFile, dict: PdfDict): PdfFont => {
   for (let i = 0; i < w.length;) {
     const first = w[i];
     const next = w[i + 1];
-    if (typeof first !== "number") break;
+    if (!Predicate.isNumber(first)) break;
     if (isArray(next)) {
       next.items.forEach((x, j) => {
         const v = file.resolve(x);
-        if (typeof v === "number") widths.set(first + j, v * 0.001);
+        if (Predicate.isNumber(v)) widths.set(first + j, v * 0.001);
       });
       i += 2;
     } else {
       const last = next;
       const v = w[i + 2];
-      if (typeof last !== "number" || typeof v !== "number") break;
+      if (!Predicate.isNumber(last) || !Predicate.isNumber(v)) break;
       for (let c = first; c <= last && c - first < 65536; c++) widths.set(c, v * 0.001);
       i += 3;
     }
@@ -284,12 +279,12 @@ const FALLBACK_FONT: PdfFont = {
 /** Load a font dictionary for text extraction. */
 export const loadFont = (file: PdfFile, font: PdfObject | undefined): PdfFont => {
   const dict = file.resolve(font);
-  if (dict === null || dict === undefined || typeof dict !== "object" || dict._tag !== "Dict")
-    return FALLBACK_FONT;
-  try {
-    const subtype = file.lookupName(dict, "Subtype") ?? "Type1";
-    return subtype === "Type0" ? loadType0Font(file, dict) : loadSimpleFont(file, dict, subtype);
-  } catch {
-    return FALLBACK_FONT;
-  }
+  if (!Predicate.isTagged(dict, "Dict")) return FALLBACK_FONT;
+  return Result.getOrElse(
+    Result.try(() => {
+      const subtype = file.lookupName(dict, "Subtype") ?? "Type1";
+      return subtype === "Type0" ? loadType0Font(file, dict) : loadSimpleFont(file, dict, subtype);
+    }),
+    () => FALLBACK_FONT,
+  );
 };

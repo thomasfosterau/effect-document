@@ -5,12 +5,14 @@
  * format can represent" guarantee, enforced statically.
  */
 
-import { Context, type Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 import { type Doc, type Profile } from "../profile/profile.ts";
 import type { Feature } from "../schema/feature.ts";
 import type { WriteError } from "./errors.ts";
 import type { Content } from "./content.ts";
 
+/** Renders a document of its format's profile into `Content`, failing with a `WriteError`. */
 export interface Writer<F extends Feature> {
   /** The format this writer renders (e.g. "csv", "xlsx"). */
   readonly format: string;

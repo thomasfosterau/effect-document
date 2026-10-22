@@ -1,0 +1,121 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "packages/core/src/index.ts",
+    "packages/core/src/schema/index.ts",
+    "packages/core/src/profile/index.ts",
+    "packages/core/src/profile/profiles.ts",
+    "packages/core/src/io/index.ts",
+    "packages/csv/src/index.ts",
+    "packages/iwork/src/index.ts",
+    "packages/iwork/src/pages.ts",
+    "packages/iwork/src/numbers.ts",
+    "packages/iwork/src/keynote.ts",
+    "packages/iwork/src/codec.ts",
+    "packages/ooxml/src/index.ts",
+    "packages/ooxml/src/xlsx/index.ts",
+    "packages/ooxml/src/docx/index.ts",
+    "packages/ooxml/src/pptx/index.ts",
+    "packages/pdf/src/index.ts",
+    "packages/pdf/src/cos/index.ts",
+    "packages/rtf/src/index.ts",
+    "packages/*/test/**/*.test.ts",
+    "test/**/*.test.ts",
+    "test/**/*.types.ts",
+    "examples/*.ts",
+    "**/vite.config.ts",
+    "vite.package.ts",
+    "scripts/check-dist-imports.mjs"
+  ],
+  "ignorePatterns": ["**/dist/**", "**/coverage/**"],
+  "ignoreDependencies": [
+    "@types/node",
+    "@effect/tsgo",
+    "@effect/language-service",
+    "@typescript/native",
+    "typescript",
+    "tsx",
+    "vite",
+    "vitest",
+    "vite-plus",
+    "@changesets/cli",
+    "@changesets/changelog-github",
+    "@vitest/coverage-istanbul",
+    "fallow"
+  ],
+  "rules": {
+    "unused-files": "error",
+    "unused-exports": "error",
+    "unused-types": "error",
+    "unused-dependencies": "error",
+    "unused-dev-dependencies": "warn",
+    "unused-enum-members": "error",
+    "unused-class-members": "warn",
+    "unresolved-imports": "error",
+    "unlisted-dependencies": "error",
+    "duplicate-exports": "error",
+    "circular-dependencies": "error",
+    "boundary-violation": "error",
+    "stale-suppressions": "warn"
+  },
+  "boundaries": {
+    "zones": [
+      {
+        "name": "core",
+        "patterns": ["packages/core/**"]
+      },
+      {
+        "name": "csv",
+        "patterns": ["packages/csv/**"]
+      },
+      {
+        "name": "iwork",
+        "patterns": ["packages/iwork/**"]
+      },
+      {
+        "name": "ooxml",
+        "patterns": ["packages/ooxml/**"]
+      },
+      {
+        "name": "pdf",
+        "patterns": ["packages/pdf/**"]
+      },
+      {
+        "name": "rtf",
+        "patterns": ["packages/rtf/**"]
+      }
+    ],
+    "rules": [
+      {
+        "from": "core",
+        "allow": []
+      },
+      {
+        "from": "csv",
+        "allow": ["core"]
+      },
+      {
+        "from": "iwork",
+        "allow": ["core"]
+      },
+      {
+        "from": "ooxml",
+        "allow": ["core"]
+      },
+      {
+        "from": "pdf",
+        "allow": ["core"]
+      },
+      {
+        "from": "rtf",
+        "allow": ["core"]
+      }
+    ]
+  },
+  "health": {
+    "maxCyclomatic": 20,
+    "maxCognitive": 15,
+    "maxCrap": 30,
+    "coverage": "coverage/coverage-final.json"
+  }
+}

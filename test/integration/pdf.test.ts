@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   blocksToText,
   bulletList,

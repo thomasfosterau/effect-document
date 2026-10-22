@@ -13,6 +13,8 @@
  * (see `parseContentStream`).
  */
 
+import * as Schema from "effect/Schema";
+import * as Predicate from "effect/Predicate";
 import {
   type PdfDict,
   type PdfObject,
@@ -26,13 +28,13 @@ import {
 } from "./objects.ts";
 
 /** A syntax error at a byte offset in the input. */
-export class PdfSyntaxError extends Error {
-  readonly offset: number;
-
-  constructor(message: string, offset: number) {
-    super(`${message} (at byte ${offset})`);
-    this.offset = offset;
-    this.name = "PdfSyntaxError";
+export class PdfSyntaxError extends Schema.TaggedError<PdfSyntaxError>()("PdfSyntaxError", {
+  reason: Schema.String,
+  /** The byte offset the error was found at. */
+  offset: Schema.Number,
+}) {
+  override get message(): string {
+    return `${this.reason} (at byte ${this.offset})`;
   }
 }
 
@@ -45,6 +47,7 @@ for (const c of [0x00, 0x09, 0x0a, 0x0c, 0x0d, 0x20]) WHITESPACE[c] = 1;
 const DELIMITER = new Uint8Array(256);
 for (const c of "()<>[]{}/%") DELIMITER[c.charCodeAt(0)] = 1;
 
+/** Whether a byte is PDF white-space (NUL, tab, LF, FF, CR or space). */
 export const isWhitespace = (c: number): boolean => WHITESPACE[c] === 1;
 const isRegular = (c: number): boolean => WHITESPACE[c] === 0 && DELIMITER[c] === 0;
 const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39;
@@ -76,6 +79,25 @@ export type Token =
   | { readonly kind: "eof" };
 
 const EOF: Token = { kind: "eof" };
+const DICT_OPEN: Token = { kind: "punct", char: "<<" };
+const DICT_CLOSE: Token = { kind: "punct", char: ">>" };
+
+/** The byte a one-letter escape (`\n`, `\r`, `\t`, `\b`, `\f`) stands for, if `e` is one. */
+const simpleEscape = (e: number): number | undefined => {
+  if (e === 0x6e) return 0x0a;
+  if (e === 0x72) return 0x0d;
+  if (e === 0x74) return 0x09;
+  if (e === 0x62) return 0x08;
+  return e === 0x66 ? 0x0c : undefined;
+};
+
+/** The one-byte punctuation token a byte starts (`[`, `]`, `{`, `}`), if any. */
+const bracketAt = (c: number): Token | undefined => {
+  if (c === 0x5b) return { kind: "punct", char: "[" };
+  if (c === 0x5d) return { kind: "punct", char: "]" };
+  if (c === 0x7b) return { kind: "punct", char: "{" };
+  return c === 0x7d ? { kind: "punct", char: "}" } : undefined;
+};
 
 /** A cursor over PDF bytes. */
 export class Lexer {
@@ -109,39 +131,18 @@ export class Lexer {
     if (this.pos >= buf.length) return EOF;
     const start = this.pos;
     const c = buf[this.pos]!;
-    switch (c) {
-      case 0x5b:
-        this.pos++;
-        return { kind: "punct", char: "[" };
-      case 0x5d:
-        this.pos++;
-        return { kind: "punct", char: "]" };
-      case 0x7b:
-        this.pos++;
-        return { kind: "punct", char: "{" };
-      case 0x7d:
-        this.pos++;
-        return { kind: "punct", char: "}" };
-      case 0x3c:
-        if (buf[this.pos + 1] === 0x3c) {
-          this.pos += 2;
-          return { kind: "punct", char: "<<" };
-        }
-        return { kind: "value", value: this.hexString() };
-      case 0x3e:
-        if (buf[this.pos + 1] === 0x3e) {
-          this.pos += 2;
-          return { kind: "punct", char: ">>" };
-        }
-        this.pos++; // a stray `>`: skip it
-        return this.next();
-      case 0x28:
-        return { kind: "value", value: this.literalString() };
-      case 0x2f:
-        return { kind: "value", value: this.name() };
-      case 0x29:
-        this.pos++; // a stray `)`
-        return this.next();
+    const bracket = bracketAt(c);
+    if (bracket !== undefined) {
+      this.pos++;
+      return bracket;
+    }
+    if (c === 0x3c) return this.lessThan();
+    if (c === 0x3e) return this.greaterThan();
+    if (c === 0x28) return { kind: "value", value: this.literalString() };
+    if (c === 0x2f) return { kind: "value", value: this.name() };
+    if (c === 0x29) {
+      this.pos++; // a stray `)`
+      return this.next();
     }
     if (isDigit(c) || c === 0x2b || c === 0x2d || c === 0x2e)
       return { kind: "value", value: this.number() };
@@ -153,6 +154,25 @@ export class Lexer {
     let word = "";
     for (let i = start; i < this.pos; i++) word += String.fromCharCode(buf[i]!);
     return { kind: "keyword", word };
+  }
+
+  /** At `<`: a dictionary opener `<<`, else a hex string. */
+  private lessThan(): Token {
+    if (this.buf[this.pos + 1] === 0x3c) {
+      this.pos += 2;
+      return DICT_OPEN;
+    }
+    return { kind: "value", value: this.hexString() };
+  }
+
+  /** At `>`: a dictionary closer `>>`, else a stray `>`, which is skipped. */
+  private greaterThan(): Token {
+    if (this.buf[this.pos + 1] === 0x3e) {
+      this.pos += 2;
+      return DICT_CLOSE;
+    }
+    this.pos++;
+    return this.next();
   }
 
   /** A number. Malformed numbers (`--1`, `1.2.3`) read as best they can. */
@@ -226,6 +246,36 @@ export class Lexer {
   }
 
   /** `(text)`: balanced parentheses, backslash escapes, and EOLs normalized to LF. */
+  /** After a `\` in a literal string: decode one escape sequence into `out`. */
+  private escape(out: number[]): void {
+    const buf = this.buf;
+    const e = buf[this.pos++]!;
+    const simple = simpleEscape(e);
+    if (simple !== undefined) {
+      out.push(simple);
+      return;
+    }
+    if (e === 0x0d) {
+      // line continuation
+      if (buf[this.pos] === 0x0a) this.pos++;
+      return;
+    }
+    if (e === 0x0a) return;
+    if (e >= 0x30 && e <= 0x37) {
+      // \ddd: up to three octal digits
+      let v = e - 0x30;
+      for (let i = 0; i < 2; i++) {
+        const d = buf[this.pos];
+        if (d === undefined || d < 0x30 || d > 0x37) break;
+        v = v * 8 + (d - 0x30);
+        this.pos++;
+      }
+      out.push(v & 0xff);
+      return;
+    }
+    out.push(e); // \( \) \\ and unknown escapes: the character itself
+  }
+
   private literalString(): PdfObject {
     const buf = this.buf;
     this.pos++; // '('
@@ -241,42 +291,7 @@ export class Lexer {
         c = 0x0a;
       } else if (c === 0x5c) {
         if (this.pos >= buf.length) break;
-        const e = buf[this.pos++]!;
-        switch (e) {
-          case 0x6e:
-            out.push(0x0a);
-            continue; // \n
-          case 0x72:
-            out.push(0x0d);
-            continue; // \r
-          case 0x74:
-            out.push(0x09);
-            continue; // \t
-          case 0x62:
-            out.push(0x08);
-            continue; // \b
-          case 0x66:
-            out.push(0x0c);
-            continue; // \f
-          case 0x0d: // line continuation
-            if (buf[this.pos] === 0x0a) this.pos++;
-            continue;
-          case 0x0a:
-            continue;
-        }
-        if (e >= 0x30 && e <= 0x37) {
-          // \ddd: up to three octal digits
-          let v = e - 0x30;
-          for (let i = 0; i < 2; i++) {
-            const d = buf[this.pos];
-            if (d === undefined || d < 0x30 || d > 0x37) break;
-            v = v * 8 + (d - 0x30);
-            this.pos++;
-          }
-          out.push(v & 0xff);
-          continue;
-        }
-        out.push(e); // \( \) \\ and unknown escapes: the character itself
+        this.escape(out);
         continue;
       }
       out.push(c);
@@ -295,8 +310,9 @@ export type LengthResolver = (length: PdfObject) => number | undefined;
 /** A parsed object, or a keyword where an object was expected. */
 type Item = PdfObject | Keyword;
 
+/** Whether a parsed item is a bare keyword (`obj`, `R`, an operator) rather than an object. */
 export const isKeyword = (x: PdfObject | Keyword | undefined): x is Keyword =>
-  typeof x === "object" && x !== null && (x as Keyword)._tag === "Keyword";
+  Predicate.isTagged(x, "Keyword");
 
 const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d]; // "endstream"
 
@@ -333,7 +349,15 @@ export const lastIndexOf = (
   return -1;
 };
 
+/** A string's character codes as a byte array. */
 export const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0));
+
+/** An indirect object (`num gen obj … endobj`): its number, generation and value. */
+export interface IndirectObject {
+  readonly num: number;
+  readonly gen: number;
+  readonly object: PdfObject;
+}
 
 /** Reads PDF objects from a lexer. */
 export class Parser {
@@ -374,32 +398,29 @@ export class Parser {
   /** Read one object; a bare keyword comes back as a `Keyword`; `undefined` at end of input. */
   item(): Item | undefined {
     const t = this.token();
-    switch (t.kind) {
-      case "eof":
-        return undefined;
-      case "value":
-        if (typeof t.value === "number" && Number.isInteger(t.value) && t.value >= 0)
-          return this.maybeRef(t.value);
-        return t.value;
-      case "keyword":
-        switch (t.word) {
-          case "true":
-            return true;
-          case "false":
-            return false;
-          case "null":
-            return null;
-        }
-        return { _tag: "Keyword", word: t.word };
-      case "punct":
-        switch (t.char) {
-          case "[":
-            return this.array();
-          case "<<":
-            return this.dictOrStream();
-          default:
-            return { _tag: "Keyword", word: t.char };
-        }
+    if (t.kind === "eof") {
+      return undefined;
+    } else if (t.kind === "value") {
+      if (Predicate.isNumber(t.value) && Number.isInteger(t.value) && t.value >= 0)
+        return this.maybeRef(t.value);
+      return t.value;
+    } else if (t.kind === "keyword") {
+      if (t.word === "true") {
+        return true;
+      } else if (t.word === "false") {
+        return false;
+      } else if (t.word === "null") {
+        return null;
+      }
+      return { _tag: "Keyword", word: t.word };
+    } else if (t.kind === "punct") {
+      if (t.char === "[") {
+        return this.array();
+      } else if (t.char === "<<") {
+        return this.dictOrStream();
+      } else {
+        return { _tag: "Keyword", word: t.char };
+      }
     }
   }
 
@@ -407,8 +428,10 @@ export class Parser {
   object(): PdfObject {
     const start = this.pos;
     const x = this.item();
-    if (x === undefined) throw new PdfSyntaxError("unexpected end of input", start);
-    if (isKeyword(x)) throw new PdfSyntaxError(`unexpected keyword "${x.word}"`, start);
+    if (x === undefined)
+      throw new PdfSyntaxError({ reason: "unexpected end of input", offset: start });
+    if (isKeyword(x))
+      throw new PdfSyntaxError({ reason: `unexpected keyword "${x.word}"`, offset: start });
     return x;
   }
 
@@ -419,7 +442,7 @@ export class Parser {
     const gen = this.peek();
     if (
       gen.kind === "value" &&
-      typeof gen.value === "number" &&
+      Predicate.isNumber(gen.value) &&
       Number.isInteger(gen.value) &&
       gen.value >= 0
     ) {
@@ -472,13 +495,7 @@ export class Parser {
       if (t.kind === "keyword" && (t.word === "endobj" || t.word === "stream" || t.word === "obj"))
         break;
       this.peeked = undefined;
-      if (
-        t.kind !== "value" ||
-        typeof t.value !== "object" ||
-        t.value === null ||
-        t.value._tag !== "Name"
-      )
-        continue;
+      if (t.kind !== "value" || !Predicate.isTagged(t.value, "Name")) continue;
       const key = t.value.name;
       const v = this.peek();
       if (v.kind === "punct" && v.char === ">>") {
@@ -507,12 +524,11 @@ export class Parser {
     if (buf[start] === 0x0a) start++;
 
     const declared = dict.entries.get("Length");
-    let length =
-      typeof declared === "number"
-        ? declared
-        : declared === undefined
-          ? undefined
-          : this.resolveLength?.(declared);
+    let length = Predicate.isNumber(declared)
+      ? declared
+      : declared === undefined
+        ? undefined
+        : this.resolveLength?.(declared);
     if (
       length !== undefined &&
       (length < 0 || !Number.isFinite(length) || !this.endstreamAt(start + length))
@@ -548,20 +564,23 @@ export class Parser {
   }
 
   /** `n g obj <object> endobj` at the current position. */
-  indirect(): { readonly num: number; readonly gen: number; readonly object: PdfObject } {
+  indirect(): IndirectObject {
     const start = this.pos;
     const num = this.token();
     const gen = this.token();
     const kw = this.token();
     if (
       num.kind !== "value" ||
-      typeof num.value !== "number" ||
+      !Predicate.isNumber(num.value) ||
       gen.kind !== "value" ||
-      typeof gen.value !== "number" ||
+      !Predicate.isNumber(gen.value) ||
       kw.kind !== "keyword" ||
       kw.word !== "obj"
     ) {
-      throw new PdfSyntaxError("expected an indirect object header (n g obj)", start);
+      throw new PdfSyntaxError({
+        reason: "expected an indirect object header (n g obj)",
+        offset: start,
+      });
     }
     const item = this.item();
     const object = item === undefined || isKeyword(item) ? null : item;
@@ -625,7 +644,7 @@ const inlineImage = (parser: Parser, lexer: Lexer): PdfStream => {
       if (key.word === "ID") break;
       continue;
     }
-    if (typeof key !== "object" || key === null || key._tag !== "Name") continue;
+    if (!Predicate.isTagged(key, "Name")) continue;
     const value = parser.item();
     if (value !== undefined && !isKeyword(value)) entries.set(key.name, value);
   }

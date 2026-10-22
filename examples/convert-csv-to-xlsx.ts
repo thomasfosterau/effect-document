@@ -7,9 +7,20 @@
  * Run with: vp exec tsx examples/convert-csv-to-xlsx.ts
  */
 
-import { writeFile } from "node:fs/promises";
-import { Effect } from "effect";
-import { contentToBytes, contentToText, convert, text } from "@thomasfosterau/effect-document";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Arr from "effect/Array";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Predicate from "effect/Predicate";
+import {
+  type Block,
+  type Worksheet,
+  contentToBytes,
+  contentToText,
+  convert,
+  text,
+} from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
 import { Xlsx } from "@thomasfosterau/effect-ooxml";
 
@@ -20,9 +31,12 @@ Keyboard,79.5,false
 Monitor,349,true
 `;
 
-const program = Effect.gen(function* () {
-  console.log("=== Source CSV ===");
-  console.log(csvSource);
+const isWorksheet = (block: Block): block is Worksheet => Predicate.isTagged(block, "Worksheet");
+
+const program = Effect.fn("convert-csv-to-xlsx")(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  yield* Console.log("=== Source CSV ===");
+  yield* Console.log(csvSource);
 
   // --- CSV -> XLSX (a free widening: CSV's profile is a subset of XLSX's) ---
   const { content: xlsxContent, loss: toXlsxLoss } = yield* convert({
@@ -32,11 +46,11 @@ const program = Effect.gen(function* () {
   });
 
   const xlsxBytes = contentToBytes(xlsxContent);
-  console.log(
+  yield* Console.log(
     `=== Converted to XLSX: ${xlsxBytes.length} bytes (lossless: ${toXlsxLoss.isLossless}) ===`,
   );
-  yield* Effect.promise(() => writeFile("output.xlsx", xlsxBytes));
-  console.log("Wrote output.xlsx\n");
+  yield* fs.writeFile("output.xlsx", xlsxBytes);
+  yield* Console.log("Wrote output.xlsx\n");
 
   // --- XLSX -> CSV (a narrowing: anything CSV can't represent is reported) ---
   const { content: backToCsv, loss: toCsvLoss } = yield* convert({
@@ -45,19 +59,17 @@ const program = Effect.gen(function* () {
     input: xlsxContent,
   });
 
-  console.log("=== Converted back to CSV ===");
-  console.log(contentToText(backToCsv));
-  console.log("Loss report:", toCsvLoss.isLossless ? "(lossless)" : toCsvLoss.entries);
+  yield* Console.log("=== Converted back to CSV ===");
+  yield* Console.log(contentToText(backToCsv));
+  yield* Console.log("Loss report:", toCsvLoss.isLossless ? "(lossless)" : toCsvLoss.entries);
 
   // --- Inspect the typed worksheet ---------------------------------------
-  const doc = yield* Xlsx.format.reader!.read(xlsxContent);
-  const ws = doc.blocks.find((b) => b._tag === "Worksheet");
-  console.log("\n=== Typed cells (numbers and booleans inferred) ===");
-  if (ws?._tag === "Worksheet") {
-    for (const row of ws.rows) {
-      console.log(row.cells.map((c) => c._tag).join(", "));
-    }
-  }
+  const doc = yield* Xlsx.makeXlsxReader().read(xlsxContent);
+  const rows = doc.blocks.filter(isWorksheet).flatMap((ws) => ws.rows);
+  yield* Console.log("\n=== Typed cells (numbers and booleans inferred) ===");
+  yield* Effect.forEach(rows, (row) => Console.log(Arr.map(row.cells, (c) => c._tag).join(", ")), {
+    concurrency: 1,
+  });
 });
 
-Effect.runPromise(program);
+Effect.runPromise(program().pipe(Effect.provide(NodeServices.layer)));

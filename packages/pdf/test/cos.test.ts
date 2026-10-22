@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { blocksToText, bytes, document, para, str, trustAs } from "@thomasfosterau/effect-document";
 import { type PdfFeature, makePdfReader, makePdfWriter } from "../src/index.ts";
 import {
@@ -31,10 +32,10 @@ const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const enc = latin1ToBytes;
 const parse = (s: string): PdfObject => parseObject(enc(s));
 const text = (o: PdfObject): string =>
-  o !== null && typeof o === "object" && o._tag === "String" ? bytesToLatin1(o.bytes) : "?";
+  Predicate.isTagged(o, "String") ? bytesToLatin1(o.bytes) : "?";
 
 const concat = (parts: ReadonlyArray<Uint8Array | string>): Uint8Array => {
-  const bufs = parts.map((p) => (typeof p === "string" ? enc(p) : p));
+  const bufs = parts.map((p) => (Predicate.isString(p) ? enc(p) : p));
   const out = new Uint8Array(bufs.reduce((n, b) => n + b.length, 0));
   let pos = 0;
   for (const b of bufs) {
@@ -50,7 +51,7 @@ const pdfBytes = (body: string, title?: string): Uint8Array => {
       trustAs<PdfFeature>(document([para([str(body)])], title === undefined ? {} : { title })),
     ),
   );
-  if (c._tag !== "Bytes") throw new Error("expected bytes");
+  assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
   return c.bytes;
 };
 
@@ -165,6 +166,32 @@ describe("filters", () => {
       DecodeParms: pdfArray([null, pdfDict({ Predictor: 12, Columns: 3 })]),
     });
     expect(Array.from(decodeFilters(dict, hex).data)).toEqual(rows.flat());
+  });
+
+  test("every PNG predictor type, chosen per row", () => {
+    // filtered rows (type byte first) and the raw rows they decode to, worked by hand
+    const filtered = [
+      [0, 10, 20, 30], // None
+      [1, 5, 5, 5], // Sub: + left
+      [2, 1, 1, 1], // Up: + above
+      [3, 0, 0, 0], // Average: + floor((left + above) / 2)
+      [4, 0, 1, 0], // Paeth: + the neighbour nearest left + above - upper-left
+      [9, 7, 8, 9], // unknown type: no prediction
+    ];
+    const raw = [
+      [10, 20, 30],
+      [5, 10, 15],
+      [6, 11, 16],
+      [3, 7, 11],
+      [3, 8, 11],
+      [7, 8, 9],
+    ];
+    const out = applyFilter(
+      "FlateDecode",
+      flateEncode(Uint8Array.from(filtered.flat())),
+      pdfDict({ Predictor: 15, Columns: 3 }),
+    );
+    expect(Array.from(out)).toEqual(raw.flat());
   });
 
   test("image filters are reported, not decoded", () => {
@@ -288,6 +315,14 @@ describe("PdfFile", () => {
     expect(blocksToText(run(makePdfReader().read(bytes(enc(s)))).blocks)).toBe("Survives damage");
   });
 
+  test("repairs a file with object streams by rescanning their members", () => {
+    const s = bytesToLatin1(xrefStreamPdf()).replace(/startxref\n\d+/, "startxref\n999999");
+    const file = PdfFile.open(enc(s));
+    expect(file.repaired).toBe(true);
+    expect(file.entry(3)?._tag).toBe("Compressed");
+    expect(blocksToText(run(makePdfReader().read(bytes(enc(s)))).blocks)).toBe("Packed objects");
+  });
+
   test("repairs a file with no xref table or trailer at all", () => {
     const s = bytesToLatin1(pdfBytes("No table"));
     const truncated = s.slice(0, s.indexOf("xref\n"));
@@ -330,7 +365,8 @@ describe("PdfFile", () => {
     );
     const r = Effect.runSync(Effect.result(makePdfReader().read(bytes(enc(encrypted)))));
     expect(r._tag).toBe("Failure");
-    if (r._tag === "Failure") expect(r.failure.reason).toContain("encrypted");
+    assert(Predicate.isTagged(r, "Failure"));
+    expect(r.failure.reason).toContain("encrypted");
   });
 
   test("rewritePdf expands object streams and keeps the content", () => {

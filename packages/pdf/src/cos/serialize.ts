@@ -7,6 +7,10 @@
  * objects), expanding object streams into plain objects.
  */
 
+import * as Order from "effect/Order";
+import * as Arr from "effect/Array";
+import * as Schema from "effect/Schema";
+import * as Predicate from "effect/Predicate";
 import type { PdfFile } from "./file.ts";
 import { flateEncode } from "./filters.ts";
 import {
@@ -72,50 +76,42 @@ export const serializeObject = (o: PdfObject): Uint8Array => {
     if (text !== "") chunks.push(latin1ToBytes(text));
     text = "";
   };
+  const writeArray = (items: ReadonlyArray<PdfObject>): void => {
+    text += "[";
+    items.forEach((item, i) => {
+      if (i > 0) text += " ";
+      write(item);
+    });
+    text += "]";
+  };
+  const writeDict = (entries: ReadonlyMap<string, PdfObject>): void => {
+    text += "<<";
+    for (const [k, v] of entries) {
+      text += formatName(k) + " ";
+      write(v);
+      text += " ";
+    }
+    text += ">>";
+  };
+  const writeStream = (x: PdfStream): void => {
+    const entries = new Map(x.dict.entries);
+    entries.set("Length", x.data.length);
+    writeDict(entries);
+    text += "\nstream\n";
+    flush();
+    chunks.push(x.data);
+    text += "\nendstream";
+  };
   const write = (x: PdfObject): void => {
     if (x === null) text += "null";
-    else if (typeof x === "boolean") text += x ? "true" : "false";
-    else if (typeof x === "number") text += formatNumber(x);
-    else {
-      switch (x._tag) {
-        case "Name":
-          text += formatName(x.name);
-          break;
-        case "String":
-          text += formatString(x.bytes, x.hex);
-          break;
-        case "Ref":
-          text += `${x.num} ${x.gen} R`;
-          break;
-        case "Array":
-          text += "[";
-          x.items.forEach((item, i) => {
-            if (i > 0) text += " ";
-            write(item);
-          });
-          text += "]";
-          break;
-        case "Dict":
-          text += "<<";
-          for (const [k, v] of x.entries) {
-            text += formatName(k) + " ";
-            write(v);
-            text += " ";
-          }
-          text += ">>";
-          break;
-        case "Stream": {
-          const entries = new Map(x.dict.entries);
-          entries.set("Length", x.data.length);
-          write(pdfDict(entries));
-          text += "\nstream\n";
-          flush();
-          chunks.push(x.data);
-          text += "\nendstream";
-          break;
-        }
-      }
-    }
+    else if (Predicate.isBoolean(x)) text += x ? "true" : "false";
+    else if (Predicate.isNumber(x)) text += formatNumber(x);
+    else if (Predicate.isTagged(x, "Name")) text += formatName(x.name);
+    else if (Predicate.isTagged(x, "String")) text += formatString(x.bytes, x.hex);
+    else if (Predicate.isTagged(x, "Ref")) text += `${x.num} ${x.gen} R`;
+    else if (Predicate.isTagged(x, "Array")) writeArray(x.items);
+    else if (Predicate.isTagged(x, "Dict")) writeDict(x.entries);
+    else if (Predicate.isTagged(x, "Stream")) writeStream(x);
   };
   write(o);
   flush();
@@ -173,7 +169,7 @@ export const serializeFile = (
   // the binary comment marks the file as binary for transfer tools
   push(latin1ToBytes(`%PDF-${options.version ?? "1.7"}\n%\xe2\xe3\xcf\xd3\n`));
 
-  const nums = [...objects.keys()].sort((a, b) => a - b);
+  const nums = Arr.sort(Array.from(objects.keys()), Order.Number);
   const size = (nums[nums.length - 1] ?? 0) + 1;
   const offsets = new Map<number, { offset: number; gen: number }>();
   for (const num of nums) {
@@ -242,6 +238,16 @@ export const fileId = (seed: Uint8Array): PdfObject => {
   return pdfArray([pdfString(id, true), pdfString(id, true)]);
 };
 
+/** An operation that cannot handle an encrypted file was given one. */
+export class PdfEncryptedError extends Schema.TaggedError<PdfEncryptedError>()(
+  "PdfEncryptedError",
+  { operation: Schema.String },
+) {
+  override get message(): string {
+    return `${this.operation}: encrypted files are not supported`;
+  }
+}
+
 /**
  * Save a parsed file as a new, self-contained PDF: every object keeps its
  * number, members of object streams become plain objects, and the
@@ -255,7 +261,7 @@ export const rewritePdf = (
   file: PdfFile,
   overrides: ReadonlyMap<number, PdfObject> = new Map(),
 ): Uint8Array => {
-  if (file.encrypted) throw new Error("rewritePdf: encrypted files are not supported");
+  if (file.encrypted) throw new PdfEncryptedError({ operation: "rewritePdf" });
   const objects = new Map<number, { object: PdfObject; gen: number }>();
   for (const num of file.objectNumbers()) {
     if (num === 0) continue;

@@ -1,6 +1,8 @@
-import { describe, expect, test } from "vite-plus/test";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
 import {
   cell,
+  Header,
   document,
   header,
   para,
@@ -35,7 +37,7 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
     const { document: csv, loss } = narrow(excel, Profiles.Csv);
 
     // only the first worksheet survives
-    const worksheets = csv.blocks.filter((b) => b._tag === "Worksheet");
+    const worksheets = csv.blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));
     expect(worksheets).toHaveLength(1);
 
     // the date became text, the formula became its cached result
@@ -77,6 +79,37 @@ describe("narrow: prose -> markdown subset", () => {
     const { loss, document: md } = narrow(doc, Profiles.Markdown);
     expect(loss.isLossless).toBe(true);
     expect(md.blocks[0]!._tag).toBe("Header");
+  });
+});
+
+describe("narrow: attributes", () => {
+  const attr = {
+    id: "intro",
+    classes: ["lead"],
+    style: { font: { bold: true } },
+    data: { source: "import" },
+  };
+
+  test("keeps the facets the target allows and reports each one it drops, in order", () => {
+    const doc = document([new Header({ level: 1, attr, content: [str("Title")] })]);
+    const { document: md, loss } = narrow(doc, Profiles.Markdown);
+    const h = md.blocks[0];
+    assert(Predicate.isTagged(h, "Header"));
+    expect(h.attr).toEqual({ id: "intro", classes: ["lead"] });
+    expect(loss.entries.map((e) => [e.feature, e.action])).toEqual([
+      ["attr.style", "dropped"],
+      ["attr.keyValue", "dropped"],
+    ]);
+  });
+
+  test("an attribute set with nothing left is removed entirely", () => {
+    const doc = document([
+      new Header({ level: 1, attr: { style: attr.style, classes: [] }, content: [str("T")] }),
+    ]);
+    const { document: md } = narrow(doc, Profiles.Markdown);
+    const h = md.blocks[0];
+    assert(Predicate.isTagged(h, "Header"));
+    expect(h.attr).toBeUndefined();
   });
 });
 
