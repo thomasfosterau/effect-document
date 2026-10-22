@@ -109,6 +109,17 @@ describe("CSV reader", () => {
     ]);
   });
 
+  test("keeps a value a number only when a double holds its digits (#88)", async () => {
+    const values = ["0.30000000000000004", "9007199254740992", "9007199254740993", "1e400", "7.10"];
+    expect((await cells(values.join(",")))[0]).toEqual([
+      0.30000000000000004,
+      9007199254740992,
+      "9007199254740993",
+      "1e400",
+      7.1,
+    ]);
+  });
+
   test("booleans are case-insensitive and configurable", async () => {
     expect(await cells("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
     expect(await cells("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([["TRUE", true]]);

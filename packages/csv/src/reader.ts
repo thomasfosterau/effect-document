@@ -75,7 +75,7 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
    * true.
    *
    * Inference is convenient but lossy. Only plain decimals are read as numbers
-   * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`, with up to 15 significant digits),
+   * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`) whose digits a double holds exactly,
    * so codes such as `007`, `0x1F`, `+1` and 20-digit IDs stay text. Numbers
    * still lose their written form: `1.10` reads as 1.1 and `1e3` as 1000.
    * Without `treatFirstRowAsHeader`, a numeric header row is read as numbers.
@@ -95,10 +95,16 @@ type Inferred = number | boolean | null | undefined;
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Significant digits: from the first non-zero digit to the last. */
-const significantDigits = (digits: string): number =>
-  digits.replace(/^0+/, "").replace(/0+$/, "").length;
+const significantDigits = (digits: string): string => digits.replace(/^0+/, "").replace(/0+$/, "");
 
-const maxSignificantDigits = 15;
+/**
+ * Whether a double holds exactly the written digits: its shortest decimal
+ * form has the same significant digits. `0.30000000000000004` does; a 20-digit
+ * ID or 2^53 + 1 does not, and stays text rather than silently changing.
+ */
+const holdsDigits = (value: number, digits: string): boolean =>
+  significantDigits(Math.abs(value).toExponential().replace(/e.*$/, "").replace(".", "")) ===
+  significantDigits(digits);
 
 /** Build the value classifier for a set of inference options. */
 const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferred) => {
@@ -123,9 +129,9 @@ const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferre
     if (m === null) return undefined;
     const [, sign, grouped = "", frac = "", exp = "0", pct] = m;
     const int = groups === undefined ? grouped : grouped.replace(groups, "");
-    if (significantDigits(int + frac) > maxSignificantDigits) return undefined;
     // a percentage shifts the exponent, so `7%` parses exactly as 0.07
-    return Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
+    const value = Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
+    return holdsDigits(value, int + frac) ? value : undefined;
   };
 };
 
