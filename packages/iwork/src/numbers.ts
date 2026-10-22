@@ -10,12 +10,14 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Content, contentToBytes, defineProfile, type Doc, document, type FeaturesOf, type Format,
-  makeReaderTag, ParseError, type Reader, trustAs, Worksheet,
+  type Content, defineProfile, type Doc, document, type FeaturesOf, type Format, makeReaderTag,
+  type ParseError, type Reader, trustAs, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { decodeAll, openBundle } from "./bundle.js";
 import { decodeUtf8, getBytes, parseMessage } from "./protobuf.js";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
 import { TN_SHEET_ARCHIVE } from "./registry.js";
+
+export type { IworkReaderOptions } from "./read.js";
 
 export const numbersFeatures = [
   "sheet.worksheet",
@@ -32,28 +34,31 @@ export type NumbersFeature = FeaturesOf<typeof Numbers>;
 
 const SHEET_NAME_FIELD = 1; // TN.SheetArchive.name
 
-/** Create a Numbers Reader (structure only - sheet names, no cell values yet). */
-export const makeNumbersReader = (): Reader<NumbersFeature> => {
+/**
+ * Create a Numbers Reader (structure only - sheet names, no cell values yet).
+ * A component that fails to decode fails the read unless `lenient`.
+ */
+export const makeNumbersReader = (options?: IworkReaderOptions): Reader<NumbersFeature> => {
   const read = (input: Content): Effect.Effect<Doc<NumbersFeature>, ParseError> =>
-    Effect.try({
-      try: () => {
-        const bundle = openBundle(contentToBytes(input));
-        const names: string[] = [];
-        for (const obj of decodeAll(bundle)) {
-          for (const msg of obj.messages) {
-            if (msg.type !== TN_SHEET_ARCHIVE) continue;
-            const nameBytes = getBytes(parseMessage(msg.payload), SHEET_NAME_FIELD);
-            names.push(nameBytes === undefined ? `Sheet${names.length + 1}` : decodeUtf8(nameBytes));
-          }
+    Effect.gen(function* () {
+      const bundle = yield* openInput("numbers", input, options);
+      // a sheet's name, or undefined when it has none
+      const decoded = yield* eachComponent("numbers", bundle, Object.keys(bundle.components), options, (obj) =>
+        obj.messages
+          .filter((msg) => msg.type === TN_SHEET_ARCHIVE)
+          .map((msg) => getBytes(parseMessage(msg.payload), SHEET_NAME_FIELD))
+      );
+      const names: string[] = [];
+      for (const { items } of decoded) {
+        for (const nameBytes of items) {
+          names.push(nameBytes === undefined ? `Sheet${names.length + 1}` : decodeUtf8(nameBytes));
         }
-        if (names.length === 0) names.push("Sheet1");
-        const sheets = names.map(
-          (name) => new Worksheet({ name, columns: [], rows: [], merges: [] })
-        );
-        return trustAs<NumbersFeature>(document(sheets));
-      },
-      catch: (cause) =>
-        new ParseError({ format: "numbers", reason: `Failed to read numbers: ${String(cause)}`, cause }),
+      }
+      if (names.length === 0) names.push("Sheet1");
+      const sheets = names.map(
+        (name) => new Worksheet({ name, columns: [], rows: [], merges: [] })
+      );
+      return trustAs<NumbersFeature>(document(sheets));
     });
   return { format: "numbers", profile: Numbers, read };
 };

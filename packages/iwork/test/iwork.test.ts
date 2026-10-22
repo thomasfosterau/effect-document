@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { zipSync } from "fflate";
 import {
   blocksToText, bytes, type SlideShow,
@@ -60,8 +60,8 @@ describe("Protobuf wire reader", () => {
     // field 1 = fixed64 2^32 + 1 ; field 2 = fixed32 258
     const fields = parseMessage(new Uint8Array([0x09, 1, 0, 0, 0, 1, 0, 0, 0, 0x15, 2, 1, 0, 0]));
     expect(fields).toEqual([
-      { field: 1, wire: 1, value: 2 ** 32 + 1 },
-      { field: 2, wire: 5, value: 258 },
+      { field: 1, wire: 1, value: 2 ** 32 + 1, raw: new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0]) },
+      { field: 2, wire: 5, value: 258, raw: new Uint8Array([2, 1, 0, 0]) },
     ]);
   });
 
@@ -109,6 +109,8 @@ describe("encrypted documents", () => {
   test("are refused with a clear error", () => {
     // a zip containing a top-level .iwph (password-hint) marker
     const zip = zipSync({ ".iwph": new Uint8Array([1]), "Index/Document.iwa": new Uint8Array() });
-    expect(() => openBundle(zip)).toThrow(/encrypted/);
+    const result = openBundle(zip);
+    expect(Result.isFailure(result) && result.failure.reason).toBe("Encrypted");
+    expect(Result.isFailure(result) && result.failure.message).toMatch(/encrypted/);
   });
 });

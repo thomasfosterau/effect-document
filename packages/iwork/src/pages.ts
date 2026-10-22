@@ -10,12 +10,14 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, type Content, contentToBytes, defineProfile, type Doc, document, type FeaturesOf,
-  type Format, makeReaderTag, Para, ParseError, type Reader, Str, trustAs,
+  type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
+  makeReaderTag, Para, type ParseError, type Reader, Str, trustAs,
 } from "@thomasfosterau/effect-document";
-import { decodeAll, openBundle } from "./bundle.js";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.js";
 import { storageParagraphs } from "./text.js";
+
+export type { IworkReaderOptions } from "./read.js";
 
 export const pagesFeatures = [
   "block.para",
@@ -30,25 +32,19 @@ export const pagesFeatures = [
 export const Pages = defineProfile("pages", pagesFeatures);
 export type PagesFeature = FeaturesOf<typeof Pages>;
 
-/** Create a Pages Reader. */
-export const makePagesReader = (): Reader<PagesFeature> => {
+/** Create a Pages Reader. A component that fails to decode fails the read unless `lenient`. */
+export const makePagesReader = (options?: IworkReaderOptions): Reader<PagesFeature> => {
   const read = (input: Content): Effect.Effect<Doc<PagesFeature>, ParseError> =>
-    Effect.try({
-      try: () => {
-        const bundle = openBundle(contentToBytes(input));
-        const blocks: Block[] = [];
-        for (const obj of decodeAll(bundle)) {
-          for (const msg of obj.messages) {
-            if (!TSWP_STORAGE_ARCHIVE.has(msg.type)) continue;
-            for (const line of storageParagraphs(msg.payload)) {
-              blocks.push(new Para({ content: [new Str({ text: line })] }));
-            }
-          }
-        }
-        return trustAs<PagesFeature>(document(blocks));
-      },
-      catch: (cause) =>
-        new ParseError({ format: "pages", reason: `Failed to read pages: ${String(cause)}`, cause }),
+    Effect.gen(function* () {
+      const bundle = yield* openInput("pages", input, options);
+      const decoded = yield* eachComponent("pages", bundle, Object.keys(bundle.components), options, (obj) =>
+        obj.messages.flatMap((msg) =>
+          TSWP_STORAGE_ARCHIVE.has(msg.type)
+            ? storageParagraphs(msg.payload).map((line): Block => new Para({ content: [new Str({ text: line })] }))
+            : []
+        )
+      );
+      return trustAs<PagesFeature>(document(decoded.flatMap(({ items }) => items)));
     });
   return { format: "pages", profile: Pages, read };
 };

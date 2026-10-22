@@ -8,7 +8,9 @@
  */
 
 import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
-import { compressBlock, decompressBlock } from "./snappy.js";
+import { Result } from "effect";
+import { fromParseError, isIworkError, shiftOffset } from "./errors.js";
+import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.js";
 
 const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   let total = 0;
@@ -30,12 +32,43 @@ const chunkBody = Parser.preceded(
 
 const chunks = Parser.compile(Parser.repeat(chunkBody));
 
+export interface DechunkOptions {
+  /**
+   * The most decompressed bytes one `.iwa` may produce, across all its chunks.
+   * Defaults to {@link DEFAULT_MAX_STREAM_LENGTH}.
+   */
+  readonly maxLength?: number;
+}
+
+/** The default {@link DechunkOptions.maxLength}: 256 MiB. */
+export const DEFAULT_MAX_STREAM_LENGTH = 256 * 1024 * 1024;
+
 /**
  * Decode an `.iwa` file into its concatenated, decompressed Protobuf stream.
- * Throws a positioned `ParseError` on a bad chunk header or a truncated chunk.
+ * Throws an `IworkError` on a bad chunk header, a truncated chunk or a bad
+ * Snappy block, with the offset in the `.iwa` file.
  */
-export const dechunk = (data: Uint8Array): Uint8Array =>
-  concat(Parser.parseSync(chunks, data).map(decompressBlock));
+export const dechunk = (data: Uint8Array, options?: DechunkOptions): Uint8Array => {
+  const maxLength = options?.maxLength ?? DEFAULT_MAX_STREAM_LENGTH;
+  const parsed = Parser.parse(chunks, data);
+  if (Result.isFailure(parsed)) throw fromParseError(parsed.failure);
+  const blocks: Uint8Array[] = [];
+  let total = 0;
+  for (const block of parsed.success) {
+    // each block is a view into `data`, so its offset is recoverable for errors;
+    // the block limit shrinks as the stream fills, capping the whole stream
+    const at = block.byteOffset - data.byteOffset;
+    let out: Uint8Array;
+    try {
+      out = decompressBlock(block, { maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total) });
+    } catch (e) {
+      throw isIworkError(e) ? shiftOffset(e, at) : e;
+    }
+    total += out.length;
+    blocks.push(out);
+  }
+  return concat(blocks);
+};
 
 /** Encode a Protobuf stream into IWA chunks (64 KiB uncompressed blocks). */
 export const chunk = (stream: Uint8Array): Uint8Array => {
