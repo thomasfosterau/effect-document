@@ -4,7 +4,8 @@
  * Current simplifications (documented):
  * - Numeric cells are read as CellNumber; date detection (which needs style /
  *   numFmt parsing) is out of scope, so `CellDate` is *written* as an ISO-8601
- *   shared string and round-trips as text.
+ *   shared string and round-trips as text. ISO 8601 `t="d"` cells are read as
+ *   CellDate.
  * - Rich-text cells are written as their flattened text.
  */
 
@@ -70,7 +71,23 @@ export const cellToSpreadsheetMl = (
 // Reading: SpreadsheetML <c> element -> SheetCell
 // ============================================================================
 
-/** Concatenate all `<t>` descendants of an element (handles rich-text runs). */
+/**
+ * Decode SpreadsheetML's `_xHHHH_` escapes (ST_Xstring), which carry
+ * characters XML 1.0 can't (control characters, lone surrogates). `_x005F_`
+ * escapes a literal underscore, so `_x005F_x0041_` decodes to `_x0041_`.
+ */
+export const decodeXstring = (s: string): string =>
+  s.includes("_x")
+    ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) =>
+        String.fromCharCode(Number.parseInt(hex, 16))
+      )
+    : s;
+
+/**
+ * Concatenate all `<t>` descendants of an element (handles rich-text runs),
+ * skipping phonetic guides (`<rPh>`), which annotate the base text rather
+ * than belong to it.
+ */
 export const collectText = (element: XmlElement): string => {
   let result = "";
   const visit = (el: XmlElement): void => {
@@ -78,16 +95,23 @@ export const collectText = (element: XmlElement): string => {
       result += el.text;
       return;
     }
+    if (el.name === "rPh") return;
     for (const child of el.children) visit(child);
   };
   visit(element);
-  return result;
+  return decodeXstring(result);
 };
 
-/** Convert a parsed SpreadsheetML `<c>` element into a typed cell. */
+/**
+ * Convert a parsed SpreadsheetML `<c>` element into a typed cell.
+ *
+ * `formula` overrides the `<f>` text; the reader passes it for the dependent
+ * cells of a shared formula, whose `<f>` is empty.
+ */
 export const spreadsheetMlToCell = (
   c: XmlElement,
-  sharedStrings: ReadonlyArray<string>
+  sharedStrings: ReadonlyArray<string>,
+  formula?: string
 ): SheetCell => {
   const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
@@ -96,7 +120,10 @@ export const spreadsheetMlToCell = (
   // (with its cached <v> result) rather than flattening to the result text.
   const f = findChild(c, "f");
   if (f !== undefined) {
-    return cell.formula(f.text, v === undefined ? undefined : v.text);
+    return cell.formula(
+      formula ?? decodeXstring(f.text),
+      v === undefined ? undefined : decodeXstring(v.text)
+    );
   }
 
   switch (type) {
@@ -111,11 +138,17 @@ export const spreadsheetMlToCell = (
       return is === undefined ? cell.blank() : cell.text(collectText(is));
     }
     case "str":
-      return v === undefined ? cell.blank() : cell.text(v.text);
+      return v === undefined ? cell.blank() : cell.text(decodeXstring(v.text));
     case "b":
       return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
     case "e":
       return v === undefined ? cell.blank() : cell.error(v.text);
+    case "d": {
+      // An ISO 8601 date (Strict files and some producers).
+      if (v === undefined || v.text.trim() === "") return cell.blank();
+      const date = new Date(v.text.trim());
+      return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
+    }
     default: {
       if (v === undefined || v.text.trim() === "") return cell.blank();
       const num = Number(v.text);
