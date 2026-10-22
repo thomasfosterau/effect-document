@@ -2,14 +2,20 @@
  * The DOCX Reader: .docx bytes -> a prose document in the DOCX profile.
  *
  * Parses `word/document.xml`: paragraphs (headings via `w:pStyle`, list items
- * via `w:numPr`), runs (bold/italic/underline/strike/super/sub/small-caps),
- * hyperlinks (resolved through the document relationships) and tables.
+ * via `w:numPr`, their kind and nesting from `word/numbering.xml` and
+ * `w:ilvl`), runs (bold/italic/underline/strike/super/sub/small-caps, with
+ * OOXML's explicit "off" toggle values), hyperlinks (external through the
+ * document relationships, internal `w:anchor`s as `#anchor`), simple and
+ * complex fields (a HYPERLINK field becomes a link), tables, and the content
+ * of tracked insertions and content controls. Tracked deletions are dropped,
+ * and a page break ends the paragraph.
  */
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, BulletList, type Content, contentToBytes, DEFAULT_MAX_NESTING_DEPTH, type Doc,
-  document, Emph, Header, type Inline, LineBreak, limitNestingDepth, Link, makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
+  type Block, BulletList, CodeBlock, type Content, contentToBytes, DEFAULT_MAX_NESTING_DEPTH,
+  type Doc, document, Emph, Header, type Inline, inlinesToText, LineBreak, limitNestingDepth, Link,
+  makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
   SmallCaps, Str, Strikeout, Strong, Subscript, Superscript, Table, TableCell, TableRow, trustAs,
   Underline,
 } from "@thomasfosterau/effect-document";
@@ -58,6 +64,9 @@ const wrap = (node: Inline, f: Fmt): Inline => {
   return x;
 };
 
+/** ST_OnOff's explicit "off" values; a toggle with no `w:val` is on. */
+const OFF = new Set(["0", "false", "off"]);
+
 const readFmt = (r: XmlElement): Fmt => {
   const rPr = findChild(r, "rPr");
   const has = (name: string): boolean => {
@@ -65,49 +74,246 @@ const readFmt = (r: XmlElement): Fmt => {
     const el = findChild(rPr, name);
     if (el === undefined) return false;
     const val = getAttr(el, "val");
-    return val !== "false" && val !== "0";
+    return val === undefined || !OFF.has(val);
   };
+  const uEl = rPr === undefined ? undefined : findChild(rPr, "u");
+  const uVal = uEl === undefined ? undefined : getAttr(uEl, "val");
   const vertEl = rPr === undefined ? undefined : findChild(rPr, "vertAlign");
   const vertVal = vertEl === undefined ? undefined : getAttr(vertEl, "val");
   return {
     b: has("b"),
     i: has("i"),
-    u: has("u"),
+    u: uEl !== undefined && uVal !== "none",
     strike: has("strike"),
     caps: has("smallCaps"),
     vert: vertVal === "superscript" ? "superscript" : vertVal === "subscript" ? "subscript" : null,
   };
 };
 
-const runToInlines = (r: XmlElement, f: Fmt): Inline[] => {
-  const out: Inline[] = [];
-  for (const child of r.children) {
-    if (child.name === "t") out.push(wrap(new Str({ text: child.text }), f));
-    else if (child.name === "br") out.push(new LineBreak());
-    else if (child.name === "tab") out.push(wrap(new Str({ text: "\t" }), f));
-  }
-  return out;
+// ============================================================================
+// Inline content
+// ============================================================================
+
+/** Marks a page break inside a paragraph's inlines; the paragraph splits there. */
+const PAGE_BREAK: unique symbol = Symbol("pageBreak");
+type Piece = Inline | typeof PAGE_BREAK;
+
+interface Field {
+  instr: string;
+  phase: "instr" | "result";
+  readonly result: Piece[];
+}
+
+/** `HYPERLINK "url"` or `HYPERLINK \l "anchor"` as a link target, else null. */
+const hyperlinkField = (instr: string): string | null => {
+  const m = instr.trim().match(/^HYPERLINK\b(.*)$/i);
+  if (m === null) return null;
+  const args = m[1]!;
+  const anchor = args.match(/\\l\s+"([^"]*)"/);
+  if (anchor !== null) return `#${anchor[1]}`;
+  const url = args.match(/^\s*"([^"]*)"/) ?? args.match(/^\s*(\S+)/);
+  return url === null ? null : url[1]!;
 };
 
-const paragraphInlines = (
-  p: XmlElement,
-  rels: ReadonlyMap<string, string>
-): Inline[] => {
-  const out: Inline[] = [];
-  for (const child of p.children) {
-    if (child.name === "r") {
-      out.push(...runToInlines(child, readFmt(child)));
-    } else if (child.name === "hyperlink") {
-      const content = child.children
-        .filter((c) => c.name === "r")
-        .flatMap((r) => runToInlines(r, readFmt(r)));
-      const id = getAttr(child, "id");
-      const url = id !== undefined ? rels.get(id) : undefined;
-      out.push(new Link({ content, target: { url: url ?? "" } }));
+/**
+ * Collects a paragraph's inlines, threading complex-field state
+ * (`w:fldChar` begin/separate/end, `w:instrText`) across runs: a field's
+ * instruction text is dropped and its result kept, as a link for HYPERLINK.
+ */
+class InlineCollector {
+  readonly out: Piece[] = [];
+  private readonly fields: Field[] = [];
+
+  constructor(private readonly rels: ReadonlyMap<string, string>) {}
+
+  push(piece: Piece): void {
+    const field = this.fields[this.fields.length - 1];
+    if (field === undefined) this.out.push(piece);
+    else if (field.phase === "result") field.result.push(piece);
+  }
+
+  private emitField(field: Field): void {
+    const url = hyperlinkField(field.instr);
+    const inlines = field.result.filter((x): x is Inline => x !== PAGE_BREAK);
+    if (url !== null) this.push(new Link({ content: inlines, target: { url } }));
+    else for (const x of field.result) this.push(x);
+  }
+
+  /** Close any field left open at the end of the paragraph. */
+  finish(): Piece[] {
+    while (this.fields.length > 0) this.emitField(this.fields.pop()!);
+    return this.out;
+  }
+
+  run(r: XmlElement): void {
+    const f = readFmt(r);
+    for (const child of r.children) {
+      switch (child.name) {
+        case "t":
+          this.push(wrap(new Str({ text: child.text }), f));
+          break;
+        case "br":
+          this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
+          break;
+        case "cr":
+          this.push(new LineBreak());
+          break;
+        case "tab":
+          this.push(wrap(new Str({ text: "\t" }), f));
+          break;
+        case "noBreakHyphen":
+          this.push(wrap(new Str({ text: "‑" }), f));
+          break;
+        case "softHyphen":
+          this.push(wrap(new Str({ text: "­" }), f));
+          break;
+        case "instrText": {
+          const field = this.fields[this.fields.length - 1];
+          if (field !== undefined && field.phase === "instr") field.instr += child.text;
+          break;
+        }
+        case "fldChar": {
+          const type = getAttr(child, "fldCharType");
+          if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
+          else if (type === "separate") {
+            const field = this.fields[this.fields.length - 1];
+            if (field !== undefined) field.phase = "result";
+          } else if (type === "end") {
+            const field = this.fields.pop();
+            if (field !== undefined) this.emitField(field);
+          }
+          break;
+        }
+      }
     }
   }
-  return out;
+
+  /** Paragraph-level content: runs and the containers that wrap them. */
+  content(parent: XmlElement): void {
+    for (const child of parent.children) {
+      switch (child.name) {
+        case "r":
+          this.run(child);
+          break;
+        // Tracked insertions, moves and wrappers whose runs are visible text.
+        case "ins": case "moveTo": case "smartTag": case "customXml":
+          this.content(child);
+          break;
+        case "sdt": {
+          const sdtContent = findChild(child, "sdtContent");
+          if (sdtContent !== undefined) this.content(sdtContent);
+          break;
+        }
+        case "hyperlink": {
+          const inner = new InlineCollector(this.rels);
+          inner.content(child);
+          const id = getAttr(child, "id");
+          const anchor = getAttr(child, "anchor");
+          const url =
+            id !== undefined ? this.rels.get(id) ?? "" : anchor !== undefined ? `#${anchor}` : "";
+          const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
+          this.push(new Link({ content, target: { url } }));
+          break;
+        }
+        case "fldSimple": {
+          const inner = new InlineCollector(this.rels);
+          inner.content(child);
+          const result = inner.finish();
+          const url = hyperlinkField(getAttr(child, "instr") ?? "");
+          if (url !== null) {
+            const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
+            this.push(new Link({ content, target: { url } }));
+          } else for (const x of result) this.push(x);
+          break;
+        }
+        // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+      }
+    }
+  }
+}
+
+/** A paragraph's inlines, split into segments at page breaks. */
+const paragraphSegments = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[][] => {
+  const collector = new InlineCollector(rels);
+  collector.content(p);
+  const segments: Inline[][] = [[]];
+  for (const piece of collector.finish()) {
+    if (piece === PAGE_BREAK) segments.push([]);
+    else segments[segments.length - 1]!.push(piece);
+  }
+  const nonEmpty = segments.filter((s) => s.length > 0);
+  return nonEmpty.length > 0 ? nonEmpty : [[]];
 };
+
+const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[] =>
+  paragraphSegments(p, rels).flat();
+
+// ============================================================================
+// Numbering
+// ============================================================================
+
+/** List kind and start number per (numId, ilvl), from `word/numbering.xml`. */
+interface Numbering {
+  readonly kind: (numId: string, ilvl: number) => "bullet" | "ordered";
+  readonly start: (numId: string, ilvl: number) => number;
+}
+
+const intAttr = (el: XmlElement | undefined, name: string): number | undefined => {
+  const v = el === undefined ? undefined : getAttr(el, name);
+  const n = v === undefined ? Number.NaN : Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const parseNumbering = (root: XmlElement | null): Numbering => {
+  const abstractFormats = new Map<string, Map<number, { fmt: string; start: number }>>();
+  const nums = new Map<string, { abstractId: string; starts: Map<number, number> }>();
+  if (root !== null) {
+    for (const abs of findChildren(root, "abstractNum")) {
+      const levels = new Map<number, { fmt: string; start: number }>();
+      for (const lvl of findChildren(abs, "lvl")) {
+        const numFmt = findChild(lvl, "numFmt");
+        levels.set(intAttr(lvl, "ilvl") ?? 0, {
+          fmt: numFmt === undefined ? "" : getAttr(numFmt, "val") ?? "",
+          start: intAttr(findChild(lvl, "start"), "val") ?? 1,
+        });
+      }
+      abstractFormats.set(getAttr(abs, "abstractNumId") ?? "", levels);
+    }
+    for (const num of findChildren(root, "num")) {
+      const abs = findChild(num, "abstractNumId");
+      const starts = new Map<number, number>();
+      for (const o of findChildren(num, "lvlOverride")) {
+        const start = intAttr(findChild(o, "startOverride"), "val");
+        if (start !== undefined) starts.set(intAttr(o, "ilvl") ?? 0, start);
+      }
+      nums.set(getAttr(num, "numId") ?? "", {
+        abstractId: abs === undefined ? "" : getAttr(abs, "val") ?? "",
+        starts,
+      });
+    }
+  }
+  const level = (numId: string, ilvl: number) =>
+    abstractFormats.get(nums.get(numId)?.abstractId ?? "")?.get(ilvl);
+  return {
+    start: (numId, ilvl) => nums.get(numId)?.starts.get(ilvl) ?? level(numId, ilvl)?.start ?? 1,
+    kind: (numId, ilvl) => {
+      const fmt = level(numId, ilvl)?.fmt;
+      if (fmt !== undefined) return fmt === "bullet" || fmt === "none" ? "bullet" : "ordered";
+      // Without a numbering part, fall back to this writer's old convention
+      // (numId 1 = bullets, 2 = numbered); an unknown definition is a bullet.
+      return root === null && numId === "2" ? "ordered" : "bullet";
+    },
+  };
+};
+
+// ============================================================================
+// Blocks
+// ============================================================================
+
+interface Ctx {
+  readonly rels: ReadonlyMap<string, string>;
+  readonly numbering: Numbering;
+}
 
 const paragraphStyle = (p: XmlElement): string | undefined => {
   const pPr = findChild(p, "pPr");
@@ -116,31 +322,36 @@ const paragraphStyle = (p: XmlElement): string | undefined => {
   return pStyle === undefined ? undefined : getAttr(pStyle, "val");
 };
 
-const listInfo = (p: XmlElement): { numId: string } | null => {
+/** A paragraph's list membership; `numId="0"` explicitly means "not a list". */
+const listInfo = (p: XmlElement): { numId: string; ilvl: number } | null => {
   const pPr = findChild(p, "pPr");
   if (pPr === undefined) return null;
   const numPr = findChild(pPr, "numPr");
   if (numPr === undefined) return null;
   const numIdEl = findChild(numPr, "numId");
-  return { numId: numIdEl === undefined ? "1" : getAttr(numIdEl, "val") ?? "1" };
+  const numId = numIdEl === undefined ? "1" : getAttr(numIdEl, "val") ?? "1";
+  if (numId === "0") return null;
+  const ilvlEl = findChild(numPr, "ilvl");
+  const ilvl = Number.parseInt(ilvlEl === undefined ? "0" : getAttr(ilvlEl, "val") ?? "0", 10);
+  return { numId, ilvl: Number.isFinite(ilvl) ? Math.min(Math.max(ilvl, 0), 8) : 0 };
 };
 
-const paragraphToBlock = (
-  p: XmlElement,
-  rels: ReadonlyMap<string, string>
-): Block => {
+const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   const style = paragraphStyle(p);
-  const inlines = paragraphInlines(p, rels);
+  const segments = paragraphSegments(p, ctx.rels);
+  if (style === "Code") {
+    return [new CodeBlock({ text: inlinesToText(segments.flat()) })];
+  }
   const heading = style?.match(/^Heading([1-6])$/);
-  if (heading) return new Header({ level: Number.parseInt(heading[1]!, 10), content: inlines });
-  return new Para({ content: inlines });
+  return segments.map((inlines, n) =>
+    heading && n === 0
+      ? new Header({ level: Number.parseInt(heading[1]!, 10), content: inlines })
+      : new Para({ content: inlines })
+  );
 };
 
 /** Thrown when tables nest deeper than the reader's `maxDepth`. */
 class NestingLimit extends Error {}
-
-const cellToBlocks = (tc: XmlElement, rels: ReadonlyMap<string, string>, depth: Depth): Block[] =>
-  bodyToBlocks(tc, rels, depth);
 
 /** The current block depth and the limit, threaded through nested tables. */
 interface Depth {
@@ -148,61 +359,103 @@ interface Depth {
   readonly max: number;
 }
 
-const tableToBlock = (tbl: XmlElement, rels: ReadonlyMap<string, string>, depth: Depth): Table => {
+/** A table's rows, including those wrapped in row-level content controls. */
+const tableRows = (tbl: XmlElement): XmlElement[] =>
+  tbl.children.flatMap((c) =>
+    c.name === "tr" ? [c]
+    : c.name === "sdt" ? tableRows(findChild(c, "sdtContent") ?? c)
+    : []
+  );
+
+/** A row's cells, including those wrapped in cell-level content controls. */
+const rowCells = (tr: XmlElement): XmlElement[] =>
+  tr.children.flatMap((c) =>
+    c.name === "tc" ? [c]
+    : c.name === "sdt" ? rowCells(findChild(c, "sdtContent") ?? c)
+    : []
+  );
+
+const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
   if (depth.level > depth.max) throw new NestingLimit();
   const inner: Depth = { level: depth.level + 1, max: depth.max };
   const head: TableRow[] = [];
   const body: TableRow[] = [];
-  for (const tr of findChildren(tbl, "tr")) {
+  for (const tr of tableRows(tbl)) {
     const trPr = findChild(tr, "trPr");
     const isHeader = trPr !== undefined && findChild(trPr, "tblHeader") !== undefined;
-    const cells = findChildren(tr, "tc").map(
-      (tc) => new TableCell({ content: cellToBlocks(tc, rels, inner) })
-    );
+    const cells = rowCells(tr).map((tc) => new TableCell({ content: bodyToBlocks(tc, ctx, inner) }));
     (isHeader ? head : body).push(new TableRow({ cells }));
   }
   return new Table({ colSpecs: [], head, body, foot: [] });
 };
 
-/** Convert an element's `w:p`/`w:tbl` children into blocks, grouping list items. */
-const bodyToBlocks = (
-  parent: XmlElement,
-  rels: ReadonlyMap<string, string>,
-  depth: Depth
-): Block[] => {
-  const out: Block[] = [];
-  let listItems: Block[][] = [];
-  let listKind: "bullet" | "ordered" | null = null;
+interface OpenList {
+  readonly kind: "bullet" | "ordered";
+  readonly numId: string;
+  readonly level: number;
+  readonly start: number;
+  readonly items: Block[][];
+}
 
-  const flushList = (): void => {
-    if (listKind === null || listItems.length === 0) return;
-    out.push(
-      listKind === "ordered"
-        ? new OrderedList({ items: listItems })
-        : new BulletList({ items: listItems })
-    );
-    listItems = [];
-    listKind = null;
+const listBlock = (l: OpenList): Block =>
+  l.kind === "ordered"
+    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items: l.items })
+    : new BulletList({ items: l.items });
+
+/**
+ * Convert an element's `w:p`/`w:tbl` children (and those of block-level
+ * content controls) into blocks, grouping list items into lists nested by
+ * `w:ilvl`.
+ */
+const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
+  const out: Block[] = [];
+  // The open lists, outermost first; a deeper ilvl nests inside the last item.
+  const open: OpenList[] = [];
+
+  const close = (): void => {
+    const list = open.pop()!;
+    const outer = open[open.length - 1];
+    if (outer === undefined) out.push(listBlock(list));
+    else if (outer.items.length === 0) outer.items.push([listBlock(list)]);
+    else outer.items[outer.items.length - 1]!.push(listBlock(list));
+  };
+  const closeAll = (): void => {
+    while (open.length > 0) close();
   };
 
-  for (const child of parent.children) {
-    if (child.name === "p") {
-      const li = listInfo(child);
-      if (li !== null) {
-        const kind: "bullet" | "ordered" = li.numId === "2" ? "ordered" : "bullet";
-        if (listKind !== null && listKind !== kind) flushList();
-        listKind = kind;
-        listItems.push([new Plain({ content: paragraphInlines(child, rels) })]);
-        continue;
+  const visit = (el: XmlElement): void => {
+    for (const child of el.children) {
+      if (child.name === "p") {
+        const li = listInfo(child);
+        if (li === null) {
+          closeAll();
+          out.push(...paragraphToBlocks(child, ctx));
+          continue;
+        }
+        const kind = ctx.numbering.kind(li.numId, li.ilvl);
+        while (open.length > 0 && open[open.length - 1]!.level > li.ilvl) close();
+        const top = open[open.length - 1];
+        // A different kind or numbering instance at the same level is a new list.
+        if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId)) close();
+        const current = open[open.length - 1];
+        if (current === undefined || current.level < li.ilvl) {
+          const start = ctx.numbering.start(li.numId, li.ilvl);
+          open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
+        }
+        open[open.length - 1]!.items.push([new Plain({ content: paragraphInlines(child, ctx.rels) })]);
+      } else if (child.name === "tbl") {
+        closeAll();
+        out.push(tableToBlock(child, ctx, depth));
+      } else if (child.name === "sdt") {
+        const sdtContent = findChild(child, "sdtContent");
+        if (sdtContent !== undefined) visit(sdtContent);
+      } else if (child.name === "ins" || child.name === "moveTo" || child.name === "customXml") {
+        visit(child);
       }
-      flushList();
-      out.push(paragraphToBlock(child, rels));
-    } else if (child.name === "tbl") {
-      flushList();
-      out.push(tableToBlock(child, rels, depth));
     }
-  }
-  flushList();
+  };
+  visit(parent);
+  closeAll();
   return out;
 };
 
@@ -218,12 +471,19 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
         const xml = pkg.text(docPath);
         if (xml === null) throw new Error(`missing document part: ${docPath}`);
         const rels = new Map<string, string>();
-        for (const r of pkg.rels(docPath)) rels.set(r.id, r.target);
+        let numberingPath: string | undefined;
+        for (const r of pkg.rels(docPath)) {
+          rels.set(r.id, r.target);
+          if (r.type.endsWith("/numbering")) numberingPath = r.target;
+        }
+        const numbering = parseNumbering(numberingPath === undefined ? null : pkg.xml(numberingPath));
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
         const blocks =
-          body === undefined ? [] : bodyToBlocks(body, rels, { level: 1, max: maxDepth });
+          body === undefined
+            ? []
+            : bodyToBlocks(body, { rels, numbering }, { level: 1, max: maxDepth });
         return trustAs<DocxFeature>(document(blocks));
       },
       catch: (cause) =>

@@ -163,8 +163,8 @@ describe("convert reports what a writer can't preserve (#109)", () => {
     expect(loss.entries.map((e) => e.feature)).toContain("cell.date");
   });
 
-  test("narrowing to DOCX reports the code block the writer can't round-trip", () => {
-    const { loss } = narrow(document([new CodeBlock({ text: "x" })]), Docx.format.writeProfile);
-    expect(loss.entries.map((e) => e.feature)).toContain("block.codeBlock");
+  test("narrowing to DOCX reports the rule the writer can't round-trip", () => {
+    const { loss } = narrow(document([new HorizontalRule()]), Docx.format.writeProfile);
+    expect(loss.entries.map((e) => e.feature)).toContain("block.horizontalRule");
   });
 });
