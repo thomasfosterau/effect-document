@@ -37,11 +37,12 @@ export type CsvFeature = FeaturesOf<typeof Csv>;
 /** How raw strings become typed values. The option names follow CSVW where it has one. */
 export interface CsvInferenceOptions {
   /**
-   * `cell` (the default): each value is inferred on its own, so a column may
-   * mix types. `column`: a column is numeric only if every non-null value in it
-   * is a number, and boolean only if every one is a boolean; otherwise the
-   * whole column is text. Without `treatFirstRowAsHeader` the header row counts
-   * as data, so its names make every column text.
+   * `column` (the default): a column is numeric only if every non-null value
+   * in it is a number, and boolean only if every one is a boolean; otherwise
+   * the whole column is text, so a stray code such as `007` keeps its column's
+   * other values as written too. `cell`: each value is inferred on its own, so
+   * a column may mix types. With `treatFirstRowAsHeader: false` the first row
+   * counts as data, so a row of names makes every column text.
    */
   readonly inference?: "column" | "cell" | undefined;
   /**
@@ -78,7 +79,7 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
    * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`) whose digits a double holds exactly,
    * so codes such as `007`, `0x1F`, `+1` and 20-digit IDs stay text. Numbers
    * still lose their written form: `1.10` reads as 1.1 and `1e3` as 1000.
-   * Without `treatFirstRowAsHeader`, a numeric header row is read as numbers.
+   * With `treatFirstRowAsHeader: false`, a numeric first row is read as numbers.
    */
   readonly inferTypes?: boolean | undefined;
   /** Name of the produced worksheet (defaults to "Sheet1"). */
@@ -157,7 +158,7 @@ const inferRows = (
   classify: (raw: string) => Inferred,
 ): Array<Array<SheetCell>> => {
   const values = rows.map((row) => row.map(classify));
-  if (options.inference !== "column")
+  if (options.inference === "cell")
     return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
   // each column's type, from its non-null values (undefined while it has none)
   const columns: Array<"number" | "boolean" | "text" | undefined> = [];
