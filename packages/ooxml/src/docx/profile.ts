@@ -1,11 +1,12 @@
 /**
  * The DOCX profile: a rich prose subset of the schema - headings, paragraphs,
  * ordered/bullet lists and tables, with the common inline formatting plus
- * links. (No spreadsheets or slides.)
+ * links, plus code blocks (a `Code`-styled paragraph). (No spreadsheets or
+ * slides.)
  *
  * Following the profile policy (#109), it holds only what survives
  * `read(write(doc))`. The writer also renders block quotes, divs and line
- * blocks (flattened), code blocks, rules, inline code and quotations, but
+ * blocks (flattened), rules, inline code and quotations (as marks), but
  * they don't read back as such, so converting to DOCX narrows them with a
  * loss report until they round-trip.
  */
@@ -18,6 +19,7 @@ export const docxFeatures = [
   "block.header",
   "block.bulletList",
   "block.orderedList",
+  "block.codeBlock",
   "block.table",
   "inline.str",
   "inline.space",
