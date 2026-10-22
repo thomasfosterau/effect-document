@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Result, Stream, pipe } from "effect";
-import { cell, document, text, Worksheet, worksheet } from "@thomasfosterau/effect-document";
+import { cell, document, type SheetCell, SheetRow, text, Worksheet, worksheet } from "@thomasfosterau/effect-document";
 import {
-  type CsvReaderOptions, StandardDialect, TsvDialect, inferCell, makeCsvReader, makeCsvWriter, scanCsv,
-  scanCsvStream, synthesizeDocument,
+  type CsvReaderOptions, type CsvWriterOptions, Rfc4180Dialect, StandardDialect, TsvDialect, formatCsvNumber,
+  inferCell, makeCsvReader, makeCsvWriter, renderCsvStream, renderTable, scanCsv, scanCsvStream,
+  synthesizeDocument,
 } from "../src/index.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -262,6 +263,71 @@ describe("CSV writer", () => {
     const doc = await run(makeCsvReader().read(text('a,"b,c"\n')));
     const out = await run(makeCsvWriter().write(doc));
     if (out._tag === "Text") expect(out.text).toBe('a,"b,c"\n');
+  });
+
+  const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) => document([worksheet("Sheet1", rows)]) as never;
+  const written = async (rows: ReadonlyArray<ReadonlyArray<SheetCell>>, options?: CsvWriterOptions) => {
+    const out = await run(makeCsvWriter(options).write(sheet(rows)));
+    return out._tag === "Text" ? out.text : "";
+  };
+
+  test("keeps rows holding a single blank cell", async () => {
+    const rows = ["a", "", "b", "", "c"].map((v) => [v === "" ? cell.blank() : cell.text(v)]);
+    const out = await written(rows);
+    expect(out).toBe('a\n""\nb\n""\nc\n');
+    expect(firstWorksheet(await run(makeCsvReader().read(text(out)))).rows).toHaveLength(5);
+    expect(renderTable([["a"], [""]])).toBe('a\n""\n');
+  });
+
+  test("writes numbers as shortest round-trip decimals", async () => {
+    expect([1e21, -1.5e-7, 0.1, 123.456, -0, 2 ** 70].map(formatCsvNumber)).toEqual([
+      "1000000000000000000000", "-0.00000015", "0.1", "123.456", "0", "1180591620717411300000",
+    ]);
+    expect(await written([[cell.number(1e21)]])).toBe("1000000000000000000000\n");
+    expect(await written([[cell.number(1.5)]], { formatNumber: (n) => n.toFixed(2) })).toBe("1.50\n");
+  });
+
+  test("quotes fields with edge whitespace or a leading comment marker", async () => {
+    const row = [cell.text(" a"), cell.text("b "), cell.text("#c"), cell.text("d#")];
+    expect(await written([row])).toBe('" a","b ",#c,d#\n');
+    expect(await written([row], { lineCommentMarker: "#" })).toBe('" a","b ","#c",d#\n');
+  });
+
+  test("escapeFormulae prefixes and quotes formula-like text", async () => {
+    const row = [cell.text("=HYPERLINK(\"x\")"), cell.text("+1"), cell.text("-a"), cell.text("@b"), cell.text("\tc"), cell.number(-1), cell.text("ok")];
+    expect(await written([row])).toBe('"=HYPERLINK(""x"")",+1,-a,@b,"\tc",-1,ok\n');
+    expect(await written([row], { escapeFormulae: true })).toBe(
+      `"'=HYPERLINK(""x"")","'+1","'-a","'@b","'\tc",-1,ok\n`
+    );
+  });
+
+  test("quoting modes", async () => {
+    const row = [cell.text("a"), cell.number(1), cell.boolean(true), cell.blank()];
+    expect(await written([row], { quoting: "all" })).toBe('"a","1","true",""\n');
+    expect(await written([row], { quoting: "nonNumeric" })).toBe('"a",1,"true",""\n');
+    expect(await written([row], { quoting: "none" })).toBe("a,1,true,\n");
+    const r = await Effect.runPromise(Effect.result(makeCsvWriter({ quoting: "none" }).write(sheet([[cell.text("a,b")]]))));
+    expect(Result.isFailure(r) && r.failure.reason).toBe("Row 0 has a field that needs quotes and cannot be written without quoting");
+  });
+
+  test("line breaks come from the dialect", async () => {
+    expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe("a\r\nb\r\n");
+  });
+
+  test("bom, headers and padRows", async () => {
+    const rows = [[cell.text("a")], [cell.text("b"), cell.text("c"), cell.text("d")]];
+    expect(await written(rows, { bom: true, headers: ["x", "y"], padRows: true })).toBe("﻿x,y,\na,,\nb,c,d\n");
+    expect(await written([], { headers: ["x"] })).toBe("x\n");
+  });
+
+  test("renderCsvStream emits a chunk per row", async () => {
+    const rows = [[cell.text("a"), cell.number(1e21)], [cell.blank()], [cell.text("b,c")]];
+    const options: CsvWriterOptions = { headers: ["x", "y"], padRows: true, bom: true };
+    const chunks = await run(
+      Stream.runCollect(renderCsvStream(Stream.fromIterable(rows.map((cells) => new SheetRow({ cells }))), options))
+    );
+    expect([...chunks]).toEqual(["﻿", "x,y\n", "a,1000000000000000000000\n", ",\n", '"b,c",\n']);
+    expect([...chunks].join("")).toBe(await written(rows, options));
   });
 });
 
