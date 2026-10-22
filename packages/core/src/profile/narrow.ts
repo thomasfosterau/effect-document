@@ -11,7 +11,7 @@
  */
 
 import { Effect } from "effect";
-import { type Attributes } from "../schema/attributes.js";
+import { type Attributes } from "../schema/attributes.ts";
 import {
   type Block, BlockQuote, BulletList, CellBlank, CellBoolean, CellDate, CellError,
   CellFormula, CellNumber, CellRichText, CellText, Cite, Citation, Code, Div, Emph,
@@ -19,10 +19,10 @@ import {
   Placeholder, Plain, Quoted, RawInline, type SheetCell, type Shape, SheetColumn,
   SheetRow, Slide, SlideShow, SmallCaps, Span, Str, Strikeout, Strong, Subscript,
   Superscript, Table, TableCell, TableRow, TableShape, TextBox, Underline, Worksheet,
-} from "../schema/ast.js";
-import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.js";
-import { type Feature } from "../schema/feature.js";
-import { type Doc, type Profile } from "./profile.js";
+} from "../schema/ast.ts";
+import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
+import { type Feature } from "../schema/feature.ts";
+import { type Doc, type Profile } from "./profile.ts";
 
 // ============================================================================
 // Loss report

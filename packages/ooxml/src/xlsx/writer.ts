@@ -11,11 +11,11 @@ import {
   bytes, type Content, type Doc, makeWriterTag, type Worksheet, WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
-import { Xlsx, type XlsxFeature } from "./profile.js";
-import { toA1 } from "./a1.js";
-import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.js";
-import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.js";
-import { escapeAttr } from "./xml.js";
+import { Xlsx, type XlsxFeature } from "./profile.ts";
+import { toA1 } from "./a1.ts";
+import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
+import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
+import { escapeAttr } from "./xml.ts";
 
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -195,7 +195,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
 
 export interface XlsxWriterOptions {
   /** Zip compression level 0-9 (defaults to 6). */
-  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
 
 /** Create an XLSX Writer with the given options baked in. */

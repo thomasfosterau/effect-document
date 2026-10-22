@@ -1,14 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect, Result } from "effect";
 import { zipSync } from "fflate";
 import { blocksToText, bytes, type ParseError, type SlideShow } from "@thomasfosterau/effect-document";
-import { compareComponentPaths, openBundle } from "../src/bundle.js";
-import type { IworkError } from "../src/errors.js";
-import { chunk } from "../src/iwa.js";
-import * as Keynote from "../src/keynote.js";
-import * as Numbers from "../src/numbers.js";
-import * as Pages from "../src/pages.js";
-import { lenField, record, varintField } from "./encode.js";
+import { compareComponentPaths, openBundle } from "../src/bundle.ts";
+import type { IworkError } from "../src/errors.ts";
+import { chunk } from "../src/iwa.ts";
+import * as Keynote from "../src/keynote.ts";
+import * as Numbers from "../src/numbers.ts";
+import * as Pages from "../src/pages.ts";
+import { lenField, record, varintField } from "./encode.ts";
 
 const utf8 = (s: string): number[] => Array.from(new TextEncoder().encode(s));
 

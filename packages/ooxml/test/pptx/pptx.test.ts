@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
-import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import {
   blocksToText, bulletList, bytes, document, header, orderedList, Placeholder, type FeaturesOf, para, plainText, slide, type Slide,
   slideShow, str, strong, textBox, trustAs,
 } from "@thomasfosterau/effect-document";
-import { Pptx, makePptxReader, makePptxWriter } from "../../src/pptx/index.js";
+import { Pptx, makePptxReader, makePptxWriter } from "../../src/pptx/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type PptxF = FeaturesOf<typeof Pptx>;

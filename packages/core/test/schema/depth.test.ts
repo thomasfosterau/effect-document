@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import {
   type Block, BlockQuote, Emph, type Inline, blocksNestingDepth, blocksToText, cellToText,
   collectFeatures, document, inlinesToText, limitNestingDepth, narrow, nestingDepth, para,
   Profiles, Str, table, TableShape, textBox, slide, slideShow, CellRichText,
   DEFAULT_MAX_NESTING_DEPTH,
-} from "../../src/index.js";
+} from "../../src/index.ts";
 
 const DEEP = 20_000;
 

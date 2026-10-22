@@ -1,12 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import { blocksToText, bytes, document, para, str, trustAs } from "@thomasfosterau/effect-document";
-import { type PdfFeature, makePdfReader, makePdfWriter } from "../src/index.js";
+import { type PdfFeature, makePdfReader, makePdfWriter } from "../src/index.ts";
 import {
   PdfBuilder, PdfFile, type PdfObject, type PdfStream, applyFilter, bytesToLatin1, decodeFilters, flateEncode,
   isDict, isStream, latin1ToBytes, parseContentStream, parseObject, pdfArray, pdfDict, pdfName, pdfRef, pdfStream,
   pdfString, pdfTextString, rewritePdf, serializeObject,
-} from "../src/cos/index.js";
+} from "../src/cos/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const enc = latin1ToBytes;

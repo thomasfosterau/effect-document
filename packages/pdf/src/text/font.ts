@@ -10,12 +10,12 @@
  * and descriptor.
  */
 
-import type { PdfFile } from "../cos/file.js";
-import { type PdfDict, type PdfObject, isArray, isName, isStream } from "../cos/objects.js";
-import { CMap, parseCMap } from "./cmap.js";
+import type { PdfFile } from "../cos/file.ts";
+import { type PdfDict, type PdfObject, isArray, isName, isStream } from "../cos/objects.ts";
+import { CMap, parseCMap } from "./cmap.ts";
 import {
   type BaseEncodingName, baseEncoding, glyphToUnicode, isBaseEncodingName, standardFont, standardWidths,
-} from "./encodings.js";
+} from "./encodings.ts";
 
 /** One decoded character code. */
 export interface Glyph {

@@ -4,7 +4,7 @@
  * conventions), standard-14 font metrics, and text strings (§7.9.2.2).
  */
 
-import { ENCODING_NAMES, GLYPH_LIST, STANDARD_WIDTHS } from "./data.js";
+import { ENCODING_NAMES, GLYPH_LIST, STANDARD_WIDTHS } from "./data.ts";
 
 /** A base encoding's name. */
 export type BaseEncodingName = keyof typeof ENCODING_NAMES;

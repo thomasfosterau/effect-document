@@ -18,13 +18,13 @@ import {
   cell, type Content, contentToBytes, type Doc, document, makeReaderTag,
   ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { parseA1, parseA1Range } from "./a1.js";
-import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
-import { translateFormula } from "./formula.js";
-import { type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.js";
-import { findChild, findChildren, getAttr, type XmlElement } from "./xml.js";
+import { parseA1, parseA1Range } from "./a1.ts";
+import { collectText, spreadsheetMlToCell } from "./cellTypes.ts";
+import { translateFormula } from "./formula.ts";
+import { type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
+import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
-import { XlsxRead, type XlsxReadFeature } from "./profile.js";
+import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
 /** @deprecated The reader's features are now {@link XlsxReadFeature}. */
 export type SpreadsheetFeature = XlsxReadFeature;
@@ -46,9 +46,9 @@ export interface XlsxReaderOptions {
    * A sheet whose populated extent is larger fails the read with a ParseError
    * instead of exhausting memory. Defaults to {@link DEFAULT_MAX_CELLS}.
    */
-  readonly maxCells?: number;
+  readonly maxCells?: number | undefined;
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
 }
 
 /** Main-part content types of spreadsheet packages (workbook, macro-enabled, template). */

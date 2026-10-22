@@ -9,7 +9,7 @@ import {
   CellNumber, CellRichText, CellText, CodeBlock, ColSpec, Emph, Header, type Inline, Link,
   OrderedList, Para, Plain, type SheetCell, SheetRow, Slide, SlideShow,
   type Shape, Str, Strong, Table, TableCell, TableRow, TextBox, Worksheet,
-} from "./ast.js";
+} from "./ast.ts";
 
 // ============================================================================
 // Document
@@ -59,8 +59,8 @@ export const orderedList = (items: ReadonlyArray<ReadonlyArray<Block>>): Ordered
 
 /** A prose table from header strings and a grid of block-cell content. */
 export const table = (options: {
-  readonly caption?: ReadonlyArray<Inline>;
-  readonly headers?: ReadonlyArray<string>;
+  readonly caption?: ReadonlyArray<Inline> | undefined;
+  readonly headers?: ReadonlyArray<string> | undefined;
   readonly rows: ReadonlyArray<ReadonlyArray<ReadonlyArray<Block>>>;
 }): Table => {
   const colCount = Math.max(
@@ -162,7 +162,6 @@ type TextPart =
   | { readonly c: SheetCell };
 
 const inlineParts = (inlines: ReadonlyArray<Inline>): TextPart[] => inlines.map((i) => ({ i }));
-const blockParts = (blocks: ReadonlyArray<Block>): TextPart[] => blocks.map((b) => ({ b }));
 
 /** `groups` joined by `sep`, like `groups.map(toText).join(sep)`. */
 const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string): TextPart[] => {

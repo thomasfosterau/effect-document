@@ -15,7 +15,7 @@ import {
   text, type Worksheet, WriteError, type Writer,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
-import { StandardDialect, type CsvDialect } from "./dialect.js";
+import { StandardDialect, type CsvDialect } from "./dialect.ts";
 
 type CsvFeature = FeaturesOf<typeof Csv>;
 
@@ -30,16 +30,16 @@ export type CsvQuoting = "minimal" | "all" | "nonNumeric" | "none";
 
 export interface CsvWriterOptions {
   /** The CSV dialect to render with (defaults to StandardDialect). */
-  readonly dialect?: CsvDialect;
+  readonly dialect?: CsvDialect | undefined;
   /** When to quote fields (defaults to `minimal`). */
-  readonly quoting?: CsvQuoting;
+  readonly quoting?: CsvQuoting | undefined;
   /** Render number cells (defaults to {@link formatCsvNumber}). */
   readonly formatNumber?: (value: number) => string;
   /**
    * Quote fields that start with this marker, so a reader with the same
    * `lineCommentMarker` doesn't skip their row as a comment.
    */
-  readonly lineCommentMarker?: string;
+  readonly lineCommentMarker?: string | undefined;
   /**
    * Guard against CSV (formula) injection: prefix `'` to non-number fields that
    * start with `=`, `+`, `-`, `@`, a tab or a CR, and quote them. Spreadsheet
@@ -48,16 +48,16 @@ export interface CsvWriterOptions {
    * open in Excel, Numbers or Google Sheets. It changes the values, so leave it
    * off for files read by programs. Off by default.
    */
-  readonly escapeFormulae?: boolean;
+  readonly escapeFormulae?: boolean | undefined;
   /** Start the output with a byte order mark, which Excel needs to detect UTF-8. */
-  readonly bom?: boolean;
+  readonly bom?: boolean | undefined;
   /** A header row to write before the worksheet's rows. */
-  readonly headers?: ReadonlyArray<string>;
+  readonly headers?: ReadonlyArray<string> | undefined;
   /**
    * Pad short rows with empty fields. A table is padded to its widest row; a
    * stream to the header row, or to its first row without headers.
    */
-  readonly padRows?: boolean;
+  readonly padRows?: boolean | undefined;
 }
 
 // ============================================================================

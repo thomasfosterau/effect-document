@@ -6,18 +6,18 @@
 
 import { Effect, Result } from "effect";
 import { type Content, contentToBytes, ParseError } from "@thomasfosterau/effect-document";
-import type { IworkObject } from "./archive.js";
-import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.js";
-import { type IworkError, isIworkError, withLocation } from "./errors.js";
+import type { IworkObject } from "./archive.ts";
+import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.ts";
+import { type IworkError, isIworkError, withLocation } from "./errors.ts";
 
 export interface IworkReaderOptions {
   /**
    * Skip a component that fails to decode, logging a warning
    * (`Effect.logWarning`), instead of failing the whole read. Defaults to false.
    */
-  readonly lenient?: boolean;
+  readonly lenient?: boolean | undefined;
   /** Zip-bomb limits for opening the bundle (see `BundleLimits`). */
-  readonly limits?: BundleLimits;
+  readonly limits?: BundleLimits | undefined;
 }
 
 /** An `IworkError` as a reader's `ParseError`; the message names the component, object and offset. */

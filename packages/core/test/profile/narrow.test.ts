@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import {
   cell, document, header, para, str, strong, worksheet, blocksToText,
   SheetColumn, SheetRow, Worksheet,
-} from "../../src/schema/index.js";
-import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.js";
+} from "../../src/schema/index.ts";
+import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.ts";
 
 describe("widen", () => {
   test("is an identity at runtime", () => {

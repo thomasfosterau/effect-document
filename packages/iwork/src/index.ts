@@ -6,7 +6,7 @@
  * `/numbers`, `/keynote`), and the codec on `/codec`.
  */
 
-export * as Pages from "./pages.js";
-export * as Numbers from "./numbers.js";
-export * as Keynote from "./keynote.js";
-export * as Codec from "./codec.js";
+export * as Pages from "./pages.ts";
+export * as Numbers from "./numbers.ts";
+export * as Keynote from "./keynote.ts";
+export * as Codec from "./codec.ts";

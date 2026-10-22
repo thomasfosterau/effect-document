@@ -13,8 +13,8 @@ import {
   type ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
-import { StandardDialect, type CsvDialect } from "./dialect.js";
-import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.js";
+import { StandardDialect, type CsvDialect } from "./dialect.ts";
+import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.ts";
 
 export type CsvFeature = FeaturesOf<typeof Csv>;
 
@@ -27,30 +27,30 @@ export interface CsvInferenceOptions {
    * whole column is text. Without `treatFirstRowAsHeader` the header row counts
    * as data, so its names make every column text.
    */
-  readonly inference?: "column" | "cell";
+  readonly inference?: "column" | "cell" | undefined;
   /**
    * The spellings of true and false, matched case-insensitively unless
    * `booleansCaseSensitive` is set (defaults to `["true", "false"]`). `false`
    * turns boolean inference off.
    */
-  readonly booleans?: readonly [truthy: string, falsy: string] | false;
-  readonly booleansCaseSensitive?: boolean;
+  readonly booleans?: readonly [truthy: string, falsy: string] | false | undefined;
+  readonly booleansCaseSensitive?: boolean | undefined;
   /** The decimal separator of numbers (defaults to "."). */
-  readonly decimalChar?: string;
+  readonly decimalChar?: string | undefined;
   /**
    * The digit-group separator of numbers, such as "," for `1,234.56` (none by
    * default). Groups must be three digits; ungrouped numbers still parse.
    */
-  readonly groupChar?: string;
+  readonly groupChar?: string | undefined;
   /** Read a trailing `%` as a percentage: `12%` becomes 0.12. Off by default. */
-  readonly percent?: boolean;
+  readonly percent?: boolean | undefined;
   /** Values read as blank cells, matched exactly (defaults to `[""]`). */
-  readonly nullValues?: ReadonlyArray<string>;
+  readonly nullValues?: ReadonlyArray<string> | undefined;
 }
 
 export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
   /** The CSV dialect to parse with (defaults to StandardDialect). */
-  readonly dialect?: CsvDialect;
+  readonly dialect?: CsvDialect | undefined;
   /**
    * Infer cell types from string values: numbers, booleans and null values
    * (-> blank cells), shaped by the {@link CsvInferenceOptions}. Set to false to
@@ -63,9 +63,9 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
    * still lose their written form: `1.10` reads as 1.1 and `1e3` as 1000.
    * Without `treatFirstRowAsHeader`, a numeric header row is read as numbers.
    */
-  readonly inferTypes?: boolean;
+  readonly inferTypes?: boolean | undefined;
   /** Name of the produced worksheet (defaults to "Sheet1"). */
-  readonly sheetName?: string;
+  readonly sheetName?: string | undefined;
 }
 
 // ============================================================================

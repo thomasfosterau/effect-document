@@ -5,12 +5,12 @@
  */
 
 import { Context, Effect, type Stream } from "effect";
-import { type Doc, type Profile } from "../profile/profile.js";
-import { DEFAULT_MAX_NESTING_DEPTH, nestingDepth } from "../schema/depth.js";
-import type { Document } from "../schema/document.js";
-import type { Feature } from "../schema/feature.js";
-import { ParseError } from "./errors.js";
-import type { Content } from "./content.js";
+import { type Doc, type Profile } from "../profile/profile.ts";
+import { DEFAULT_MAX_NESTING_DEPTH, nestingDepth } from "../schema/depth.ts";
+import type { Document } from "../schema/document.ts";
+import type { Feature } from "../schema/feature.ts";
+import { ParseError } from "./errors.ts";
+import type { Content } from "./content.ts";
 
 export interface Reader<F extends Feature> {
   /** The format this reader parses (e.g. "csv", "xlsx"). */

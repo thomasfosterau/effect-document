@@ -9,7 +9,7 @@
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ParseError as XmlSyntaxError } from "@thomasfosterau/effect-parse";
 import { Result } from "effect";
-import { findChildren, getAttr, parseXmlResult, type XmlElement } from "./xml.js";
+import { findChildren, getAttr, parseXmlResult, type XmlElement } from "./xml.ts";
 
 /** A resolved relationship from a `.rels` file. */
 export interface Relationship {
@@ -71,21 +71,23 @@ export const DEFAULT_OPC_LIMITS: OpcLimits = {
 
 /** A package that breaks a resource limit or isn't the expected kind of package. */
 export class OpcError extends Error {
-  constructor(
-    readonly kind: "LimitExceeded" | "WrongPackageType",
-    message: string
-  ) {
+  readonly kind: "LimitExceeded" | "WrongPackageType";
+
+  constructor(kind: "LimitExceeded" | "WrongPackageType", message: string) {
     super(message);
+    this.kind = kind;
   }
 }
 
 /** A part whose XML is malformed, with the parser's positioned error. */
 export class XmlPartError extends Error {
-  constructor(
-    readonly part: string,
-    readonly failure: XmlSyntaxError.ParseError<string>
-  ) {
+  readonly part: string;
+  readonly failure: XmlSyntaxError.ParseError<string>;
+
+  constructor(part: string, failure: XmlSyntaxError.ParseError<string>) {
     super(`malformed XML in /${part}: ${failure.message}`);
+    this.part = part;
+    this.failure = failure;
   }
 }
 
@@ -130,7 +132,10 @@ export class OpcReader {
   private inflated = 0;
   private contentTypes: { defaults: Map<string, string>; overrides: Map<string, string> } | null | undefined;
 
-  constructor(private readonly data: Uint8Array, limits?: Partial<OpcLimits>) {
+  private readonly data: Uint8Array;
+
+  constructor(data: Uint8Array, limits?: Partial<OpcLimits>) {
+    this.data = data;
     this.limits = { ...DEFAULT_OPC_LIMITS, ...limits };
     // List the central directory without inflating anything.
     unzipSync(data, {

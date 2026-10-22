@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@thomasfosterau/effect-iwork": [
+        "./src/index.ts"
+      ],
+      "@thomasfosterau/effect-iwork/pages": [
+        "./src/pages.ts"
+      ],
+      "@thomasfosterau/effect-iwork/numbers": [
+        "./src/numbers.ts"
+      ],
+      "@thomasfosterau/effect-iwork/keynote": [
+        "./src/keynote.ts"
+      ],
+      "@thomasfosterau/effect-iwork/codec": [
+        "./src/codec.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

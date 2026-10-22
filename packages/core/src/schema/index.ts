@@ -4,8 +4,8 @@
  * profile/subset system is built on.
  */
 
-export * from "./feature.js";
-export * from "./attributes.js";
-export * from "./ast.js";
-export * from "./document.js";
-export * from "./depth.js";
+export * from "./feature.ts";
+export * from "./attributes.ts";
+export * from "./ast.ts";
+export * from "./document.ts";
+export * from "./depth.ts";

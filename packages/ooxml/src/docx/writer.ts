@@ -16,8 +16,8 @@ import {
 } from "@thomasfosterau/effect-document";
 import {
   NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts,
-} from "../shared/index.js";
-import { Docx, type DocxFeature } from "./profile.js";
+} from "../shared/index.ts";
+import { Docx, type DocxFeature } from "./profile.ts";
 
 const NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
@@ -45,12 +45,12 @@ const MAX_ILVL = 8;
 // ============================================================================
 
 interface Fmt {
-  b?: boolean;
-  i?: boolean;
-  u?: boolean;
-  strike?: boolean;
-  vert?: "superscript" | "subscript";
-  caps?: boolean;
+  b?: boolean | undefined;
+  i?: boolean | undefined;
+  u?: boolean | undefined;
+  strike?: boolean | undefined;
+  vert?: "superscript" | "subscript" | undefined;
+  caps?: boolean | undefined;
 }
 
 /** Collects hyperlink relationships and ordered-list numbering while rendering. */
@@ -300,7 +300,7 @@ const documentRelsXml = (rel: RelCollector): string =>
 // ============================================================================
 
 export interface DocxWriterOptions {
-  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
 
 /** Create a DOCX Writer. */

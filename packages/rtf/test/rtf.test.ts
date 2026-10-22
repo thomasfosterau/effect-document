@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import {
   type Block, blocksToText, bytes, type Content, contentToText, document, emph, type FeaturesOf,
   header, para, str, strong, text, trustAs,
 } from "@thomasfosterau/effect-document";
-import { Rtf, makeRtfReader, makeRtfWriter, type RtfWriterOptions } from "../src/index.js";
+import { Rtf, makeRtfReader, makeRtfWriter, type RtfWriterOptions } from "../src/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type RtfF = FeaturesOf<typeof Rtf>;

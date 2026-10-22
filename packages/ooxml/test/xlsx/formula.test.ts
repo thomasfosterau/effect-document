@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { translateFormula } from "../../src/xlsx/formula.js";
+import { describe, expect, test } from "vite-plus/test";
+import { translateFormula } from "../../src/xlsx/formula.ts";
 
 describe("translateFormula", () => {
   test("shifts relative parts and keeps $-anchored ones", () => {

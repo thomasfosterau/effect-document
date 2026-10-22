@@ -16,12 +16,12 @@ import {
   type Content, type Doc, document, limitNestingDepth, makeReaderTag, type Meta, ParseError,
   type Reader, trustAs,
 } from "@thomasfosterau/effect-document";
-import { PdfFile } from "./cos/file.js";
-import { isString, latin1ToBytes } from "./cos/objects.js";
-import { decodeTextString } from "./text/encodings.js";
-import { type PageText, extractPageText } from "./text/extract.js";
-import { layoutBlocks } from "./text/layout.js";
-import { Pdf, type PdfFeature } from "./profile.js";
+import { PdfFile } from "./cos/file.ts";
+import { isString, latin1ToBytes } from "./cos/objects.ts";
+import { decodeTextString } from "./text/encodings.ts";
+import { type PageText, extractPageText } from "./text/extract.ts";
+import { layoutBlocks } from "./text/layout.ts";
+import { Pdf, type PdfFeature } from "./profile.ts";
 
 /** PDF bytes from content; text is taken one byte per character (Latin-1). */
 export const pdfBytes = (input: Content): Uint8Array =>
@@ -67,7 +67,7 @@ export interface PdfReaderOptions {
    * failing with a `"LimitExceeded"` ParseError. Defaults to
    * `DEFAULT_MAX_NESTING_DEPTH` (1000).
    */
-  readonly maxDepth?: number;
+  readonly maxDepth?: number | undefined;
 }
 
 /** Create a PDF Reader. */

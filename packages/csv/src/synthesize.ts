@@ -14,8 +14,8 @@ type CsvFeature = FeaturesOf<typeof Csv>;
 export interface SynthesisSpec {
   readonly columns: ReadonlyArray<string> | number;
   readonly quantity: number;
-  readonly seed?: number;
-  readonly fieldLengthRange?: readonly [number, number];
+  readonly seed?: number | undefined;
+  readonly fieldLengthRange?: readonly [number, number] | undefined;
 }
 
 /** The raw result of synthesis: headers plus rows of string fields. */

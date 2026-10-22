@@ -7,17 +7,17 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Pdf, type PdfFeature, PdfWrite, type PdfWriteFeature } from "./profile.js";
-import { makePdfReader } from "./reader.js";
-import { makePdfWriter } from "./writer.js";
+import { Pdf, type PdfFeature, PdfWrite, type PdfWriteFeature } from "./profile.ts";
+import { makePdfReader } from "./reader.ts";
+import { makePdfWriter } from "./writer.ts";
 
-export * from "./profile.js";
-export * from "./reader.js";
-export * from "./writer.js";
-export { decodeTextString, glyphToUnicode } from "./text/encodings.js";
-export { type PageLink, type PageText, type TextGlyph, extractPageText } from "./text/extract.js";
-export { type Glyph, type PdfFont, loadFont } from "./text/font.js";
-export { layoutBlocks } from "./text/layout.js";
+export * from "./profile.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
+export { decodeTextString, glyphToUnicode } from "./text/encodings.ts";
+export { type PageLink, type PageText, type TextGlyph, extractPageText } from "./text/extract.ts";
+export { type Glyph, type PdfFont, loadFont } from "./text/font.ts";
+export { layoutBlocks } from "./text/layout.ts";
 
 /** The PDF profile. */
 export const profile = Pdf;

@@ -13,12 +13,12 @@ import {
   type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
   makeReaderTag, Para, type ParseError, type Reader, Slide, SlideShow, Str, TextBox, trustAs,
 } from "@thomasfosterau/effect-document";
-import { componentPaths } from "./bundle.js";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
-import { TSWP_STORAGE_ARCHIVE } from "./registry.js";
-import { storageParagraphs } from "./text.js";
+import { componentPaths } from "./bundle.ts";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
+import { storageParagraphs } from "./text.ts";
 
-export type { IworkReaderOptions } from "./read.js";
+export type { IworkReaderOptions } from "./read.ts";
 
 export const keynoteFeatures = [
   "deck.slideShow",

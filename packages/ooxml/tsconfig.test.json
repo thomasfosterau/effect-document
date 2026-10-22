@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@thomasfosterau/effect-ooxml": [
+        "./src/index.ts"
+      ],
+      "@thomasfosterau/effect-ooxml/xlsx": [
+        "./src/xlsx/index.ts"
+      ],
+      "@thomasfosterau/effect-ooxml/docx": [
+        "./src/docx/index.ts"
+      ],
+      "@thomasfosterau/effect-ooxml/pptx": [
+        "./src/pptx/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

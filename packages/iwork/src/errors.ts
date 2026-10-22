@@ -34,12 +34,12 @@ export class IworkError extends Data.TaggedError("IworkError")<{
   /** What went wrong, without the location (see `message` for both). */
   readonly detail: string;
   /** The component (e.g. "Index/Document.iwa") being decoded. */
-  readonly component?: string;
+  readonly component?: string | undefined;
   /** The archived object being decoded. */
-  readonly objectId?: bigint;
+  readonly objectId?: bigint | undefined;
   /** The byte offset of the problem, relative to the innermost input decoded. */
-  readonly offset?: number;
-  readonly cause?: unknown;
+  readonly offset?: number | undefined;
+  readonly cause?: unknown | undefined;
 }> {
   override get message(): string {
     const where: string[] = [];

@@ -4,7 +4,7 @@
  * constant; only the slides and the presentation/relationship parts vary.
  */
 
-import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL } from "../shared/index.js";
+import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL } from "../shared/index.ts";
 
 export const NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main";
 export const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";

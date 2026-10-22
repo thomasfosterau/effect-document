@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect, Result, Schema } from "effect";
 import {
   cell, document, header, para, str, strong, worksheet,
-} from "../../src/schema/index.js";
+} from "../../src/schema/index.ts";
 import {
   Profiles, collectFeatures, defineProfile,
-} from "../../src/profile/index.js";
+} from "../../src/profile/index.ts";
 
 describe("collectFeatures", () => {
   test("reports node + attribute features used", () => {

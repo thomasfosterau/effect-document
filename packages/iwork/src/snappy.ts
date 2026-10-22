@@ -13,7 +13,7 @@
  * keeps the encoder trivial.
  */
 
-import { codecError, type IworkError } from "./errors.js";
+import { codecError, type IworkError } from "./errors.ts";
 
 export interface DecompressOptions {
   /**
@@ -21,7 +21,7 @@ export interface DecompressOptions {
    * fails with `LimitExceeded` before anything is allocated. Defaults to
    * {@link DEFAULT_MAX_BLOCK_LENGTH}.
    */
-  readonly maxLength?: number;
+  readonly maxLength?: number | undefined;
 }
 
 /** The default {@link DecompressOptions.maxLength}: 64 MiB. */

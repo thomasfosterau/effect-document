@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect, Schema } from "effect";
 import {
-  Document, Header, Para, Str, Strong, Worksheet, blocksToText, cell, document,
+  Document, Header, Para, Worksheet, blocksToText, cell, document,
   header, inlinesToText, para, plainText, str, strong, table, worksheet,
-} from "../../src/schema/index.js";
+} from "../../src/schema/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 

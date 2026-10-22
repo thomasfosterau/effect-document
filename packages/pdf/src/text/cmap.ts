@@ -4,8 +4,8 @@
  * encoding, and the code-to-Unicode mapping of a `/ToUnicode` CMap.
  */
 
-import { Lexer } from "../cos/parser.js";
-import { type PdfObject, isName, isString } from "../cos/objects.js";
+import { Lexer } from "../cos/parser.ts";
+import { type PdfObject, isName, isString } from "../cos/objects.ts";
 
 interface Range<V> {
   readonly len: number;
@@ -38,7 +38,7 @@ export class CMap {
   private readonly cids = new Map<number, number>();
   private readonly cidRanges: Array<Range<number>> = [];
   /** The CMap this one extends (`usecmap`), by name. */
-  parent?: string;
+  parent?: string | undefined;
   /** Vertical writing mode (`/WMode 1`). */
   vertical = false;
 

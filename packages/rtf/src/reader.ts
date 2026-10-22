@@ -22,7 +22,7 @@ import {
   type Block, type Content, type Doc, document, Emph, Header, type Inline, LineBreak, makeReaderTag, Para,
   ParseError, type Reader, Str, Strikeout, Strong, trustAs, Underline,
 } from "@thomasfosterau/effect-document";
-import { Rtf, type RtfFeature } from "./profile.js";
+import { Rtf, type RtfFeature } from "./profile.ts";
 
 interface Fmt {
   bold: boolean;

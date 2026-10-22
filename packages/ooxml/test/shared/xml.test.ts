@@ -2,7 +2,7 @@
  * Tests for the minimal XML utilities
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Result } from "effect";
 import {
   escapeAttr,
@@ -14,7 +14,7 @@ import {
   parseXml,
   parseXmlResult,
   unescapeXml,
-} from "../../src/shared/index.js";
+} from "../../src/shared/index.ts";
 
 describe("escaping", () => {
   test("escapes text content", () => {

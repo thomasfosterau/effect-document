@@ -15,24 +15,24 @@ import {
   type Block, type Content, type Doc, type Inline, makeWriterTag, text, type WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
-import { Rtf, type RtfFeature } from "./profile.js";
+import { Rtf, type RtfFeature } from "./profile.ts";
 
 /** Options for the RTF writer. Lengths are in twips (1/1440 inch). */
 export interface RtfWriterOptions {
   /** The line ending written after the header and each paragraph. Default `"\n"`. */
-  readonly lineEnding?: "\n" | "\r\n";
+  readonly lineEnding?: "\n" | "\r\n" | undefined;
   /** The default (body) font's name. Default `"Helvetica"`. */
-  readonly font?: string;
+  readonly font?: string | undefined;
   /** The default font size, in points. Default 12. */
-  readonly fontSize?: number;
+  readonly fontSize?: number | undefined;
   /** Paper size (`\paperw`, `\paperh`); omitted, the reader's default applies. */
-  readonly paperWidth?: number;
-  readonly paperHeight?: number;
+  readonly paperWidth?: number | undefined;
+  readonly paperHeight?: number | undefined;
   /** Page margins (`\margl`, `\margr`, `\margt`, `\margb`). */
-  readonly marginLeft?: number;
-  readonly marginRight?: number;
-  readonly marginTop?: number;
-  readonly marginBottom?: number;
+  readonly marginLeft?: number | undefined;
+  readonly marginRight?: number | undefined;
+  readonly marginTop?: number | undefined;
+  readonly marginBottom?: number | undefined;
 }
 
 // The node types the profile allows: `"inline.softBreak"` -> `SoftBreak`. Switches

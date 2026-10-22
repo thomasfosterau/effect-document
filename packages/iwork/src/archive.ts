@@ -12,9 +12,9 @@
  */
 
 import { Result } from "effect";
-import { codecError, type IworkError, shiftOffset, toIworkError, withLocation } from "./errors.js";
-import { type DechunkOptions, dechunk } from "./iwa.js";
-import { type Field, getAllBytes, getBigInt, getVarint, parseMessage, readVarint } from "./protobuf.js";
+import { codecError, type IworkError, shiftOffset, toIworkError, withLocation } from "./errors.ts";
+import { type DechunkOptions, dechunk } from "./iwa.ts";
+import { type Field, getAllBytes, getBigInt, getVarint, parseMessage, readVarint } from "./protobuf.ts";
 
 export interface IworkMessage {
   /** The reverse-engineered `MessageInfo.type` id. */

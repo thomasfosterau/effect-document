@@ -3,7 +3,7 @@
  */
 
 import { Data } from "effect";
-import type { Feature } from "../schema/feature.js";
+import type { Feature } from "../schema/feature.ts";
 
 /** A reader failed to parse source content into the document schema. */
 export class ParseError extends Data.TaggedError("ParseError")<{
@@ -15,13 +15,13 @@ export class ParseError extends Data.TaggedError("ParseError")<{
    * configured resource limit (such as the maximum nesting depth) rather than
    * being malformed.
    */
-  readonly code?: "LimitExceeded";
+  readonly code?: "LimitExceeded" | undefined;
   /** Best-effort source position of the failure. */
   readonly position?: {
-    readonly row?: number;
-    readonly column?: number;
+    readonly row?: number | undefined;
+    readonly column?: number | undefined;
   };
-  readonly cause?: unknown;
+  readonly cause?: unknown | undefined;
 }> {}
 
 /** A writer failed to render a document into target content. */
@@ -29,7 +29,7 @@ export class WriteError extends Data.TaggedError("WriteError")<{
   /** The format identifier of the writer that failed. */
   readonly format: string;
   readonly reason: string;
-  readonly cause?: unknown;
+  readonly cause?: unknown | undefined;
 }> {}
 
 /**
@@ -50,5 +50,5 @@ export class ProfileViolation extends Data.TaggedError("ProfileViolation")<{
 /** A conversion pipeline could not be assembled or a bridge step failed. */
 export class ConversionError extends Data.TaggedError("ConversionError")<{
   readonly reason: string;
-  readonly cause?: unknown;
+  readonly cause?: unknown | undefined;
 }> {}

@@ -4,7 +4,7 @@
  */
 
 import { ParseError } from "@thomasfosterau/effect-document";
-import { OpcError, XmlPartError } from "./opc.js";
+import { OpcError, XmlPartError } from "./opc.ts";
 
 /** A reader's `ParseError` for anything thrown while reading an OOXML package. */
 export const ooxmlParseError = (format: string, cause: unknown): ParseError => {

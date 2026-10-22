@@ -4,9 +4,10 @@
  * CSV text goes in, a real .xlsx file comes out, and back again - and because
  * the formats carry their profiles, `convert` reports when a step is lossy.
  *
- * Run with: bun run examples/convert-csv-to-xlsx.ts
+ * Run with: vp exec tsx examples/convert-csv-to-xlsx.ts
  */
 
+import { writeFile } from "node:fs/promises";
 import { Effect } from "effect";
 import { contentToBytes, contentToText, convert, text } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
@@ -32,7 +33,7 @@ const program = Effect.gen(function* () {
 
   const xlsxBytes = contentToBytes(xlsxContent);
   console.log(`=== Converted to XLSX: ${xlsxBytes.length} bytes (lossless: ${toXlsxLoss.isLossless}) ===`);
-  yield* Effect.promise(() => Bun.write("output.xlsx", xlsxBytes as Uint8Array<ArrayBuffer>));
+  yield* Effect.promise(() => writeFile("output.xlsx", xlsxBytes));
   console.log("Wrote output.xlsx\n");
 
   // --- XLSX -> CSV (a narrowing: anything CSV can't represent is reported) ---

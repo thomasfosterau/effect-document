@@ -16,12 +16,15 @@
 import {
   type PdfDict, type PdfObject, type PdfStream, pdfArray, pdfDict, pdfName, pdfRef, pdfStream,
   pdfString,
-} from "./objects.js";
+} from "./objects.ts";
 
 /** A syntax error at a byte offset in the input. */
 export class PdfSyntaxError extends Error {
-  constructor(message: string, readonly offset: number) {
+  readonly offset: number;
+
+  constructor(message: string, offset: number) {
     super(`${message} (at byte ${offset})`);
+    this.offset = offset;
     this.name = "PdfSyntaxError";
   }
 }
@@ -65,7 +68,10 @@ const EOF: Token = { kind: "eof" };
 export class Lexer {
   pos: number;
 
-  constructor(readonly buf: Uint8Array, pos = 0) {
+  readonly buf: Uint8Array;
+
+  constructor(buf: Uint8Array, pos = 0) {
+    this.buf = buf;
     this.pos = pos;
   }
 
@@ -290,7 +296,13 @@ export const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(
 export class Parser {
   private peeked: Token | undefined;
 
-  constructor(readonly lexer: Lexer, private readonly resolveLength?: LengthResolver) {}
+  readonly lexer: Lexer;
+  private readonly resolveLength: LengthResolver | undefined;
+
+  constructor(lexer: Lexer, resolveLength?: LengthResolver) {
+    this.lexer = lexer;
+    this.resolveLength = resolveLength;
+  }
 
   get pos(): number {
     return this.peeked === undefined ? this.lexer.pos : this.peekStart;

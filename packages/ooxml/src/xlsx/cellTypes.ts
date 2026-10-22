@@ -9,8 +9,8 @@
  * - Rich-text cells are written as their flattened text.
  */
 
-import { cell, cellToText, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
-import { escapeXml, findChild, type XmlElement } from "./xml.js";
+import { cell, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
+import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
 // ============================================================================
 // Writing: SheetCell -> SpreadsheetML <c> fragment

@@ -18,9 +18,9 @@
 
 import { Effect, FileSystem, Result } from "effect";
 import { unzipSync } from "fflate";
-import { decodeIwa, type IworkObject } from "./archive.js";
-import { codecError, IworkError, isIworkError, withLocation } from "./errors.js";
-import type { DechunkOptions } from "./iwa.js";
+import { decodeIwa, type IworkObject } from "./archive.ts";
+import { codecError, IworkError, isIworkError, withLocation } from "./errors.ts";
+import type { DechunkOptions } from "./iwa.ts";
 
 export interface IworkBundle {
   /** Component path (e.g. "Index/Document.iwa") -> raw `.iwa` bytes. */
@@ -33,19 +33,19 @@ export interface IworkBundle {
 
 export interface BundleLimits {
   /** The most entries the package (and an inner `Index.zip`) may list. Defaults to 10,000. */
-  readonly maxEntries?: number;
+  readonly maxEntries?: number | undefined;
   /** The largest uncompressed size of any one entry read. Defaults to 256 MiB. */
-  readonly maxEntrySize?: number;
+  readonly maxEntrySize?: number | undefined;
   /** The most uncompressed bytes inflated for the components, in total. Defaults to 512 MiB. */
-  readonly maxTotalSize?: number;
+  readonly maxTotalSize?: number | undefined;
 }
 
 export interface OpenBundleOptions {
-  readonly limits?: BundleLimits;
+  readonly limits?: BundleLimits | undefined;
 }
 
 /** The default {@link BundleLimits}. */
-export const DEFAULT_BUNDLE_LIMITS: Required<BundleLimits> = {
+export const DEFAULT_BUNDLE_LIMITS: ResolvedLimits = {
   maxEntries: 10_000,
   maxEntrySize: 256 * 1024 * 1024,
   maxTotalSize: 512 * 1024 * 1024,
@@ -65,9 +65,12 @@ const noComponents = (names: ReadonlyArray<string>): IworkError =>
 const isIndexZip = (name: string): boolean => name.toLowerCase().endsWith("index.zip");
 const isComponent = (name: string): boolean => name.endsWith(".iwa");
 
+/** `BundleLimits` with every limit filled in. */
+type ResolvedLimits = { readonly [K in keyof BundleLimits]-?: NonNullable<BundleLimits[K]> };
+
 /** The size accounting shared by the outer package and an inner `Index.zip`. */
 interface Budget {
-  readonly limits: Required<BundleLimits>;
+  readonly limits: ResolvedLimits;
   total: number;
 }
 
@@ -129,10 +132,15 @@ const innerComponents = (data: Uint8Array, budget: Budget, into: Record<string, 
   }
 };
 
-const resolveLimits = (options?: OpenBundleOptions): Required<BundleLimits> => ({
-  ...DEFAULT_BUNDLE_LIMITS,
-  ...options?.limits,
-});
+const resolveLimits = (options?: OpenBundleOptions): ResolvedLimits => {
+  // an explicitly `undefined` limit keeps its default
+  const limits = options?.limits;
+  return {
+    maxEntries: limits?.maxEntries ?? DEFAULT_BUNDLE_LIMITS.maxEntries,
+    maxEntrySize: limits?.maxEntrySize ?? DEFAULT_BUNDLE_LIMITS.maxEntrySize,
+    maxTotalSize: limits?.maxTotalSize ?? DEFAULT_BUNDLE_LIMITS.maxTotalSize,
+  };
+};
 
 /**
  * Open an iWork bundle, inflating only its `.iwa` components. Fails with an

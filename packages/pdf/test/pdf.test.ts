@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import {
   type Block, blocksToText, bulletList, bytes, codeBlock, document, emph, header, type Inline, link,
@@ -7,10 +8,10 @@ import {
 import {
   BlockQuote, Code, HorizontalRule, LineBreak, Strikeout, Underline,
 } from "@thomasfosterau/effect-document";
-import { Pdf, type PdfFeature, extractPageText, makePdfReader, makePdfWriter } from "../src/index.js";
+import { Pdf, type PdfFeature, extractPageText, makePdfReader, makePdfWriter } from "../src/index.ts";
 import {
   PdfBuilder, PdfFile, type PdfObject, bytesToLatin1, latin1ToBytes, pdfArray, pdfDict, pdfName, pdfStream, pdfString, pdfTextString,
-} from "../src/cos/index.js";
+} from "../src/cos/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const doc = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}) => trustAs<PdfFeature>(document(blocks, meta));
@@ -21,7 +22,7 @@ const write = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>, opt
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
 const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) => read(write(blocks, meta));
-const fixture = async (name: string) => new Uint8Array(await Bun.file(new URL(`./fixtures/${name}`, import.meta.url)).arrayBuffer());
+const fixture = async (name: string) => new Uint8Array(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
 
 /** A one-page PDF with the given content stream and resources. */
 const onePage = (

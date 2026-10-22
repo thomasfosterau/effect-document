@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import { strToU8, zipSync } from "fflate";
 import { bytes } from "@thomasfosterau/effect-document";
-import { decodePart, OpcError, OpcReader, resolveTarget, XmlPartError, zipParts } from "../../src/shared/index.js";
-import { makeDocxReader, makeDocxWriter } from "../../src/docx/index.js";
-import { makePptxReader } from "../../src/pptx/index.js";
-import { makeXlsxReader, makeXlsxWriter } from "../../src/xlsx/index.js";
+import { decodePart, OpcError, OpcReader, resolveTarget, XmlPartError, zipParts } from "../../src/shared/index.ts";
+import { makeDocxReader, makeDocxWriter } from "../../src/docx/index.ts";
+import { makePptxReader } from "../../src/pptx/index.ts";
+import { makeXlsxReader, makeXlsxWriter } from "../../src/xlsx/index.ts";
 import { cell, document, para, str, trustAs, worksheet } from "@thomasfosterau/effect-document";
 
 const zip = (files: Record<string, string | Uint8Array>) =>

@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   type Block, blocksToText, bulletList, bytes, codeBlock, document, OrderedList, Quoted, emph, type FeaturesOf, header, type Inline, link,
   orderedList, para, plainText, str, strong, table, trustAs,
 } from "@thomasfosterau/effect-document";
-import { Docx, makeDocxReader, makeDocxWriter } from "../../src/docx/index.js";
+import { Docx, makeDocxReader, makeDocxWriter } from "../../src/docx/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type DocxF = FeaturesOf<typeof Docx>;
@@ -98,7 +98,23 @@ describe("DOCX nesting limit (#110)", () => {
   });
 
   test("the default limit refuses very deep nesting", () => {
-    const error = run(Effect.flip(makeDocxReader().read(docx(1500))));
+    // built as XML, not through the (recursive) writer, whose 1500-deep
+    // rendering would exhaust Node's stack before the reader is ever reached
+    const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+    const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const depth = 1500;
+    const body =
+      "<w:tbl><w:tr><w:tc>".repeat(depth) +
+      "<w:p><w:r><w:t>x</w:t></w:r></w:p>" +
+      "</w:tc></w:tr></w:tbl>".repeat(depth);
+    const deep = zipSync({
+      "_rels/.rels": strToU8(
+        `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
+      ),
+      "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
+    });
+    const error = run(Effect.flip(makeDocxReader().read(bytes(deep))));
     expect(error).toMatchObject({ code: "LimitExceeded" });
   });
 });

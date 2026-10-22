@@ -9,7 +9,7 @@
  */
 
 import { Schema } from "effect";
-import type { AttrFeature } from "./feature.js";
+import type { AttrFeature } from "./feature.ts";
 
 // ============================================================================
 // Attribute values (JSON-ish, for the open `data` map)

@@ -6,13 +6,13 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Rtf, type RtfFeature } from "./profile.js";
-import { makeRtfReader } from "./reader.js";
-import { makeRtfWriter } from "./writer.js";
+import { Rtf, type RtfFeature } from "./profile.ts";
+import { makeRtfReader } from "./reader.ts";
+import { makeRtfWriter } from "./writer.ts";
 
-export * from "./profile.js";
-export * from "./reader.js";
-export * from "./writer.js";
+export * from "./profile.ts";
+export * from "./reader.ts";
+export * from "./writer.ts";
 
 /** The RTF profile. */
 export const profile = Rtf;

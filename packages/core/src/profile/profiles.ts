@@ -10,8 +10,8 @@
 import {
   ALL_ATTR_FEATURES, ALL_BLOCK_FEATURES, ALL_DECK_FEATURES, ALL_FEATURES,
   ALL_INLINE_FEATURES, ALL_SHEET_FEATURES,
-} from "../schema/feature.js";
-import { defineProfile } from "./profile.js";
+} from "../schema/feature.ts";
+import { defineProfile } from "./profile.ts";
 
 // ---- spreadsheets ---------------------------------------------------------
 

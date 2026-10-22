@@ -14,11 +14,11 @@ import {
   type Content, defineProfile, type Doc, document, type FeaturesOf, type Format, makeReaderTag,
   type ParseError, type Reader, trustAs, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.js";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
-import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.js";
+import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.ts";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.ts";
 
-export type { IworkReaderOptions } from "./read.js";
+export type { IworkReaderOptions } from "./read.ts";
 
 export const numbersFeatures = [
   "sheet.worksheet",

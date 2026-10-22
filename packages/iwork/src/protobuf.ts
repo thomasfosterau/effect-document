@@ -12,7 +12,7 @@
  */
 
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
-import { codecError, type IworkError } from "./errors.js";
+import { codecError, type IworkError } from "./errors.ts";
 
 export const WIRE_VARINT = 0;
 export const WIRE_I64 = 1;
@@ -27,13 +27,13 @@ export interface Field {
    * `number`, exact up to 2^53. Use {@link getBigInt}, {@link getDouble},
    * {@link getFloat} or {@link getSint} to read it as its declared type.
    */
-  readonly value?: number;
+  readonly value?: number | undefined;
   /** Present for a varint above 2^53: its exact (64-bit) value. */
-  readonly big?: bigint;
+  readonly big?: bigint | undefined;
   /** Present for i64 (1) and i32 (5) fields: the raw little-endian bytes. */
-  readonly raw?: Uint8Array;
+  readonly raw?: Uint8Array | undefined;
   /** Present for length-delimited (2) fields. */
-  readonly bytes?: Uint8Array;
+  readonly bytes?: Uint8Array | undefined;
 }
 
 // ============================================================================

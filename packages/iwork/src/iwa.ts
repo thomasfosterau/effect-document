@@ -9,8 +9,8 @@
 
 import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
 import { Result } from "effect";
-import { fromParseError, isIworkError, shiftOffset } from "./errors.js";
-import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.js";
+import { fromParseError, isIworkError, shiftOffset } from "./errors.ts";
+import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.ts";
 
 const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
   let total = 0;
@@ -37,7 +37,7 @@ export interface DechunkOptions {
    * The most decompressed bytes one `.iwa` may produce, across all its chunks.
    * Defaults to {@link DEFAULT_MAX_STREAM_LENGTH}.
    */
-  readonly maxLength?: number;
+  readonly maxLength?: number | undefined;
 }
 
 /** The default {@link DechunkOptions.maxLength}: 256 MiB. */

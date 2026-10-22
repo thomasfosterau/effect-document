@@ -1,21 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { readFileSync } from "node:fs";
 import { ByteSize, Effect, FileSystem, Result } from "effect";
 import { unzipSync, zipSync } from "fflate";
 import { bytes, type ParseError } from "@thomasfosterau/effect-document";
-import { decodeArchiveStream, decodeIwa } from "../src/archive.js";
-import { openBundle, openBundleDirectory } from "../src/bundle.js";
-import { IworkError } from "../src/errors.js";
-import { chunk, dechunk } from "../src/iwa.js";
+import { decodeArchiveStream, decodeIwa } from "../src/archive.ts";
+import { openBundle, openBundleDirectory } from "../src/bundle.ts";
+import { IworkError } from "../src/errors.ts";
+import { chunk, dechunk } from "../src/iwa.ts";
 import {
   getBigInt, getDouble, getFloat, getPacked, getSint, getVarint, parseMessage, readVarint,
-} from "../src/protobuf.js";
-import { compressBlock, decompressBlock } from "../src/snappy.js";
-import * as Keynote from "../src/keynote.js";
-import { f32, f64, fixedField, i64, lenField, record, varint, varintField } from "./encode.js";
+} from "../src/protobuf.ts";
+import { compressBlock, decompressBlock } from "../src/snappy.ts";
+import * as Keynote from "../src/keynote.ts";
+import { f32, f64, fixedField, i64, lenField, record, varint, varintField } from "./encode.ts";
 
 const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(`${import.meta.dir}/fixtures/${name}`));
+  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
 
 /** The `IworkError` a codec call throws (anything else, or no failure, fails the test). */
 const failure = (f: () => unknown): IworkError => {

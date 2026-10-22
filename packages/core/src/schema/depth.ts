@@ -8,8 +8,8 @@
  * safe bounds.
  */
 
-import type { Block, Inline, Shape } from "./ast.js";
-import type { Document } from "./document.js";
+import type { Block, Inline, Shape } from "./ast.ts";
+import type { Document } from "./document.ts";
 
 /** A node that counts as one level of nesting. */
 export type NestedNode = Block | Inline | Shape;

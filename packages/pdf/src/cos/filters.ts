@@ -8,12 +8,15 @@
  */
 
 import { inflateSync, unzlibSync, zlibSync } from "fflate";
-import { type PdfDict, type PdfName, type PdfObject, isArray, isDict, isName } from "./objects.js";
+import { type PdfDict, type PdfName, type PdfObject, isArray, isDict, isName } from "./objects.ts";
 
 /** A stream could not be decoded. */
 export class PdfFilterError extends Error {
-  constructor(readonly filter: string, message: string) {
+  readonly filter: string;
+
+  constructor(filter: string, message: string) {
     super(`${filter}: ${message}`);
+    this.filter = filter;
     this.name = "PdfFilterError";
   }
 }
@@ -249,7 +252,7 @@ export const applyFilter = (name: string, data: Uint8Array, parms: PdfDict | und
 export interface Decoded {
   readonly data: Uint8Array;
   /** The image filter decoding stopped at, if any (the data is still in that encoding). */
-  readonly imageFilter?: string;
+  readonly imageFilter?: string | undefined;
 }
 
 /**

@@ -1,20 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { readFileSync } from "node:fs";
 import { Effect, Result } from "effect";
 import { zipSync } from "fflate";
 import {
   blocksToText, bytes, type SlideShow,
 } from "@thomasfosterau/effect-document";
-import { compressBlock, decompressBlock } from "../src/snappy.js";
-import { chunk, dechunk } from "../src/iwa.js";
-import { parseMessage, readVarint } from "../src/protobuf.js";
-import { openBundle } from "../src/bundle.js";
-import * as Keynote from "../src/keynote.js";
-import * as Numbers from "../src/numbers.js";
+import { compressBlock, decompressBlock } from "../src/snappy.ts";
+import { chunk, dechunk } from "../src/iwa.ts";
+import { parseMessage, readVarint } from "../src/protobuf.ts";
+import { openBundle } from "../src/bundle.ts";
+import * as Keynote from "../src/keynote.ts";
+import * as Numbers from "../src/numbers.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(`${import.meta.dir}/fixtures/${name}`));
+  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
 
 describe("Snappy block codec", () => {
   test("literals-only compress then decompress is identity", () => {

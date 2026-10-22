@@ -6,10 +6,10 @@
  */
 
 import { Context, type Effect } from "effect";
-import { type Doc, type Profile } from "../profile/profile.js";
-import type { Feature } from "../schema/feature.js";
-import type { WriteError } from "./errors.js";
-import type { Content } from "./content.js";
+import { type Doc, type Profile } from "../profile/profile.ts";
+import type { Feature } from "../schema/feature.ts";
+import type { WriteError } from "./errors.ts";
+import type { Content } from "./content.ts";
 
 export interface Writer<F extends Feature> {
   /** The format this writer renders (e.g. "csv", "xlsx"). */

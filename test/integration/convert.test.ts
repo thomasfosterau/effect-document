@@ -1,9 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import {
   cell, contentToText, convert, document, type FeaturesOf, text, trustAs, worksheet, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 import * as Csv from "@thomasfosterau/effect-csv";
 import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
 import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-ooxml/xlsx";

@@ -11,11 +11,11 @@
  */
 
 import { Effect } from "effect";
-import { type Feature } from "../schema/feature.js";
-import { type LossReport, narrow } from "../profile/narrow.js";
-import { ConversionError, type ParseError, type WriteError } from "./errors.js";
-import type { Content } from "./content.js";
-import type { Format } from "./format.js";
+import { type Feature } from "../schema/feature.ts";
+import { type LossReport, narrow } from "../profile/narrow.ts";
+import { ConversionError, type ParseError, type WriteError } from "./errors.ts";
+import type { Content } from "./content.ts";
+import type { Format } from "./format.ts";
 
 export interface ConvertOptions<A extends Feature, B extends Feature> {
   /** Source format. */

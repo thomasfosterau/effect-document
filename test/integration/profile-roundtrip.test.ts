@@ -5,7 +5,7 @@
  * (or, for the few purely textual normalisations, the text must match).
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import { convert, narrow } from "@thomasfosterau/effect-document";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";

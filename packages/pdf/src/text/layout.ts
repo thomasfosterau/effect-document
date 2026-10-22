@@ -22,7 +22,7 @@ import {
   type Block, BulletList, Code, CodeBlock, Emph, Header, type Inline, Link, OrderedList, Para, Plain,
   SoftBreak, Str, Strong,
 } from "@thomasfosterau/effect-document";
-import type { PageLink, PageText, TextGlyph } from "./extract.js";
+import type { PageLink, PageText, TextGlyph } from "./extract.ts";
 
 /** A run of identically styled text within a line. */
 interface Run {
@@ -245,7 +245,7 @@ const median = (xs: number[]): number | undefined => {
 
 interface Marker {
   readonly ordered: boolean;
-  readonly start?: number;
+  readonly start?: number | undefined;
   /** The marker's text length, to strip from the line. */
   readonly length: number;
 }

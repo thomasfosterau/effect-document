@@ -21,18 +21,18 @@ import {
 } from "@thomasfosterau/effect-document";
 import {
   type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
-} from "../shared/index.js";
-import { Docx, type DocxFeature } from "./profile.js";
+} from "../shared/index.ts";
+import { Docx, type DocxFeature } from "./profile.ts";
 
 export interface DocxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
   /**
    * The deepest nesting (e.g. tables inside tables) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
    * `DEFAULT_MAX_NESTING_DEPTH` (1000).
    */
-  readonly maxDepth?: number;
+  readonly maxDepth?: number | undefined;
 }
 
 /** Main-part content types this reader accepts. */
@@ -124,7 +124,11 @@ class InlineCollector {
   readonly out: Piece[] = [];
   private readonly fields: Field[] = [];
 
-  constructor(private readonly rels: ReadonlyMap<string, string>) {}
+  private readonly rels: ReadonlyMap<string, string>;
+
+  constructor(rels: ReadonlyMap<string, string>) {
+    this.rels = rels;
+  }
 
   push(piece: Piece): void {
     const field = this.fields[this.fields.length - 1];
@@ -353,6 +357,23 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
 /** Thrown when tables nest deeper than the reader's `maxDepth`. */
 class NestingLimit extends Error {}
 
+/**
+ * The deepest chain of nested `w:tbl` elements under `el`, counted with an
+ * explicit stack: the recursive conversion below would exhaust Node's call
+ * stack on a document nested far past `maxDepth` before it could refuse it.
+ */
+const tableNesting = (el: XmlElement): number => {
+  let deepest = 0;
+  const stack: Array<readonly [XmlElement, number]> = [[el, 0]];
+  for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+    const [node, outer] = next;
+    const tables = node.name === "tbl" ? outer + 1 : outer;
+    deepest = Math.max(deepest, tables);
+    for (const child of node.children) stack.push([child, tables]);
+  }
+  return deepest;
+};
+
 /** The current block depth and the limit, threaded through nested tables. */
 interface Depth {
   readonly level: number;
@@ -480,6 +501,7 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
+        if (body !== undefined && tableNesting(body) > maxDepth) throw new NestingLimit();
         const blocks =
           body === undefined
             ? []

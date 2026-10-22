@@ -12,19 +12,19 @@ import {
   type Block, bytes, type Content, type Doc, type Inline, makeWriterTag, type Shape, Slide,
   TextBox, WriteError, type Writer,
 } from "@thomasfosterau/effect-document";
-import { NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts } from "../shared/index.js";
+import { NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts } from "../shared/index.ts";
 import {
   NS_A, NS_P, REL_SLIDE, REL_SLIDE_MASTER, contentTypesXml, rootRelsXml,
   slideLayoutRelsXml, slideLayoutXml, slideMasterRelsXml, slideMasterXml,
   slideRelsXml, themeXml,
-} from "./parts.js";
-import { Pptx, type PptxFeature } from "./profile.js";
+} from "./parts.ts";
+import { Pptx, type PptxFeature } from "./profile.ts";
 
 interface Fmt {
-  b?: boolean;
-  i?: boolean;
-  u?: boolean;
-  strike?: boolean;
+  b?: boolean | undefined;
+  i?: boolean | undefined;
+  u?: boolean | undefined;
+  strike?: boolean | undefined;
 }
 
 const aRun = (text: string, f: Fmt): string =>
@@ -143,7 +143,7 @@ const presentationRelsXml = (slideCount: number): string =>
   `</Relationships>`;
 
 export interface PptxWriterOptions {
-  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
 
 /** Create a PPTX Writer. */

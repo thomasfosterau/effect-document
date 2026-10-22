@@ -6,6 +6,6 @@
  * also available on its own subpath (`/xlsx`, `/docx`, `/pptx`).
  */
 
-export * as Xlsx from "./xlsx/index.js";
-export * as Docx from "./docx/index.js";
-export * as Pptx from "./pptx/index.js";
+export * as Xlsx from "./xlsx/index.ts";
+export * as Docx from "./docx/index.ts";
+export * as Pptx from "./pptx/index.ts";

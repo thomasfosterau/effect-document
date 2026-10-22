@@ -10,11 +10,11 @@
  * layout step can attach URLs to the text under them.
  */
 
-import type { PdfFile, PdfPage } from "../cos/file.js";
-import { type PdfDict, type PdfObject, type PdfStream, dictOf, isArray, isDict, isName, isRef, isStream, isString } from "../cos/objects.js";
-import { type Operation, parseContentStream } from "../cos/parser.js";
-import { decodeTextString } from "./encodings.js";
-import { type PdfFont, loadFont } from "./font.js";
+import type { PdfFile, PdfPage } from "../cos/file.ts";
+import { type PdfDict, type PdfObject, type PdfStream, dictOf, isArray, isDict, isName, isRef, isStream, isString } from "../cos/objects.ts";
+import { type Operation, parseContentStream } from "../cos/parser.ts";
+import { decodeTextString } from "./encodings.ts";
+import { type PdfFont, loadFont } from "./font.ts";
 
 /** A shown glyph, positioned on the page (origin bottom-left, y up). */
 export interface TextGlyph {
@@ -128,7 +128,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
     let tm: Matrix = IDENTITY;
     let tlm: Matrix = IDENTITY;
     // /ActualText replacement: the glyphs shown inside the marked span
-    const marked: Array<{ actual?: string; start: number }> = [];
+    const marked: Array<{ actual?: string | undefined; start: number }> = [];
 
     const show = (bytes: Uint8Array): void => {
       const ts = gs.text;

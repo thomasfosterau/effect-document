@@ -22,10 +22,10 @@ import {
 } from "@thomasfosterau/effect-document";
 import {
   type PdfObject, type PdfRef, latin1ToBytes, pdfArray, pdfDict, pdfName, pdfStream, pdfTextString,
-} from "./cos/objects.js";
-import { PdfBuilder, fileId, flateStream } from "./cos/serialize.js";
-import { type StandardFont, baseEncoding, standardWidths, winAnsiCode } from "./text/encodings.js";
-import { Pdf, type PdfFeature } from "./profile.js";
+} from "./cos/objects.ts";
+import { PdfBuilder, fileId, flateStream } from "./cos/serialize.ts";
+import { type StandardFont, baseEncoding, standardWidths, winAnsiCode } from "./text/encodings.ts";
+import { Pdf, type PdfFeature } from "./profile.ts";
 
 /** Page sizes in points. */
 export const PAGE_SIZES = {
@@ -37,13 +37,13 @@ export const PAGE_SIZES = {
 
 export interface PdfWriterOptions {
   /** Page size: a named size or `[width, height]` in points (default `a4`). */
-  readonly pageSize?: keyof typeof PAGE_SIZES | readonly [number, number];
+  readonly pageSize?: keyof typeof PAGE_SIZES | readonly [number, number] | undefined;
   /** Page margin in points (default 72, one inch). */
-  readonly margin?: number;
+  readonly margin?: number | undefined;
   /** Body font size in points (default 11). */
-  readonly fontSize?: number;
+  readonly fontSize?: number | undefined;
   /** Flate-compress page content (default true). */
-  readonly compress?: boolean;
+  readonly compress?: boolean | undefined;
 }
 
 // ============================================================================
@@ -251,12 +251,16 @@ class Typesetter {
   private readonly top: number;
   private readonly bottom: number;
 
-  constructor(
-    readonly width: number,
-    readonly height: number,
-    readonly margin: number,
-    readonly body: number
-  ) {
+  readonly width: number;
+  readonly height: number;
+  readonly margin: number;
+  readonly body: number;
+
+  constructor(width: number, height: number, margin: number, body: number) {
+    this.width = width;
+    this.height = height;
+    this.margin = margin;
+    this.body = body;
     this.top = height - margin;
     this.bottom = margin;
     this.newPage();

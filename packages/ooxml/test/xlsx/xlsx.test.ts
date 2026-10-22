@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  bytes, cell, cellToText, type SheetCell, type Doc, document, type FeaturesOf, trustAs, worksheet, Worksheet,
+  bytes, cell, cellToText, type SheetCell, type Doc, document, trustAs, worksheet, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { makeXlsxReader, makeXlsxWriter, sanitizeSheetNames, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.js";
+import { makeXlsxReader, makeXlsxWriter, sanitizeSheetNames, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.ts";
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);

@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import { Effect, Result, Stream, pipe } from "effect";
 import { cell, document, type SheetCell, SheetRow, text, Worksheet, worksheet } from "@thomasfosterau/effect-document";
 import {
   type CsvReaderOptions, type CsvWriterOptions, Rfc4180Dialect, StandardDialect, TsvDialect, formatCsvNumber,
   inferCell, makeCsvReader, makeCsvWriter, renderCsvStream, renderTable, scanCsv, scanCsvStream,
   synthesizeDocument,
-} from "../src/index.js";
+} from "../src/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 

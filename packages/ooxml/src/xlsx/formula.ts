@@ -8,7 +8,7 @@
  * `$`-anchored parts alone, as Excel does when filling a formula.
  */
 
-import { colToIndex, indexToCol } from "./a1.js";
+import { colToIndex, indexToCol } from "./a1.ts";
 
 /** The largest 0-indexed column (XFD) and row (1048576) in a worksheet. */
 const MAX_COL = 16383;

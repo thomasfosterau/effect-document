@@ -6,8 +6,8 @@
  * repairing) files, and the serializer for writing them.
  */
 
-export * from "./objects.js";
-export * from "./parser.js";
-export * from "./filters.js";
-export * from "./file.js";
-export * from "./serialize.js";
+export * from "./objects.ts";
+export * from "./parser.ts";
+export * from "./filters.ts";
+export * from "./file.ts";
+export * from "./serialize.ts";

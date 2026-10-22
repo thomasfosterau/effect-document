@@ -7,12 +7,12 @@
  * objects), expanding object streams into plain objects.
  */
 
-import type { PdfFile } from "./file.js";
-import { flateEncode } from "./filters.js";
+import type { PdfFile } from "./file.ts";
+import { flateEncode } from "./filters.ts";
 import {
   type PdfObject, type PdfRef, type PdfStream, isName, isRef, isStream, latin1ToBytes, pdfArray,
   pdfDict, pdfName, pdfRef, pdfStream, pdfString,
-} from "./objects.js";
+} from "./objects.ts";
 
 const NAME_SAFE = /^[!-~]$/;
 const NAME_ESCAPE = new Set("()<>[]{}/%#");
@@ -127,11 +127,11 @@ export interface TrailerOptions {
   /** The document catalog. */
   readonly root: PdfRef;
   /** The document information dictionary. */
-  readonly info?: PdfRef;
+  readonly info?: PdfRef | undefined;
   /** Extra trailer entries (e.g. `/ID`, `/Encrypt`). */
-  readonly extra?: Record<string, PdfObject>;
+  readonly extra?: Record<string, PdfObject> | undefined;
   /** The header version (default `1.7`). */
-  readonly version?: string;
+  readonly version?: string | undefined;
 }
 
 /**

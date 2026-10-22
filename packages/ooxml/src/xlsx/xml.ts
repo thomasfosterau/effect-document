@@ -4,4 +4,4 @@
  * docx and pptx formats.
  */
 
-export * from "../shared/xml.js";
+export * from "../shared/xml.ts";

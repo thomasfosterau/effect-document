@@ -11,10 +11,10 @@
  * engineered format; fidelity is partial and version-sensitive.
  */
 
-export * from "./errors.js";
-export * from "./snappy.js";
-export * from "./protobuf.js";
-export * from "./iwa.js";
-export * from "./archive.js";
-export * from "./bundle.js";
-export * as Registry from "./registry.js";
+export * from "./errors.ts";
+export * from "./snappy.ts";
+export * from "./protobuf.ts";
+export * from "./iwa.ts";
+export * from "./archive.ts";
+export * from "./bundle.ts";
+export * as Registry from "./registry.ts";

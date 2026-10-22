@@ -15,12 +15,12 @@
  * their strings and streams are not decrypted.
  */
 
-import { type Decoded, decodeFilters } from "./filters.js";
+import { type Decoded, decodeFilters } from "./filters.ts";
 import {
   type PdfArray, type PdfDict, type PdfObject, type PdfRef, type PdfStream, dictOf, isArray, isDict,
   isName, isRef, isStream, pdfDict,
-} from "./objects.js";
-import { Lexer, Parser, PdfSyntaxError, ascii, indexOf, isKeyword, isWhitespace, lastIndexOf } from "./parser.js";
+} from "./objects.ts";
+import { Lexer, Parser, PdfSyntaxError, ascii, indexOf, isKeyword, isWhitespace, lastIndexOf } from "./parser.ts";
 
 /** Where an indirect object lives. */
 export type XrefEntry =
@@ -33,7 +33,7 @@ export interface PdfPage {
   /** The page dictionary. */
   readonly dict: PdfDict;
   /** The page's indirect reference, when it has one. */
-  readonly ref?: PdfRef;
+  readonly ref?: PdfRef | undefined;
   /** The (possibly inherited) resource dictionary. */
   readonly resources: PdfDict;
   /** The (possibly inherited) media box `[llx lly urx ury]`. */
@@ -63,7 +63,10 @@ export class PdfFile {
   private readonly loading = new Set<number>();
   private rebuilt: { xref: Map<number, XrefEntry>; trailer: PdfDict } | undefined;
 
-  private constructor(readonly bytes: Uint8Array) {
+  readonly bytes: Uint8Array;
+
+  private constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
     const header = indexOf(bytes.subarray(0, 1024), ascii("%PDF-"));
     const vm = header >= 0 ? /^(\d\.\d)/.exec(String.fromCharCode(...bytes.subarray(header + 5, header + 8))) : null;
     let version = vm?.[1] ?? "1.4";
@@ -459,7 +462,7 @@ export class PdfFile {
   pages(): PdfPage[] {
     const out: PdfPage[] = [];
     const visited = new Set<PdfDict>();
-    const walk = (node: PdfObject | undefined, inherited: { resources?: PdfDict; mediaBox?: PdfObject; rotate?: number }, depth: number): void => {
+    const walk = (node: PdfObject | undefined, inherited: { resources?: PdfDict | undefined; mediaBox?: PdfObject | undefined; rotate?: number | undefined }, depth: number): void => {
       const ref = isRef(node) ? node : undefined;
       const dict = dictOf(this.resolve(node));
       if (dict === undefined || visited.has(dict) || depth > 64) return;

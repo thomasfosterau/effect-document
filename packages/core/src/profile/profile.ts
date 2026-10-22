@@ -13,11 +13,11 @@
  */
 
 import { Effect, Schema } from "effect";
-import { type AttrPolicy } from "../schema/attributes.js";
-import { Document, type DocumentEncoded } from "../schema/document.js";
-import { type Feature } from "../schema/feature.js";
-import { ProfileViolation } from "../io/errors.js";
-import { collectFeatures, unsupportedFeatures } from "./collect.js";
+import { type AttrPolicy } from "../schema/attributes.ts";
+import { Document, type DocumentEncoded } from "../schema/document.ts";
+import { type Feature } from "../schema/feature.ts";
+import { ProfileViolation } from "../io/errors.ts";
+import { collectFeatures, unsupportedFeatures } from "./collect.ts";
 
 // ============================================================================
 // Phantom-typed document

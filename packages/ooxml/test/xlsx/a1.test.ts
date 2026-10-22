@@ -2,10 +2,10 @@
  * Tests for A1-notation coordinate helpers
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vite-plus/test";
 import {
   colToIndex, indexToCol, parseA1, parseA1Absolute, parseA1Range, toA1,
-} from "../../src/xlsx/index.js";
+} from "../../src/xlsx/index.ts";
 
 describe("indexToCol / colToIndex", () => {
   test("converts single-letter columns", () => {

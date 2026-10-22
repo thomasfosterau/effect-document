@@ -4,13 +4,13 @@
  * a document conforms to a profile iff every feature it uses is allowed.
  */
 
-import { type Attributes, usedAttrFeatures } from "../schema/attributes.js";
+import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block, type Inline, type SheetCell, type Shape, type Table, type Worksheet,
   type SlideShow,
-} from "../schema/ast.js";
-import { Document } from "../schema/document.js";
-import { type Feature, featureOfTag } from "../schema/feature.js";
+} from "../schema/ast.ts";
+import { Document } from "../schema/document.ts";
+import { type Feature, featureOfTag } from "../schema/feature.ts";
 
 const attrOf = (n: unknown): Attributes | undefined =>
   (n as { readonly attr?: Attributes }).attr;

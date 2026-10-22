@@ -1,55 +1,60 @@
 {
+  "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-pdf",
   "version": "0.0.0",
   "description": "PDF reader and writer for effect-document, with a low-level PDF object layer",
-  "type": "module",
-  "module": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "bun": "./src/index.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
-    },
-    "./cos": {
-      "types": "./src/cos/index.ts",
-      "bun": "./src/cos/index.ts",
-      "import": "./src/cos/index.ts",
-      "default": "./src/cos/index.ts"
-    }
-  },
-  "files": [
-    "src",
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "build": "bun build src/index.ts src/cos/index.ts --root src --outdir dist --target node --format esm --packages external",
-    "test": "bun test"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/thomasfosterau/effect-document.git",
-    "directory": "packages/pdf"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "keywords": [
     "effect",
     "document",
     "pdf"
   ],
-  "author": "Thomas Foster <me@thomasfoster.au>",
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/pdf#readme",
+  "bugs": {
+    "url": "https://github.com/thomasfosterau/effect-document/issues"
+  },
   "license": "MIT",
+  "author": "Thomas Foster <me@thomasfoster.au>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomasfosterau/effect-document.git",
+    "directory": "packages/pdf"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cos": {
+      "types": "./dist/cos.d.ts",
+      "default": "./dist/cos.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
-    "fflate": "^0.8.2"
+    "@thomasfosterau/effect-document": "workspace:^",
+    "fflate": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "effect": "catalog:"
   },
   "peerDependencies": {
-    "effect": "^4.0.0"
+    "effect": "catalog:peers"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

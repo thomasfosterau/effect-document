@@ -13,38 +13,38 @@ import {
 } from "@thomasfosterau/effect-parse";
 import { Effect, Result, Stream, pipe } from "effect";
 import { ParseError } from "@thomasfosterau/effect-document";
-import { StandardDialect, type CsvDialect } from "./dialect.js";
+import { StandardDialect, type CsvDialect } from "./dialect.ts";
 
 export interface CsvScanOptions {
   /**
    * Treat the first row as column headers. If `providedHeaders` is also set,
    * the first row is dropped and `providedHeaders` replace it.
    */
-  readonly treatFirstRowAsHeader?: boolean;
+  readonly treatFirstRowAsHeader?: boolean | undefined;
   /** Supply custom column headers. */
-  readonly providedHeaders?: ReadonlyArray<string>;
+  readonly providedHeaders?: ReadonlyArray<string> | undefined;
   /**
    * Physical lines to skip before scanning. Lines end at CRLF, LF or a bare CR,
    * and are counted without regard to quoting, so the skipped lines need not be
    * valid CSV.
    */
-  readonly skipRows?: number;
-  readonly filterEmpty?: boolean;
+  readonly skipRows?: number | undefined;
+  readonly filterEmpty?: boolean | undefined;
   /** Trim whitespace around fields. Whitespace inside quotes is kept. */
-  readonly trimWhitespace?: boolean;
+  readonly trimWhitespace?: boolean | undefined;
   /**
    * Allow rows of different widths. Otherwise every row must be as wide as the
    * headers, or as the first row when there are none.
    */
-  readonly allowVariableColumns?: boolean;
-  readonly lineCommentMarker?: string;
+  readonly allowVariableColumns?: boolean | undefined;
+  readonly lineCommentMarker?: string | undefined;
   /**
    * Let quoted segments start anywhere in a field, so `a"b,c"d` reads as
    * `ab,cd`. By default a field is quoted only if it starts with the wrapper,
    * and a wrapper anywhere else is a literal character: `12" pizza` stays
    * `12" pizza`.
    */
-  readonly quoteAnywhere?: boolean;
+  readonly quoteAnywhere?: boolean | undefined;
 }
 
 /** The result of scanning CSV text: optional headers plus raw string rows */

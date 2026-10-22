@@ -1,7 +1,7 @@
 /**
  * Working with the universal document schema and the profile/subset system.
  *
- * Run with: bun run examples/document-ast.ts
+ * Run with: vp exec tsx examples/document-ast.ts
  */
 
 import { Effect, Schema } from "effect";

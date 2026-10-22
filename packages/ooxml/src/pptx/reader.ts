@@ -18,12 +18,12 @@ import {
 } from "@thomasfosterau/effect-document";
 import {
   type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
-} from "../shared/index.js";
-import { PptxRead, type PptxReadFeature } from "./profile.js";
+} from "../shared/index.ts";
+import { PptxRead, type PptxReadFeature } from "./profile.ts";
 
 export interface PptxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits>;
+  readonly limits?: Partial<OpcLimits> | undefined;
 }
 
 /** Main-part content types this reader accepts. */

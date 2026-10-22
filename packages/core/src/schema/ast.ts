@@ -11,7 +11,7 @@
  */
 
 import { Schema } from "effect";
-import { Attributes, Style, attrField } from "./attributes.js";
+import { Attributes, Style, attrField } from "./attributes.ts";
 
 // ============================================================================
 // Encoded (plain JSON) forms
@@ -54,7 +54,7 @@ export interface CiteEncoded {
 }
 export interface CodeEncoded {
   readonly _tag: "Code";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly text: string;
 }
 export interface MathEncoded {
@@ -69,17 +69,17 @@ export interface RawInlineEncoded {
 }
 export interface TargetEncoded {
   readonly url: string;
-  readonly title?: string;
+  readonly title?: string | undefined;
 }
 export interface LinkEncoded {
   readonly _tag: "Link";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
   readonly target: TargetEncoded;
 }
 export interface ImageEncoded {
   readonly _tag: "Image";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly alt: ReadonlyArray<InlineEncoded>;
   readonly target: TargetEncoded;
 }
@@ -89,7 +89,7 @@ export interface NoteEncoded {
 }
 export interface SpanEncoded {
   readonly _tag: "Span";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
 }
 
@@ -129,9 +129,9 @@ export interface LineBlockEncoded {
 }
 export interface CodeBlockEncoded {
   readonly _tag: "CodeBlock";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly text: string;
-  readonly language?: string;
+  readonly language?: string | undefined;
 }
 export interface RawBlockEncoded {
   readonly _tag: "RawBlock";
@@ -144,15 +144,15 @@ export interface BlockQuoteEncoded {
 }
 export interface OrderedListEncoded {
   readonly _tag: "OrderedList";
-  readonly attr?: Attrs;
-  readonly start?: number;
-  readonly numberStyle?: NumberStyle;
-  readonly numberDelim?: NumberDelim;
+  readonly attr?: Attrs | undefined;
+  readonly start?: number | undefined;
+  readonly numberStyle?: NumberStyle | undefined;
+  readonly numberDelim?: NumberDelim | undefined;
   readonly items: ReadonlyArray<ReadonlyArray<BlockEncoded>>;
 }
 export interface BulletListEncoded {
   readonly _tag: "BulletList";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly items: ReadonlyArray<ReadonlyArray<BlockEncoded>>;
 }
 export interface DefinitionItemEncoded {
@@ -161,35 +161,35 @@ export interface DefinitionItemEncoded {
 }
 export interface DefinitionListEncoded {
   readonly _tag: "DefinitionList";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly items: ReadonlyArray<DefinitionItemEncoded>;
 }
 export interface HeaderEncoded {
   readonly _tag: "Header";
   readonly level: number;
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<InlineEncoded>;
 }
 export interface FigureEncoded {
   readonly _tag: "Figure";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly caption: ReadonlyArray<BlockEncoded>;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
 export interface DivEncoded {
   readonly _tag: "Div";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
 export interface ColSpecEncoded {
-  readonly align?: CellAlign;
-  readonly width?: number | null;
+  readonly align?: CellAlign | undefined;
+  readonly width?: number | null | undefined;
 }
 export interface TableCellEncoded {
-  readonly attr?: Attrs;
-  readonly align?: CellAlign;
-  readonly rowSpan?: number;
-  readonly colSpan?: number;
+  readonly attr?: Attrs | undefined;
+  readonly align?: CellAlign | undefined;
+  readonly rowSpan?: number | undefined;
+  readonly colSpan?: number | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
 export interface TableRowEncoded {
@@ -197,8 +197,8 @@ export interface TableRowEncoded {
 }
 export interface TableEncoded {
   readonly _tag: "Table";
-  readonly attr?: Attrs;
-  readonly caption?: ReadonlyArray<InlineEncoded>;
+  readonly attr?: Attrs | undefined;
+  readonly caption?: ReadonlyArray<InlineEncoded> | undefined;
   readonly colSpecs: ReadonlyArray<ColSpecEncoded>;
   readonly head: ReadonlyArray<TableRowEncoded>;
   readonly body: ReadonlyArray<TableRowEncoded>;
@@ -210,42 +210,42 @@ type StyleE = Style;
 export interface CellTextEncoded {
   readonly _tag: "CellText";
   readonly value: string;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellNumberEncoded {
   readonly _tag: "CellNumber";
   readonly value: number;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellBooleanEncoded {
   readonly _tag: "CellBoolean";
   readonly value: boolean;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellDateEncoded {
   readonly _tag: "CellDate";
   readonly value: string; // ISO-8601 (Date encodes to string)
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellErrorEncoded {
   readonly _tag: "CellError";
   readonly value: string;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellBlankEncoded {
   readonly _tag: "CellBlank";
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export interface CellFormulaEncoded {
   readonly _tag: "CellFormula";
   readonly formula: string;
-  readonly result?: string;
-  readonly style?: StyleE;
+  readonly result?: string | undefined;
+  readonly style?: StyleE | undefined;
 }
 export interface CellRichTextEncoded {
   readonly _tag: "CellRichText";
   readonly runs: ReadonlyArray<InlineEncoded>;
-  readonly style?: StyleE;
+  readonly style?: StyleE | undefined;
 }
 export type SheetCellEncoded =
   | CellTextEncoded
@@ -257,12 +257,12 @@ export type SheetCellEncoded =
   | CellFormulaEncoded
   | CellRichTextEncoded;
 export interface SheetColumnEncoded {
-  readonly width?: number;
-  readonly style?: StyleE;
+  readonly width?: number | undefined;
+  readonly style?: StyleE | undefined;
 }
 export interface SheetRowEncoded {
   readonly cells: ReadonlyArray<SheetCellEncoded>;
-  readonly height?: number;
+  readonly height?: number | undefined;
 }
 export interface MergeRangeEncoded {
   readonly fromRow: number;
@@ -272,7 +272,7 @@ export interface MergeRangeEncoded {
 }
 export interface WorksheetEncoded {
   readonly _tag: "Worksheet";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly name: string;
   readonly columns: ReadonlyArray<SheetColumnEncoded>;
   readonly rows: ReadonlyArray<SheetRowEncoded>;
@@ -282,25 +282,25 @@ export interface WorksheetEncoded {
 // Presentation encoded forms
 export interface TextBoxEncoded {
   readonly _tag: "TextBox";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
 export interface PictureEncoded {
   readonly _tag: "Picture";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly src: string;
-  readonly alt?: string;
+  readonly alt?: string | undefined;
 }
 export interface TableShapeEncoded {
   readonly _tag: "TableShape";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly table: TableEncoded;
 }
 export interface PlaceholderEncoded {
   readonly _tag: "Placeholder";
-  readonly attr?: Attrs;
+  readonly attr?: Attrs | undefined;
   readonly placeholderType: string;
-  readonly idx?: number;
+  readonly idx?: number | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
 export type ShapeEncoded =
@@ -309,10 +309,10 @@ export type ShapeEncoded =
   | TableShapeEncoded
   | PlaceholderEncoded;
 export interface SlideEncoded {
-  readonly attr?: Attrs;
-  readonly layout?: string;
+  readonly attr?: Attrs | undefined;
+  readonly layout?: string | undefined;
   readonly shapes: ReadonlyArray<ShapeEncoded>;
-  readonly notes?: ReadonlyArray<BlockEncoded>;
+  readonly notes?: ReadonlyArray<BlockEncoded> | undefined;
 }
 export interface SlideSizeEncoded {
   readonly width: number;
@@ -320,8 +320,8 @@ export interface SlideSizeEncoded {
 }
 export interface SlideShowEncoded {
   readonly _tag: "SlideShow";
-  readonly attr?: Attrs;
-  readonly size?: SlideSizeEncoded;
+  readonly attr?: Attrs | undefined;
+  readonly size?: SlideSizeEncoded | undefined;
   readonly slides: ReadonlyArray<SlideEncoded>;
 }
 

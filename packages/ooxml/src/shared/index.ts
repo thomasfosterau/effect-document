@@ -3,6 +3,6 @@
  * used by the xlsx, docx and pptx formats.
  */
 
-export * from "./xml.js";
-export * from "./opc.js";
-export * from "./errors.js";
+export * from "./xml.ts";
+export * from "./opc.ts";
+export * from "./errors.ts";
