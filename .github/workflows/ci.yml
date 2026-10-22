@@ -101,7 +101,10 @@ jobs:
   # pandoc reads the DOCX ones. INTEROP=1 makes a missing tool a failure.
   interop:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The first, uncached install of LibreOffice can be slow on the runners'
+    # apt mirror (a 20-minute limit ran out mid-download); later runs restore
+    # the packages from the cache below.
+    timeout-minutes: 45
     permissions:
       contents: read
     env:
@@ -112,10 +115,22 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      # The downloaded .deb files, keyed by this workflow (which names the
+      # packages), so a rerun installs without fetching ~150 MB again.
+      - name: Restore the apt package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: interop-apt-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            interop-apt-v1-${{ runner.os }}-
       - name: Install LibreOffice, qpdf, poppler and pandoc
         run: |
+          mkdir -p ~/apt-cache/partial
           sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends \
+          sudo apt-get install -yq --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" \
             libreoffice-writer libreoffice-calc libreoffice-impress qpdf poppler-utils pandoc
+          # apt writes the cache as root; the cache action saves it as the runner user
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
       - name: Interop tests
         run: vp run test:interop
