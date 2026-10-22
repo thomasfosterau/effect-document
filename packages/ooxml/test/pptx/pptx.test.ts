@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  blocksToText, bulletList, document, type FeaturesOf, para, plainText, slide, type Slide,
+  blocksToText, bulletList, bytes, document, header, orderedList, Placeholder, type FeaturesOf, para, plainText, slide, type Slide,
   slideShow, str, strong, textBox, trustAs,
 } from "@thomasfosterau/effect-document";
 import { Pptx, makePptxReader, makePptxWriter } from "../../src/pptx/index.js";
@@ -58,5 +59,89 @@ describe("PPTX round-trip", () => {
   test("output conforms to the PPTX profile", () => {
     const back = readBack([slide([textBox([para([str("hello")])])])]);
     expect(Pptx.is(back)).toBe(true);
+  });
+});
+
+describe("PPTX reader fixes (#81)", () => {
+  const NS = `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"`;
+  const sp = (paras: string, ph = "") =>
+    `<p:sp><p:nvSpPr><p:cNvPr id="2" name="s"/><p:cNvSpPr/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
+    `<p:spPr/><p:txBody><a:bodyPr/>${paras}</p:txBody></p:sp>`;
+  const para1 = (text: string, rPr = "") => `<a:p><a:r><a:rPr ${rPr}/><a:t>${text}</a:t></a:r></a:p>`;
+
+  /** A writer-made deck whose first slide's shape tree is replaced by `tree`. */
+  const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => void) => {
+    const out = run(makePptxWriter().write(deckOf(slide([]))));
+    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    const files = unzipSync(out.bytes);
+    files["ppt/slides/slide1.xml"] = strToU8(
+      `<p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`
+    );
+    edit?.(files);
+    return bytes(zipSync(files));
+  };
+  const shapesOf = (content: ReturnType<typeof deckWith>) =>
+    firstSlideShow(run(makePptxReader().read(content)).blocks)!.slides[0]!.shapes;
+
+  test("shapes inside (nested) group shapes are read in order", () => {
+    const tree =
+      sp(para1("one")) +
+      `<p:grpSp><p:nvGrpSpPr/><p:grpSpPr/>${sp(para1("two"))}` +
+      `<p:grpSp><p:nvGrpSpPr/><p:grpSpPr/>${sp(para1("three"))}</p:grpSp></p:grpSp>` +
+      sp(para1("four"));
+    expect(shapesOf(deckWith(tree)).map((s) => blocksToText(s._tag === "TextBox" ? s.content : []))).toEqual([
+      "one", "two", "three", "four",
+    ]);
+  });
+
+  test("b=\"true\" and i=\"true\" are recognised", () => {
+    const [shape] = shapesOf(deckWith(sp(para1("x", `b="true" i="true"`))));
+    const inline = shape!._tag === "TextBox" ? (shape!.content[0] as { content: ReadonlyArray<{ _tag: string }> }).content[0] : undefined;
+    expect(inline?._tag).toBe("Strong");
+  });
+
+  test("a placeholder without a type defaults to obj", () => {
+    const [shape] = shapesOf(deckWith(sp(para1("x"), `<p:ph idx="1"/>`)));
+    expect(shape).toMatchObject({ _tag: "Placeholder", placeholderType: "obj", idx: 1 });
+  });
+
+  test("title placeholders read as headers and round-trip", () => {
+    const [shape] = shapesOf(deckWith(sp(para1("Title"), `<p:ph type="ctrTitle"/>`)));
+    expect(shape!._tag === "Placeholder" && shape!.content[0]).toMatchObject({ _tag: "Header", level: 1 });
+
+    const back = readBack([slide([new Placeholder({ placeholderType: "title", content: [header(1, [str("Hello")])] })])]);
+    const ph = firstSlideShow(back.blocks)!.slides[0]!.shapes[0]!;
+    expect(ph._tag === "Placeholder" && ph.content[0]).toMatchObject({
+      _tag: "Header", content: [{ _tag: "Str", text: "Hello" }],
+    });
+  });
+
+  test("a slide with a missing part fails instead of being skipped", () => {
+    const content = deckWith(sp(para1("x")), (files) => {
+      delete files["ppt/slides/slide1.xml"];
+    });
+    const error = run(Effect.flip(makePptxReader().read(content)));
+    expect(error._tag).toBe("ParseError");
+    expect(error.reason).toContain("slide1.xml");
+  });
+
+  test("field text and line breaks are kept", () => {
+    const paras = `<a:p><a:r><a:t>Slide </a:t></a:r><a:fld id="{1}" type="slidenum"><a:t>3</a:t></a:fld><a:br/><a:r><a:t>end</a:t></a:r></a:p>`;
+    const [shape] = shapesOf(deckWith(sp(paras)));
+    expect(blocksToText(shape!._tag === "TextBox" ? shape!.content : [])).toBe("Slide 3\nend");
+  });
+
+  test("lvl nests bullet lists, and nested lists round-trip", () => {
+    const bu = (text: string, lvl: number, auto = false) =>
+      `<a:p><a:pPr lvl="${lvl}">${auto ? `<a:buAutoNum type="arabicPeriod"/>` : `<a:buChar char="-"/>`}</a:pPr><a:r><a:t>${text}</a:t></a:r></a:p>`;
+    const [shape] = shapesOf(deckWith(sp(bu("a", 0) + bu("a1", 1) + bu("a1i", 2, true) + bu("a2", 1) + bu("b", 0))));
+    const nested = bulletList([
+      [plainText("a"), bulletList([[plainText("a1"), orderedList([[plainText("a1i")]])], [plainText("a2")]])],
+      [plainText("b")],
+    ]);
+    expect(shape!._tag === "TextBox" && shape!.content).toEqual([nested]);
+
+    const back = readBack([slide([textBox([nested])])]);
+    expect(firstSlideShow(back.blocks)!.slides[0]!.shapes[0]).toMatchObject({ content: [nested] });
   });
 });

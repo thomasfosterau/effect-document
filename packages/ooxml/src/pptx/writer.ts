@@ -46,24 +46,44 @@ const inlineToRuns = (n: Inline, f: Fmt): string => {
   }
 };
 
-const aPara = (bullet: string, runs: string): string =>
-  `<a:p><a:pPr>${bullet}</a:pPr>${runs}</a:p>`;
+const aPara = (bullet: string, runs: string, lvl = 0): string =>
+  `<a:p><a:pPr${lvl > 0 ? ` lvl="${lvl}"` : ""}>${bullet}</a:pPr>${runs}</a:p>`;
 
 const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
   blocks.flatMap((b) =>
     b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : []
   );
 
-const blockToParas = (b: Block): string => {
+const BULLET = '<a:buChar char="&#8226;"/>';
+const AUTO_NUM = '<a:buAutoNum type="arabicPeriod"/>';
+/** DrawingML paragraph levels run 0-8. */
+const MAX_LVL = 8;
+
+/**
+ * Render a block as paragraphs. Nested lists inside a list item become
+ * paragraphs one `lvl` deeper. `inTitle`: the shape is a title placeholder,
+ * whose text the reader takes as headers, so headers there need no bold.
+ */
+const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
   switch (b._tag) {
     case "Para": case "Plain":
       return aPara("<a:buNone/>", inlineRuns(b.content, {}));
     case "Header":
-      return aPara("<a:buNone/>", inlineRuns(b.content, { b: true }));
+      return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
     case "BulletList":
-      return b.items.map((it) => aPara('<a:buChar char="&#8226;"/>', inlineRuns(itemInlines(it), {}))).join("");
-    case "OrderedList":
-      return b.items.map((it) => aPara('<a:buAutoNum type="arabicPeriod"/>', inlineRuns(itemInlines(it), {}))).join("");
+    case "OrderedList": {
+      const bullet = b._tag === "BulletList" ? BULLET : AUTO_NUM;
+      return b.items
+        .map(
+          (it) =>
+            aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
+            it
+              .filter((x) => x._tag === "BulletList" || x._tag === "OrderedList")
+              .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
+              .join("")
+        )
+        .join("");
+    }
     default:
       return "";
   }
@@ -78,7 +98,11 @@ const shapeXml = (shape: Shape, idx: number): string => {
     : "";
   const txBox = shape._tag === "TextBox" ? ' txBox="1"' : "";
   const content = shape._tag === "Picture" ? [] : shape._tag === "TableShape" ? [] : shape.content;
-  const paras = content.map(blockToParas).join("") || '<a:p><a:pPr><a:buNone/></a:pPr></a:p>';
+  const inTitle =
+    isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
+  const paras =
+    content.map((b) => blockToParas(b, 0, inTitle)).join("") ||
+    '<a:p><a:pPr><a:buNone/></a:pPr></a:p>';
   return (
     `<p:sp>` +
     `<p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr${txBox}/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
