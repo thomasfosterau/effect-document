@@ -7,7 +7,6 @@
  */
 
 import { Effect, Layer } from "effect";
-import { strToU8, zipSync } from "fflate";
 import {
   bytes, type Content, type Doc, makeWriterTag, type Worksheet, WriteError,
   type Writer,
@@ -15,16 +14,11 @@ import {
 import { Xlsx, type XlsxFeature } from "./profile.js";
 import { toA1 } from "./a1.js";
 import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.js";
-import { ZIP_MTIME } from "../shared/opc.js";
+import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.js";
 import { escapeAttr } from "./xml.js";
 
 
-const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
-
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-const NS_REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
-const NS_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types";
 
 const CT_WORKBOOK =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
@@ -225,22 +219,23 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           )
         );
 
-        const files: Record<string, Uint8Array> = {
-          "[Content_Types].xml": strToU8(contentTypesXml(worksheets.length)),
-          "_rels/.rels": strToU8(rootRelsXml()),
-          "docProps/core.xml": strToU8(corePropsXml()),
-          "docProps/app.xml": strToU8(appPropsXml()),
-          "xl/workbook.xml": strToU8(
-            workbookXml(sanitizeSheetNames(worksheets.map((w) => w.name)), recalculate)
+        const files: Record<string, string> = {
+          "[Content_Types].xml": contentTypesXml(worksheets.length),
+          "_rels/.rels": rootRelsXml(),
+          "docProps/core.xml": corePropsXml(),
+          "docProps/app.xml": appPropsXml(),
+          "xl/workbook.xml": workbookXml(
+            sanitizeSheetNames(worksheets.map((w) => w.name)),
+            recalculate
           ),
-          "xl/_rels/workbook.xml.rels": strToU8(workbookRelsXml(worksheets.length)),
-          "xl/sharedStrings.xml": strToU8(sharedStringsXml(sharedStrings)),
+          "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
+          "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
         };
         sheetXmls.forEach((xml, i) => {
-          files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(xml);
+          files[`xl/worksheets/sheet${i + 1}.xml`] = xml;
         });
 
-        return bytes(zipSync(files, { level, mtime: ZIP_MTIME }));
+        return bytes(zipParts(files, level));
       },
       catch: (cause) =>
         new WriteError({
