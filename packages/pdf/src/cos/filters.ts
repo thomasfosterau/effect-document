@@ -268,6 +268,8 @@ export interface Decoded {
   readonly data: Uint8Array;
   /** The image filter decoding stopped at, if any (the data is still in that encoding). */
   readonly imageFilter?: string | undefined;
+  /** The `/DecodeParms` of {@link imageFilter}, if it has any (CCITT and JBIG2 settings). */
+  readonly imageParms?: PdfDict | undefined;
 }
 
 /**
@@ -293,9 +295,10 @@ export const decodeFilters = (
   let out = data;
   for (let i = 0; i < names.length; i++) {
     const name = names[i]!;
-    if (IMAGE_FILTERS.has(name)) return { data: out, imageFilter: name };
     const p = parms[i];
-    out = applyFilter(name, out, isDict(p) ? p : undefined);
+    const dict = isDict(p) ? p : undefined;
+    if (IMAGE_FILTERS.has(name)) return { data: out, imageFilter: name, imageParms: dict };
+    out = applyFilter(name, out, dict);
   }
   return { data: out };
 };

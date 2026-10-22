@@ -34,7 +34,23 @@ const program = Effect.gen(function* () {
 });
 ```
 
-**Reading** recovers prose from the page layout: headings (ranked by font size), paragraphs (including ones broken across pages), bullet/ordered/nested lists, code blocks (runs of monospaced lines, indentation kept), bold, italic, inline code and links (from link annotations), plus the document information dictionary as metadata. It handles simple and composite (Type 0) fonts, `/ToUnicode` CMaps, standard and custom encodings, `/ActualText`, Form XObjects and rotated pages. Damaged files are repaired by scanning for objects. Encrypted files are refused, and there is no OCR for scanned pages.
+**Reading** recovers prose from the page layout: headings (ranked by font size), paragraphs (including ones broken across pages), bullet/ordered/nested lists, code blocks (runs of monospaced lines, indentation kept), bold, italic, inline code and links (from link annotations), plus the document information dictionary as metadata. It handles simple and composite (Type 0) fonts, `/ToUnicode` CMaps, standard and custom encodings, `/ActualText`, Form XObjects and rotated pages. Damaged files are repaired by scanning for objects. Encrypted files are refused.
+
+**Scanned pages** (images with no text layer) read as empty unless you give the reader an OCR engine. Either way, the pages left without text are listed in the document's `pagesWithoutText` metadata (1-based page numbers). No engine is bundled: implement `OcrEngineShape` over the one you use (Tesseract.js, a cloud OCR API, …) and pass it as `ocr`, or provide it as the `OcrEngine` service and use `PdfOcrReaderLive`:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Pdf from "@thomasfosterau/effect-pdf";
+
+declare const myEngine: Pdf.OcrEngineShape; // recognize(image) => Effect<ReadonlyArray<OcrWord>, OcrError>
+
+const reader = Pdf.makePdfReader({ ocr: myEngine });
+// or, as a service:
+const ReaderLive = Pdf.PdfOcrReaderLive.pipe(Layer.provide(Layer.succeed(Pdf.OcrEngine, myEngine)));
+```
+
+The engine is called once for each image a textless page paints, in painting order, and never for pages that have text. It gets the image as the PDF stores it. JPEG, JPEG 2000, CCITT fax and JBIG2 data arrive still encoded (`_tag: "Encoded"`, with the codec's `parameters` and any JBIG2 `globals`). Other images arrive as decoded gray, RGB or CMYK samples (`_tag: "Samples"`). Images in other colour spaces (indexed, separation, …) are skipped. The engine returns words with pixel boxes (origin at the top-left), which the reader places on the page and lays out like any other text. An `OcrError` fails the read with a `ParseError` naming the page.
 
 **Writing** typesets a document onto pages: word-wrapped paragraphs, headings, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links. It uses the standard 14 fonts (Helvetica, Courier) with WinAnsiEncoding, so nothing is embedded; characters outside WinAnsiEncoding are written as `?`.
 
@@ -60,8 +76,9 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 | --- | --- | --- |
 | `decodeTextString` | function | Decode a text string. |
 | `glyphToUnicode` | function | The Unicode text for a glyph name. |
+| `PageImage` | interface | An image the page paints: an Image XObject drawn with `Do`, or an inline image. |
 | `PageLink` | interface | A URI link annotation. |
-| `PageText` | interface | A page's positioned text and links. |
+| `PageText` | interface | A page's positioned text, links and images. |
 | `TextGlyph` | interface | A shown glyph, positioned on the page (origin bottom-left, y up). |
 | `extractPageText` | function | Extract the positioned text of one page. |
 | `Glyph` | interface | One decoded character code. |
@@ -79,10 +96,22 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 | `readMeta` | function | The document information dictionary as metadata. |
 | `openPdf` | function | Open a PDF, failing with a `ParseError` if it can't be read or is encrypted. |
 | `readPages` | function | The positioned text of every page. |
-| `PdfReaderOptions` | interface | Options for the PDF reader. |
+| `pagesWithoutText` | function | The 1-based numbers of the pages that paint images but have no text. |
+| `PdfReaderOptions` | interface | Options for the PDF reader: the nesting-depth limit and the OCR engine. |
 | `makePdfReader` | function | Create a PDF Reader. |
 | `PdfReaderTag` | const | The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. |
 | `PdfReaderLive` | const | A Layer providing the default PDF reader for `PdfReaderTag`. |
+| `PdfOcrReaderLive` | const | A Layer providing a PDF reader for `PdfReaderTag` that OCRs scanned pages with the `OcrEngine` it requires. |
+| `OcrError` | class | An OCR engine could not recognise an image: why, and the engine's own failure if any. |
+| `OcrCodec` | type | The image codecs passed to an `OcrEngine` still encoded. |
+| `OcrEncodedImage` | interface | An image in a codec the PDF reader does not decode, passed through as the file stores it. |
+| `OcrSampledImage` | interface | An image as decoded samples. |
+| `OcrImage` | type | An image for an `OcrEngine`, either still encoded or as samples. |
+| `OcrWord` | interface | A recognised word and its bounding box, in the image's pixels with the origin at the top-left. |
+| `OcrEngineShape` | interface | An OCR engine: recognises the words in an image, in reading order. |
+| `OcrEngine` | const | The Context tag for the OCR engine the PDF reader uses on scanned pages. |
+| `toOcrImage` | function | A page image as an `OcrImage`, or none when it can't be given to an engine. |
+| `ocrGlyphs` | function | Recognised words as page glyphs, one per line of text. |
 | `PAGE_SIZES` | const | Page sizes in points. |
 | `PdfWriterOptions` | interface | Options for the PDF writer. |
 | `renderPdf` | function | Render a PDF-profile document to PDF bytes. |

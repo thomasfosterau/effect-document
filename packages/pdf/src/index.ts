@@ -13,9 +13,16 @@ import { makePdfWriter } from "./writer.ts";
 
 export * from "./profile.ts";
 export * from "./reader.ts";
+export * from "./ocr.ts";
 export * from "./writer.ts";
 export { decodeTextString, glyphToUnicode } from "./text/encodings.ts";
-export { type PageLink, type PageText, type TextGlyph, extractPageText } from "./text/extract.ts";
+export {
+  type PageImage,
+  type PageLink,
+  type PageText,
+  type TextGlyph,
+  extractPageText,
+} from "./text/extract.ts";
 export { type Glyph, type PdfFont, loadFont } from "./text/font.ts";
 export { layoutBlocks } from "./text/layout.ts";
 
