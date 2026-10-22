@@ -476,8 +476,7 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
           rels.set(r.id, r.target);
           if (r.type.endsWith("/numbering")) numberingPath = r.target;
         }
-        const numberingXml = numberingPath === undefined ? null : pkg.text(numberingPath);
-        const numbering = parseNumbering(numberingXml === null ? null : parseXml(numberingXml));
+        const numbering = parseNumbering(numberingPath === undefined ? null : pkg.xml(numberingPath));
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");
