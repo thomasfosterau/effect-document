@@ -1,6 +1,5 @@
 import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { readFileSync } from "node:fs";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { zipSync } from "fflate";
@@ -11,10 +10,15 @@ import { parseMessage, readVarint } from "../src/protobuf.ts";
 import { openBundle } from "../src/bundle.ts";
 import * as Keynote from "../src/keynote.ts";
 import * as Numbers from "../src/numbers.ts";
+import { loadFixtures } from "./fixture.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
-const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
+const fixture = await loadFixtures([
+  "multi-chunk.iwa",
+  "simple-oneslide.iwa",
+  "simple-oneslide.key",
+  "test-1.numbers",
+]);
 
 describe("Snappy block codec", () => {
   test("literals-only compress then decompress is identity", () => {

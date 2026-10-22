@@ -12,7 +12,14 @@
  */
 
 import * as Result from "effect/Result";
-import { codecError, type IworkError, shiftOffset, toIworkError, withLocation } from "./errors.ts";
+import {
+  codecError,
+  type IworkError,
+  rethrowing,
+  shiftOffset,
+  toIworkError,
+  withLocation,
+} from "./errors.ts";
 import { type DechunkOptions, dechunk } from "./iwa.ts";
 import {
   type Field,
@@ -37,13 +44,11 @@ export interface IworkObject {
 }
 
 /** Parse a message that is a view into `data`, with errors positioned in `data`. */
-const parseIn = (data: Uint8Array, message: Uint8Array): Field[] => {
-  try {
-    return parseMessage(message);
-  } catch (e) {
-    throw shiftOffset(toIworkError(e), message.byteOffset - data.byteOffset);
-  }
-};
+const parseIn = (data: Uint8Array, message: Uint8Array): Field[] =>
+  rethrowing(
+    () => parseMessage(message),
+    (e) => shiftOffset(toIworkError(e), message.byteOffset - data.byteOffset),
+  );
 
 /**
  * Decode a decompressed object stream into its archived objects. Throws a
@@ -102,10 +107,8 @@ export const decodeArchiveStream = (data: Uint8Array): IworkObject[] => {
 export const decodeIwa = (
   iwaBytes: Uint8Array,
   options?: DechunkOptions,
-): Result.Result<IworkObject[], IworkError> => {
-  try {
-    return Result.succeed(decodeArchiveStream(dechunk(iwaBytes, options)));
-  } catch (e) {
-    return Result.fail(toIworkError(e));
-  }
-};
+): Result.Result<IworkObject[], IworkError> =>
+  Result.try({
+    try: () => decodeArchiveStream(dechunk(iwaBytes, options)),
+    catch: toIworkError,
+  });

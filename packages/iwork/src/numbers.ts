@@ -13,6 +13,7 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Order from "effect/Order";
 import {
   type Content,
   defineProfile,
@@ -76,10 +77,10 @@ const inDocumentOrder = (found: ReadonlyArray<Found>) => {
   const sheets = found.filter((f) => Predicate.isTagged(f, "Sheet"));
   const order = found.find((f) => Predicate.isTagged(f, "Order"))?.ids ?? [];
   const rank = new Map(order.map((id, i) => [id, i]));
-  return sheets
-    .map((sheet, i) => ({ sheet, key: rank.get(sheet.id) ?? order.length + i }))
-    .sort((a, b) => a.key - b.key)
-    .map(({ sheet }) => sheet);
+  return Arr.sort(
+    sheets.map((sheet, i) => ({ sheet, key: rank.get(sheet.id) ?? order.length + i })),
+    Order.mapInput(Order.Number, (s: { readonly key: number }) => s.key),
+  ).map(({ sheet }) => sheet);
 };
 
 /**

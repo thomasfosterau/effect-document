@@ -1,13 +1,15 @@
-import { describe, expect, test } from "vite-plus/test";
-import { readFileSync } from "node:fs";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as ByteSize from "effect/ByteSize";
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
 import * as Result from "effect/Result";
 import { unzipSync, zipSync } from "fflate";
 import { bytes, type ParseError } from "@thomasfosterau/effect-document";
 import { decodeArchiveStream, decodeIwa } from "../src/archive.ts";
-import { openBundle, openBundleDirectory } from "../src/bundle.ts";
+import { type BundleLimits, openBundle, openBundleDirectory } from "../src/bundle.ts";
 import { IworkError } from "../src/errors.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import {
@@ -23,19 +25,15 @@ import {
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
 import * as Keynote from "../src/keynote.ts";
 import { f32, f64, fixedField, i64, lenField, record, varint, varintField } from "./encode.ts";
+import { loadFixtures } from "./fixture.ts";
 
-const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
+const fixture = await loadFixtures(["simple-oneslide.iwa", "simple-oneslide.key"]);
 
 /** The `IworkError` a codec call throws (anything else, or no failure, fails the test). */
-const failure = (f: () => unknown): IworkError => {
-  try {
-    f();
-  } catch (e) {
-    if (e instanceof IworkError) return e;
-    throw e;
-  }
-  throw new Error("expected an IworkError");
+const failure = <A>(f: () => A): IworkError => {
+  const r = Result.try({ try: f, catch: (e) => e });
+  assert(Result.isFailure(r) && r.failure instanceof IworkError, "expected an IworkError");
+  return r.failure;
 };
 
 // ----------------------------------------------------------------------------
@@ -245,7 +243,7 @@ describe("bundle: typed failures and inflation limits", () => {
 
   test("entry count, entry size and total size limits", () => {
     const zip = zipSync({ "Index/A.iwa": new Uint8Array(600), "Index/B.iwa": new Uint8Array(600) });
-    const reason = (limits: object) => {
+    const reason = (limits: BundleLimits) => {
       const r = openBundle(zip, { limits });
       return Result.isFailure(r) ? r.failure.reason : "ok";
     };
@@ -273,12 +271,26 @@ describe("bundle: typed failures and inflation limits", () => {
       stat: (path) =>
         Effect.succeed({
           type: "File",
+          mtime: Option.none(),
+          atime: Option.none(),
+          birthtime: Option.none(),
+          dev: 0n,
+          ino: Option.none(),
+          mode: 0o644,
+          nlink: Option.none(),
+          uid: Option.none(),
+          gid: Option.none(),
+          rdev: Option.none(),
           size: ByteSize.bytes(files[path.slice("/deck.key/".length)]?.length ?? 0),
-        } as unknown as FileSystem.File.Info),
+          blksize: Option.none(),
+          blocks: Option.none(),
+        }),
       readFile: (path) => Effect.succeed(files[path.slice("/deck.key/".length)]!),
     });
     const bundle = Effect.runSync(openBundleDirectory("/deck.key/").pipe(Effect.provide(fs)));
-    expect(Object.keys(bundle.components).sort()).toEqual(Object.keys(files).sort());
+    expect(Arr.sort(Object.keys(bundle.components), Order.String)).toEqual(
+      Arr.sort(Object.keys(files), Order.String),
+    );
     expect(bundle.entries).toContain("Data/x.jpg");
   });
 });
@@ -293,7 +305,7 @@ describe("readers: component failures", () => {
   test("name the component and keep the IworkError as the cause", () => {
     const deck = corrupted("Index/Slide-8060.iwa", new Uint8Array([0x00, 5, 0, 0, 1]));
     const r = Effect.runSync(Effect.result(Keynote.makeKeynoteReader().read(bytes(deck))));
-    if (Result.isSuccess(r)) throw new Error("expected a failure");
+    assert(Result.isFailure(r), "expected a failure");
     const e: ParseError = r.failure;
     expect(e.reason).toMatch(/^Failed to read keynote: Index\/Slide-8060\.iwa, offset 4: /);
     expect((e.cause as IworkError).reason).toBe("Truncated");
@@ -342,36 +354,21 @@ const mutate = (rand: () => number, input: Uint8Array): Uint8Array => {
   const edits = 1 + Math.floor(rand() * 4);
   for (let i = 0; i < edits && out.byteLength > 0; i++) {
     const at = Math.floor(rand() * out.length);
-    switch (Math.floor(rand() * 4)) {
-      case 0:
-        out[at] = out[at]! ^ (1 << Math.floor(rand() * 8));
-        break;
-      case 1:
-        out[at] = Math.floor(rand() * 256);
-        break;
-      case 2:
-        out = out.slice(0, at);
-        break;
-      default:
-        out = new Uint8Array([
-          ...out.subarray(0, at),
-          ...randomBytes(rand, 8),
-          ...out.subarray(at),
-        ]);
-    }
+    const edit = Math.floor(rand() * 4);
+    if (edit === 0) out[at] = out[at]! ^ (1 << Math.floor(rand() * 8));
+    else if (edit === 1) out[at] = Math.floor(rand() * 256);
+    else if (edit === 2) out = out.slice(0, at);
+    else
+      out = new Uint8Array([...out.subarray(0, at), ...randomBytes(rand, 8), ...out.subarray(at)]);
   }
   return out;
 };
 
 /** Run `f`, which may succeed or throw only an `IworkError`. */
-const survives = (f: () => unknown, input: Uint8Array): void => {
-  try {
-    f();
-  } catch (e) {
-    if (!(e instanceof IworkError)) {
-      throw new Error(`defect on input [${Array.from(input).join(",")}]: ${String(e)}`);
-    }
-  }
+const survives = <A>(f: () => A, input: Uint8Array): void => {
+  const r = Result.try({ try: f, catch: (e) => e });
+  if (Result.isFailure(r) && !(r.failure instanceof IworkError))
+    assert.fail(`defect on input [${Array.from(input).join(",")}]: ${String(r.failure)}`);
 };
 
 describe("fuzz", () => {

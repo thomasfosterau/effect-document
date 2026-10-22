@@ -1,5 +1,6 @@
 import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { zipSync } from "fflate";
@@ -9,7 +10,7 @@ import {
   type ParseError,
   type SlideShow,
 } from "@thomasfosterau/effect-document";
-import { compareComponentPaths, openBundle } from "../src/bundle.ts";
+import { ComponentPathOrder, openBundle } from "../src/bundle.ts";
 import type { IworkError } from "../src/errors.ts";
 import { chunk } from "../src/iwa.ts";
 import * as Keynote from "../src/keynote.ts";
@@ -87,14 +88,14 @@ describe("Keynote slide components", () => {
     ).toEqual(["first", "second", "third"]);
   });
 
-  test("compareComponentPaths compares digit runs as numbers", () => {
+  test("ComponentPathOrder compares digit runs as numbers", () => {
     const paths = [
       "Index/Slide-10000.iwa",
       "Index/Slide-8060-2.iwa",
       "Index/Slide-9.iwa",
       "Index/Slide-8060.iwa",
     ];
-    expect(paths.sort(compareComponentPaths)).toEqual([
+    expect(Arr.sort(paths, ComponentPathOrder)).toEqual([
       "Index/Slide-9.iwa",
       "Index/Slide-8060.iwa",
       "Index/Slide-8060-2.iwa",

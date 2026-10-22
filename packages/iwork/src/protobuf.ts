@@ -11,6 +11,7 @@
  * length-delimited (2), 32-bit (5).
  */
 
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
 import { codecError, type IworkError } from "./errors.ts";
@@ -109,61 +110,54 @@ const fieldAt = (c: Cursor): Field | Problem => {
   const field = Math.floor(tag / 8);
   const wire = tag & 7;
   const valueStart = c.pos;
-  switch (wire) {
-    case WIRE_VARINT: {
-      const value = varintAt(c);
-      if (!Predicate.isNumber(value)) return value;
-      return value > Number.MAX_SAFE_INTEGER
-        ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
-        : { field, wire, value };
-    }
-    case WIRE_I64:
-    case WIRE_I32: {
-      const size = wire === WIRE_I64 ? 8 : 4;
-      if (c.end - c.pos < size)
-        return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
-      const raw = c.input.subarray(c.pos, c.pos + size);
-      return { field, wire, value: fixedAt(c, size), raw };
-    }
-    case WIRE_LEN: {
-      const length = varintAt(c);
-      if (!Predicate.isNumber(length)) return length;
-      if (c.end - c.pos < length) {
-        return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
-      }
-      const bytes = c.input.subarray(c.pos, c.pos + length);
-      c.pos += length;
-      return { field, wire, bytes };
-    }
-    default:
-      return { _tag: "UnsupportedWire", wire, field, at: start };
+  if (wire === WIRE_VARINT) {
+    const value = varintAt(c);
+    if (!Predicate.isNumber(value)) return value;
+    return value > Number.MAX_SAFE_INTEGER
+      ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
+      : { field, wire, value };
   }
+  if (wire === WIRE_I64 || wire === WIRE_I32) {
+    const size = wire === WIRE_I64 ? 8 : 4;
+    if (c.end - c.pos < size)
+      return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
+    const raw = c.input.subarray(c.pos, c.pos + size);
+    return { field, wire, value: fixedAt(c, size), raw };
+  }
+  if (wire === WIRE_LEN) {
+    const length = varintAt(c);
+    if (!Predicate.isNumber(length)) return length;
+    if (c.end - c.pos < length) {
+      return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
+    }
+    const bytes = c.input.subarray(c.pos, c.pos + length);
+    c.pos += length;
+    return { field, wire, bytes };
+  }
+  return { _tag: "UnsupportedWire", wire, field, at: start };
 };
 
 const isProblem = (r: Field | Problem): r is Problem => "_tag" in r;
 
 /** Report a problem as an effect-parse failure (always a cut: the input is malformed). */
 const fail = (state: Input.State<Uint8Array>, p: Problem): Input.Fail => {
-  switch (p._tag) {
-    case "VarintTruncated":
-      return state.cut("Take", ["varint byte"], state.end);
-    case "VarintTooLong":
-      return state.failMessage("Cut", "Verify", "varint longer than 10 bytes", p.at);
-    case "Truncated":
-      return state.failMessage(
-        "Cut",
-        "Take",
-        `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`,
-        p.at,
-      );
-    case "UnsupportedWire":
-      return state.failMessage(
-        "Cut",
-        "Verify",
-        `unsupported wire type ${p.wire} (field ${p.field})`,
-        p.at,
-      );
-  }
+  if (Predicate.isTagged(p, "VarintTruncated"))
+    return state.cut("Take", ["varint byte"], state.end);
+  if (Predicate.isTagged(p, "VarintTooLong"))
+    return state.failMessage("Cut", "Verify", "varint longer than 10 bytes", p.at);
+  if (Predicate.isTagged(p, "Truncated"))
+    return state.failMessage(
+      "Cut",
+      "Take",
+      `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`,
+      p.at,
+    );
+  return state.failMessage(
+    "Cut",
+    "Verify",
+    `unsupported wire type ${p.wire} (field ${p.field})`,
+    p.at,
+  );
 };
 
 /** A base-128 varint, as a `number` (exact up to 2^53), of at most 10 bytes. */
@@ -198,32 +192,31 @@ export const field: Parser.Parser<Field, never, never, Uint8Array> = Parser.make
 export const message: Parser.Parser<Field[], never, never, Uint8Array> = Parser.repeat(field);
 
 /** A problem as an `IworkError`, positioned in the buffer being read. */
-const problemError = (p: Problem, end: number): IworkError => {
-  switch (p._tag) {
-    case "VarintTruncated":
-      return codecError("Truncated", "protobuf: truncated varint", p.at);
-    case "VarintTooLong":
-      return codecError("Malformed", "protobuf: varint longer than 10 bytes", p.at);
-    case "Truncated":
-      return codecError(
+const problemError = (p: Problem, end: number): IworkError =>
+  Match.valueTags(p, {
+    VarintTruncated: (q) => codecError("Truncated", "protobuf: truncated varint", q.at),
+    VarintTooLong: (q) => codecError("Malformed", "protobuf: varint longer than 10 bytes", q.at),
+    Truncated: (q) =>
+      codecError(
         "Truncated",
-        `protobuf: ${p.what} needs ${p.size} bytes, only ${end - p.at} left`,
-        p.at,
-      );
-    case "UnsupportedWire":
-      return codecError(
-        "Malformed",
-        `protobuf: unsupported wire type ${p.wire} (field ${p.field})`,
-        p.at,
-      );
-  }
-};
+        `protobuf: ${q.what} needs ${q.size} bytes, only ${end - q.at} left`,
+        q.at,
+      ),
+    UnsupportedWire: (q) =>
+      codecError("Malformed", `protobuf: unsupported wire type ${q.wire} (field ${q.field})`, q.at),
+  });
+
+/** A varint read by {@link readVarint}: its value and the position after it. */
+export interface VarintRead {
+  readonly value: number;
+  readonly pos: number;
+}
 
 /**
  * Read a base-128 varint at `pos`, returning the value and the new position.
  * Throws a positioned `IworkError` if it is truncated or too long.
  */
-export const readVarint = (buf: Uint8Array, pos: number): { value: number; pos: number } => {
+export const readVarint = (buf: Uint8Array, pos: number): VarintRead => {
   const cursor: Cursor = { input: buf, pos, end: buf.length };
   const value = varintAt(cursor);
   if (Predicate.isNumber(value)) return { value, pos: cursor.pos };

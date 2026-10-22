@@ -99,57 +99,49 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
   while (pos < input.length) {
     const at = pos;
     const tag = input[pos++]!;
-    switch (tag & 0x03) {
-      case 0: {
-        // Literal
-        let len = tag >> 2;
-        if (len < 60) {
-          len += 1;
-        } else {
-          const n = len - 59; // 60..63 -> 1..4 extra length bytes
-          if (input.length - pos < n) throw truncated("literal length", at);
-          let v = 0;
-          for (let i = 0; i < n; i++) v += input[pos++]! * 2 ** (8 * i);
-          len = v + 1;
-        }
-        if (len > input.length - pos) throw truncated(`literal of ${len} bytes`, at);
-        if (len > outLen - o) {
-          throw codecError(
-            "Malformed",
-            `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`,
-            at,
-          );
-        }
-        out.set(input.subarray(pos, pos + len), o);
-        pos += len;
-        o += len;
-        break;
+    const kind = tag & 0x03;
+    if (kind === 0) {
+      // Literal
+      let len = tag >> 2;
+      if (len < 60) {
+        len += 1;
+      } else {
+        const n = len - 59; // 60..63 -> 1..4 extra length bytes
+        if (input.length - pos < n) throw truncated("literal length", at);
+        let v = 0;
+        for (let i = 0; i < n; i++) v += input[pos++]! * 2 ** (8 * i);
+        len = v + 1;
       }
-      case 1: {
-        // Copy, 1-byte offset
-        if (input.length - pos < 1) throw truncated("copy offset", at);
-        const len = ((tag >> 2) & 0x07) + 4;
-        copy(at, len, ((tag >> 5) << 8) + input[pos++]!);
-        break;
-      }
-      case 2: {
-        // Copy, 2-byte offset
-        if (input.length - pos < 2) throw truncated("copy offset", at);
-        const len = (tag >> 2) + 1;
-        copy(at, len, input[pos++]! + input[pos++]! * 256);
-        break;
-      }
-      default: {
-        // Copy, 4-byte offset
-        if (input.length - pos < 4) throw truncated("copy offset", at);
-        const len = (tag >> 2) + 1;
-        copy(
+      if (len > input.length - pos) throw truncated(`literal of ${len} bytes`, at);
+      if (len > outLen - o) {
+        throw codecError(
+          "Malformed",
+          `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`,
           at,
-          len,
-          input[pos++]! + input[pos++]! * 256 + input[pos++]! * 65536 + input[pos++]! * 16777216,
         );
-        break;
       }
+      out.set(input.subarray(pos, pos + len), o);
+      pos += len;
+      o += len;
+    } else if (kind === 1) {
+      // Copy, 1-byte offset
+      if (input.length - pos < 1) throw truncated("copy offset", at);
+      const len = ((tag >> 2) & 0x07) + 4;
+      copy(at, len, ((tag >> 5) << 8) + input[pos++]!);
+    } else if (kind === 2) {
+      // Copy, 2-byte offset
+      if (input.length - pos < 2) throw truncated("copy offset", at);
+      const len = (tag >> 2) + 1;
+      copy(at, len, input[pos++]! + input[pos++]! * 256);
+    } else {
+      // Copy, 4-byte offset
+      if (input.length - pos < 4) throw truncated("copy offset", at);
+      const len = (tag >> 2) + 1;
+      copy(
+        at,
+        len,
+        input[pos++]! + input[pos++]! * 256 + input[pos++]! * 65536 + input[pos++]! * 16777216,
+      );
     }
   }
   if (o !== outLen) {

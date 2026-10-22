@@ -419,13 +419,14 @@ export const scanCsvStream = <E, R>(
         nextRow += linesIn(fields);
         return { row, fields };
       }),
-      Stream.mapError((e) =>
-        SyntaxError.isParseError(e)
-          ? // SAFETY: a grammar failure from this stream's own string parser
-            fromSyntaxError(e as SyntaxError.ParseError, nextRow)
-          : // SAFETY: anything else is the input stream's own failure, `E`
-            (e as E),
-      ),
+      Stream.mapError((e) => {
+        if (SyntaxError.isParseError(e)) {
+          // SAFETY: a grammar failure from this stream's own string parser
+          return fromSyntaxError(e as SyntaxError.ParseError, nextRow);
+        }
+        // SAFETY: anything else is the input stream's own failure, `E`
+        return e as E;
+      }),
       Stream.filter((r): r is Located => r.fields !== null),
       Stream.mapAccumEffect(
         (): HeaderState => ({ index: 0, headers: provided, width: provided?.length ?? null }),

@@ -9,7 +9,7 @@
 
 import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
 import * as Result from "effect/Result";
-import { fromParseError, isIworkError, shiftOffset } from "./errors.ts";
+import { fromParseError, rethrowing, shiftOffset, toIworkError } from "./errors.ts";
 import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.ts";
 
 const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
@@ -58,14 +58,13 @@ export const dechunk = (data: Uint8Array, options?: DechunkOptions): Uint8Array 
     // each block is a view into `data`, so its offset is recoverable for errors;
     // the block limit shrinks as the stream fills, capping the whole stream
     const at = block.byteOffset - data.byteOffset;
-    let out: Uint8Array;
-    try {
-      out = decompressBlock(block, {
-        maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total),
-      });
-    } catch (e) {
-      throw isIworkError(e) ? shiftOffset(e, at) : e;
-    }
+    const out = rethrowing(
+      () =>
+        decompressBlock(block, {
+          maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total),
+        }),
+      (e) => shiftOffset(toIworkError(e), at),
+    );
     total += out.length;
     blocks.push(out);
   }

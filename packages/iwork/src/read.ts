@@ -4,6 +4,7 @@
  * reader's `ParseError` without losing where it happened.
  */
 
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { type Content, contentToBytes, ParseError } from "@thomasfosterau/effect-document";
@@ -55,23 +56,29 @@ export const eachComponent = <A>(
   names: ReadonlyArray<string>,
   options: IworkReaderOptions | undefined,
   visit: (obj: IworkObject) => ReadonlyArray<A>,
-): Effect.Effect<Array<{ readonly name: string; readonly items: A[] }>, ParseError> =>
-  Effect.gen(function* () {
-    const out: Array<{ readonly name: string; readonly items: A[] }> = [];
-    for (const name of names) {
+): Effect.Effect<Array<ComponentItems<A>>, ParseError> =>
+  Effect.forEach(
+    names,
+    (name): Effect.Effect<ReadonlyArray<ComponentItems<A>>, ParseError> => {
       const result = visitComponent(bundle, name, visit);
-      if (Result.isSuccess(result)) {
-        out.push({ name, items: result.success });
-      } else if (options?.lenient === true) {
-        yield* Effect.logWarning(
-          `${format}: skipping a component that failed to decode: ${result.failure.message}`,
+      if (Result.isSuccess(result)) return Effect.succeed([{ name, items: result.success }]);
+      if (options?.lenient === true)
+        return Effect.as(
+          Effect.logWarning(
+            `${format}: skipping a component that failed to decode: ${result.failure.message}`,
+          ),
+          [],
         );
-      } else {
-        return yield* Effect.fail(toParseError(format, result.failure));
-      }
-    }
-    return out;
-  });
+      return Effect.fail(toParseError(format, result.failure));
+    },
+    { concurrency: 1 },
+  ).pipe(Effect.map(Arr.flatten));
+
+/** One component's visited items, from {@link eachComponent}. */
+export interface ComponentItems<A> {
+  readonly name: string;
+  readonly items: A[];
+}
 
 const visitComponent = <A>(
   bundle: IworkBundle,
@@ -82,13 +89,15 @@ const visitComponent = <A>(
   if (Result.isFailure(decoded)) return Result.fail(decoded.failure);
   const items: A[] = [];
   for (const obj of decoded.success) {
-    try {
-      for (const item of visit(obj)) items.push(item);
-    } catch (e) {
+    const visited = Result.try({ try: () => visit(obj), catch: (e) => e });
+    if (Result.isFailure(visited)) {
       // only codec failures are expected here; anything else is a bug (a defect)
-      if (!isIworkError(e)) throw e;
-      return Result.fail(withLocation(e, { component: name, objectId: obj.identifier }));
+      if (!isIworkError(visited.failure)) throw visited.failure;
+      return Result.fail(
+        withLocation(visited.failure, { component: name, objectId: obj.identifier }),
+      );
     }
+    for (const item of visited.success) items.push(item);
   }
   return Result.succeed(items);
 };

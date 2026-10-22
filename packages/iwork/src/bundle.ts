@@ -19,10 +19,21 @@
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Order from "effect/Order";
+import type { Ordering } from "effect/Ordering";
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import { unzipSync } from "fflate";
 import { decodeIwa, type IworkObject } from "./archive.ts";
-import { codecError, IworkError, isIworkError, withLocation } from "./errors.ts";
+import {
+  codecError,
+  describeCause,
+  IworkError,
+  isIworkError,
+  rethrowing,
+  toIworkError,
+  withLocation,
+} from "./errors.ts";
 import type { DechunkOptions } from "./iwa.ts";
 
 export interface IworkBundle {
@@ -101,32 +112,38 @@ const unzip = (
   bytes: Uint8Array,
   budget: Budget,
   want: (name: string, size: number) => boolean,
-): { readonly names: string[]; readonly files: Record<string, Uint8Array> } => {
+): Unzipped => {
   const names: string[] = [];
-  try {
-    const files = unzipSync(bytes, {
-      filter: ({ name, originalSize }) => {
-        if (names.length >= budget.limits.maxEntries) {
-          throw codecError("LimitExceeded", `more than ${budget.limits.maxEntries} zip entries`);
-        }
-        names.push(name);
-        return want(name, originalSize);
-      },
-    });
-    return { names, files };
-  } catch (e) {
-    if (isIworkError(e)) throw e;
-    // fflate's error 13 is "invalid zip data": no end-of-central-directory record
-    const notZip = (e as { code?: number }).code === 13;
-    throw new IworkError({
-      reason: notZip ? "NotZip" : "Malformed",
-      detail: notZip
-        ? "not a zip archive"
-        : `bad zip entry: ${e instanceof Error ? e.message : String(e)}`,
-      cause: e,
-    });
-  }
+  const files = rethrowing(
+    () =>
+      unzipSync(bytes, {
+        filter: ({ name, originalSize }) => {
+          if (names.length >= budget.limits.maxEntries) {
+            throw codecError("LimitExceeded", `more than ${budget.limits.maxEntries} zip entries`);
+          }
+          names.push(name);
+          return want(name, originalSize);
+        },
+      }),
+    (e) => {
+      if (isIworkError(e)) return e;
+      // fflate's error 13 is "invalid zip data": no end-of-central-directory record
+      const notZip = Predicate.hasProperty(e, "code") && e.code === 13;
+      return new IworkError({
+        reason: notZip ? "NotZip" : "Malformed",
+        detail: notZip ? "not a zip archive" : `bad zip entry: ${describeCause(e)}`,
+        cause: e,
+      });
+    },
+  );
+  return { names, files };
 };
+
+/** What {@link unzip} returns: every entry name seen, and the inflated entries it wanted. */
+interface Unzipped {
+  readonly names: string[];
+  readonly files: Record<string, Uint8Array>;
+}
 
 /** Collect the `.iwa` components of an inner `Index.zip`. */
 const innerComponents = (
@@ -163,48 +180,51 @@ export const openBundle = (
   options?: OpenBundleOptions,
 ): Result.Result<IworkBundle, IworkError> => {
   const limits = resolveLimits(options);
-  try {
-    const budget: Budget = { limits, total: 0 };
-    const { names, files } = unzip(bytes, budget, (name, size) => {
-      if (name === ENCRYPTED_MARKER) {
-        throw codecError(
-          "Encrypted",
-          "encrypted (password-protected) iWork documents are not supported",
-        );
-      }
-      if (!isComponent(name) && !isIndexZip(name)) return false;
-      charge(budget, name, size);
-      return true;
-    });
-    const components: Record<string, Uint8Array> = {};
-    for (const [name, data] of Object.entries(files)) {
-      // older single-file documents nest the components in an inner Index.zip
-      if (isIndexZip(name)) innerComponents(data, budget, components);
-      else components[name] = data;
-    }
-    if (Arr.isReadonlyArrayEmpty(Object.keys(components))) throw noComponents(names);
-    const readEntry = (path: string): Effect.Effect<Uint8Array, IworkError> =>
-      Effect.suspend(() => {
-        try {
-          // a fresh budget per read: in effect, only the entry-size limit applies
-          const budget: Budget = { limits, total: 0 };
-          const { files } = unzip(bytes, budget, (name, size) => {
-            if (name !== path) return false;
-            charge(budget, name, size);
-            return true;
-          });
-          const data = files[path];
-          return data === undefined
-            ? Effect.fail(codecError("Io", `no entry ${path} in the package`))
-            : Effect.succeed(data);
-        } catch (e) {
-          return Effect.fail(e as IworkError);
+  return Result.try({
+    try: (): IworkBundle => {
+      const budget: Budget = { limits, total: 0 };
+      const { names, files } = unzip(bytes, budget, (name, size) => {
+        if (name === ENCRYPTED_MARKER) {
+          throw codecError(
+            "Encrypted",
+            "encrypted (password-protected) iWork documents are not supported",
+          );
         }
+        if (!isComponent(name) && !isIndexZip(name)) return false;
+        charge(budget, name, size);
+        return true;
       });
-    return Result.succeed({ components, entries: names, readEntry });
-  } catch (e) {
-    return Result.fail(e as IworkError);
-  }
+      const components: Record<string, Uint8Array> = {};
+      for (const [name, data] of Object.entries(files)) {
+        // older single-file documents nest the components in an inner Index.zip
+        if (isIndexZip(name)) innerComponents(data, budget, components);
+        else components[name] = data;
+      }
+      if (Arr.isReadonlyArrayEmpty(Object.keys(components))) throw noComponents(names);
+      const readEntry = (path: string): Effect.Effect<Uint8Array, IworkError> =>
+        Effect.try({
+          try: () => {
+            // a fresh budget per read: in effect, only the entry-size limit applies
+            const budget: Budget = { limits, total: 0 };
+            const { files } = unzip(bytes, budget, (name, size) => {
+              if (name !== path) return false;
+              charge(budget, name, size);
+              return true;
+            });
+            return files[path];
+          },
+          catch: toIworkError,
+        }).pipe(
+          Effect.flatMap((data) =>
+            data === undefined
+              ? Effect.fail(codecError("Io", `no entry ${path} in the package`))
+              : Effect.succeed(data),
+          ),
+        );
+      return { components, entries: names, readEntry };
+    },
+    catch: toIworkError,
+  });
 };
 
 /**
@@ -230,7 +250,7 @@ export const openBundleDirectory = (
         const info = yield* fs.stat(join(name)).pipe(Effect.mapError(io));
         yield* Effect.try({
           try: () => charge(budget, name, Number(info.size)),
-          catch: (e) => e as IworkError,
+          catch: toIworkError,
         });
         return yield* fs.readFile(join(name)).pipe(Effect.mapError(io));
       });
@@ -251,18 +271,20 @@ export const openBundleDirectory = (
     }
     const budget: Budget = { limits, total: 0 };
     const components: Record<string, Uint8Array> = {};
-    for (const name of names) {
-      if (!isComponent(name) && !isIndexZip(name)) continue;
-      const data = yield* readChecked(name, budget);
-      if (isIndexZip(name)) {
-        yield* Effect.try({
-          try: () => innerComponents(data, budget, components),
-          catch: (e) => withLocation(e as IworkError, { component: name }),
-        });
-      } else {
-        components[name] = data;
-      }
-    }
+    yield* Effect.forEach(
+      names.filter((name) => isComponent(name) || isIndexZip(name)),
+      (name) =>
+        Effect.flatMap(readChecked(name, budget), (data) =>
+          Effect.try({
+            try: () => {
+              if (isIndexZip(name)) innerComponents(data, budget, components);
+              else components[name] = data;
+            },
+            catch: (e) => withLocation(toIworkError(e), { component: name }),
+          }),
+        ),
+      { concurrency: 1, discard: true },
+    );
     if (Arr.isReadonlyArrayEmpty(Object.keys(components)))
       return yield* Effect.fail(noComponents(names));
     const readEntry = (entry: string) => readChecked(entry, { limits, total: 0 });
@@ -275,7 +297,7 @@ const EXTENSION = /\.[^./]*$/;
  * Compare paths with their digit runs as numbers, so `Slide-8060.iwa` sorts
  * before `Slide-10000.iwa` and `Slide-8060.iwa` before `Slide-8060-2.iwa`.
  */
-export const compareComponentPaths = (a: string, b: string): number => {
+export const compareComponentPaths = (a: string, b: string): Ordering => {
   // compare the stems, so a path that ends (".iwa") sorts before one that goes on ("-2.iwa")
   const as = a.replace(EXTENSION, "").split(/(\d+)/);
   const bs = b.replace(EXTENSION, "").split(/(\d+)/);
@@ -287,14 +309,18 @@ export const compareComponentPaths = (a: string, b: string): number => {
     if (i % 2 === 1) {
       const n = x.replace(/^0+/, "");
       const m = y.replace(/^0+/, "");
-      if (n.length !== m.length) return n.length - m.length;
+      if (n.length !== m.length) return n.length < m.length ? -1 : 1;
       if (n !== m) return n < m ? -1 : 1;
       continue;
     }
     return x < y ? -1 : 1;
   }
-  return as.length !== bs.length ? as.length - bs.length : a < b ? -1 : a > b ? 1 : 0;
+  if (as.length !== bs.length) return as.length < bs.length ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
 };
+
+/** Component paths in natural order, as an `Order` (see {@link compareComponentPaths}). */
+export const ComponentPathOrder: Order.Order<string> = Order.make(compareComponentPaths);
 
 /**
  * The component paths matching a predicate (e.g. slides), in natural order
@@ -302,7 +328,7 @@ export const compareComponentPaths = (a: string, b: string): number => {
  * that comes from the document's object graph.
  */
 export const componentPaths = (bundle: IworkBundle, match: (name: string) => boolean): string[] =>
-  Object.keys(bundle.components).filter(match).sort(compareComponentPaths);
+  Arr.sort(Object.keys(bundle.components).filter(match), ComponentPathOrder);
 
 /**
  * Decode a single component's archived objects (none if it is absent). A
