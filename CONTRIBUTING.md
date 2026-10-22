@@ -37,6 +37,7 @@ vp test run test/pdf.test.ts             # one file (from inside the package)
 vp run test:integration                  # the cross-format suite
 vp run corpora:fetch                     # fetch the pinned public corpora into .corpora/ (network)
 vp run test:corpus                       # every reader over every fetched corpus file
+vp run test:validate                     # OOXML writer output against the ECMA-376 schemas (needs xmllint)
 vp run -r build                          # emit dist/
 vp run examples                          # run examples/ against dist/
 vp run check:pack                        # pack, lint and import the tarballs

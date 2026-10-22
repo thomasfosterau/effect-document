@@ -30,6 +30,14 @@
       "vendorable": true
     },
     {
+      "id": "ecma-376-schemas",
+      "repository": "https://github.com/python-openxml/python-docx",
+      "commit": "e45454602b53e8e572b179ccf1c91093ec9f4ed7",
+      "paths": ["ref/xsd/**"],
+      "licence": "The ECMA-376 transitional XML schemas (a freely available Ecma standard), as copied into python-docx (MIT)",
+      "vendorable": false
+    },
+    {
       "id": "numbers-parser",
       "repository": "https://github.com/masaccio/numbers-parser",
       "commit": "a6affe5599c8373f575192ac5777d0c6426da696",
