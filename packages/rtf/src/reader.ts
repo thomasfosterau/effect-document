@@ -183,6 +183,16 @@ const SPECIAL_CHARACTERS = HashMap.fromIterable<string, string>(
   }),
 );
 
+/** The text of the control symbols that stand for a character. */
+const SYMBOL_TEXT = HashMap.make(
+  ["\\", "\\"],
+  ["{", "{"],
+  ["}", "}"],
+  ["~", "\u00a0"], // non-breaking space
+  ["-", "\u00ad"], // optional (soft) hyphen
+  ["_", "\u2011"], // non-breaking hyphen
+);
+
 // ============================================================================
 // Code pages
 // ============================================================================
@@ -480,42 +490,147 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     return i > bytes.length;
   };
 
+  /** A control word inside the stylesheet: style numbers, outline levels and bold. */
+  const styleSheetWord = (state: State, word: string, n: number | undefined, on: boolean) => {
+    if (word === "stylesheet") {
+      state.skip = true;
+      state.styleDef = 0;
+    } else if (word === "s") state.styleDef = n ?? 0;
+    // character, table and section styles are not paragraph styles
+    else if (word === "cs" || word === "ts" || word === "ds") state.styleDef = -1;
+    else if (word === "outlinelevel") styleOf(state.styleDef!).outlineLevel = n ?? 0;
+    else if (word === "b") styleOf(state.styleDef!).bold = on;
+  };
+
+  /** A control word inside the font table: each font's number and code page. */
+  const fontTableWord = (word: string, n: number | undefined) => {
+    if (word === "f") fontDef = n;
+    if ((word !== "fcharset" && word !== "cpg") || fontDef === undefined || n === undefined) return;
+    const entry = fontCodePages.get(fontDef) ?? {};
+    if (word === "cpg") entry.cpg = n;
+    else {
+      const charset = HashMap.get(CHARSET_CODE_PAGES, n);
+      if (Option.isSome(charset)) entry.charset = charset.value;
+    }
+    fontCodePages.set(fontDef, entry);
+  };
+
+  /** `\uN`: a signed 16-bit UTF-16 code unit; returns the fallback characters to skip. */
+  const unicodeWord = (state: State, n: number | undefined, param: string): number => {
+    // negative values are N + 65536; surrogate pairs (two `\u`s) combine in the string itself
+    if (n === undefined) return 0;
+    if (!Number.isInteger(n) || n < -32768 || n > 65535)
+      fail(`\\u parameter out of range: ${param}`);
+    if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
+    return state.uc;
+  };
+
+  type WordHandler = (state: State, n: number | undefined, on: boolean) => void;
+  const breakPara: WordHandler = (state) => {
+    if (!state.skip) flushPara();
+  };
+  const cell: WordHandler = () => {
+    // no tables in the profile yet: cells are tab-separated, rows are paragraphs
+    if (visible()) {
+      flushBytes();
+      pendingCells++;
+    }
+  };
+  const codePageWord =
+    (cp: number): WordHandler =>
+    () => {
+      documentCodePage = cp;
+    };
+  /** The body's control words; any other is ignored, or skipped as a destination. */
+  const BODY_WORDS = HashMap.fromIterable<string, WordHandler>(
+    Rec.toEntries<string, WordHandler>({
+      par: breakPara,
+      // no sections or pages in the profile: a paragraph break at least
+      sect: breakPara,
+      page: breakPara,
+      column: breakPara,
+      row: breakPara,
+      nestrow: breakPara,
+      cell,
+      nestcell: cell,
+      pard: () => {
+        paraStyle = 0;
+        paraOutline = undefined; // char flags persist
+      },
+      // no section properties are modelled
+      sectd: () => {},
+      s: (_, n) => {
+        paraStyle = n ?? 0;
+      },
+      outlinelevel: (_, n) => {
+        paraOutline = n ?? 0;
+      },
+      plain: (state) => {
+        Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
+      },
+      line: () => {
+        if (!visible()) return;
+        flushBytes();
+        emitCells();
+        flushText();
+        para.push(new LineBreak());
+      },
+      tab: () => pushText("\t"),
+      b: (state, _, on) => {
+        state.bold = on;
+      },
+      i: (state, _, on) => {
+        state.italic = on;
+      },
+      ul: (state, _, on) => {
+        state.underline = on;
+      },
+      ulnone: (state) => {
+        state.underline = false;
+      },
+      strike: (state, _, on) => {
+        state.strike = on;
+      },
+      v: (state, _, on) => {
+        state.hidden = on;
+      },
+      deleted: (state, _, on) => {
+        state.deleted = on;
+      },
+      f: (state, n) => {
+        state.font = n;
+      },
+      deff: (_, n) => {
+        defaultFont = n;
+      },
+      ansi: codePageWord(1252),
+      mac: codePageWord(10000),
+      pc: codePageWord(437),
+      pca: codePageWord(850),
+      ansicpg: (_, n) => {
+        if (n !== undefined) documentCodePage = n;
+      },
+      uc: (state, n) => {
+        if (n !== undefined && n >= 0) state.uc = n;
+      },
+      fonttbl: (state) => {
+        state.skip = true;
+        state.fontTable = true;
+      },
+    }),
+  );
+
   /** Handle a control word. Returns the number of fallback characters to skip. */
   const controlWord = (word: string, param: string): number => {
     const on = param !== "0";
     const n = param === "" ? undefined : Number(param);
     const state = top();
     if (state.styleDef !== undefined || word === "stylesheet") {
-      if (word === "stylesheet") {
-        state.skip = true;
-        state.styleDef = 0;
-      } else if (word === "s") {
-        state.styleDef = n ?? 0;
-        // character, table and section styles are not paragraph styles
-      } else if (word === "cs" || word === "ts" || word === "ds") {
-        state.styleDef = -1;
-      } else if (word === "outlinelevel") {
-        styleOf(state.styleDef!).outlineLevel = n ?? 0;
-      } else if (word === "b") {
-        styleOf(state.styleDef!).bold = on;
-      }
+      styleSheetWord(state, word, n, on);
       return 0;
     }
     if (state.fontTable) {
-      if (word === "f") fontDef = n;
-      else if (
-        (word === "fcharset" || word === "cpg") &&
-        fontDef !== undefined &&
-        n !== undefined
-      ) {
-        const entry = fontCodePages.get(fontDef) ?? {};
-        if (word === "cpg") entry.cpg = n;
-        else {
-          const charset = HashMap.get(CHARSET_CODE_PAGES, n);
-          if (Option.isSome(charset)) entry.charset = charset.value;
-        }
-        fontCodePages.set(fontDef, entry);
-      }
+      fontTableWord(word, n);
       return 0;
     }
     const special = HashMap.get(SPECIAL_CHARACTERS, word);
@@ -523,84 +638,36 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
       pushText(special.value);
       return 0;
     }
-    if (word === "par") {
-      if (!state.skip) flushPara();
-    } else if (word === "sect" || word === "page" || word === "column") {
-      // no sections or pages in the profile: a paragraph break at least
-      if (!state.skip) flushPara();
-    } else if (word === "cell" || word === "nestcell") {
-      // no tables in the profile yet: cells are tab-separated, rows are paragraphs
-      if (visible()) {
-        flushBytes();
-        pendingCells++;
-      }
-    } else if (word === "row" || word === "nestrow") {
-      if (!state.skip) flushPara();
-    } else if (word === "pard") {
-      paraStyle = 0;
-      paraOutline = undefined; // char flags persist
-    } else if (word === "sectd") {
-      // no section properties are modelled
-    } else if (word === "s") {
-      paraStyle = n ?? 0;
-    } else if (word === "outlinelevel") {
-      paraOutline = n ?? 0;
-    } else if (word === "plain") {
-      Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
-    } else if (word === "line") {
-      if (visible()) {
-        flushBytes();
-        emitCells();
-        flushText();
-        para.push(new LineBreak());
-      }
-    } else if (word === "tab") {
-      pushText("\t");
-    } else if (word === "b") {
-      state.bold = on;
-    } else if (word === "i") {
-      state.italic = on;
-    } else if (word === "ul") {
-      state.underline = on;
-    } else if (word === "ulnone") {
-      state.underline = false;
-    } else if (word === "strike") {
-      state.strike = on;
-    } else if (word === "v") {
-      state.hidden = on;
-    } else if (word === "deleted") {
-      state.deleted = on;
-    } else if (word === "f") {
-      state.font = n;
-    } else if (word === "deff") {
-      defaultFont = n;
-    } else if (word === "ansi") {
-      documentCodePage = 1252;
-    } else if (word === "mac") {
-      documentCodePage = 10000;
-    } else if (word === "pc") {
-      documentCodePage = 437;
-    } else if (word === "pca") {
-      documentCodePage = 850;
-    } else if (word === "ansicpg") {
-      if (n !== undefined) documentCodePage = n;
-    } else if (word === "uc") {
-      if (n !== undefined && n >= 0) state.uc = n;
-    } else if (word === "u") {
-      // a signed 16-bit UTF-16 code unit: negative values are N + 65536.
-      // Surrogate pairs (two `\u`s) combine in the string itself.
-      if (n === undefined) return 0;
-      if (!Number.isInteger(n) || n < -32768 || n > 65535)
-        fail(`\\u parameter out of range: ${param}`);
-      if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
-      return state.uc;
-    } else if (word === "fonttbl") {
-      state.skip = true;
-      state.fontTable = true;
-    } else {
-      if (DESTINATIONS.has(word)) state.skip = true;
-    }
+    if (word === "u") return unicodeWord(state, n, param);
+    const handler = HashMap.get(BODY_WORDS, word);
+    if (Option.isSome(handler)) handler.value(state, n, on);
+    else if (DESTINATIONS.has(word)) state.skip = true;
     return 0;
+  };
+
+  /** A run of source text (after any `\uN` fallback is skipped). */
+  const textRun = (source: string): void => {
+    let text = source;
+    // a style's name, inside the stylesheet
+    const def = top().styleDef;
+    if (def !== undefined) {
+      styleOf(def).name += text;
+      return;
+    }
+    // a double-byte character's trail byte may be written literally: `\'83e`
+    if (awaitingTrailByte()) {
+      pushByte(text.charCodeAt(0));
+      text = text.slice(1);
+    }
+    if (!binary) {
+      pushText(text);
+      return;
+    }
+    for (const run of text.match(/[\x80-\xff]+|[^\x80-\xff]+/g) ?? []) {
+      if (run.charCodeAt(0) >= 0x80)
+        for (let i = 0; i < run.length; i++) pushByte(run.charCodeAt(i));
+      else pushText(run);
+    }
   };
 
   // the lexer accepts any input, so this never falls back
@@ -608,71 +675,50 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   // after \uN, the next \ucN characters are its ANSI fallback and are skipped;
   // a \'hh escape, control word or control symbol counts as one character
   let fallback = 0;
+
+  /** Skip what remains of a `\uN` fallback at the start of a text run. */
+  const skipFallback = (text: string): string => {
+    const n = Math.min(fallback, text.length);
+    fallback -= n;
+    return text.slice(n);
+  };
+
+  const symbol = (sym: string): void => {
+    const text = HashMap.get(SYMBOL_TEXT, sym);
+    if (Option.isSome(text)) pushText(text.value);
+    else if (sym === "*") top().skip = true;
+    // other control symbols (\| formula, \: index subentry, ...) have no text
+  };
+
+  /** A token that is not text: a group boundary, escape, control word or symbol. */
+  const control = (token: Exclude<RtfToken, { readonly _tag: "Text" | "Newline" }>): void => {
+    const group = Predicate.isTagged(token, "Open") || Predicate.isTagged(token, "Close");
+    if (group) fallback = 0; // a group boundary ends a fallback
+    else if (fallback > 0) {
+      fallback--;
+      return;
+    }
+    if (Predicate.isTagged(token, "Hex")) return pushByte(token.byte);
+    flushBytes();
+    if (group) flushText();
+    if (Predicate.isTagged(token, "Open")) stack.push(cloneState(top()));
+    else if (Predicate.isTagged(token, "Close")) stack.pop();
+    else if (Predicate.isTagged(token, "Word")) fallback = controlWord(token.word, token.param);
+    else if (Predicate.isTagged(token, "Symbol")) symbol(token.symbol);
+    // a Bin token's binary data (pictures, objects) is never text
+  };
+
   for (const token of tokens) {
     if (token === null) continue;
     if (Predicate.isTagged(token, "Text")) {
-      let text = token.text;
-      if (fallback > 0) {
-        const n = Math.min(fallback, text.length);
-        text = text.slice(n);
-        fallback -= n;
-      }
-      if (text === "") continue;
-      // a style's name, inside the stylesheet
-      const def = top().styleDef;
-      if (def !== undefined) {
-        styleOf(def).name += text;
-        continue;
-      }
-      // a double-byte character's trail byte may be written literally: `\'83e`
-      if (awaitingTrailByte()) {
-        pushByte(text.charCodeAt(0));
-        text = text.slice(1);
-      }
-      if (binary) {
-        for (const run of text.match(/[\x80-\xff]+|[^\x80-\xff]+/g) ?? []) {
-          if (run.charCodeAt(0) >= 0x80)
-            for (let i = 0; i < run.length; i++) pushByte(run.charCodeAt(i));
-          else pushText(run);
-        }
-      } else {
-        pushText(text);
-      }
-      continue;
+      const text = skipFallback(token.text);
+      if (text !== "") textRun(text);
+    } else if (!Predicate.isTagged(token, "Newline")) {
+      // raw line breaks in RTF source are insignificant
+      control(token);
+      // the outermost group has closed: anything after it is not part of the document
+      if (stack.length === 1) break;
     }
-    if (Predicate.isTagged(token, "Newline")) continue; // raw line breaks in RTF source are insignificant
-    if (Predicate.isTagged(token, "Open") || Predicate.isTagged(token, "Close")) {
-      fallback = 0; // a group boundary ends a fallback
-    } else if (fallback > 0) {
-      fallback--;
-      continue;
-    }
-    if (Predicate.isTagged(token, "Hex")) {
-      pushByte(token.byte);
-      continue;
-    }
-    flushBytes();
-    if (Predicate.isTagged(token, "Open")) {
-      flushText();
-      stack.push(cloneState(top()));
-    } else if (Predicate.isTagged(token, "Close")) {
-      flushText();
-      stack.pop();
-    } else if (Predicate.isTagged(token, "Word")) {
-      fallback = controlWord(token.word, token.param);
-    } else if (Predicate.isTagged(token, "Symbol")) {
-      if (token.symbol === "\\" || token.symbol === "{" || token.symbol === "}")
-        pushText(token.symbol);
-      else if (token.symbol === "~") pushText("\u00a0"); // non-breaking space
-      else if (token.symbol === "-") pushText("\u00ad"); // optional (soft) hyphen
-      else if (token.symbol === "_") pushText("\u2011"); // non-breaking hyphen
-      else if (token.symbol === "*") top().skip = true;
-      // other control symbols (\| formula, \: index subentry, ...) have no text
-    } else if (Predicate.isTagged(token, "Bin")) {
-      // binary data (pictures, objects) is never text
-    }
-    // the outermost group has closed: anything after it is not part of the document
-    if (stack.length === 1) break;
   }
   flushPara();
   return blocks;
