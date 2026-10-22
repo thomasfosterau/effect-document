@@ -101,12 +101,12 @@ export default defineConfig({
       // preset's `error`.
       // Remaining sites are listed in effect-document#155, which also says
       // why each rule could not reach zero in the migration PR.
-      // 254 sites in packages/*/src (pdf 142, ooxml 46, iwork 31, core 22,
-      // csv 7, rtf 6): indexed loops over bytes, glyphs and XML children in the
+      // 256 sites in packages/*/src (pdf 142, ooxml 47, iwork 32, core 22, csv
+      // 7, rtf 6): indexed loops over bytes, glyphs and XML children in the
       // decoders' hot paths, and the explicit-stack walks that keep deep
       // documents off the call stack.
       "effect/imperative-loops": "warn",
-      // 191 sites in packages/*/src (pdf 107, ooxml 40, iwork 27, csv 8,
+      // 187 sites in packages/*/src (pdf 107, ooxml 40, iwork 23, csv 8,
       // rtf 6, core 3): `buf[i]!`-style reads beside a bounds check the
       // compiler cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
