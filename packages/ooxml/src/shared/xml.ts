@@ -46,14 +46,21 @@ export const unescapeXml = (s: string): string =>
   s.includes("&")
     ? s.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|quot|apos|amp);/g, (whole, ref: string) => {
         switch (ref) {
-          case "lt": return "<";
-          case "gt": return ">";
-          case "quot": return '"';
-          case "apos": return "'";
-          case "amp": return "&";
+          case "lt":
+            return "<";
+          case "gt":
+            return ">";
+          case "quot":
+            return '"';
+          case "apos":
+            return "'";
+          case "amp":
+            return "&";
           default:
             return charRef(
-              ref[1] === "x" ? Number.parseInt(ref.substring(2), 16) : Number.parseInt(ref.substring(1), 10)
+              ref[1] === "x"
+                ? Number.parseInt(ref.substring(2), 16)
+                : Number.parseInt(ref.substring(1), 10),
             );
         }
       })
@@ -113,32 +120,35 @@ const isNameChar = (ch: string): boolean => {
 };
 const name = Token.takeWhile(isNameChar, { min: 1 }).pipe(
   Parser.filter((n) => isNameStart(n[0]!)),
-  Parser.expected("name")
+  Parser.expected("name"),
 );
 
 const quoted = (quote: string) =>
   Parser.preceded(
     Token.literal(quote),
-    Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote)))
+    Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote))),
   );
 const attribute = Parser.separatedPair(
   name,
   Parser.seq(ws, Token.literal("="), ws),
-  Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(Parser.expected("attribute value"))
+  Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(
+    Parser.expected("attribute value"),
+  ),
 );
 const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(
   Parser.filterOrFail(
     (pairs) => new Set(pairs.map(([k]) => k)).size === pairs.length,
-    (pairs) => `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`
+    (pairs) =>
+      `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`,
   ),
-  Parser.map((pairs) => Object.fromEntries(pairs) as Record<string, string>)
+  Parser.map((pairs) => Object.fromEntries(pairs) as Record<string, string>),
 );
 
 /** `open ... close`, committed once `open` has matched. */
 const section = (open: string, close: string) =>
   Parser.preceded(
     Token.literal(open),
-    Parser.cut(Parser.terminated(Token.takeUntil(close), Token.literal(close)))
+    Parser.cut(Parser.terminated(Token.takeUntil(close), Token.literal(close))),
   );
 const comment = section("<!--", "-->").pipe(Parser.expected("comment"));
 const declaration = section("<?", "?>").pipe(Parser.expected("processing instruction"));
@@ -147,18 +157,19 @@ const cdata = section("<![CDATA[", "]]>").pipe(Parser.expected("CDATA section"))
 const doctype = Parser.preceded(
   Token.literal("<!"),
   Parser.cut(
-    Parser.seq(
-      Token.takeTill("[>"),
-      Parser.opt(section("[", "]")),
-      ws,
-      Token.literal(">")
-    )
-  )
+    Parser.seq(Token.takeTill("[>"), Parser.opt(section("[", "]")), ws, Token.literal(">")),
+  ),
 ).pipe(Parser.expected("declaration"));
 const text = Parser.map(Token.takeTill("<", { min: 1 }), unescapeXml).pipe(Parser.expected("text"));
 
 type XmlToken =
-  | { readonly k: "open"; readonly name: string; readonly attrs: Record<string, string>; readonly empty: boolean; readonly at: number }
+  | {
+      readonly k: "open";
+      readonly name: string;
+      readonly attrs: Record<string, string>;
+      readonly empty: boolean;
+      readonly at: number;
+    }
   | { readonly k: "close"; readonly name: string; readonly at: number }
   | { readonly k: "text"; readonly text: string; readonly at: number }
   | null;
@@ -173,36 +184,48 @@ const openTag: Parser.Parser<XmlToken, string> = Parser.preceded(
         name,
         attributes,
         ws,
-        Parser.alt(Parser.as(Token.literal("/>"), true), Parser.as(Token.literal(">"), false))
-          .pipe(Parser.expected("\">\" or \"/>\""))
+        Parser.alt(Parser.as(Token.literal("/>"), true), Parser.as(Token.literal(">"), false)).pipe(
+          Parser.expected('">" or "/>"'),
+        ),
       ),
-      ([at, tag, attrs, , empty]): XmlToken => ({ k: "open", name: tag, attrs, empty, at })
-    )
-  )
+      ([at, tag, attrs, , empty]): XmlToken => ({ k: "open", name: tag, attrs, empty, at }),
+    ),
+  ),
 );
 
 const closeTag: Parser.Parser<XmlToken> = Parser.map(
   Parser.seq(
     Parser.location,
-    Parser.delimited(Token.literal("</"), Parser.cut(name), Parser.cut(Parser.seq(ws, Token.literal(">"))))
+    Parser.delimited(
+      Token.literal("</"),
+      Parser.cut(name),
+      Parser.cut(Parser.seq(ws, Token.literal(">"))),
+    ),
   ),
-  ([at, tag]): XmlToken => ({ k: "close", name: tag, at: at + 2 })
+  ([at, tag]): XmlToken => ({ k: "close", name: tag, at: at + 2 }),
 ).pipe(Parser.expected("closing tag"));
 
 const textToken: Parser.Parser<XmlToken> = Parser.map(
   Parser.seq(Parser.location, text),
-  ([at, t]): XmlToken => ({ k: "text", text: t, at })
+  ([at, t]): XmlToken => ({ k: "text", text: t, at }),
 );
 
 const cdataToken: Parser.Parser<XmlToken> = Parser.map(
   Parser.seq(Parser.location, cdata),
-  ([at, t]): XmlToken => ({ k: "text", text: t, at })
+  ([at, t]): XmlToken => ({ k: "text", text: t, at }),
 );
 
-const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<[
-  Parser.Parser<XmlToken>, Parser.Parser<XmlToken, string>, Parser.Parser<XmlToken>, Parser.Parser<XmlToken>,
-  Parser.Parser<XmlToken>, Parser.Parser<XmlToken>, Parser.Parser<XmlToken>,
-]>(
+const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<
+  [
+    Parser.Parser<XmlToken>,
+    Parser.Parser<XmlToken, string>,
+    Parser.Parser<XmlToken>,
+    Parser.Parser<XmlToken>,
+    Parser.Parser<XmlToken>,
+    Parser.Parser<XmlToken>,
+    Parser.Parser<XmlToken>,
+  ]
+>(
   // most frequent first; the `<!`/`<?` forms are only tried after `<name`
   // and `</name` have been ruled out by their first characters
   textToken,
@@ -211,16 +234,12 @@ const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<[
   cdataToken,
   Parser.as(comment, null),
   Parser.as(declaration, null),
-  Parser.as(doctype, null)
+  Parser.as(doctype, null),
 );
 
 /** A whole XML document as tokens: an optional BOM, then tokens to the end. */
 const xmlTokens: Parser.Parser<ReadonlyArray<XmlToken>, string> = Parser.compile(
-  Parser.delimited(
-    Parser.opt(Token.literal("﻿")),
-    Parser.repeat(xmlToken),
-    Parser.cut(Parser.eof)
-  )
+  Parser.delimited(Parser.opt(Token.literal("﻿")), Parser.repeat(xmlToken), Parser.cut(Parser.eof)),
 );
 
 // ---- tree building ---------------------------------------------------------
@@ -264,20 +283,29 @@ const withDeclarations = (scope: Scope, attrs: Record<string, string>): Scope =>
 };
 
 /** The children an `mc:AlternateContent` stands for: an understood Choice, else the Fallback. */
-const alternateContent = (el: MutableElement, scopes: WeakMap<XmlElement, Scope>): MutableElement[] => {
+const alternateContent = (
+  el: MutableElement,
+  scopes: WeakMap<XmlElement, Scope>,
+): MutableElement[] => {
   for (const branch of el.children) {
     if (branch.ns !== NS_MCE) continue;
     if (branch.name === "Fallback") return branch.children;
     if (branch.name === "Choice") {
       const scope = scopes.get(branch) ?? BASE_SCOPE;
       const requires = (branch.attrs["Requires"] ?? "").split(/\s+/).filter((p) => p !== "");
-      if (requires.every((p) => UNDERSTOOD_NAMESPACES.has(scope.get(p) ?? ""))) return branch.children;
+      if (requires.every((p) => UNDERSTOOD_NAMESPACES.has(scope.get(p) ?? "")))
+        return branch.children;
     }
   }
   return [];
 };
 
-const failAt = (input: string, offset: number, description: string, expected: ReadonlyArray<string> = []) =>
+const failAt = (
+  input: string,
+  offset: number,
+  description: string,
+  expected: ReadonlyArray<string> = [],
+) =>
   new ParseError.ParseError<string>({
     input,
     offset,
@@ -300,10 +328,15 @@ const elementScopes = new WeakMap<XmlElement, Scope>();
 
 const buildTree = (
   input: string,
-  tokens: ReadonlyArray<XmlToken>
+  tokens: ReadonlyArray<XmlToken>,
 ): Result.Result<XmlElement, ParseError.ParseError<string>> => {
   let root: MutableElement | undefined;
-  const stack: Array<{ readonly el: MutableElement; readonly raw: string; readonly at: number; readonly scope: Scope }> = [];
+  const stack: Array<{
+    readonly el: MutableElement;
+    readonly raw: string;
+    readonly at: number;
+    readonly scope: Scope;
+  }> = [];
   const scopes = elementScopes;
 
   for (const token of tokens) {
@@ -313,12 +346,21 @@ const buildTree = (
       case "text":
         if (top !== undefined) top.el.text += token.text;
         else if (token.text.trim() !== "") {
-          return Result.fail(failAt(input, token.at, root === undefined ? "expected root element" : "expected end of input", [root === undefined ? "root element" : "end of input"]));
+          return Result.fail(
+            failAt(
+              input,
+              token.at,
+              root === undefined ? "expected root element" : "expected end of input",
+              [root === undefined ? "root element" : "end of input"],
+            ),
+          );
         }
         break;
       case "open": {
         if (top === undefined && root !== undefined) {
-          return Result.fail(failAt(input, token.at - 1, "expected end of input", ["end of input"]));
+          return Result.fail(
+            failAt(input, token.at - 1, "expected end of input", ["end of input"]),
+          );
         }
         const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
         const el: MutableElement = {
@@ -334,7 +376,8 @@ const buildTree = (
         if (top === undefined) root = el;
         else top.el.children.push(el);
         if (!token.empty) stack.push({ el, raw: token.name, at: token.at, scope });
-        else if (el.ns === NS_MCE && el.name === "AlternateContent" && top !== undefined) top.el.children.pop();
+        else if (el.ns === NS_MCE && el.name === "AlternateContent" && top !== undefined)
+          top.el.children.pop();
         break;
       }
       case "close": {
@@ -342,7 +385,9 @@ const buildTree = (
           return Result.fail(failAt(input, token.at, `unexpected closing tag </${token.name}>`));
         }
         if (top.raw !== token.name) {
-          return Result.fail(failAt(input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`));
+          return Result.fail(
+            failAt(input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`),
+          );
         }
         stack.pop();
         const parent = stack[stack.length - 1];
@@ -357,9 +402,12 @@ const buildTree = (
   }
   const open = stack[stack.length - 1];
   if (open !== undefined) {
-    return Result.fail(failAt(input, input.length, `expected closing tag </${open.raw}>`, ["closing tag"]));
+    return Result.fail(
+      failAt(input, input.length, `expected closing tag </${open.raw}>`, ["closing tag"]),
+    );
   }
-  if (root === undefined) return Result.fail(failAt(input, input.length, "expected root element", ["root element"]));
+  if (root === undefined)
+    return Result.fail(failAt(input, input.length, "expected root element", ["root element"]));
   return Result.succeed(root);
 };
 
@@ -367,7 +415,9 @@ const buildTree = (
  * Parse an XML document into its root element, or a `ParseError` that points
  * at the problem (line, column and what was expected). Never throws.
  */
-export const parseXmlResult = (xml: string): Result.Result<XmlElement, ParseError.ParseError<string>> => {
+export const parseXmlResult = (
+  xml: string,
+): Result.Result<XmlElement, ParseError.ParseError<string>> => {
   const tokens = Parser.parse(xmlTokens, xml);
   return Result.isSuccess(tokens) ? buildTree(xml, tokens.success) : Result.fail(tokens.failure);
 };
@@ -387,22 +437,15 @@ export const parseXml = (xml: string): XmlElement => {
 // ============================================================================
 
 /** Find the first direct child with the given local name */
-export const findChild = (
-  element: XmlElement,
-  name: string
-): XmlElement | undefined => element.children.find((c) => c.name === name);
+export const findChild = (element: XmlElement, name: string): XmlElement | undefined =>
+  element.children.find((c) => c.name === name);
 
 /** Find all direct children with the given local name */
-export const findChildren = (
-  element: XmlElement,
-  name: string
-): ReadonlyArray<XmlElement> => element.children.filter((c) => c.name === name);
+export const findChildren = (element: XmlElement, name: string): ReadonlyArray<XmlElement> =>
+  element.children.filter((c) => c.name === name);
 
 /** Find all descendants with the given local name (depth-first, document order) */
-export const findAll = (
-  element: XmlElement,
-  name: string
-): ReadonlyArray<XmlElement> => {
+export const findAll = (element: XmlElement, name: string): ReadonlyArray<XmlElement> => {
   const results: XmlElement[] = [];
   const stack: XmlElement[] = [...element.children].reverse();
   while (stack.length > 0) {
@@ -418,10 +461,7 @@ export const findAll = (
  * several prefixed attributes share the local name (`w:val` and `w14:val`),
  * the one in the element's own namespace wins.
  */
-export const getAttr = (
-  element: XmlElement,
-  name: string
-): string | undefined => {
+export const getAttr = (element: XmlElement, name: string): string | undefined => {
   if (name in element.attrs) {
     return element.attrs[name];
   }

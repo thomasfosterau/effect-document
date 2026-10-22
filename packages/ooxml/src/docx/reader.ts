@@ -13,14 +13,47 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, BulletList, CodeBlock, type Content, contentToBytes, DEFAULT_MAX_NESTING_DEPTH,
-  type Doc, document, Emph, Header, type Inline, inlinesToText, LineBreak, limitNestingDepth, Link,
-  makeReaderTag, OrderedList, Para, ParseError, Plain, type Reader,
-  SmallCaps, Str, Strikeout, Strong, Subscript, Superscript, Table, TableCell, TableRow, trustAs,
+  type Block,
+  BulletList,
+  CodeBlock,
+  type Content,
+  contentToBytes,
+  DEFAULT_MAX_NESTING_DEPTH,
+  type Doc,
+  document,
+  Emph,
+  Header,
+  type Inline,
+  inlinesToText,
+  LineBreak,
+  limitNestingDepth,
+  Link,
+  makeReaderTag,
+  OrderedList,
+  Para,
+  ParseError,
+  Plain,
+  type Reader,
+  SmallCaps,
+  Str,
+  Strikeout,
+  Strong,
+  Subscript,
+  Superscript,
+  Table,
+  TableCell,
+  TableRow,
+  trustAs,
   Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
+  type OpcLimits,
+  OpcReader,
+  type XmlElement,
+  findChild,
+  findChildren,
+  getAttr,
+  ooxmlParseError,
 } from "../shared/index.ts";
 import { Docx, type DocxFeature } from "./profile.ts";
 
@@ -200,7 +233,10 @@ class InlineCollector {
           this.run(child);
           break;
         // Tracked insertions, moves and wrappers whose runs are visible text.
-        case "ins": case "moveTo": case "smartTag": case "customXml":
+        case "ins":
+        case "moveTo":
+        case "smartTag":
+        case "customXml":
           this.content(child);
           break;
         case "sdt": {
@@ -214,7 +250,7 @@ class InlineCollector {
           const id = getAttr(child, "id");
           const anchor = getAttr(child, "anchor");
           const url =
-            id !== undefined ? this.rels.get(id) ?? "" : anchor !== undefined ? `#${anchor}` : "";
+            id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
           const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
           this.push(new Link({ content, target: { url } }));
           break;
@@ -277,7 +313,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
       for (const lvl of findChildren(abs, "lvl")) {
         const numFmt = findChild(lvl, "numFmt");
         levels.set(intAttr(lvl, "ilvl") ?? 0, {
-          fmt: numFmt === undefined ? "" : getAttr(numFmt, "val") ?? "",
+          fmt: numFmt === undefined ? "" : (getAttr(numFmt, "val") ?? ""),
           start: intAttr(findChild(lvl, "start"), "val") ?? 1,
         });
       }
@@ -291,7 +327,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
         if (start !== undefined) starts.set(intAttr(o, "ilvl") ?? 0, start);
       }
       nums.set(getAttr(num, "numId") ?? "", {
-        abstractId: abs === undefined ? "" : getAttr(abs, "val") ?? "",
+        abstractId: abs === undefined ? "" : (getAttr(abs, "val") ?? ""),
         starts,
       });
     }
@@ -333,10 +369,10 @@ const listInfo = (p: XmlElement): { numId: string; ilvl: number } | null => {
   const numPr = findChild(pPr, "numPr");
   if (numPr === undefined) return null;
   const numIdEl = findChild(numPr, "numId");
-  const numId = numIdEl === undefined ? "1" : getAttr(numIdEl, "val") ?? "1";
+  const numId = numIdEl === undefined ? "1" : (getAttr(numIdEl, "val") ?? "1");
   if (numId === "0") return null;
   const ilvlEl = findChild(numPr, "ilvl");
-  const ilvl = Number.parseInt(ilvlEl === undefined ? "0" : getAttr(ilvlEl, "val") ?? "0", 10);
+  const ilvl = Number.parseInt(ilvlEl === undefined ? "0" : (getAttr(ilvlEl, "val") ?? "0"), 10);
   return { numId, ilvl: Number.isFinite(ilvl) ? Math.min(Math.max(ilvl, 0), 8) : 0 };
 };
 
@@ -350,7 +386,7 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   return segments.map((inlines, n) =>
     heading && n === 0
       ? new Header({ level: Number.parseInt(heading[1]!, 10), content: inlines })
-      : new Para({ content: inlines })
+      : new Para({ content: inlines }),
   );
 };
 
@@ -383,17 +419,13 @@ interface Depth {
 /** A table's rows, including those wrapped in row-level content controls. */
 const tableRows = (tbl: XmlElement): XmlElement[] =>
   tbl.children.flatMap((c) =>
-    c.name === "tr" ? [c]
-    : c.name === "sdt" ? tableRows(findChild(c, "sdtContent") ?? c)
-    : []
+    c.name === "tr" ? [c] : c.name === "sdt" ? tableRows(findChild(c, "sdtContent") ?? c) : [],
   );
 
 /** A row's cells, including those wrapped in cell-level content controls. */
 const rowCells = (tr: XmlElement): XmlElement[] =>
   tr.children.flatMap((c) =>
-    c.name === "tc" ? [c]
-    : c.name === "sdt" ? rowCells(findChild(c, "sdtContent") ?? c)
-    : []
+    c.name === "tc" ? [c] : c.name === "sdt" ? rowCells(findChild(c, "sdtContent") ?? c) : [],
   );
 
 const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
@@ -404,7 +436,9 @@ const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
   for (const tr of tableRows(tbl)) {
     const trPr = findChild(tr, "trPr");
     const isHeader = trPr !== undefined && findChild(trPr, "tblHeader") !== undefined;
-    const cells = rowCells(tr).map((tc) => new TableCell({ content: bodyToBlocks(tc, ctx, inner) }));
+    const cells = rowCells(tr).map(
+      (tc) => new TableCell({ content: bodyToBlocks(tc, ctx, inner) }),
+    );
     (isHeader ? head : body).push(new TableRow({ cells }));
   }
   return new Table({ colSpecs: [], head, body, foot: [] });
@@ -457,13 +491,20 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
         while (open.length > 0 && open[open.length - 1]!.level > li.ilvl) close();
         const top = open[open.length - 1];
         // A different kind or numbering instance at the same level is a new list.
-        if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId)) close();
+        if (
+          top !== undefined &&
+          top.level === li.ilvl &&
+          (top.kind !== kind || top.numId !== li.numId)
+        )
+          close();
         const current = open[open.length - 1];
         if (current === undefined || current.level < li.ilvl) {
           const start = ctx.numbering.start(li.numId, li.ilvl);
           open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
         }
-        open[open.length - 1]!.items.push([new Plain({ content: paragraphInlines(child, ctx.rels) })]);
+        open[open.length - 1]!.items.push([
+          new Plain({ content: paragraphInlines(child, ctx.rels) }),
+        ]);
       } else if (child.name === "tbl") {
         closeAll();
         out.push(tableToBlock(child, ctx, depth));
@@ -497,7 +538,9 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
           rels.set(r.id, r.target);
           if (r.type.endsWith("/numbering")) numberingPath = r.target;
         }
-        const numbering = parseNumbering(numberingPath === undefined ? null : pkg.xml(numberingPath));
+        const numbering = parseNumbering(
+          numberingPath === undefined ? null : pkg.xml(numberingPath),
+        );
 
         const root = pkg.xml(docPath)!;
         const body = findChild(root, "body");

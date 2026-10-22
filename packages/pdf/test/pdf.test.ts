@@ -2,43 +2,99 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vite-plus/test";
 import { Effect } from "effect";
 import {
-  type Block, blocksToText, bulletList, bytes, codeBlock, document, emph, header, type Inline, link,
-  orderedList, para, plainText, str, strong, trustAs,
+  type Block,
+  blocksToText,
+  bulletList,
+  bytes,
+  codeBlock,
+  document,
+  emph,
+  header,
+  type Inline,
+  link,
+  orderedList,
+  para,
+  plainText,
+  str,
+  strong,
+  trustAs,
 } from "@thomasfosterau/effect-document";
 import {
-  BlockQuote, Code, HorizontalRule, LineBreak, Strikeout, Underline,
+  BlockQuote,
+  Code,
+  HorizontalRule,
+  LineBreak,
+  Strikeout,
+  Underline,
 } from "@thomasfosterau/effect-document";
-import { Pdf, type PdfFeature, extractPageText, makePdfReader, makePdfWriter } from "../src/index.ts";
 import {
-  PdfBuilder, PdfFile, type PdfObject, bytesToLatin1, latin1ToBytes, pdfArray, pdfDict, pdfName, pdfStream, pdfString, pdfTextString,
+  Pdf,
+  type PdfFeature,
+  extractPageText,
+  makePdfReader,
+  makePdfWriter,
+} from "../src/index.ts";
+import {
+  PdfBuilder,
+  PdfFile,
+  type PdfObject,
+  bytesToLatin1,
+  latin1ToBytes,
+  pdfArray,
+  pdfDict,
+  pdfName,
+  pdfStream,
+  pdfString,
+  pdfTextString,
 } from "../src/cos/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
-const doc = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}) => trustAs<PdfFeature>(document(blocks, meta));
-const write = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>, options = {}): Uint8Array => {
+const doc = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}) =>
+  trustAs<PdfFeature>(document(blocks, meta));
+const write = (
+  blocks: ReadonlyArray<Block>,
+  meta?: Record<string, unknown>,
+  options = {},
+): Uint8Array => {
   const c = run(makePdfWriter(options).write(doc(blocks, meta)));
   if (c._tag !== "Bytes") throw new Error("expected bytes");
   return c.bytes;
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
-const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) => read(write(blocks, meta));
-const fixture = async (name: string) => new Uint8Array(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
+const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) =>
+  read(write(blocks, meta));
+const fixture = async (name: string) =>
+  new Uint8Array(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
 
 /** A one-page PDF with the given content stream and resources. */
 const onePage = (
   content: string,
   resources: Record<string, PdfObject>,
-  page: Record<string, PdfObject> = {}
+  page: Record<string, PdfObject> = {},
 ): Uint8Array => {
   const pdf = new PdfBuilder();
   const pages = pdf.alloc();
   const contents = pdf.add(pdfStream(pdfDict(), latin1ToBytes(content)));
-  const p = pdf.add(pdfDict({ Type: pdfName("Page"), Parent: pages, MediaBox: pdfArray([0, 0, 612, 792]), Contents: contents, Resources: pdfDict(resources), ...page }));
+  const p = pdf.add(
+    pdfDict({
+      Type: pdfName("Page"),
+      Parent: pages,
+      MediaBox: pdfArray([0, 0, 612, 792]),
+      Contents: contents,
+      Resources: pdfDict(resources),
+      ...page,
+    }),
+  );
   pdf.set(pages, pdfDict({ Type: pdfName("Pages"), Kids: pdfArray([p]), Count: 1 }));
   return pdf.build({ root: pdf.add(pdfDict({ Type: pdfName("Catalog"), Pages: pages })) });
 };
 
-const helvetica = pdfDict({ Type: pdfName("Font"), Subtype: pdfName("Type1"), BaseFont: pdfName("Helvetica"), Encoding: pdfName("WinAnsiEncoding") });
+const helvetica = pdfDict({
+  Type: pdfName("Font"),
+  Subtype: pdfName("Type1"),
+  BaseFont: pdfName("Helvetica"),
+  Encoding: pdfName("WinAnsiEncoding"),
+});
 const textOf = (data: Uint8Array): string => blocksToText(read(data).blocks);
 
 describe("PDF writer", () => {
@@ -49,7 +105,11 @@ describe("PDF writer", () => {
     expect(new TextDecoder().decode(data.subarray(data.length - 6))).toBe("%%EOF\n");
     const file = PdfFile.open(data);
     expect(file.repaired).toBe(false);
-    expect(read(data).meta).toMatchObject({ title: "Greeting", author: "Ünïcode Author", producer: "effect-document" });
+    expect(read(data).meta).toMatchObject({
+      title: "Greeting",
+      author: "Ünïcode Author",
+      producer: "effect-document",
+    });
   });
 
   test("page size, margin and compression options", () => {
@@ -57,7 +117,9 @@ describe("PDF writer", () => {
     const page = PdfFile.open(data).pages()[0]!;
     expect(page.mediaBox).toEqual([0, 0, 612, 792]);
     expect(bytesToLatin1(data)).toContain("(x) Tj");
-    const custom = PdfFile.open(write([para([str("x")])], {}, { pageSize: [300, 400] })).pages()[0]!;
+    const custom = PdfFile.open(
+      write([para([str("x")])], {}, { pageSize: [300, 400] }),
+    ).pages()[0]!;
     expect(custom.mediaBox).toEqual([0, 0, 300, 400]);
   });
 
@@ -66,7 +128,9 @@ describe("PDF writer", () => {
   });
 
   test("long documents flow onto more pages", () => {
-    const blocks = Array.from({ length: 80 }, (_, i) => para([str(`Paragraph ${i} `.repeat(12) + "ends.")]));
+    const blocks = Array.from({ length: 80 }, (_, i) =>
+      para([str(`Paragraph ${i} `.repeat(12) + "ends.")]),
+    );
     const data = write(blocks);
     expect(PdfFile.open(data).pages().length).toBeGreaterThan(3);
     const back = read(data);
@@ -85,7 +149,11 @@ describe("PDF writer", () => {
 
   test("underline, strikeout, block quotes, rules and line breaks render as text", () => {
     const data = write([
-      para([new Underline({ content: [str("under")] }), str(" "), new Strikeout({ content: [str("struck")] })]),
+      para([
+        new Underline({ content: [str("under")] }),
+        str(" "),
+        new Strikeout({ content: [str("struck")] }),
+      ]),
       new BlockQuote({ content: [para([str("quoted")])] }),
       new HorizontalRule(),
       para([str("one"), new LineBreak(), str("two")]),
@@ -100,7 +168,15 @@ describe("PDF round trip", () => {
   test("headings, paragraphs and inline styling", () => {
     const back = roundTrip([
       header(1, [str("Annual Report")]),
-      para([str("Sales were "), strong([str("up 12%")]), str(" and "), emph([str("costs")]), str(" fell; see "), link([str("the site")], "https://example.com"), str(".")]),
+      para([
+        str("Sales were "),
+        strong([str("up 12%")]),
+        str(" and "),
+        emph([str("costs")]),
+        str(" fell; see "),
+        link([str("the site")], "https://example.com"),
+        str("."),
+      ]),
       header(2, [str("Details")]),
       para([str("Call "), new Code({ text: "run()" }), str(" first.")]),
     ]);
@@ -115,7 +191,11 @@ describe("PDF round trip", () => {
       const l = p.content[5]!;
       expect(l._tag === "Link" && l.target.url).toBe("https://example.com");
     }
-    expect(p2._tag === "Para" && p2.content.map((i: Inline) => i._tag)).toEqual(["Str", "Code", "Str"]);
+    expect(p2._tag === "Para" && p2.content.map((i: Inline) => i._tag)).toEqual([
+      "Str",
+      "Code",
+      "Str",
+    ]);
     expect(Pdf.is(back)).toBe(true);
   });
 
@@ -123,13 +203,20 @@ describe("PDF round trip", () => {
     const long = "The quick brown fox jumps over the lazy dog. ".repeat(8).trim();
     const back = roundTrip([para([str(long)]), para([str("Second.")])]);
     expect(back.blocks.length).toBe(2);
-    expect(back.blocks[0]!._tag === "Para" && back.blocks[0]!.content.some((i: Inline) => i._tag === "SoftBreak")).toBe(true);
+    expect(
+      back.blocks[0]!._tag === "Para" &&
+        back.blocks[0]!.content.some((i: Inline) => i._tag === "SoftBreak"),
+    ).toBe(true);
     expect(blocksToText([back.blocks[0]!])).toBe(long);
   });
 
   test("bullet, ordered and nested lists", () => {
     const back = roundTrip([
-      bulletList([[plainText("alpha")], [plainText("beta"), bulletList([[plainText("inner")]])], [plainText("gamma")]]),
+      bulletList([
+        [plainText("alpha")],
+        [plainText("beta"), bulletList([[plainText("inner")]])],
+        [plainText("gamma")],
+      ]),
       orderedList([[plainText("one")], [plainText("two")]]),
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["BulletList", "OrderedList"]);
@@ -153,23 +240,40 @@ describe("PDF round trip", () => {
 
   test("a hyphen at a line break joins the word", () => {
     // force a break right after "well-"
-    const data = write([para([str("x ".repeat(60) + "well-known")])], {}, { pageSize: [200, 400], margin: 20 });
+    const data = write(
+      [para([str("x ".repeat(60) + "well-known")])],
+      {},
+      { pageSize: [200, 400], margin: 20 },
+    );
     expect(textOf(data)).toContain("well-known");
   });
 });
 
 describe("text extraction", () => {
   test("TJ adjustments: large gaps are spaces, kerning is not", () => {
-    const data = onePage("BT /F1 12 Tf 72 700 Td [(Hello) -300 (world) 80 (!)] TJ ET", { Font: pdfDict({ F1: helvetica }) });
+    const data = onePage("BT /F1 12 Tf 72 700 Td [(Hello) -300 (world) 80 (!)] TJ ET", {
+      Font: pdfDict({ F1: helvetica }),
+    });
     expect(textOf(data)).toBe("Hello world!");
   });
 
   test("Differences glyph names, ligatures and uniXXXX names", () => {
     const font = pdfDict({
-      Type: pdfName("Font"), Subtype: pdfName("Type1"), BaseFont: pdfName("Times-Roman"),
-      Encoding: pdfDict({ Type: pdfName("Encoding"), Differences: pdfArray([1, pdfName("fi"), pdfName("uni2603"), pdfName("eacute.sc")]) }),
+      Type: pdfName("Font"),
+      Subtype: pdfName("Type1"),
+      BaseFont: pdfName("Times-Roman"),
+      Encoding: pdfDict({
+        Type: pdfName("Encoding"),
+        Differences: pdfArray([1, pdfName("fi"), pdfName("uni2603"), pdfName("eacute.sc")]),
+      }),
     });
-    expect(textOf(onePage("BT /F1 12 Tf 72 700 Td (\\001nd \\002 caf\\003) Tj ET", { Font: pdfDict({ F1: font }) }))).toBe("ﬁnd ☃ café");
+    expect(
+      textOf(
+        onePage("BT /F1 12 Tf 72 700 Td (\\001nd \\002 caf\\003) Tj ET", {
+          Font: pdfDict({ F1: font }),
+        }),
+      ),
+    ).toBe("ﬁnd ☃ café");
   });
 
   test("Type 0 fonts: Identity-H with a ToUnicode CMap (bfchar, bfrange, arrays)", () => {
@@ -181,11 +285,23 @@ describe("text extraction", () => {
       "endcmap CMapName currentdict /CMap defineresource pop end end",
     ].join("\n");
     const font = pdfDict({
-      Type: pdfName("Font"), Subtype: pdfName("Type0"), BaseFont: pdfName("ABCDEF+Test-Bold"), Encoding: pdfName("Identity-H"),
+      Type: pdfName("Font"),
+      Subtype: pdfName("Type0"),
+      BaseFont: pdfName("ABCDEF+Test-Bold"),
+      Encoding: pdfName("Identity-H"),
       ToUnicode: pdfStream(pdfDict(), latin1ToBytes(cmap)),
-      DescendantFonts: pdfArray([pdfDict({ Type: pdfName("Font"), Subtype: pdfName("CIDFontType2"), DW: 500, W: pdfArray([1, pdfArray([700])]) })]),
+      DescendantFonts: pdfArray([
+        pdfDict({
+          Type: pdfName("Font"),
+          Subtype: pdfName("CIDFontType2"),
+          DW: 500,
+          W: pdfArray([1, pdfArray([700])]),
+        }),
+      ]),
     });
-    const data = onePage("BT /F1 12 Tf 72 700 Td <0001001000110012000200200021> Tj ET", { Font: pdfDict({ F1: font }) });
+    const data = onePage("BT /F1 12 Tf 72 700 Td <0001001000110012000200200021> Tj ET", {
+      Font: pdfDict({ F1: font }),
+    });
     const file = PdfFile.open(data);
     const glyphs = extractPageText(file, file.pages()[0]!).glyphs;
     expect(glyphs.map((g) => g.text).join("")).toBe("Habcfiαβ");
@@ -194,24 +310,37 @@ describe("text extraction", () => {
   });
 
   test("/ActualText replaces the glyphs it covers", () => {
-    const content = "BT /F1 12 Tf 72 700 Td (A ) Tj /Span << /ActualText (fl) >> BDC (X) Tj EMC (ow) Tj ET";
+    const content =
+      "BT /F1 12 Tf 72 700 Td (A ) Tj /Span << /ActualText (fl) >> BDC (X) Tj EMC (ow) Tj ET";
     expect(textOf(onePage(content, { Font: pdfDict({ F1: helvetica }) }))).toBe("A flow");
   });
 
   test("text in Form XObjects is extracted, in place", () => {
     const form = pdfStream(
-      pdfDict({ Type: pdfName("XObject"), Subtype: pdfName("Form"), BBox: pdfArray([0, 0, 612, 792]), Resources: pdfDict({ Font: pdfDict({ F1: helvetica }) }) }),
-      latin1ToBytes("BT /F1 12 Tf 72 680 Td (from a form) Tj ET")
+      pdfDict({
+        Type: pdfName("XObject"),
+        Subtype: pdfName("Form"),
+        BBox: pdfArray([0, 0, 612, 792]),
+        Resources: pdfDict({ Font: pdfDict({ F1: helvetica }) }),
+      }),
+      latin1ToBytes("BT /F1 12 Tf 72 680 Td (from a form) Tj ET"),
     );
     const content = "BT /F1 12 Tf 72 700 Td (page text) Tj ET /Fm1 Do";
-    expect(textOf(onePage(content, { Font: pdfDict({ F1: helvetica }), XObject: pdfDict({ Fm1: form }) }))).toBe("page text from a form");
+    expect(
+      textOf(
+        onePage(content, { Font: pdfDict({ F1: helvetica }), XObject: pdfDict({ Fm1: form }) }),
+      ),
+    ).toBe("page text from a form");
   });
 
   test("rotated pages are read upright; rotated text is skipped", () => {
     // on a /Rotate 90 page, text running up the page reads left to right
     const upright = "BT /F1 12 Tf 0 1 -1 0 300 100 Tm (Sideways page) Tj ET";
-    expect(textOf(onePage(upright, { Font: pdfDict({ F1: helvetica }) }, { Rotate: 90 }))).toBe("Sideways page");
-    const diagonal = "BT /F1 12 Tf 72 700 Td (kept) Tj ET BT /F1 40 Tf 0.7 0.7 -0.7 0.7 200 300 Tm (WATERMARK) Tj ET";
+    expect(textOf(onePage(upright, { Font: pdfDict({ F1: helvetica }) }, { Rotate: 90 }))).toBe(
+      "Sideways page",
+    );
+    const diagonal =
+      "BT /F1 12 Tf 72 700 Td (kept) Tj ET BT /F1 40 Tf 0.7 0.7 -0.7 0.7 200 300 Tm (WATERMARK) Tj ET";
     expect(textOf(onePage(diagonal, { Font: pdfDict({ F1: helvetica }) }))).toBe("kept");
   });
 
@@ -224,7 +353,9 @@ describe("text extraction", () => {
     const pdf = new PdfBuilder();
     const pages = pdf.add(pdfDict({ Type: pdfName("Pages"), Kids: pdfArray([]), Count: 0 }));
     const root = pdf.add(pdfDict({ Type: pdfName("Catalog"), Pages: pages }));
-    const info = pdf.add(pdfDict({ Title: pdfTextString("Ελληνικά"), Author: pdfString(latin1ToBytes("Plain")) }));
+    const info = pdf.add(
+      pdfDict({ Title: pdfTextString("Ελληνικά"), Author: pdfString(latin1ToBytes("Plain")) }),
+    );
     const back = read(pdf.build({ root, info }));
     expect(back.meta).toEqual({ title: "Ελληνικά", author: "Plain" });
     expect(back.blocks).toEqual([]);
@@ -234,20 +365,43 @@ describe("text extraction", () => {
 describe("real-world files", () => {
   test("LibreOffice: embedded subset fonts, ToUnicode, links, non-Latin scripts", async () => {
     const back = read(await fixture("libreoffice.pdf"));
-    expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Para", "Header", "BulletList", "OrderedList", "Para"]);
+    expect(back.blocks.map((b) => b._tag)).toEqual([
+      "Header",
+      "Para",
+      "Header",
+      "BulletList",
+      "OrderedList",
+      "Para",
+    ]);
     const text = blocksToText(back.blocks);
     expect(text).toContain("LibreOffice Heading");
     expect(text).toContain("Ünïcödé text: Ελληνικά, Русский, 中文.");
     expect(text).toContain("line joining logic is exercised properly");
     const p = back.blocks[1]!;
-    expect(p._tag === "Para" && p.content.map((i: Inline) => i._tag)).toEqual(["Str", "Strong", "Str", "Emph", "Str", "Link", "Str"]);
+    expect(p._tag === "Para" && p.content.map((i: Inline) => i._tag)).toEqual([
+      "Str",
+      "Strong",
+      "Str",
+      "Emph",
+      "Str",
+      "Link",
+      "Str",
+    ]);
     expect(back.meta.producer).toContain("LibreOffice");
   });
 
   test("ReportLab: standard fonts, headings, lists and code", async () => {
     const back = read(await fixture("reportlab.pdf"));
     expect(back.meta.title).toBe("ReportLab Test");
-    expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Header", "Para", "Para", "Header", "BulletList", "CodeBlock"]);
+    expect(back.blocks.map((b) => b._tag)).toEqual([
+      "Header",
+      "Header",
+      "Para",
+      "Para",
+      "Header",
+      "BulletList",
+      "CodeBlock",
+    ]);
     const cb = back.blocks[6]!;
     expect(cb._tag === "CodeBlock" && cb.text).toBe("def f(x):\n    return x * 2");
     expect(blocksToText(back.blocks)).toContain("ligatures: office affluent. Price €5.");
@@ -265,7 +419,10 @@ describe("PDF nesting limit (#110)", () => {
 
 describe("PDF paragraph separation", () => {
   test("one-line paragraphs stay separate paragraphs", () => {
-    for (const texts of [["First para.", "Second para."], ["Intro text.", "x", "Outro text."]]) {
+    for (const texts of [
+      ["First para.", "Second para."],
+      ["Intro text.", "x", "Outro text."],
+    ]) {
       const back = roundTrip(texts.map((t) => para([str(t)])));
       expect(back.blocks.map((b) => b._tag)).toEqual(texts.map(() => "Para"));
       expect(blocksToText(back.blocks)).toBe(texts.join("\n"));
@@ -273,7 +430,12 @@ describe("PDF paragraph separation", () => {
   });
 
   test("a mix of one-line and wrapped paragraphs keeps every boundary", () => {
-    const texts = ["Short.", "Long ".repeat(40) + "end.", "Also short.", "Another ".repeat(30) + "end."];
+    const texts = [
+      "Short.",
+      "Long ".repeat(40) + "end.",
+      "Also short.",
+      "Another ".repeat(30) + "end.",
+    ];
     const back = roundTrip(texts.map((t) => para([str(t)])));
     expect(back.blocks).toHaveLength(4);
   });

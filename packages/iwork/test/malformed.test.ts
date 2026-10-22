@@ -8,7 +8,14 @@ import { openBundle, openBundleDirectory } from "../src/bundle.ts";
 import { IworkError } from "../src/errors.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import {
-  getBigInt, getDouble, getFloat, getPacked, getSint, getVarint, parseMessage, readVarint,
+  getBigInt,
+  getDouble,
+  getFloat,
+  getPacked,
+  getSint,
+  getVarint,
+  parseMessage,
+  readVarint,
 } from "../src/protobuf.ts";
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
 import * as Keynote from "../src/keynote.ts";
@@ -37,13 +44,15 @@ describe("Snappy: malformed blocks fail with a typed error", () => {
     expect(huge.reason).toBe("LimitExceeded");
     // under a raised limit it is still more than the input can expand to
     const lying = failure(() =>
-      decompressBlock(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x0f, 0x00, 0x61]), { maxLength: 2 ** 32 })
+      decompressBlock(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x0f, 0x00, 0x61]), {
+        maxLength: 2 ** 32,
+      }),
     );
     expect(lying.reason).toBe("Malformed");
     expect(lying.message).toMatch(/more than 2 bytes of input can produce/);
-    expect(failure(() => decompressBlock(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x80, 0x01]))).message).toMatch(
-      /preamble longer than 5 bytes/
-    );
+    expect(
+      failure(() => decompressBlock(new Uint8Array([0x80, 0x80, 0x80, 0x80, 0x80, 0x01]))).message,
+    ).toMatch(/preamble longer than 5 bytes/);
     expect(failure(() => decompressBlock(new Uint8Array([]))).reason).toBe("Truncated");
   });
 
@@ -53,25 +62,35 @@ describe("Snappy: malformed blocks fail with a typed error", () => {
     expect(zero.reason).toBe("Malformed");
     expect(zero.offset).toBe(3);
     expect(zero.message).toMatch(/copy offset 0/);
-    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x01, 2]))).message).toMatch(
-      /copy offset 2 is outside the 1 bytes written/
-    );
+    expect(
+      failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x01, 2]))).message,
+    ).toMatch(/copy offset 2 is outside the 1 bytes written/);
     // 2- and 4-byte offset forms too
-    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x0e, 9, 0]))).reason).toBe("Malformed");
-    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x0f, 9, 0, 0, 0]))).reason).toBe(
-      "Malformed"
+    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x0e, 9, 0]))).reason).toBe(
+      "Malformed",
     );
+    expect(
+      failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x0f, 9, 0, 0, 0]))).reason,
+    ).toBe("Malformed");
   });
 
   test("overruns of the declared length or the input are rejected", () => {
     // copy of 4 into a 3-byte output
-    expect(failure(() => decompressBlock(new Uint8Array([3, 0x00, 0x61, 0x01, 1]))).message).toMatch(/overruns/);
+    expect(
+      failure(() => decompressBlock(new Uint8Array([3, 0x00, 0x61, 0x01, 1]))).message,
+    ).toMatch(/overruns/);
     // literal of 2 into a 1-byte output
-    expect(failure(() => decompressBlock(new Uint8Array([1, 0x04, 0x61, 0x62]))).message).toMatch(/overruns/);
+    expect(failure(() => decompressBlock(new Uint8Array([1, 0x04, 0x61, 0x62]))).message).toMatch(
+      /overruns/,
+    );
     // literal of 5 with only 2 bytes left
-    expect(failure(() => decompressBlock(new Uint8Array([5, 0x10, 0x61, 0x62]))).reason).toBe("Truncated");
+    expect(failure(() => decompressBlock(new Uint8Array([5, 0x10, 0x61, 0x62]))).reason).toBe(
+      "Truncated",
+    );
     // a copy tag with its offset byte missing
-    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x01]))).reason).toBe("Truncated");
+    expect(failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61, 0x01]))).reason).toBe(
+      "Truncated",
+    );
     // output shorter than the preamble declares
     const short = failure(() => decompressBlock(new Uint8Array([5, 0x00, 0x61])));
     expect(short.reason).toBe("Truncated");
@@ -80,7 +99,9 @@ describe("Snappy: malformed blocks fail with a typed error", () => {
 
   test("valid overlapping copies still expand (run-length)", () => {
     // literal "a", then copy len 8 at offset 1
-    expect(new TextDecoder().decode(decompressBlock(new Uint8Array([9, 0x00, 0x61, 0x11, 1])))).toBe("aaaaaaaaa");
+    expect(
+      new TextDecoder().decode(decompressBlock(new Uint8Array([9, 0x00, 0x61, 0x11, 1]))),
+    ).toBe("aaaaaaaaa");
   });
 
   test("dechunk positions a block's error in the .iwa file and caps the stream", () => {
@@ -95,7 +116,10 @@ describe("Snappy: malformed blocks fail with a typed error", () => {
 
 describe("archive stream: declared lengths are checked", () => {
   test("a truncated payload fails, naming the object", () => {
-    const stream = new Uint8Array(record(7, [{ type: 1, payload: [1, 2, 3, 4, 5] }])).subarray(0, -2);
+    const stream = new Uint8Array(record(7, [{ type: 1, payload: [1, 2, 3, 4, 5] }])).subarray(
+      0,
+      -2,
+    );
     const e = failure(() => decodeArchiveStream(stream));
     expect(e.reason).toBe("Truncated");
     expect(e.objectId).toBe(7n);
@@ -108,12 +132,13 @@ describe("archive stream: declared lengths are checked", () => {
   });
 
   test("a missing identifier, type or length is an error, not 0", () => {
-    expect(failure(() => decodeArchiveStream(new Uint8Array(record(undefined, [])))).message).toMatch(
-      /no identifier/
-    );
+    expect(
+      failure(() => decodeArchiveStream(new Uint8Array(record(undefined, [])))).message,
+    ).toMatch(/no identifier/);
     const noLength = [...varintField(1, 7), ...lenField(2, varintField(1, 1))];
     expect(
-      failure(() => decodeArchiveStream(new Uint8Array([...varint(noLength.length), ...noLength]))).message
+      failure(() => decodeArchiveStream(new Uint8Array([...varint(noLength.length), ...noLength])))
+        .message,
     ).toMatch(/MessageInfo has no length/);
   });
 
@@ -134,7 +159,7 @@ describe("archive stream: declared lengths are checked", () => {
 describe("Protobuf: typed scalar accessors", () => {
   test("doubles and floats keep their bits", () => {
     const fields = parseMessage(
-      new Uint8Array([...fixedField(1, 1, f64(-1234.5678)), ...fixedField(2, 5, f32(0.25))])
+      new Uint8Array([...fixedField(1, 1, f64(-1234.5678)), ...fixedField(2, 5, f32(0.25))]),
     );
     expect(getDouble(fields, 1)).toBe(-1234.5678);
     expect(getFloat(fields, 2)).toBe(0.25);
@@ -150,7 +175,7 @@ describe("Protobuf: typed scalar accessors", () => {
         ...varintField(3, 9), // sint64 -5 (zigzag)
         ...fixedField(4, 1, i64(-(2n ** 62n))),
         ...varintField(5, 2n ** 53n + 1n),
-      ])
+      ]),
     );
     expect(getBigInt(fields, 1)).toBe(max);
     expect(getBigInt(fields, 2, "int64")).toBe(-5n);
@@ -171,16 +196,17 @@ describe("Protobuf: typed scalar accessors", () => {
         ...lenField(2, doubles),
         ...fixedField(2, 1, f64(3)),
         ...lenField(3, [...varint(3), ...varint(4)]),
-      ])
+      ]),
     );
     expect(getPacked(fields, 1, "varint")).toEqual([1, 300, 5, 7]);
     expect(getPacked(fields, 2, "double")).toEqual([1.5, -2, 3]);
     expect(getPacked(fields, 3, "sint")).toEqual([-2, 2]);
     const bad = parseMessage(new Uint8Array(lenField(1, [1, 2, 3])));
     expect(failure(() => getPacked(bad, 1, "double")).reason).toBe("Malformed");
-    expect(failure(() => getPacked(parseMessage(new Uint8Array(lenField(1, [0x80]))), 1, "varint")).reason).toBe(
-      "Truncated"
-    );
+    expect(
+      failure(() => getPacked(parseMessage(new Uint8Array(lenField(1, [0x80]))), 1, "varint"))
+        .reason,
+    ).toBe("Truncated");
   });
 
   test("wire errors are IworkErrors with an offset", () => {
@@ -226,7 +252,10 @@ describe("bundle: typed failures and inflation limits", () => {
     expect(reason({ maxTotalSize: 1000 })).toBe("LimitExceeded");
     // the inner Index.zip of older documents shares the budget
     const nested = zipSync({
-      "Index.zip": zipSync({ "Index/A.iwa": new Uint8Array(600), "Index/B.iwa": new Uint8Array(600) }),
+      "Index.zip": zipSync({
+        "Index/A.iwa": new Uint8Array(600),
+        "Index/B.iwa": new Uint8Array(600),
+      }),
     });
     const r = openBundle(nested, { limits: { maxTotalSize: 1000 } });
     expect(Result.isFailure(r) && r.failure.reason).toBe("LimitExceeded");
@@ -271,9 +300,13 @@ describe("readers: component failures", () => {
     // a TSWP.StorageArchive (type 2001) whose payload has an unsupported wire type
     const slide = chunk(new Uint8Array(record(42, [{ type: 2001, payload: [0x0b] }])));
     const r = Effect.runSync(
-      Effect.result(Keynote.makeKeynoteReader().read(bytes(corrupted("Index/Slide-8060.iwa", slide))))
+      Effect.result(
+        Keynote.makeKeynoteReader().read(bytes(corrupted("Index/Slide-8060.iwa", slide))),
+      ),
     );
-    expect(Result.isFailure(r) && r.failure.reason).toMatch(/Index\/Slide-8060\.iwa, object 42, offset 0/);
+    expect(Result.isFailure(r) && r.failure.reason).toMatch(
+      /Index\/Slide-8060\.iwa, object 42, offset 0/,
+    );
   });
 
   test("lenient mode skips the component with a warning", () => {
@@ -317,7 +350,11 @@ const mutate = (rand: () => number, input: Uint8Array): Uint8Array => {
         out = out.slice(0, at);
         break;
       default:
-        out = new Uint8Array([...out.subarray(0, at), ...randomBytes(rand, 8), ...out.subarray(at)]);
+        out = new Uint8Array([
+          ...out.subarray(0, at),
+          ...randomBytes(rand, 8),
+          ...out.subarray(at),
+        ]);
     }
   }
   return out;

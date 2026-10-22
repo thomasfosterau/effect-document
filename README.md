@@ -13,7 +13,7 @@ A **type-safe, profile-based universal document schema** built on [Effect](https
 
 ## The idea
 
-Parsing a CSV always produces a subset of what a spreadsheet can represent; writing an Excel workbook to CSV is *not* straightforward. effect-document encodes that asymmetry in the **types**:
+Parsing a CSV always produces a subset of what a spreadsheet can represent; writing an Excel workbook to CSV is _not_ straightforward. effect-document encodes that asymmetry in the **types**:
 
 - A **`Feature`** names one capability - a node kind (`block.header`, `cell.date`), or an attribute facet (`attr.style`).
 - A **`Profile`** is a named set of allowed features (`Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation`, `Full`).
@@ -29,7 +29,7 @@ csvWriter.write(fullDoc);                         // ❌ compile error: a full d
 So:
 
 - **Readers** return `Doc<F>` for exactly their format's profile.
-- **Writers** accept only `Doc<F>` - over-rich documents are a *compile-time* error; you must `narrow` first.
+- **Writers** accept only `Doc<F>` - over-rich documents are a _compile-time_ error; you must `narrow` first.
 - **`narrow`** down-converts a document to a target profile and reports every drop/conversion.
 - **`convert`** wires a reader to a writer, widening for free or narrowing (lossily) as needed.
 
@@ -77,7 +77,18 @@ Going the other way (`Xlsx.format → Csv.format`) **narrows**: dates become ISO
 Every node is an Effect `Schema` class, so the whole tree encodes to / decodes from plain JSON.
 
 ```ts
-import { document, header, para, str, strong, worksheet, cell, slide, slideShow, textBox } from "@thomasfosterau/effect-document";
+import {
+  document,
+  header,
+  para,
+  str,
+  strong,
+  worksheet,
+  cell,
+  slide,
+  slideShow,
+  textBox,
+} from "@thomasfosterau/effect-document";
 
 // prose
 const report = document([
@@ -87,10 +98,14 @@ const report = document([
 
 // a spreadsheet is part of the same schema (a `Worksheet` block of typed cells)
 const sheet = document([
-  worksheet("Sales", [
-    [cell.text("North"), cell.number(42000), cell.date(new Date())],
-    [cell.text("South"), cell.number(38500), cell.blank()],
-  ], ["region", "revenue", "as_of"]),
+  worksheet(
+    "Sales",
+    [
+      [cell.text("North"), cell.number(42000), cell.date(new Date())],
+      [cell.text("South"), cell.number(38500), cell.blank()],
+    ],
+    ["region", "revenue", "as_of"],
+  ),
 ]);
 
 // so is a presentation (a `SlideShow` block of slides)
@@ -109,11 +124,11 @@ Most nodes carry an optional `attr`: well-known `id`/`classes`, structured `styl
 import { Profiles, defineProfile, narrow } from "@thomasfosterau/effect-document";
 
 // conformance checks
-Profiles.Markdown.is(report);        // true
-Profiles.Csv.is(sheet);              // false (dates & a header aren't in the CSV subset)
+Profiles.Markdown.is(report); // true
+Profiles.Csv.is(sheet); // false (dates & a header aren't in the CSV subset)
 
 // validate, failing with the exact unsupported features
-const checked = yield* Profiles.Csv.validate(sheet);
+const checked = yield * Profiles.Csv.validate(sheet);
 // -> ProfileViolation { unsupported: ["cell.date", ...] }
 
 // narrow to a subset, learning what was lost
@@ -125,7 +140,10 @@ Defining your own format's subset is one call - the same array drives both the r
 
 ```ts
 const Receipt = defineProfile("receipt", [
-  "sheet.worksheet", "cell.text", "cell.number", "attr.id",
+  "sheet.worksheet",
+  "cell.text",
+  "cell.number",
+  "attr.id",
 ] as const);
 // Receipt: Profile<"sheet.worksheet" | "cell.text" | "cell.number" | "attr.id">
 ```
@@ -140,19 +158,20 @@ import * as Csv from "@thomasfosterau/effect-csv";
 import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
 
 // CSV text -> Doc<CsvFeature> (a single worksheet with inferred cell types)
-const doc = yield* Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
+const doc = yield * Csv.makeCsvReader().read(text("name,age\nalice,30\n"));
 
 // Doc<SpreadsheetFeature> -> .xlsx bytes (multi-sheet, typed cells)
-const xlsx = yield* Xlsx.makeXlsxWriter().write(spreadsheetDoc);
+const xlsx = yield * Xlsx.makeXlsxWriter().write(spreadsheetDoc);
 ```
 
 Streaming and synthetic data:
 
 ```ts
-const rows = Csv.makeCsvReader().readStream!(text(bigCsv));   // Stream<readonly string[]>
+const rows = Csv.makeCsvReader().readStream!(text(bigCsv)); // Stream<readonly string[]>
 // or scan text chunks as they arrive (fields, quotes and line breaks may span chunks)
 const live = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHeader: true });
-const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 10_000, seed: 42 });
+const synthetic =
+  yield * Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 10_000, seed: 42 });
 ```
 
 ## Packages
@@ -160,7 +179,7 @@ const synthetic = yield* Csv.synthesizeDocument({ columns: ["id", "email"], quan
 This repository is a monorepo of one core package and one package per format family.
 
 | Package | Directory | Contents |
-|---|---|---|
+| --- | --- | --- |
 | `@thomasfosterau/effect-document` | `packages/core` | Schema, profiles, IO (`Reader`/`Writer`/`Format`, errors) and `convert` |
 | `@thomasfosterau/effect-csv` | `packages/csv` | CSV/TSV reader, writer, streaming scanner and data synthesis |
 | `@thomasfosterau/effect-ooxml` | `packages/ooxml` | `Xlsx`, `Docx` and `Pptx` namespaces over shared XML/OPC infrastructure |
@@ -171,7 +190,7 @@ This repository is a monorepo of one core package and one package per format fam
 Subpath exports:
 
 | Import | Contents |
-|---|---|
+| --- | --- |
 | `@thomasfosterau/effect-document/schema` | The document AST, attribute model, and feature taxonomy |
 | `@thomasfosterau/effect-document/profile` | `Profile`/`Doc<F>`, conformance checking, `widen`/`narrow`, built-in `Profiles` |
 | `@thomasfosterau/effect-document/profiles` | The built-in profiles (`Csv`, `Spreadsheet`, `Markdown`, …) as named exports |
@@ -183,7 +202,7 @@ Subpath exports:
 ## Format support
 
 | Format | Read | Write | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | CSV / TSV | ✅ | ✅ | dialects, quoting, comments, streaming, type inference (CSV profile) |
 | XLSX | ✅ | ✅ | multi-sheet, shared/inline strings, numbers, booleans, errors, formulas; dates round-trip as ISO strings; no styles yet |
 | DOCX | ✅ | ✅ | headings, runs (bold/italic/underline/strike/super/sub/small-caps), hyperlinks, bullet/ordered lists, tables |
@@ -196,25 +215,11 @@ Subpath exports:
 | JSON | ✅ | ✅ | via `Schema.encode`/`decode` of any `Document` |
 | Markdown / HTML | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
 
-Apple iWork (`.pages`/`.numbers`/`.key`) are reverse-engineered binary bundles
-(Protobuf in a non-standard Snappy variant). effect-document ships a
-**dependency-free container codec** for them (`@thomasfosterau/effect-iwork/codec`:
-IWA chunk framing, the Snappy block codec, a generic Protobuf wire reader, and the
-zip-bundle opener), verified against real Apple files. The readers currently
-extract *text* only and are experimental; writing requires the proprietary
-object-graph schemas and is a future phase. Password-protected documents are
-detected and refused.
+Apple iWork (`.pages`/`.numbers`/`.key`) are reverse-engineered binary bundles (Protobuf in a non-standard Snappy variant). effect-document ships a **dependency-free container codec** for them (`@thomasfosterau/effect-iwork/codec`: IWA chunk framing, the Snappy block codec, a generic Protobuf wire reader, and the zip-bundle opener), verified against real Apple files. The readers currently extract _text_ only and are experimental; writing requires the proprietary object-graph schemas and is a future phase. Password-protected documents are detected and refused.
 
 Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`, `Pdf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
 
-PDF has no structure of its own to read - only glyphs at coordinates - so the
-PDF reader infers it from the layout: the most common font size is body text,
-larger sizes are heading levels, gaps wider than the usual leading separate
-paragraphs, lines opening with a bullet or number are list items, and runs of
-monospaced lines are code. Documents from typical producers (word processors,
-browsers, report generators) come back with their headings,
-paragraphs and inline styling; complex layouts (multiple columns, tables) come
-back as text in content-stream order.
+PDF has no structure of its own to read - only glyphs at coordinates - so the PDF reader infers it from the layout: the most common font size is body text, larger sizes are heading levels, gaps wider than the usual leading separate paragraphs, lines opening with a bullet or number are list items, and runs of monospaced lines are code. Documents from typical producers (word processors, browsers, report generators) come back with their headings, paragraphs and inline styling; complex layouts (multiple columns, tables) come back as text in content-stream order.
 
 ## Examples
 

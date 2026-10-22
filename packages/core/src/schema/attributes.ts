@@ -31,21 +31,15 @@ export const AttrValue: Schema.Codec<AttrValue> = Schema.suspend(() =>
     Schema.Boolean,
     Schema.Null,
     Schema.Array(AttrValue),
-    Schema.Record(Schema.String, AttrValue)
-  ])
+    Schema.Record(Schema.String, AttrValue),
+  ]),
 );
 
 // ============================================================================
 // Style (structured presentation properties)
 // ============================================================================
 
-export const HorizontalAlign = Schema.Literals([
-  "left",
-  "right",
-  "center",
-  "justify",
-  "default"
-]);
+export const HorizontalAlign = Schema.Literals(["left", "right", "center", "justify", "default"]);
 export type HorizontalAlign = Schema.Schema.Type<typeof HorizontalAlign>;
 
 export const VerticalAlign = Schema.Literals(["top", "middle", "bottom"]);

@@ -23,9 +23,7 @@ export interface Reader<F extends Feature> {
    * Stream raw rows without materializing the whole document (tabular formats
    * where streaming is natural, e.g. CSV).
    */
-  readonly readStream?: (
-    input: Content
-  ) => Stream.Stream<ReadonlyArray<string>, ParseError>;
+  readonly readStream?: (input: Content) => Stream.Stream<ReadonlyArray<string>, ParseError>;
 }
 
 /** A `Reader` for some (existentially-quantified) profile. */
@@ -33,7 +31,7 @@ export type AnyReader = Reader<Feature>;
 
 /** Create a Context tag for a format's Reader service. */
 export const makeReaderTag = <F extends Feature>(
-  format: string
+  format: string,
 ): Context.Service<Reader<F>, Reader<F>> =>
   Context.Service<Reader<F>>(`@effect-document/Reader/${format}`);
 
@@ -46,7 +44,7 @@ export const makeReaderTag = <F extends Feature>(
 export const limitNestingDepth = <D extends Document>(
   format: string,
   doc: D,
-  maxDepth: number = DEFAULT_MAX_NESTING_DEPTH
+  maxDepth: number = DEFAULT_MAX_NESTING_DEPTH,
 ): Effect.Effect<D, ParseError> => {
   const depth = nestingDepth(doc, maxDepth);
   return depth > maxDepth
@@ -55,7 +53,7 @@ export const limitNestingDepth = <D extends Document>(
           format,
           code: "LimitExceeded",
           reason: `Document nests more than ${maxDepth} levels deep (maxDepth)`,
-        })
+        }),
       )
     : Effect.succeed(doc);
 };

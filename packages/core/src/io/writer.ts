@@ -25,6 +25,6 @@ export type AnyWriter = Writer<Feature>;
 
 /** Create a Context tag for a format's Writer service. */
 export const makeWriterTag = <F extends Feature>(
-  format: string
+  format: string,
 ): Context.Service<Writer<F>, Writer<F>> =>
   Context.Service<Writer<F>>(`@effect-document/Writer/${format}`);

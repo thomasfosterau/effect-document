@@ -9,8 +9,19 @@
 
 import { Effect, Layer, Stream, pipe } from "effect";
 import {
-  cell, type Content, contentToText, type Doc, document, type FeaturesOf, makeReaderTag,
-  type ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
+  cell,
+  type Content,
+  contentToText,
+  type Doc,
+  document,
+  type FeaturesOf,
+  makeReaderTag,
+  type ParseError,
+  type Reader,
+  type SheetCell,
+  SheetRow,
+  trustAs,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -78,7 +89,8 @@ type Inferred = number | boolean | null | undefined;
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Significant digits: from the first non-zero digit to the last. */
-const significantDigits = (digits: string): number => digits.replace(/^0+/, "").replace(/0+$/, "").length;
+const significantDigits = (digits: string): number =>
+  digits.replace(/^0+/, "").replace(/0+$/, "").length;
 
 const maxSignificantDigits = 15;
 
@@ -87,11 +99,13 @@ const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferre
   const nulls = new Set(options.nullValues ?? [""]);
   const caseSensitive = !!options.booleansCaseSensitive;
   const fold = (s: string) => (caseSensitive ? s : s.toLowerCase());
-  const [truthy, falsy] = options.booleans === false ? [] : (options.booleans ?? ["true", "false"]).map(fold);
+  const [truthy, falsy] =
+    options.booleans === false ? [] : (options.booleans ?? ["true", "false"]).map(fold);
   const group = options.groupChar ? escapeRegExp(options.groupChar) : undefined;
-  const integer = group === undefined ? "0|[1-9]\\d*" : `0|[1-9]\\d{0,2}(?:${group}\\d{3})+|[1-9]\\d*`;
+  const integer =
+    group === undefined ? "0|[1-9]\\d*" : `0|[1-9]\\d{0,2}(?:${group}\\d{3})+|[1-9]\\d*`;
   const number = new RegExp(
-    `^(-?)(${integer})(?:${escapeRegExp(options.decimalChar ?? ".")}(\\d+))?(?:[eE]([+-]?\\d+))?${options.percent ? "(%?)" : "()"}$`
+    `^(-?)(${integer})(?:${escapeRegExp(options.decimalChar ?? ".")}(\\d+))?(?:[eE]([+-]?\\d+))?${options.percent ? "(%?)" : "()"}$`,
   );
   const groups = group === undefined ? undefined : new RegExp(group, "g");
   return (raw) => {
@@ -110,10 +124,13 @@ const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferre
 };
 
 const toCell = (raw: string, value: Inferred): SheetCell =>
-  value === null ? cell.blank()
-  : value === undefined ? cell.text(raw)
-  : typeof value === "number" ? cell.number(value)
-  : cell.boolean(value);
+  value === null
+    ? cell.blank()
+    : value === undefined
+      ? cell.text(raw)
+      : typeof value === "number"
+        ? cell.number(value)
+        : cell.boolean(value);
 
 const defaultClassifier = makeClassifier({});
 
@@ -125,10 +142,11 @@ export const inferCell = (raw: string, options?: CsvInferenceOptions): SheetCell
 const inferRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   options: CsvInferenceOptions,
-  classify: (raw: string) => Inferred
+  classify: (raw: string) => Inferred,
 ): Array<Array<SheetCell>> => {
   const values = rows.map((row) => row.map(classify));
-  if (options.inference !== "column") return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
+  if (options.inference !== "column")
+    return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
   // each column's type, from its non-null values (undefined while it has none)
   const columns: Array<"number" | "boolean" | "text" | undefined> = [];
   for (const row of values) {
@@ -142,7 +160,7 @@ const inferRows = (
     row.map((raw, c) => {
       const value = values[r]![c];
       return toCell(raw, value === null || columns[c] !== "text" ? value : undefined);
-    })
+    }),
   );
 };
 
@@ -161,7 +179,9 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
     pipe(
       scanCsv(contentToText(input), dialect, options),
       Effect.map(({ headers, rows }) => {
-        const body = inferTypes ? inferRows(rows, options ?? {}, classify) : rows.map((row) => row.map(cell.text));
+        const body = inferTypes
+          ? inferRows(rows, options ?? {}, classify)
+          : rows.map((row) => row.map(cell.text));
         const grid = headers === null ? body : [headers.map((h) => cell.text(h)), ...body];
         const ws = new Worksheet({
           name: sheetName,
@@ -170,12 +190,10 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
           merges: [],
         });
         return trustAs<CsvFeature>(document([ws]));
-      })
+      }),
     );
 
-  const readStream = (
-    input: Content
-  ): Stream.Stream<ReadonlyArray<string>, ParseError> =>
+  const readStream = (input: Content): Stream.Stream<ReadonlyArray<string>, ParseError> =>
     scanCsvStream(Stream.make(contentToText(input)), dialect, options);
 
   return { format: "csv", profile: Csv, read, readStream };

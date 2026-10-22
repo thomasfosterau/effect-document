@@ -14,7 +14,12 @@ import type { PdfFile } from "../cos/file.ts";
 import { type PdfDict, type PdfObject, isArray, isName, isStream } from "../cos/objects.ts";
 import { CMap, parseCMap } from "./cmap.ts";
 import {
-  type BaseEncodingName, baseEncoding, glyphToUnicode, isBaseEncodingName, standardFont, standardWidths,
+  type BaseEncodingName,
+  baseEncoding,
+  glyphToUnicode,
+  isBaseEncodingName,
+  standardFont,
+  standardWidths,
 } from "./encodings.ts";
 
 /** One decoded character code. */
@@ -52,7 +57,9 @@ const MONO_NAME = /courier|mono|consol|menlo|inconsolata|lucidaconsole|code/i;
 
 const numbers = (file: PdfFile, o: PdfObject | undefined): number[] => {
   const a = file.resolve(o);
-  return isArray(a) ? a.items.map((x) => file.resolve(x)).map((x) => (typeof x === "number" ? x : 0)) : [];
+  return isArray(a)
+    ? a.items.map((x) => file.resolve(x)).map((x) => (typeof x === "number" ? x : 0))
+    : [];
 };
 
 /** Style hints from the font name and descriptor. */
@@ -90,15 +97,25 @@ const loadSimpleFont = (file: PdfFile, dict: PdfDict, subtype: string): PdfFont 
 
   // the encoding: a base encoding, then /Differences
   let base: BaseEncodingName =
-    standard === "Symbol" ? "SymbolEncoding" : standard === "ZapfDingbats" ? "ZapfDingbatsEncoding"
-      : subtype === "TrueType" ? "WinAnsiEncoding" : "StandardEncoding";
+    standard === "Symbol"
+      ? "SymbolEncoding"
+      : standard === "ZapfDingbats"
+        ? "ZapfDingbatsEncoding"
+        : subtype === "TrueType"
+          ? "WinAnsiEncoding"
+          : "StandardEncoding";
   const names: Array<string | undefined> = [];
   const encoding = file.lookup(dict, "Encoding");
   let explicit = false;
   if (isName(encoding) && isBaseEncodingName(encoding.name)) {
     base = encoding.name;
     explicit = true;
-  } else if (encoding !== undefined && encoding !== null && typeof encoding === "object" && encoding._tag === "Dict") {
+  } else if (
+    encoding !== undefined &&
+    encoding !== null &&
+    typeof encoding === "object" &&
+    encoding._tag === "Dict"
+  ) {
     const b = file.lookupName(encoding, "BaseEncoding");
     if (b !== undefined && isBaseEncodingName(b)) base = b;
     explicit = true;
@@ -174,7 +191,10 @@ const loadType0Font = (file: PdfFile, dict: PdfDict): PdfFont => {
   const baseFont = (file.lookupName(dict, "BaseFont") ?? "").replace(/^[A-Z]{6}\+/, "");
   const descendants = file.lookupArray(dict, "DescendantFonts");
   const cidFont = descendants === undefined ? undefined : file.resolve(descendants.items[0]);
-  const cid = cidFont !== null && typeof cidFont === "object" && cidFont._tag === "Dict" ? cidFont : undefined;
+  const cid =
+    cidFont !== null && typeof cidFont === "object" && cidFont._tag === "Dict"
+      ? cidFont
+      : undefined;
   const descriptor = file.lookupDict(cid, "FontDescriptor");
 
   // the encoding CMap: codes -> CIDs
@@ -252,13 +272,20 @@ const FALLBACK_FONT: PdfFont = {
   italic: false,
   monospace: false,
   vertical: false,
-  decode: (bytes) => Array.from(bytes, (code) => ({ code, text: code >= 0x20 ? String.fromCharCode(code) : "", width: 0.5, wordSpace: code === 32 })),
+  decode: (bytes) =>
+    Array.from(bytes, (code) => ({
+      code,
+      text: code >= 0x20 ? String.fromCharCode(code) : "",
+      width: 0.5,
+      wordSpace: code === 32,
+    })),
 };
 
 /** Load a font dictionary for text extraction. */
 export const loadFont = (file: PdfFile, font: PdfObject | undefined): PdfFont => {
   const dict = file.resolve(font);
-  if (dict === null || dict === undefined || typeof dict !== "object" || dict._tag !== "Dict") return FALLBACK_FONT;
+  if (dict === null || dict === undefined || typeof dict !== "object" || dict._tag !== "Dict")
+    return FALLBACK_FONT;
   try {
     const subtype = file.lookupName(dict, "Subtype") ?? "Type1";
     return subtype === "Type0" ? loadType0Font(file, dict) : loadSimpleFont(file, dict, subtype);

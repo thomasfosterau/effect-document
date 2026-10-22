@@ -59,13 +59,17 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
   }
   if (outLen > 0xffffffff) throw codecError("Malformed", "snappy: preamble exceeds 32 bits", 0);
   if (outLen > maxLength) {
-    throw codecError("LimitExceeded", `snappy: block declares ${outLen} bytes, over the ${maxLength}-byte limit`, 0);
+    throw codecError(
+      "LimitExceeded",
+      `snappy: block declares ${outLen} bytes, over the ${maxLength}-byte limit`,
+      0,
+    );
   }
   if (outLen > (input.length - pos) * MAX_EXPANSION) {
     throw codecError(
       "Malformed",
       `snappy: block declares ${outLen} bytes, more than ${input.length - pos} bytes of input can produce`,
-      0
+      0,
     );
   }
 
@@ -75,10 +79,18 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
   /** Copy `len` bytes from `offset` back in the output (overlap is run-length expansion). */
   const copy = (at: number, len: number, offset: number): void => {
     if (offset === 0 || offset > o) {
-      throw codecError("Malformed", `snappy: copy offset ${offset} is outside the ${o} bytes written`, at);
+      throw codecError(
+        "Malformed",
+        `snappy: copy offset ${offset} is outside the ${o} bytes written`,
+        at,
+      );
     }
     if (len > outLen - o) {
-      throw codecError("Malformed", `snappy: copy of ${len} bytes overruns the declared ${outLen}-byte output`, at);
+      throw codecError(
+        "Malformed",
+        `snappy: copy of ${len} bytes overruns the declared ${outLen}-byte output`,
+        at,
+      );
     }
     let s = o - offset;
     for (let i = 0; i < len; i++) out[o++] = out[s++]!;
@@ -102,7 +114,11 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
         }
         if (len > input.length - pos) throw truncated(`literal of ${len} bytes`, at);
         if (len > outLen - o) {
-          throw codecError("Malformed", `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`, at);
+          throw codecError(
+            "Malformed",
+            `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`,
+            at,
+          );
         }
         out.set(input.subarray(pos, pos + len), o);
         pos += len;
@@ -130,14 +146,18 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
         copy(
           at,
           len,
-          input[pos++]! + input[pos++]! * 256 + input[pos++]! * 65536 + input[pos++]! * 16777216
+          input[pos++]! + input[pos++]! * 256 + input[pos++]! * 65536 + input[pos++]! * 16777216,
         );
         break;
       }
     }
   }
   if (o !== outLen) {
-    throw codecError("Truncated", `snappy: block produced ${o} bytes, the preamble declared ${outLen}`, input.length);
+    throw codecError(
+      "Truncated",
+      `snappy: block produced ${o} bytes, the preamble declared ${outLen}`,
+      input.length,
+    );
   }
   return out;
 };

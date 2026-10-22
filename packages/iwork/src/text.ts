@@ -15,7 +15,7 @@ const OBJECT_REPLACEMENT = /￼/g;
 /** Split a `StorageArchive` payload into its text paragraphs (non-empty lines). */
 export const storageParagraphs = (
   payload: Uint8Array,
-  options?: { readonly includeNotes?: boolean }
+  options?: { readonly includeNotes?: boolean },
 ): string[] => {
   const fields = parseMessage(payload);
   const kind = getVarint(fields, STORAGE_KIND_FIELD);

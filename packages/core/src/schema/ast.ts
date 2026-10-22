@@ -20,8 +20,13 @@ import { Attributes, Style, attrField } from "./attributes.ts";
 type Attrs = Attributes; // attr encodes 1:1 (no Date/class-valued fields)
 type CellAlign = "left" | "right" | "center" | "default";
 type NumberStyle =
-  | "default" | "example" | "decimal" | "lower-roman" | "upper-roman"
-  | "lower-alpha" | "upper-alpha";
+  | "default"
+  | "example"
+  | "decimal"
+  | "lower-roman"
+  | "upper-roman"
+  | "lower-alpha"
+  | "upper-alpha";
 type NumberDelim = "default" | "period" | "one-paren" | "two-parens";
 
 interface WrapInlineEncoded<T extends string> {
@@ -303,11 +308,7 @@ export interface PlaceholderEncoded {
   readonly idx?: number | undefined;
   readonly content: ReadonlyArray<BlockEncoded>;
 }
-export type ShapeEncoded =
-  | TextBoxEncoded
-  | PictureEncoded
-  | TableShapeEncoded
-  | PlaceholderEncoded;
+export type ShapeEncoded = TextBoxEncoded | PictureEncoded | TableShapeEncoded | PlaceholderEncoded;
 export interface SlideEncoded {
   readonly attr?: Attrs | undefined;
   readonly layout?: string | undefined;
@@ -348,13 +349,9 @@ export type BlockEncoded =
 // ============================================================================
 
 /** `ReadonlyArray<Inline>` as a schema, deferring the recursive reference. */
-const InlineArray = Schema.Array(
-  Schema.suspend((): Schema.Codec<Inline, InlineEncoded> => Inline)
-);
+const InlineArray = Schema.Array(Schema.suspend((): Schema.Codec<Inline, InlineEncoded> => Inline));
 /** `ReadonlyArray<Block>` as a schema, deferring the recursive reference. */
-const BlockArray = Schema.Array(
-  Schema.suspend((): Schema.Codec<Block, BlockEncoded> => Block)
-);
+const BlockArray = Schema.Array(Schema.suspend((): Schema.Codec<Block, BlockEncoded> => Block));
 
 // ============================================================================
 // Inline nodes
@@ -375,15 +372,25 @@ export class Emph extends Schema.TaggedClass<Emph>()("Emph", { content: InlineAr
 /** Strongly emphasized (bold) content. */
 export class Strong extends Schema.TaggedClass<Strong>()("Strong", { content: InlineArray }) {}
 /** Underlined content. */
-export class Underline extends Schema.TaggedClass<Underline>()("Underline", { content: InlineArray }) {}
+export class Underline extends Schema.TaggedClass<Underline>()("Underline", {
+  content: InlineArray,
+}) {}
 /** Struck-out content. */
-export class Strikeout extends Schema.TaggedClass<Strikeout>()("Strikeout", { content: InlineArray }) {}
+export class Strikeout extends Schema.TaggedClass<Strikeout>()("Strikeout", {
+  content: InlineArray,
+}) {}
 /** Superscripted content. */
-export class Superscript extends Schema.TaggedClass<Superscript>()("Superscript", { content: InlineArray }) {}
+export class Superscript extends Schema.TaggedClass<Superscript>()("Superscript", {
+  content: InlineArray,
+}) {}
 /** Subscripted content. */
-export class Subscript extends Schema.TaggedClass<Subscript>()("Subscript", { content: InlineArray }) {}
+export class Subscript extends Schema.TaggedClass<Subscript>()("Subscript", {
+  content: InlineArray,
+}) {}
 /** Small-caps content. */
-export class SmallCaps extends Schema.TaggedClass<SmallCaps>()("SmallCaps", { content: InlineArray }) {}
+export class SmallCaps extends Schema.TaggedClass<SmallCaps>()("SmallCaps", {
+  content: InlineArray,
+}) {}
 
 export const QuoteType = Schema.Literals(["single", "double"]);
 export type QuoteType = Schema.Schema.Type<typeof QuoteType>;
@@ -459,14 +466,48 @@ export class Span extends Schema.TaggedClass<Span>()("Span", {
 
 /** Any inline-level node. */
 export type Inline =
-  | Str | Space | SoftBreak | LineBreak | Emph | Strong | Underline | Strikeout
-  | Superscript | Subscript | SmallCaps | Quoted | Cite | Code | Math | RawInline
-  | Link | Image | Note | Span;
+  | Str
+  | Space
+  | SoftBreak
+  | LineBreak
+  | Emph
+  | Strong
+  | Underline
+  | Strikeout
+  | Superscript
+  | Subscript
+  | SmallCaps
+  | Quoted
+  | Cite
+  | Code
+  | Math
+  | RawInline
+  | Link
+  | Image
+  | Note
+  | Span;
 
 export const Inline: Schema.Codec<Inline, InlineEncoded> = Schema.Union([
-  Str, Space, SoftBreak, LineBreak, Emph, Strong, Underline, Strikeout,
-  Superscript, Subscript, SmallCaps, Quoted, Cite, Code, Math, RawInline,
-  Link, Image, Note, Span
+  Str,
+  Space,
+  SoftBreak,
+  LineBreak,
+  Emph,
+  Strong,
+  Underline,
+  Strikeout,
+  Superscript,
+  Subscript,
+  SmallCaps,
+  Quoted,
+  Cite,
+  Code,
+  Math,
+  RawInline,
+  Link,
+  Image,
+  Note,
+  Span,
 ]);
 
 // ============================================================================
@@ -498,7 +539,13 @@ export class BlockQuote extends Schema.TaggedClass<BlockQuote>()("BlockQuote", {
 }) {}
 
 export const ListNumberStyle = Schema.Literals([
-  "default", "example", "decimal", "lower-roman", "upper-roman", "lower-alpha", "upper-alpha"
+  "default",
+  "example",
+  "decimal",
+  "lower-roman",
+  "upper-roman",
+  "lower-alpha",
+  "upper-alpha",
 ]);
 export type ListNumberStyle = Schema.Schema.Type<typeof ListNumberStyle>;
 export const ListNumberDelim = Schema.Literals(["default", "period", "one-paren", "two-parens"]);
@@ -632,10 +679,23 @@ export class CellRichText extends Schema.TaggedClass<CellRichText>()("CellRichTe
 
 /** Any typed spreadsheet cell. */
 export type SheetCell =
-  | CellText | CellNumber | CellBoolean | CellDate | CellError | CellBlank
-  | CellFormula | CellRichText;
+  | CellText
+  | CellNumber
+  | CellBoolean
+  | CellDate
+  | CellError
+  | CellBlank
+  | CellFormula
+  | CellRichText;
 export const SheetCell: Schema.Codec<SheetCell, SheetCellEncoded> = Schema.Union([
-  CellText, CellNumber, CellBoolean, CellDate, CellError, CellBlank, CellFormula, CellRichText
+  CellText,
+  CellNumber,
+  CellBoolean,
+  CellDate,
+  CellError,
+  CellBlank,
+  CellFormula,
+  CellRichText,
 ]);
 
 /** A column definition (width / default style). */
@@ -695,7 +755,10 @@ export class Placeholder extends Schema.TaggedClass<Placeholder>()("Placeholder"
 /** Any slide shape. */
 export type Shape = TextBox | Picture | TableShape | Placeholder;
 export const Shape: Schema.Codec<Shape, ShapeEncoded> = Schema.Union([
-  TextBox, Picture, TableShape, Placeholder
+  TextBox,
+  Picture,
+  TableShape,
+  Placeholder,
 ]);
 
 /** A single slide: shapes plus optional speaker notes. */
@@ -723,12 +786,38 @@ export class SlideShow extends Schema.TaggedClass<SlideShow>()("SlideShow", {
 
 /** Any block-level node (prose, spreadsheet, or presentation). */
 export type Block =
-  | Plain | Para | LineBlock | CodeBlock | RawBlock | BlockQuote | OrderedList
-  | BulletList | DefinitionList | Header | HorizontalRule | Figure | Div | Table
-  | Worksheet | SlideShow;
+  | Plain
+  | Para
+  | LineBlock
+  | CodeBlock
+  | RawBlock
+  | BlockQuote
+  | OrderedList
+  | BulletList
+  | DefinitionList
+  | Header
+  | HorizontalRule
+  | Figure
+  | Div
+  | Table
+  | Worksheet
+  | SlideShow;
 
 export const Block: Schema.Codec<Block, BlockEncoded> = Schema.Union([
-  Plain, Para, LineBlock, CodeBlock, RawBlock, BlockQuote, OrderedList,
-  BulletList, DefinitionList, Header, HorizontalRule, Figure, Div, Table,
-  Worksheet, SlideShow
+  Plain,
+  Para,
+  LineBlock,
+  CodeBlock,
+  RawBlock,
+  BlockQuote,
+  OrderedList,
+  BulletList,
+  DefinitionList,
+  Header,
+  HorizontalRule,
+  Figure,
+  Div,
+  Table,
+  Worksheet,
+  SlideShow,
 ]);

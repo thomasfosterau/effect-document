@@ -106,7 +106,8 @@ const decodeUtf16 = (b: Uint8Array, bigEndian: boolean): string => {
 
 /** Decode a part's bytes honouring a BOM or the XML declaration's encoding (UTF-8 or UTF-16). */
 export const decodePart = (b: Uint8Array): string => {
-  if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return new TextDecoder("utf-8").decode(b.subarray(3));
+  if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf)
+    return new TextDecoder("utf-8").decode(b.subarray(3));
   if (b[0] === 0xff && b[1] === 0xfe) return decodeUtf16(b.subarray(2), false);
   if (b[0] === 0xfe && b[1] === 0xff) return decodeUtf16(b.subarray(2), true);
   // No BOM: UTF-16 still shows as "<\0?\0" or "\0<\0?".
@@ -130,7 +131,10 @@ export class OpcReader {
   private readonly cache = new Map<string, Uint8Array>();
   private readonly limits: OpcLimits;
   private inflated = 0;
-  private contentTypes: { defaults: Map<string, string>; overrides: Map<string, string> } | null | undefined;
+  private contentTypes:
+    | { defaults: Map<string, string>; overrides: Map<string, string> }
+    | null
+    | undefined;
 
   private readonly data: Uint8Array;
 
@@ -141,9 +145,15 @@ export class OpcReader {
     unzipSync(data, {
       filter: (file) => {
         if (this.entries.size >= this.limits.maxEntries) {
-          throw new OpcError("LimitExceeded", `package has more than ${this.limits.maxEntries} entries`);
+          throw new OpcError(
+            "LimitExceeded",
+            `package has more than ${this.limits.maxEntries} entries`,
+          );
         }
-        this.entries.set(file.name.toLowerCase(), { name: file.name, originalSize: file.originalSize });
+        this.entries.set(file.name.toLowerCase(), {
+          name: file.name,
+          originalSize: file.originalSize,
+        });
         return false;
       },
     });
@@ -162,12 +172,19 @@ export class OpcReader {
     const entry = this.entries.get(key);
     if (entry === undefined) return null;
     if (entry.originalSize > this.limits.maxPartBytes) {
-      throw new OpcError("LimitExceeded", `part ${entry.name} inflates to ${entry.originalSize} bytes, more than ${this.limits.maxPartBytes}`);
+      throw new OpcError(
+        "LimitExceeded",
+        `part ${entry.name} inflates to ${entry.originalSize} bytes, more than ${this.limits.maxPartBytes}`,
+      );
     }
     if (this.inflated + entry.originalSize > this.limits.maxTotalBytes) {
-      throw new OpcError("LimitExceeded", `package inflates to more than ${this.limits.maxTotalBytes} bytes`);
+      throw new OpcError(
+        "LimitExceeded",
+        `package inflates to more than ${this.limits.maxTotalBytes} bytes`,
+      );
     }
-    const out = unzipSync(this.data, { filter: (file) => file.name === entry.name })[entry.name] ?? null;
+    const out =
+      unzipSync(this.data, { filter: (file) => file.name === entry.name })[entry.name] ?? null;
     if (out === null) return null;
     this.inflated += out.length;
     this.cache.set(key, out);
@@ -224,8 +241,20 @@ export class OpcReader {
       if (root === null) this.contentTypes = null;
       else {
         this.contentTypes = {
-          defaults: new Map(findChildren(root, "Default").map((d) => [(getAttr(d, "Extension") ?? "").toLowerCase(), getAttr(d, "ContentType") ?? ""])),
-          overrides: new Map(findChildren(root, "Override").map((o) => [decodePartName(getAttr(o, "PartName") ?? "").replace(/^\//, "").toLowerCase(), getAttr(o, "ContentType") ?? ""])),
+          defaults: new Map(
+            findChildren(root, "Default").map((d) => [
+              (getAttr(d, "Extension") ?? "").toLowerCase(),
+              getAttr(d, "ContentType") ?? "",
+            ]),
+          ),
+          overrides: new Map(
+            findChildren(root, "Override").map((o) => [
+              decodePartName(getAttr(o, "PartName") ?? "")
+                .replace(/^\//, "")
+                .toLowerCase(),
+              getAttr(o, "ContentType") ?? "",
+            ]),
+          ),
         };
       }
     }
@@ -244,7 +273,10 @@ export class OpcReader {
     if (this.text("[Content_Types].xml") === null) return;
     const type = this.contentType(path);
     if (type === undefined || !accepted.includes(type)) {
-      throw new OpcError("WrongPackageType", `not a ${format} package: main part /${path} has content type "${type ?? "none"}"`);
+      throw new OpcError(
+        "WrongPackageType",
+        `not a ${format} package: main part /${path} has content type "${type ?? "none"}"`,
+      );
     }
   }
 }
@@ -255,7 +287,7 @@ export const ZIP_MTIME = new Date("1980-01-01T00:00:00Z");
 /** Zip a set of named parts into OPC package bytes. */
 export const zipParts = (
   files: Record<string, string | Uint8Array>,
-  level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 6
+  level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 6,
 ): Uint8Array => {
   const encoded: Record<string, Uint8Array> = {};
   for (const [path, content] of Object.entries(files)) {

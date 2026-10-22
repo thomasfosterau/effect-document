@@ -2,9 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { readFileSync } from "node:fs";
 import { Effect, Result } from "effect";
 import { zipSync } from "fflate";
-import {
-  blocksToText, bytes, type SlideShow,
-} from "@thomasfosterau/effect-document";
+import { blocksToText, bytes, type SlideShow } from "@thomasfosterau/effect-document";
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import { parseMessage, readVarint } from "../src/protobuf.ts";
@@ -42,7 +40,9 @@ describe("IWA framing", () => {
   });
 
   test("rejects a bad chunk type or a truncated chunk at its offset", () => {
-    expect(() => dechunk(new Uint8Array([0x01, 0, 0, 0]))).toThrow(/offset 0[\s\S]*chunk type 0x00/);
+    expect(() => dechunk(new Uint8Array([0x01, 0, 0, 0]))).toThrow(
+      /offset 0[\s\S]*chunk type 0x00/,
+    );
     expect(() => dechunk(new Uint8Array([0x00, 5, 0, 0, 1]))).toThrow(/offset 4[\s\S]*IWA chunk/);
   });
 });
@@ -72,12 +72,14 @@ describe("Protobuf wire reader", () => {
 
   test("truncated fields and unknown wire types fail with their offset", () => {
     expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x12, 0x05, 0x68]))).toThrow(
-      /offset 4[\s\S]*needs 5 bytes, only 1 left/
+      /offset 4[\s\S]*needs 5 bytes, only 1 left/,
     );
-    expect(() => parseMessage(new Uint8Array([0x09, 1, 2, 3]))).toThrow(/needs 8 bytes, only 3 left/);
+    expect(() => parseMessage(new Uint8Array([0x09, 1, 2, 3]))).toThrow(
+      /needs 8 bytes, only 3 left/,
+    );
     expect(() => parseMessage(new Uint8Array([0x08, 0x80]))).toThrow(/varint/);
     expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x0b]))).toThrow(
-      /offset 2[\s\S]*unsupported wire type 3 \(field 1\)/
+      /offset 2[\s\S]*unsupported wire type 3 \(field 1\)/,
     );
   });
 });
@@ -100,7 +102,9 @@ describe("Numbers reader (real .numbers fixture, structure only)", () => {
   test("reads the sheet names into (empty) worksheets", () => {
     const doc = run(Numbers.makeNumbersReader().read(bytes(fixture("test-1.numbers"))));
     expect(Numbers.Numbers.is(doc)).toBe(true);
-    const names = doc.blocks.filter((b) => b._tag === "Worksheet").map((b) => (b as { name: string }).name);
+    const names = doc.blocks
+      .filter((b) => b._tag === "Worksheet")
+      .map((b) => (b as { name: string }).name);
     expect(names).toEqual(["ZZZ_Sheet_1", "ZZZ_Sheet_2"]);
   });
 });

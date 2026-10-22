@@ -11,11 +11,25 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, bytes, type Content, type Doc, type Inline, makeWriterTag, type Table, type TableRow,
-  WriteError, type Writer,
+  type Block,
+  bytes,
+  type Content,
+  type Doc,
+  type Inline,
+  makeWriterTag,
+  type Table,
+  type TableRow,
+  WriteError,
+  type Writer,
 } from "@thomasfosterau/effect-document";
 import {
-  NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts,
+  NS_CONTENT_TYPES,
+  NS_PKG_REL,
+  NS_REL_DOC,
+  XML_DECL,
+  escapeAttr,
+  escapeXml,
+  zipParts,
 } from "../shared/index.ts";
 import { Docx, type DocxFeature } from "./profile.ts";
 
@@ -23,10 +37,8 @@ const NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 const CT_DOCUMENT =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
-const CT_NUMBERING =
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
-const CT_STYLES =
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";
+const CT_NUMBERING = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
+const CT_STYLES = "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml";
 const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
 const REL_OFFICE_DOCUMENT = NS_REL_DOC + "/officeDocument";
 const REL_HYPERLINK = NS_REL_DOC + "/hyperlink";
@@ -92,10 +104,13 @@ const runContent = (text: string): string =>
   text
     .split(/(\r\n|\n|\r|\t)/)
     .map((part) =>
-      part === "\t" ? "<w:tab/>"
-      : part === "\n" || part === "\r\n" || part === "\r" ? "<w:br/>"
-      : part === "" ? ""
-      : `<w:t xml:space="preserve">${escapeXml(part)}</w:t>`
+      part === "\t"
+        ? "<w:tab/>"
+        : part === "\n" || part === "\r\n" || part === "\r"
+          ? "<w:br/>"
+          : part === ""
+            ? ""
+            : `<w:t xml:space="preserve">${escapeXml(part)}</w:t>`,
     )
     .join("");
 
@@ -106,17 +121,29 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt, rel: RelCollector): strin
 
 const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
   switch (n._tag) {
-    case "Str": return run(n.text, f);
-    case "Space": case "SoftBreak": return run(" ", f);
-    case "LineBreak": return `<w:r>${rPr(f)}<w:br/></w:r>`;
-    case "Emph": return inlineRuns(n.content, { ...f, i: true }, rel);
-    case "Strong": return inlineRuns(n.content, { ...f, b: true }, rel);
-    case "Underline": return inlineRuns(n.content, { ...f, u: true }, rel);
-    case "Strikeout": return inlineRuns(n.content, { ...f, strike: true }, rel);
-    case "Superscript": return inlineRuns(n.content, { ...f, vert: "superscript" }, rel);
-    case "Subscript": return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
-    case "SmallCaps": return inlineRuns(n.content, { ...f, caps: true }, rel);
-    case "Code": return run(n.text, f);
+    case "Str":
+      return run(n.text, f);
+    case "Space":
+    case "SoftBreak":
+      return run(" ", f);
+    case "LineBreak":
+      return `<w:r>${rPr(f)}<w:br/></w:r>`;
+    case "Emph":
+      return inlineRuns(n.content, { ...f, i: true }, rel);
+    case "Strong":
+      return inlineRuns(n.content, { ...f, b: true }, rel);
+    case "Underline":
+      return inlineRuns(n.content, { ...f, u: true }, rel);
+    case "Strikeout":
+      return inlineRuns(n.content, { ...f, strike: true }, rel);
+    case "Superscript":
+      return inlineRuns(n.content, { ...f, vert: "superscript" }, rel);
+    case "Subscript":
+      return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
+    case "SmallCaps":
+      return inlineRuns(n.content, { ...f, caps: true }, rel);
+    case "Code":
+      return run(n.text, f);
     case "Quoted": {
       const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
       return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
@@ -128,7 +155,8 @@ const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
         : `r:id="${rel.addHyperlink(n.target.url)}"`;
       return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
     }
-    default: return "";
+    default:
+      return "";
   }
 };
 
@@ -136,7 +164,12 @@ const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
 // Block rendering
 // ============================================================================
 
-const listParagraph = (inlines: ReadonlyArray<Inline>, numId: number, ilvl: number, rel: RelCollector): string =>
+const listParagraph = (
+  inlines: ReadonlyArray<Inline>,
+  numId: number,
+  ilvl: number,
+  rel: RelCollector,
+): string =>
   `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(inlines, {}, rel)}</w:p>`;
 
 /**
@@ -148,13 +181,14 @@ const renderList = (
   items: ReadonlyArray<ReadonlyArray<Block>>,
   numId: number,
   ilvl: number,
-  rel: RelCollector
+  rel: RelCollector,
 ): string =>
   items
     .map((item) => {
       const [first, ...rest] = item;
       const lead =
-        first !== undefined && (first._tag === "Para" || first._tag === "Plain" || first._tag === "Header");
+        first !== undefined &&
+        (first._tag === "Para" || first._tag === "Plain" || first._tag === "Header");
       return (
         listParagraph(lead ? first.content : [], numId, ilvl, rel) +
         (lead ? rest : item).map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL))).join("")
@@ -186,7 +220,8 @@ const renderTable = (t: Table, rel: RelCollector): string => {
 /** `ilvl`: the list level a nested list here would take (0 outside lists). */
 const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
   switch (b._tag) {
-    case "Para": case "Plain":
+    case "Para":
+    case "Plain":
       return `<w:p>${inlineRuns(b.content, {}, rel)}</w:p>`;
     case "Header":
       return `<w:p><w:pPr><w:pStyle w:val="Heading${b.level}"/></w:pPr>${inlineRuns(b.content, {}, rel)}</w:p>`;
@@ -196,7 +231,8 @@ const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
       return renderList(b.items, NUM_BULLET, ilvl, rel);
     case "OrderedList":
       return renderList(b.items, rel.addOrderedList(b.start ?? 1), ilvl, rel);
-    case "BlockQuote": case "Div":
+    case "BlockQuote":
+    case "Div":
       return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
     case "LineBlock":
       return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
@@ -220,9 +256,11 @@ const documentXml = (body: string): string =>
   `</w:document>`;
 
 const levels = (fmt: (ilvl: number) => string): string =>
-  Array.from({ length: MAX_ILVL + 1 }, (_, ilvl) =>
-    `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/>${fmt(ilvl)}` +
-    `<w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr></w:lvl>`
+  Array.from(
+    { length: MAX_ILVL + 1 },
+    (_, ilvl) =>
+      `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/>${fmt(ilvl)}` +
+      `<w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr></w:lvl>`,
   ).join("");
 
 const numberingXml = (rel: RelCollector): string =>
@@ -239,7 +277,7 @@ const numberingXml = (rel: RelCollector): string =>
     .map(
       ({ numId, start }) =>
         `<w:num w:numId="${numId}"><w:abstractNumId w:val="${ABSTRACT_ORDERED}"/>` +
-        `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num>`
+        `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num>`,
     )
     .join("") +
   `</w:numbering>`;
@@ -290,7 +328,7 @@ const documentRelsXml = (rel: RelCollector): string =>
   rel.hyperlinks
     .map(
       (h) =>
-        `<Relationship Id="${h.id}" Type="${REL_HYPERLINK}" Target="${escapeAttr(h.url)}" TargetMode="External"/>`
+        `<Relationship Id="${h.id}" Type="${REL_HYPERLINK}" Target="${escapeAttr(h.url)}" TargetMode="External"/>`,
     )
     .join("") +
   `</Relationships>`;
@@ -322,7 +360,11 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
         return bytes(zipParts(files, level));
       },
       catch: (cause) =>
-        new WriteError({ format: "docx", reason: `Failed to generate docx: ${String(cause)}`, cause }),
+        new WriteError({
+          format: "docx",
+          reason: `Failed to generate docx: ${String(cause)}`,
+          cause,
+        }),
     });
   return { format: "docx", profile: Docx, write };
 };

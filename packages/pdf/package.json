@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "description": "PDF reader and writer for effect-document, with a low-level PDF object layer",
   "keywords": [
-    "effect",
     "document",
+    "effect",
     "pdf"
   ],
   "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/pdf#readme",

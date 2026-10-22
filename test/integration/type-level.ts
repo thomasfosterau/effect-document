@@ -6,7 +6,12 @@
  * directive and fail the build.
  */
 
-import { type Doc, type Document, type FeaturesOf, Profiles } from "@thomasfosterau/effect-document";
+import {
+  type Doc,
+  type Document,
+  type FeaturesOf,
+  Profiles,
+} from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
 import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
 import * as Pdf from "@thomasfosterau/effect-pdf";

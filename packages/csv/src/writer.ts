@@ -11,8 +11,17 @@
 
 import { Effect, Layer, Stream } from "effect";
 import {
-  cellToText, type Content, type Doc, type FeaturesOf, makeWriterTag, type SheetCell, type SheetRow,
-  text, type Worksheet, WriteError, type Writer,
+  cellToText,
+  type Content,
+  type Doc,
+  type FeaturesOf,
+  makeWriterTag,
+  type SheetCell,
+  type SheetRow,
+  text,
+  type Worksheet,
+  WriteError,
+  type Writer,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -90,7 +99,10 @@ interface Field {
 }
 
 /** The writer options that shape each row. */
-type RowOptions = Omit<CsvWriterOptions, "dialect" | "formatNumber" | "bom" | "headers" | "padRows">;
+type RowOptions = Omit<
+  CsvWriterOptions,
+  "dialect" | "formatNumber" | "bom" | "headers" | "padRows"
+>;
 
 const formulaStart = /^[=+\-@\t\r]/;
 const edgeSpace = /^\s|\s$/;
@@ -104,7 +116,8 @@ const breaksSyntax = (value: string, dialect: CsvDialect): boolean =>
 
 /** Fields that read back changed without quotes, by a reader that trims or skips comments. */
 const changesMeaning = (value: string, options: RowOptions): boolean =>
-  edgeSpace.test(value) || (!!options.lineCommentMarker && value.startsWith(options.lineCommentMarker));
+  edgeSpace.test(value) ||
+  (!!options.lineCommentMarker && value.startsWith(options.lineCommentMarker));
 
 const wrapField = (value: string, dialect: CsvDialect): string =>
   dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
@@ -114,14 +127,17 @@ export const renderField = (value: string, dialect: CsvDialect): string =>
   breaksSyntax(value, dialect) || edgeSpace.test(value) ? wrapField(value, dialect) : value;
 
 const unquotable = (row: number, reason: string): WriteError =>
-  new WriteError({ format: "csv", reason: `Row ${row} ${reason} and cannot be written without quoting` });
+  new WriteError({
+    format: "csv",
+    reason: `Row ${row} ${reason} and cannot be written without quoting`,
+  });
 
 /** Render one row, without its line break. `index` numbers it in errors. */
 const renderRow = (
   fields: ReadonlyArray<Field>,
   index: number,
   dialect: CsvDialect,
-  options: RowOptions
+  options: RowOptions,
 ): Effect.Effect<string, WriteError> => {
   const quoting = options.quoting ?? "minimal";
   // a lone empty field would be an empty line, which readers skip
@@ -134,7 +150,8 @@ const renderRow = (
     const escape = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
     const value = escape ? `'${raw}` : raw;
     if (quoting === "none") {
-      if (breaksSyntax(value, dialect)) return Effect.fail(unquotable(index, "has a field that needs quotes"));
+      if (breaksSyntax(value, dialect))
+        return Effect.fail(unquotable(index, "has a field that needs quotes"));
       out.push(value);
     } else if (
       quoting === "all" ||
@@ -157,19 +174,27 @@ const textFields = (values: ReadonlyArray<string>): ReadonlyArray<Field> =>
 const pad = (fields: ReadonlyArray<Field>, width: number): ReadonlyArray<Field> =>
   fields.length >= width
     ? fields
-    : [...fields, ...Array.from({ length: width - fields.length }, () => ({ value: "", numeric: false }))];
+    : [
+        ...fields,
+        ...Array.from({ length: width - fields.length }, () => ({ value: "", numeric: false })),
+      ];
 
-const cellFields = (cells: ReadonlyArray<SheetCell>, options: CsvWriterOptions): ReadonlyArray<Field> => {
+const cellFields = (
+  cells: ReadonlyArray<SheetCell>,
+  options: CsvWriterOptions,
+): ReadonlyArray<Field> => {
   const format = options.formatNumber ?? formatCsvNumber;
   return cells.map((c) =>
-    c._tag === "CellNumber" ? { value: format(c.value), numeric: true } : { value: cellToText(c), numeric: false }
+    c._tag === "CellNumber"
+      ? { value: format(c.value), numeric: true }
+      : { value: cellToText(c), numeric: false },
   );
 };
 
 /** Render rows of fields, with the header row, padding and BOM the options ask for. */
 const renderRows = (
   body: ReadonlyArray<ReadonlyArray<Field>>,
-  options: CsvWriterOptions
+  options: CsvWriterOptions,
 ): Effect.Effect<string, WriteError> =>
   Effect.gen(function* () {
     const dialect = options.dialect ?? StandardDialect;
@@ -185,13 +210,15 @@ const renderRows = (
 /** Render rows of string fields to CSV text (with trailing newline). */
 export const renderTable = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
-  dialect: CsvDialect = StandardDialect
+  dialect: CsvDialect = StandardDialect,
 ): string =>
-  rows.map((row) =>
-    row.length === 1 && row[0] === ""
-      ? wrapField("", dialect)
-      : row.map((f) => renderField(f, dialect)).join(dialect.separator)
-  ).join(dialect.linebreak) + (rows.length > 0 ? dialect.linebreak : "");
+  rows
+    .map((row) =>
+      row.length === 1 && row[0] === ""
+        ? wrapField("", dialect)
+        : row.map((f) => renderField(f, dialect)).join(dialect.separator),
+    )
+    .join(dialect.linebreak) + (rows.length > 0 ? dialect.linebreak : "");
 
 /**
  * Render a stream of worksheet rows to CSV text, one chunk per row (the BOM
@@ -201,26 +228,26 @@ export const renderTable = (
  */
 export const renderCsvStream = <E, R>(
   rows: Stream.Stream<SheetRow, E, R>,
-  options: CsvWriterOptions = {}
+  options: CsvWriterOptions = {},
 ): Stream.Stream<string, E | WriteError, R> => {
   const dialect = options.dialect ?? StandardDialect;
   const headers = options.headers;
   const start = headers ? 1 : 0;
   const body = Stream.mapAccumEffect(
     rows,
-    () => ({ index: start, width: headers?.length ?? null as number | null }),
+    () => ({ index: start, width: headers?.length ?? (null as number | null) }),
     (state, row) => {
       const fields = cellFields(row.cells, options);
       const width = state.width ?? fields.length;
       return Effect.map(
         renderRow(options.padRows ? pad(fields, width) : fields, state.index, dialect, options),
-        (line) => [{ index: state.index + 1, width }, [line + dialect.linebreak]] as const
+        (line) => [{ index: state.index + 1, width }, [line + dialect.linebreak]] as const,
       );
-    }
+    },
   );
   const head = headers
     ? Stream.fromEffect(renderRow(textFields(headers), 0, dialect, options)).pipe(
-        Stream.map((line) => line + dialect.linebreak)
+        Stream.map((line) => line + dialect.linebreak),
       )
     : Stream.empty;
   return Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);

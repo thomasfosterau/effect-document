@@ -88,7 +88,7 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
  */
 export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   id: string,
-  features: FS
+  features: FS,
 ): Profile<FS[number]> => {
   const set: ReadonlySet<Feature> = new Set(features);
   const conforms = (doc: Document): boolean => {
@@ -107,8 +107,8 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
       Schema.makeFilter((doc: Document): boolean => conforms(doc), {
         identifier: `${id}Document`,
         description: `A Document conforming to the "${id}" profile`,
-      })
-    )
+      }),
+    ),
   ) as unknown as Schema.Codec<Doc<FS[number]>, DocumentEncoded>;
 
   return { id, features: set, attributes: attrPolicyOf(set), is, validate, schema };

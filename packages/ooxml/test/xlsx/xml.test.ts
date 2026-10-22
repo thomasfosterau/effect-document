@@ -22,22 +22,18 @@ describe("escaping", () => {
   });
 
   test("escapes attribute values", () => {
-    expect(escapeAttr('say "hi" & <bye>')).toBe(
-      "say &quot;hi&quot; &amp; &lt;bye&gt;"
-    );
+    expect(escapeAttr('say "hi" & <bye>')).toBe("say &quot;hi&quot; &amp; &lt;bye&gt;");
     expect(escapeAttr("tab\there")).toBe("tab&#9;here");
   });
 
   test("unescapes entities", () => {
     expect(unescapeXml("a &lt; b &amp; c &gt; d")).toBe("a < b & c > d");
-    expect(unescapeXml("&quot;quoted&quot; &apos;single&apos;")).toBe(
-      "\"quoted\" 'single'"
-    );
+    expect(unescapeXml("&quot;quoted&quot; &apos;single&apos;")).toBe("\"quoted\" 'single'");
     expect(unescapeXml("&#65;&#x42;")).toBe("AB");
   });
 
   test("escape/unescape round-trips", () => {
-    const tricky = 'a < b & "c" > \'d\' &amp; <tag/>';
+    const tricky = "a < b & \"c\" > 'd' &amp; <tag/>";
     expect(unescapeXml(escapeXml(tricky))).toBe(tricky);
     expect(unescapeXml(escapeAttr(tricky))).toBe(tricky);
   });
@@ -45,9 +41,7 @@ describe("escaping", () => {
 
 describe("parseXml", () => {
   test("parses a simple document", () => {
-    const root = parseXml(
-      '<?xml version="1.0"?><root attr="value"><child>text</child></root>'
-    );
+    const root = parseXml('<?xml version="1.0"?><root attr="value"><child>text</child></root>');
 
     expect(root.name).toBe("root");
     expect(root.attrs["attr"]).toBe("value");
@@ -65,9 +59,7 @@ describe("parseXml", () => {
   });
 
   test("strips namespace prefixes from element names but keeps attribute keys", () => {
-    const root = parseXml(
-      '<x:sheet xmlns:x="ns" name="Data" r:id="rId1"></x:sheet>'
-    );
+    const root = parseXml('<x:sheet xmlns:x="ns" name="Data" r:id="rId1"></x:sheet>');
 
     expect(root.name).toBe("sheet");
     expect(root.attrs["name"]).toBe("Data");
@@ -86,7 +78,7 @@ describe("parseXml", () => {
       "<worksheet><sheetData>" +
         '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><v>42</v></c></row>' +
         '<row r="2"><c r="A2" t="inlineStr"><is><t>inline</t></is></c></row>' +
-        "</sheetData></worksheet>"
+        "</sheetData></worksheet>",
     );
 
     const sheetData = findChild(root, "sheetData");
@@ -103,9 +95,7 @@ describe("parseXml", () => {
   });
 
   test("skips comments and doctype declarations", () => {
-    const root = parseXml(
-      "<!DOCTYPE foo><!-- a comment --><root><!-- inner --><child/></root>"
-    );
+    const root = parseXml("<!DOCTYPE foo><!-- a comment --><root><!-- inner --><child/></root>");
 
     expect(root.name).toBe("root");
     expect(root.children.length).toBe(1);

@@ -14,7 +14,14 @@
 import { Result } from "effect";
 import { codecError, type IworkError, shiftOffset, toIworkError, withLocation } from "./errors.ts";
 import { type DechunkOptions, dechunk } from "./iwa.ts";
-import { type Field, getAllBytes, getBigInt, getVarint, parseMessage, readVarint } from "./protobuf.ts";
+import {
+  type Field,
+  getAllBytes,
+  getBigInt,
+  getVarint,
+  parseMessage,
+  readVarint,
+} from "./protobuf.ts";
 
 export interface IworkMessage {
   /** The reverse-engineered `MessageInfo.type` id. */
@@ -53,14 +60,15 @@ export const decodeArchiveStream = (data: Uint8Array): IworkObject[] => {
       throw codecError(
         "Truncated",
         `ArchiveInfo needs ${lenRes.value} bytes, only ${data.length - lenRes.pos} left`,
-        lenRes.pos
+        lenRes.pos,
       );
     }
     const archiveInfo = parseIn(data, data.subarray(lenRes.pos, lenRes.pos + lenRes.value));
     pos = lenRes.pos + lenRes.value;
 
     const identifier = getBigInt(archiveInfo, 1);
-    if (identifier === undefined) throw codecError("Malformed", "ArchiveInfo has no identifier", recordAt);
+    if (identifier === undefined)
+      throw codecError("Malformed", "ArchiveInfo has no identifier", recordAt);
     const messages: IworkMessage[] = [];
     for (const miBytes of getAllBytes(archiveInfo, 2)) {
       const mi = parseIn(data, miBytes);
@@ -74,8 +82,12 @@ export const decodeArchiveStream = (data: Uint8Array): IworkObject[] => {
       }
       if (length > data.length - pos) {
         throw withLocation(
-          codecError("Truncated", `payload needs ${length} bytes, only ${data.length - pos} left`, pos),
-          { objectId: identifier }
+          codecError(
+            "Truncated",
+            `payload needs ${length} bytes, only ${data.length - pos} left`,
+            pos,
+          ),
+          { objectId: identifier },
         );
       }
       messages.push({ type, payload: data.subarray(pos, pos + length) });
@@ -89,7 +101,7 @@ export const decodeArchiveStream = (data: Uint8Array): IworkObject[] => {
 /** Decode an `.iwa` file (dechunk + parse the object stream). */
 export const decodeIwa = (
   iwaBytes: Uint8Array,
-  options?: DechunkOptions
+  options?: DechunkOptions,
 ): Result.Result<IworkObject[], IworkError> => {
   try {
     return Result.succeed(decodeArchiveStream(dechunk(iwaBytes, options)));

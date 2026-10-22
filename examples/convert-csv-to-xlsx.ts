@@ -32,7 +32,9 @@ const program = Effect.gen(function* () {
   });
 
   const xlsxBytes = contentToBytes(xlsxContent);
-  console.log(`=== Converted to XLSX: ${xlsxBytes.length} bytes (lossless: ${toXlsxLoss.isLossless}) ===`);
+  console.log(
+    `=== Converted to XLSX: ${xlsxBytes.length} bytes (lossless: ${toXlsxLoss.isLossless}) ===`,
+  );
   yield* Effect.promise(() => writeFile("output.xlsx", xlsxBytes));
   console.log("Wrote output.xlsx\n");
 

@@ -13,12 +13,56 @@
 import { Effect } from "effect";
 import { type Attributes } from "../schema/attributes.ts";
 import {
-  type Block, BlockQuote, BulletList, CellBlank, CellBoolean, CellDate, CellError,
-  CellFormula, CellNumber, CellRichText, CellText, Cite, Citation, Code, Div, Emph,
-  Figure, Header, Image, type Inline, Link, Math, Note, OrderedList, Para, Picture,
-  Placeholder, Plain, Quoted, RawInline, type SheetCell, type Shape, SheetColumn,
-  SheetRow, Slide, SlideShow, SmallCaps, Span, Str, Strikeout, Strong, Subscript,
-  Superscript, Table, TableCell, TableRow, TableShape, TextBox, Underline, Worksheet,
+  type Block,
+  BlockQuote,
+  BulletList,
+  CellBlank,
+  CellBoolean,
+  CellDate,
+  CellError,
+  CellFormula,
+  CellNumber,
+  CellRichText,
+  CellText,
+  Cite,
+  Citation,
+  Code,
+  Div,
+  Emph,
+  Figure,
+  Header,
+  Image,
+  type Inline,
+  Link,
+  Math,
+  Note,
+  OrderedList,
+  Para,
+  Picture,
+  Placeholder,
+  Plain,
+  Quoted,
+  RawInline,
+  type SheetCell,
+  type Shape,
+  SheetColumn,
+  SheetRow,
+  Slide,
+  SlideShow,
+  SmallCaps,
+  Span,
+  Str,
+  Strikeout,
+  Strong,
+  Subscript,
+  Superscript,
+  Table,
+  TableCell,
+  TableRow,
+  TableShape,
+  TextBox,
+  Underline,
+  Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { type Feature } from "../schema/feature.ts";
@@ -56,9 +100,8 @@ export interface NarrowResult<To extends Feature> {
  * Widen a document to a superset profile. Pure identity at runtime; the
  * constraint `From extends To` makes this safe only when `To` is a superset.
  */
-export const widen = <To extends Feature, From extends To = To>(
-  doc: Doc<From>
-): Doc<To> => doc as Doc<To>;
+export const widen = <To extends Feature, From extends To = To>(doc: Doc<From>): Doc<To> =>
+  doc as Doc<To>;
 
 // ============================================================================
 // narrow
@@ -109,7 +152,10 @@ const narrowInlines = (inlines: ReadonlyArray<Inline>, ctx: Ctx): Inline[] =>
 const narrowInline = (n: Inline, ctx: Ctx): Inline[] => {
   const has = (f: Feature) => ctx.allowed.has(f);
   switch (n._tag) {
-    case "Str": case "Space": case "SoftBreak": case "LineBreak":
+    case "Str":
+    case "Space":
+    case "SoftBreak":
+    case "LineBreak":
       return [n];
     case "Emph": {
       const inner = narrowInlines(n.content, ctx);
@@ -167,12 +213,20 @@ const narrowInline = (n: Inline, ctx: Ctx): Inline[] => {
     }
     case "Link": {
       const inner = narrowInlines(n.content, ctx);
-      if (has("inline.link")) return [new Link({ attr: narrowAttr(n.attr, ctx), content: inner, target: n.target })];
+      if (has("inline.link"))
+        return [new Link({ attr: narrowAttr(n.attr, ctx), content: inner, target: n.target })];
       ctx.rec.convert("inline.link", "Link reduced to its text");
       return inner;
     }
     case "Image":
-      if (has("inline.image")) return [new Image({ attr: narrowAttr(n.attr, ctx), alt: narrowInlines(n.alt, ctx), target: n.target })];
+      if (has("inline.image"))
+        return [
+          new Image({
+            attr: narrowAttr(n.attr, ctx),
+            alt: narrowInlines(n.alt, ctx),
+            target: n.target,
+          }),
+        ];
       ctx.rec.convert("inline.image", "Image reduced to its alt text");
       return narrowInlines(n.alt, ctx);
     case "Code":
@@ -194,7 +248,7 @@ const narrowInline = (n: Inline, ctx: Ctx): Inline[] => {
                   mode: c.mode,
                   prefix: narrowInlines(c.prefix, ctx),
                   suffix: narrowInlines(c.suffix, ctx),
-                })
+                }),
             ),
             content: narrowInlines(n.content, ctx),
           }),
@@ -244,11 +298,13 @@ const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
       ctx.rec.convert("cell.error", "error cell converted to text");
       return new CellText({ value: c.value, style });
     case "CellFormula":
-      if (has("cell.formula")) return new CellFormula({ formula: c.formula, result: c.result, style });
+      if (has("cell.formula"))
+        return new CellFormula({ formula: c.formula, result: c.result, style });
       ctx.rec.convert("cell.formula", "formula cell converted to its cached result");
       return new CellText({ value: c.result ?? "", style });
     case "CellRichText":
-      if (has("cell.richText")) return new CellRichText({ runs: narrowInlines(c.runs, ctx), style });
+      if (has("cell.richText"))
+        return new CellRichText({ runs: narrowInlines(c.runs, ctx), style });
       ctx.rec.convert("cell.richText", "rich-text cell flattened to text");
       return new CellText({ value: inlinesToText(c.runs), style });
   }
@@ -281,7 +337,9 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     attr: narrowAttr(w.attr, ctx),
     name: w.name,
     columns,
-    rows: w.rows.map((r) => new SheetRow({ cells: r.cells.map((c) => narrowCell(c, ctx)), height: r.height })),
+    rows: w.rows.map(
+      (r) => new SheetRow({ cells: r.cells.map((c) => narrowCell(c, ctx)), height: r.height }),
+    ),
     merges,
   });
 };
@@ -291,14 +349,20 @@ const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
     (row) =>
       new TableRow({
         cells: row.cells.map(
-          (c) => new TableCell({ content: [new Plain({ content: [new Str({ text: cellToText(c) })] })] })
+          (c) =>
+            new TableCell({
+              content: [new Plain({ content: [new Str({ text: cellToText(c) })] })],
+            }),
         ),
-      })
+      }),
   );
   ctx.rec.convert("sheet.worksheet", `worksheet "${w.name}" converted to a prose table`);
   // Re-narrow: the produced Table carries the worksheet's attr and Plain/Str
   // cells, which must themselves be checked against the target profile.
-  return narrowBlocks([new Table({ attr: w.attr, colSpecs: [], head: [], body: rows, foot: [] })], ctx);
+  return narrowBlocks(
+    [new Table({ attr: w.attr, colSpecs: [], head: [], body: rows, foot: [] })],
+    ctx,
+  );
 };
 
 const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
@@ -308,7 +372,10 @@ const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
   ctx.rec.convert("block.table", "prose table converted to a worksheet");
   // Re-narrow: the produced Worksheet carries the table's attr and CellText
   // cells, which must themselves be checked against the target profile.
-  return narrowBlocks([new Worksheet({ attr: t.attr, name: "Sheet1", columns: [], rows, merges: [] })], ctx);
+  return narrowBlocks(
+    [new Worksheet({ attr: t.attr, name: "Sheet1", columns: [], rows, merges: [] })],
+    ctx,
+  );
 };
 
 // ---- presentation ---------------------------------------------------------
@@ -317,19 +384,34 @@ const narrowShape = (s: Shape, ctx: Ctx): Shape[] => {
   const has = (f: Feature) => ctx.allowed.has(f);
   switch (s._tag) {
     case "TextBox":
-      if (has("shape.textBox")) return [new TextBox({ attr: narrowAttr(s.attr, ctx), content: narrowBlocks(s.content, ctx) })];
+      if (has("shape.textBox"))
+        return [
+          new TextBox({ attr: narrowAttr(s.attr, ctx), content: narrowBlocks(s.content, ctx) }),
+        ];
       ctx.rec.drop("shape.textBox", "text box dropped");
       return [];
     case "Picture":
-      if (has("shape.picture")) return [new Picture({ attr: narrowAttr(s.attr, ctx), src: s.src, alt: s.alt })];
+      if (has("shape.picture"))
+        return [new Picture({ attr: narrowAttr(s.attr, ctx), src: s.src, alt: s.alt })];
       ctx.rec.drop("shape.picture", "picture dropped");
       return [];
     case "TableShape":
-      if (has("shape.table")) return [new TableShape({ attr: narrowAttr(s.attr, ctx), table: narrowTable(s.table, ctx) })];
+      if (has("shape.table"))
+        return [
+          new TableShape({ attr: narrowAttr(s.attr, ctx), table: narrowTable(s.table, ctx) }),
+        ];
       ctx.rec.drop("shape.table", "table shape dropped");
       return [];
     case "Placeholder":
-      if (has("shape.placeholder")) return [new Placeholder({ attr: narrowAttr(s.attr, ctx), placeholderType: s.placeholderType, idx: s.idx, content: narrowBlocks(s.content, ctx) })];
+      if (has("shape.placeholder"))
+        return [
+          new Placeholder({
+            attr: narrowAttr(s.attr, ctx),
+            placeholderType: s.placeholderType,
+            idx: s.idx,
+            content: narrowBlocks(s.content, ctx),
+          }),
+        ];
       ctx.rec.drop("shape.placeholder", "placeholder dropped");
       return [];
   }
@@ -357,7 +439,14 @@ const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
 const narrowTableRow = (r: TableRow, ctx: Ctx): TableRow =>
   new TableRow({
     cells: r.cells.map(
-      (c) => new TableCell({ attr: narrowAttr(c.attr, ctx), align: c.align, rowSpan: c.rowSpan, colSpan: c.colSpan, content: narrowBlocks(c.content, ctx) })
+      (c) =>
+        new TableCell({
+          attr: narrowAttr(c.attr, ctx),
+          align: c.align,
+          rowSpan: c.rowSpan,
+          colSpan: c.colSpan,
+          content: narrowBlocks(c.content, ctx),
+        }),
     ),
   });
 
@@ -375,10 +464,12 @@ const narrowTable = (t: Table, ctx: Ctx): Table =>
 
 const blockFeature = (tag: Block["_tag"]): Feature => {
   switch (tag) {
-    case "Worksheet": return "sheet.worksheet";
-    case "SlideShow": return "deck.slideShow";
+    case "Worksheet":
+      return "sheet.worksheet";
+    case "SlideShow":
+      return "deck.slideShow";
     default:
-      return (`block.${tag[0]!.toLowerCase()}${tag.slice(1)}`) as Feature;
+      return `block.${tag[0]!.toLowerCase()}${tag.slice(1)}` as Feature;
   }
 };
 
@@ -396,25 +487,28 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
         ctx.rec.convert(feature, "heading converted to a paragraph");
         return narrowBlock(new Para({ content: inner }), ctx);
       }
-      case "BlockQuote": case "Div":
+      case "BlockQuote":
+      case "Div":
         ctx.rec.convert(feature, `${b._tag} unwrapped to its contents`);
         return narrowBlocks(b.content, ctx);
       case "Figure":
         ctx.rec.convert(feature, "figure unwrapped to caption + contents");
         return narrowBlocks([...b.caption, ...b.content], ctx);
-      case "OrderedList": case "BulletList":
+      case "OrderedList":
+      case "BulletList":
         ctx.rec.convert(feature, "list flattened to its item blocks");
         return narrowBlocks(b.items.flat(), ctx);
       case "DefinitionList":
         ctx.rec.convert(feature, "definition list flattened");
         return narrowBlocks(
           b.items.flatMap((it) => [new Para({ content: it.term }), ...it.definitions.flat()]),
-          ctx
+          ctx,
         );
       case "LineBlock":
         ctx.rec.convert(feature, "line block converted to a paragraph");
         return narrowBlock(new Para({ content: b.lines.flat() }), ctx);
-      case "CodeBlock": case "RawBlock":
+      case "CodeBlock":
+      case "RawBlock":
         ctx.rec.convert(feature, `${b._tag} converted to a paragraph`);
         return narrowBlock(new Para({ content: [new Str({ text: b.text })] }), ctx);
       case "Table":
@@ -430,15 +524,18 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
         return narrowBlocks(
           b.slides.flatMap((s) => [
             ...s.shapes.flatMap((sh): ReadonlyArray<Block> =>
-              sh._tag === "TextBox" || sh._tag === "Placeholder" ? sh.content
-              : sh._tag === "TableShape" ? [sh.table]
-              : []
+              sh._tag === "TextBox" || sh._tag === "Placeholder"
+                ? sh.content
+                : sh._tag === "TableShape"
+                  ? [sh.table]
+                  : [],
             ),
             ...(s.notes ?? []),
           ]),
-          ctx
+          ctx,
         );
-      case "Para": case "Plain":
+      case "Para":
+      case "Plain":
         ctx.rec.drop(feature, `${b._tag} dropped`);
         return [];
       case "HorizontalRule":
@@ -453,17 +550,42 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
     case "Para":
       return [new Para({ content: narrowInlines(b.content, ctx) })];
     case "Header":
-      return [new Header({ level: b.level, attr: narrowAttr(b.attr, ctx), content: narrowInlines(b.content, ctx) })];
+      return [
+        new Header({
+          level: b.level,
+          attr: narrowAttr(b.attr, ctx),
+          content: narrowInlines(b.content, ctx),
+        }),
+      ];
     case "BlockQuote":
       return [new BlockQuote({ content: narrowBlocks(b.content, ctx) })];
     case "Div":
       return [new Div({ attr: narrowAttr(b.attr, ctx), content: narrowBlocks(b.content, ctx) })];
     case "Figure":
-      return [new Figure({ attr: narrowAttr(b.attr, ctx), caption: narrowBlocks(b.caption, ctx), content: narrowBlocks(b.content, ctx) })];
+      return [
+        new Figure({
+          attr: narrowAttr(b.attr, ctx),
+          caption: narrowBlocks(b.caption, ctx),
+          content: narrowBlocks(b.content, ctx),
+        }),
+      ];
     case "OrderedList":
-      return [new OrderedList({ attr: narrowAttr(b.attr, ctx), start: b.start, numberStyle: b.numberStyle, numberDelim: b.numberDelim, items: b.items.map((it) => narrowBlocks(it, ctx)) })];
+      return [
+        new OrderedList({
+          attr: narrowAttr(b.attr, ctx),
+          start: b.start,
+          numberStyle: b.numberStyle,
+          numberDelim: b.numberDelim,
+          items: b.items.map((it) => narrowBlocks(it, ctx)),
+        }),
+      ];
     case "BulletList":
-      return [new BulletList({ attr: narrowAttr(b.attr, ctx), items: b.items.map((it) => narrowBlocks(it, ctx)) })];
+      return [
+        new BulletList({
+          attr: narrowAttr(b.attr, ctx),
+          items: b.items.map((it) => narrowBlocks(it, ctx)),
+        }),
+      ];
     case "Table":
       return [narrowTable(b, ctx)];
     case "Worksheet":
@@ -479,10 +601,7 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  * Narrow a document so it conforms to `to`, recording everything that had to be
  * dropped or down-converted.
  */
-export const narrow = <To extends Feature>(
-  doc: Document,
-  to: Profile<To>
-): NarrowResult<To> => {
+export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): NarrowResult<To> => {
   const ctx: Ctx = { allowed: to.features, rec: new Recorder() };
   let blocks = [...doc.blocks];
 
@@ -511,6 +630,5 @@ export const narrow = <To extends Feature>(
 /** Narrow within an Effect. */
 export const narrowEffect = <To extends Feature>(
   doc: Document,
-  to: Profile<To>
-): Effect.Effect<NarrowResult<To>, never> =>
-  Effect.sync(() => narrow(doc, to));
+  to: Profile<To>,
+): Effect.Effect<NarrowResult<To>, never> => Effect.sync(() => narrow(doc, to));

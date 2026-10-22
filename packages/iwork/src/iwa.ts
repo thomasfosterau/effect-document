@@ -27,7 +27,7 @@ const concat = (parts: ReadonlyArray<Uint8Array>): Uint8Array => {
 /** One chunk: a 0x00 type byte, a 3-byte little-endian length, then that many bytes. */
 const chunkBody = Parser.preceded(
   Token.literal(new Uint8Array([0x00])).pipe(Parser.expected("chunk type 0x00")),
-  Parser.cut(Binary.lengthTake(Binary.leU24))
+  Parser.cut(Binary.lengthTake(Binary.leU24)),
 ).pipe(Parser.context("IWA chunk"));
 
 const chunks = Parser.compile(Parser.repeat(chunkBody));
@@ -60,7 +60,9 @@ export const dechunk = (data: Uint8Array, options?: DechunkOptions): Uint8Array 
     const at = block.byteOffset - data.byteOffset;
     let out: Uint8Array;
     try {
-      out = decompressBlock(block, { maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total) });
+      out = decompressBlock(block, {
+        maxLength: Math.min(DEFAULT_MAX_BLOCK_LENGTH, maxLength - total),
+      });
     } catch (e) {
       throw isIworkError(e) ? shiftOffset(e, at) : e;
     }

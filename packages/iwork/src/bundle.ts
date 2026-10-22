@@ -78,7 +78,10 @@ interface Budget {
 const charge = (budget: Budget, name: string, size: number): void => {
   const { maxEntrySize, maxTotalSize } = budget.limits;
   if (size > maxEntrySize) {
-    throw codecError("LimitExceeded", `${name} is ${size} bytes uncompressed, over the ${maxEntrySize}-byte limit`);
+    throw codecError(
+      "LimitExceeded",
+      `${name} is ${size} bytes uncompressed, over the ${maxEntrySize}-byte limit`,
+    );
   }
   budget.total += size;
   if (budget.total > maxTotalSize) {
@@ -94,7 +97,7 @@ const charge = (budget: Budget, name: string, size: number): void => {
 const unzip = (
   bytes: Uint8Array,
   budget: Budget,
-  want: (name: string, size: number) => boolean
+  want: (name: string, size: number) => boolean,
 ): { readonly names: string[]; readonly files: Record<string, Uint8Array> } => {
   const names: string[] = [];
   try {
@@ -114,14 +117,20 @@ const unzip = (
     const notZip = (e as { code?: number }).code === 13;
     throw new IworkError({
       reason: notZip ? "NotZip" : "Malformed",
-      detail: notZip ? "not a zip archive" : `bad zip entry: ${e instanceof Error ? e.message : String(e)}`,
+      detail: notZip
+        ? "not a zip archive"
+        : `bad zip entry: ${e instanceof Error ? e.message : String(e)}`,
       cause: e,
     });
   }
 };
 
 /** Collect the `.iwa` components of an inner `Index.zip`. */
-const innerComponents = (data: Uint8Array, budget: Budget, into: Record<string, Uint8Array>): void => {
+const innerComponents = (
+  data: Uint8Array,
+  budget: Budget,
+  into: Record<string, Uint8Array>,
+): void => {
   const { files } = unzip(data, budget, (name, size) => {
     if (!isComponent(name)) return false;
     charge(budget, `Index.zip/${name}`, size);
@@ -148,14 +157,17 @@ const resolveLimits = (options?: OpenBundleOptions): ResolvedLimits => {
  */
 export const openBundle = (
   bytes: Uint8Array,
-  options?: OpenBundleOptions
+  options?: OpenBundleOptions,
 ): Result.Result<IworkBundle, IworkError> => {
   const limits = resolveLimits(options);
   try {
     const budget: Budget = { limits, total: 0 };
     const { names, files } = unzip(bytes, budget, (name, size) => {
       if (name === ENCRYPTED_MARKER) {
-        throw codecError("Encrypted", "encrypted (password-protected) iWork documents are not supported");
+        throw codecError(
+          "Encrypted",
+          "encrypted (password-protected) iWork documents are not supported",
+        );
       }
       if (!isComponent(name) && !isIndexZip(name)) return false;
       charge(budget, name, size);
@@ -199,7 +211,7 @@ export const openBundle = (
  */
 export const openBundleDirectory = (
   path: string,
-  options?: OpenBundleOptions
+  options?: OpenBundleOptions,
 ): Effect.Effect<IworkBundle, IworkError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -213,20 +225,25 @@ export const openBundleDirectory = (
     const readChecked = (name: string, budget: Budget) =>
       Effect.gen(function* () {
         const info = yield* fs.stat(join(name)).pipe(Effect.mapError(io));
-        yield* Effect.try({ try: () => charge(budget, name, Number(info.size)), catch: (e) => e as IworkError });
+        yield* Effect.try({
+          try: () => charge(budget, name, Number(info.size)),
+          catch: (e) => e as IworkError,
+        });
         return yield* fs.readFile(join(name)).pipe(Effect.mapError(io));
       });
 
     // recursive listings use the platform separator
-    const names = (yield* fs.readDirectory(root, { recursive: true }).pipe(Effect.mapError(io))).map((n) =>
-      n.replaceAll("\\", "/")
-    );
+    const names = (yield* fs
+      .readDirectory(root, { recursive: true })
+      .pipe(Effect.mapError(io))).map((n) => n.replaceAll("\\", "/"));
     if (names.length > limits.maxEntries) {
-      return yield* Effect.fail(codecError("LimitExceeded", `more than ${limits.maxEntries} package entries`));
+      return yield* Effect.fail(
+        codecError("LimitExceeded", `more than ${limits.maxEntries} package entries`),
+      );
     }
     if (names.includes(ENCRYPTED_MARKER)) {
       return yield* Effect.fail(
-        codecError("Encrypted", "encrypted (password-protected) iWork documents are not supported")
+        codecError("Encrypted", "encrypted (password-protected) iWork documents are not supported"),
       );
     }
     const budget: Budget = { limits, total: 0 };
@@ -280,10 +297,8 @@ export const compareComponentPaths = (a: string, b: string): number => {
  * (see {@link compareComponentPaths}). Component ids are not document order:
  * that comes from the document's object graph.
  */
-export const componentPaths = (
-  bundle: IworkBundle,
-  match: (name: string) => boolean
-): string[] => Object.keys(bundle.components).filter(match).sort(compareComponentPaths);
+export const componentPaths = (bundle: IworkBundle, match: (name: string) => boolean): string[] =>
+  Object.keys(bundle.components).filter(match).sort(compareComponentPaths);
 
 /**
  * Decode a single component's archived objects (none if it is absent). A
@@ -292,7 +307,7 @@ export const componentPaths = (
 export const decodeComponent = (
   bundle: IworkBundle,
   name: string,
-  options?: DechunkOptions
+  options?: DechunkOptions,
 ): Result.Result<IworkObject[], IworkError> => {
   const data = bundle.components[name];
   if (data === undefined) return Result.succeed([]);
@@ -305,7 +320,7 @@ export const decodeComponent = (
  */
 export const decodeAll = (
   bundle: IworkBundle,
-  options?: DechunkOptions
+  options?: DechunkOptions,
 ): Result.Result<IworkObject[], IworkError> => {
   const objects: IworkObject[] = [];
   for (const name of Object.keys(bundle.components)) {

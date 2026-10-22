@@ -19,8 +19,20 @@
  */
 
 import {
-  type Block, BulletList, Code, CodeBlock, Emph, Header, type Inline, Link, OrderedList, Para, Plain,
-  SoftBreak, Str, Strong,
+  type Block,
+  BulletList,
+  Code,
+  CodeBlock,
+  Emph,
+  Header,
+  type Inline,
+  Link,
+  OrderedList,
+  Para,
+  Plain,
+  SoftBreak,
+  Str,
+  Strong,
 } from "@thomasfosterau/effect-document";
 import type { PageLink, PageText, TextGlyph } from "./extract.ts";
 
@@ -110,15 +122,37 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
   for (const g of page.glyphs) {
     if (!g.upright || g.size <= 0) continue;
     // fake bold: the same glyph painted again a hair's breadth away
-    if (g.text.trim() !== "" && recent.some((r) => r.text === g.text && Math.abs(r.x - g.x) < g.size * 0.1 && Math.abs(r.y - g.y) < g.size * 0.1)) continue;
+    if (
+      g.text.trim() !== "" &&
+      recent.some(
+        (r) =>
+          r.text === g.text &&
+          Math.abs(r.x - g.x) < g.size * 0.1 &&
+          Math.abs(r.y - g.y) < g.size * 0.1,
+      )
+    )
+      continue;
     recent.push(g);
     if (recent.length > 8) recent.shift();
 
     const tolerance = Math.max(g.size, line?.size ?? 0) * 0.5;
-    const continues = line !== undefined && Math.abs(g.y - line.y) <= tolerance && g.x >= lastEnd - Math.max(g.size, line.size) * 2;
+    const continues =
+      line !== undefined &&
+      Math.abs(g.y - line.y) <= tolerance &&
+      g.x >= lastEnd - Math.max(g.size, line.size) * 2;
     if (!continues) {
       finish();
-      line = { page: pageIndex, y: g.y, x0: g.x, x1: g.x, size: g.size, runs: [], text: "", mono: false, charWidth: 0 };
+      line = {
+        page: pageIndex,
+        y: g.y,
+        x0: g.x,
+        x1: g.x,
+        size: g.size,
+        runs: [],
+        text: "",
+        mono: false,
+        charWidth: 0,
+      };
       sizes = new Map();
       monoChars = 0;
       visibleChars = 0;
@@ -129,7 +163,13 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
     let text = g.text.replace(/[\u0000-\u0008\u000b-\u001f]/g, "").replace(/[\t\n\r ]/g, " ");
     if (text === "") continue;
     const gap = g.x - lastEnd;
-    if (continues && gap > SPACE_GAP * Math.min(g.size, l.size) && !/\s$/.test(lastText) && !/^\s/.test(text)) text = " " + text;
+    if (
+      continues &&
+      gap > SPACE_GAP * Math.min(g.size, l.size) &&
+      !/\s$/.test(lastText) &&
+      !/^\s/.test(text)
+    )
+      text = " " + text;
 
     const style = { bold: g.bold, italic: g.italic, mono: g.monospace, url: urlAt(page.links, g) };
     const lastRun = l.runs[l.runs.length - 1];
@@ -213,14 +253,17 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
   const result: Inline[] = [];
   for (const n of out) {
     const prev = result[result.length - 1];
-    if (n._tag === "Str" && prev?._tag === "Str") result[result.length - 1] = new Str({ text: prev.text + n.text });
+    if (n._tag === "Str" && prev?._tag === "Str")
+      result[result.length - 1] = new Str({ text: prev.text + n.text });
     else result.push(n);
   }
   return result;
 };
 
 /** Inlines for several lines, joined by soft breaks (or nothing, after a hyphen). */
-const linesToInlines = (lines: ReadonlyArray<{ runs: ReadonlyArray<Run>; text: string }>): Inline[] => {
+const linesToInlines = (
+  lines: ReadonlyArray<{ runs: ReadonlyArray<Run>; text: string }>,
+): Inline[] => {
   const out: Inline[] = [];
   lines.forEach((l, i) => {
     if (i > 0) {
@@ -314,8 +357,13 @@ const buildList = (items: ReadonlyArray<Item>, size: number): Block[] => {
     }
     out.push(
       ordered
-        ? new OrderedList({ start: first.marker.start ?? 1, numberStyle: "decimal", numberDelim: "period", items: entries })
-        : new BulletList({ items: entries })
+        ? new OrderedList({
+            start: first.marker.start ?? 1,
+            numberStyle: "decimal",
+            numberDelim: "period",
+            items: entries,
+          })
+        : new BulletList({ items: entries }),
     );
   }
   return out;
@@ -332,13 +380,18 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   for (const l of prose) bySize.set(l.size, (bySize.get(l.size) ?? 0) + l.text.length);
   const body = [...bySize].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0];
   const isHeading = (l: Line): boolean => l.size >= body * 1.12 && l.text.length <= 200 && !l.mono;
-  const headingSizes = [...new Set(lines.filter(isHeading).map((l) => l.size))].sort((a, b) => b - a);
+  const headingSizes = [...new Set(lines.filter(isHeading).map((l) => l.size))].sort(
+    (a, b) => b - a,
+  );
   const levelOf = (size: number): number => Math.min(6, headingSizes.indexOf(size) + 1);
 
   // each page's right text edge, to tell a full line from a paragraph's last line
   const rightEdge = new Map<number, number>();
-  for (const l of lines) if (l.size === body && !l.mono) rightEdge.set(l.page, Math.max(rightEdge.get(l.page) ?? 0, l.x1));
-  const isFull = (l: Line): boolean => l.x1 >= (rightEdge.get(l.page) ?? Number.POSITIVE_INFINITY) - body * 2;
+  for (const l of lines)
+    if (l.size === body && !l.mono)
+      rightEdge.set(l.page, Math.max(rightEdge.get(l.page) ?? 0, l.x1));
+  const isFull = (l: Line): boolean =>
+    l.x1 >= (rightEdge.get(l.page) ?? Number.POSITIVE_INFINITY) - body * 2;
   /** Ends at a sentence boundary, as a paragraph's last line usually does. */
   const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
 
@@ -353,15 +406,18 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     const a = lines[i - 1]!;
     const b = lines[i]!;
     const d = a.y - b.y;
-    if (a.page === b.page && a.size === body && b.size === body && d > 0 && d < body * 3) gaps.push({ d, wrapped: isFull(a) && !endsSentence(a) });
+    if (a.page === b.page && a.size === body && b.size === body && d > 0 && d < body * 3)
+      gaps.push({ d, wrapped: isFull(a) && !endsSentence(a) });
   }
   const sorted = gaps.map((g) => g.d).sort((a, b) => a - b);
   const low = sorted[Math.floor((sorted.length - 1) / 10)];
   const doubleSpaced = gaps.filter((g) => g.wrapped).length * 2 > gaps.length;
   const leading =
-    low === undefined ? body * 1.2
-    : low <= body * 1.6 || doubleSpaced ? Math.min(low, body * 2)
-    : body * 1.2;
+    low === undefined
+      ? body * 1.2
+      : low <= body * 1.6 || doubleSpaced
+        ? Math.min(low, body * 2)
+        : body * 1.2;
   const breakGap = leading * 1.3 + 0.5;
 
   const blocks: Block[] = [];
@@ -374,8 +430,13 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   };
   /** A paragraph runs over a page break when its line there is full and unfinished. */
   const continuesOnNextPage = (a: Line, b: Line): boolean =>
-    a.size === body && b.size === body && !a.mono && !b.mono && isFull(a) &&
-    !endsSentence(a) && markerOf(b) === undefined;
+    a.size === body &&
+    b.size === body &&
+    !a.mono &&
+    !b.mono &&
+    isFull(a) &&
+    !endsSentence(a) &&
+    markerOf(b) === undefined;
 
   while (i < lines.length) {
     const line = lines[i]!;
@@ -383,10 +444,18 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     if (isHeading(line)) {
       const group = [line];
       i++;
-      while (i < lines.length && lines[i]!.size === line.size && isHeading(lines[i]!) && gapBefore(i) <= line.size * 1.45) group.push(lines[i++]!);
+      while (
+        i < lines.length &&
+        lines[i]!.size === line.size &&
+        isHeading(lines[i]!) &&
+        gapBefore(i) <= line.size * 1.45
+      )
+        group.push(lines[i++]!);
       // headings are usually set bold throughout; that's the heading's look, not emphasis
       const allBold = group.every((l) => l.runs.every((r) => r.bold));
-      const unbolded = allBold ? group.map((l) => ({ ...l, runs: l.runs.map((r) => ({ ...r, bold: false })) })) : group;
+      const unbolded = allBold
+        ? group.map((l) => ({ ...l, runs: l.runs.map((r) => ({ ...r, bold: false })) }))
+        : group;
       blocks.push(new Header({ level: levelOf(line.size), content: linesToInlines(unbolded) }));
       continue;
     }
@@ -394,9 +463,22 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     if (line.mono) {
       const group = [line];
       i++;
-      while (i < lines.length && lines[i]!.mono && !isHeading(lines[i]!) && gapBefore(i) <= leading * 3) group.push(lines[i++]!);
+      while (
+        i < lines.length &&
+        lines[i]!.mono &&
+        !isHeading(lines[i]!) &&
+        gapBefore(i) <= leading * 3
+      )
+        group.push(lines[i++]!);
       const left = Math.min(...group.map((l) => l.x0));
-      const step = Math.abs(median(group.slice(1).map((l, k) => group[k]!.y - l.y).filter((d) => d > 0)) ?? line.size * 1.2);
+      const step = Math.abs(
+        median(
+          group
+            .slice(1)
+            .map((l, k) => group[k]!.y - l.y)
+            .filter((d) => d > 0),
+        ) ?? line.size * 1.2,
+      );
       const text: string[] = [];
       group.forEach((l, k) => {
         if (k > 0) {
@@ -418,13 +500,24 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
         const m = markerOf(l);
         if (m === undefined || isHeading(l) || l.mono) break;
         if (items.length > 0 && gapBefore(i) > breakGap * 1.25) break;
-        const item: Item = { markerX: l.x0, marker: m, lines: [{ runs: dropChars(l.runs, m.length), text: l.text.slice(m.length) }] };
+        const item: Item = {
+          markerX: l.x0,
+          marker: m,
+          lines: [{ runs: dropChars(l.runs, m.length), text: l.text.slice(m.length) }],
+        };
         items.push(item);
         i++;
         // continuation lines: indented past the marker, no marker of their own
         while (i < lines.length) {
           const c = lines[i]!;
-          if (markerOf(c) !== undefined || isHeading(c) || c.mono || gapBefore(i) > breakGap || c.x0 <= l.x0 + c.size * 0.5) break;
+          if (
+            markerOf(c) !== undefined ||
+            isHeading(c) ||
+            c.mono ||
+            gapBefore(i) > breakGap ||
+            c.x0 <= l.x0 + c.size * 0.5
+          )
+            break;
           item.lines.push({ runs: c.runs, text: c.text });
           i++;
         }
@@ -437,7 +530,8 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     i++;
     while (i < lines.length) {
       const l = lines[i]!;
-      if (isHeading(l) || l.mono || gapBefore(i) > breakGap || Math.abs(l.size - line.size) > 0.75) break;
+      if (isHeading(l) || l.mono || gapBefore(i) > breakGap || Math.abs(l.size - line.size) > 0.75)
+        break;
       const m = markerOf(l);
       if (m !== undefined && (!m.ordered || m.start !== undefined)) break;
       // a first-line indent starts a new paragraph

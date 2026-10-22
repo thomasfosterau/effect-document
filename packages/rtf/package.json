@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "description": "Rich Text Format reader and writer for effect-document",
   "keywords": [
-    "effect",
     "document",
+    "effect",
     "rtf"
   ],
   "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/rtf#readme",

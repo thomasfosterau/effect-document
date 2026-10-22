@@ -55,10 +55,20 @@ interface Cursor {
 
 /** Why a read failed; the cursor is left where the problem is. */
 type Problem =
-  | { readonly _tag: "Truncated"; readonly what: string; readonly size: number; readonly at: number }
+  | {
+      readonly _tag: "Truncated";
+      readonly what: string;
+      readonly size: number;
+      readonly at: number;
+    }
   | { readonly _tag: "VarintTooLong"; readonly at: number }
   | { readonly _tag: "VarintTruncated"; readonly at: number }
-  | { readonly _tag: "UnsupportedWire"; readonly wire: number; readonly field: number; readonly at: number };
+  | {
+      readonly _tag: "UnsupportedWire";
+      readonly wire: number;
+      readonly field: number;
+      readonly at: number;
+    };
 
 /** Read a varint at the cursor, or the problem with it. */
 const varintAt = (c: Cursor): number | Problem => {
@@ -109,7 +119,8 @@ const fieldAt = (c: Cursor): Field | Problem => {
     case WIRE_I64:
     case WIRE_I32: {
       const size = wire === WIRE_I64 ? 8 : 4;
-      if (c.end - c.pos < size) return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
+      if (c.end - c.pos < size)
+        return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
       const raw = c.input.subarray(c.pos, c.pos + size);
       return { field, wire, value: fixedAt(c, size), raw };
     }
@@ -139,16 +150,27 @@ const fail = (state: Input.State<Uint8Array>, p: Problem): Input.Fail => {
       return state.failMessage("Cut", "Verify", "varint longer than 10 bytes", p.at);
     case "Truncated":
       return state.failMessage(
-        "Cut", "Take", `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`, p.at
+        "Cut",
+        "Take",
+        `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`,
+        p.at,
       );
     case "UnsupportedWire":
-      return state.failMessage("Cut", "Verify", `unsupported wire type ${p.wire} (field ${p.field})`, p.at);
+      return state.failMessage(
+        "Cut",
+        "Verify",
+        `unsupported wire type ${p.wire} (field ${p.field})`,
+        p.at,
+      );
   }
 };
 
 /** A base-128 varint, as a `number` (exact up to 2^53), of at most 10 bytes. */
 export const varint: Parser.Parser<number, never, never, Uint8Array> = Parser.make<
-  number, never, never, Uint8Array
+  number,
+  never,
+  never,
+  Uint8Array
 >((state) => {
   const start = state.pos;
   if (start >= state.end) return state.eoi("Token", ["varint"], 1);
@@ -161,7 +183,10 @@ export const varint: Parser.Parser<number, never, never, Uint8Array> = Parser.ma
  * value or an unsupported wire type is a positioned error.
  */
 export const field: Parser.Parser<Field, never, never, Uint8Array> = Parser.make<
-  Field, never, never, Uint8Array
+  Field,
+  never,
+  never,
+  Uint8Array
 >((state) => {
   if (state.pos >= state.end) return state.eoi("Token", ["field"], 1);
   const result = fieldAt(state);
@@ -179,9 +204,17 @@ const problemError = (p: Problem, end: number): IworkError => {
     case "VarintTooLong":
       return codecError("Malformed", "protobuf: varint longer than 10 bytes", p.at);
     case "Truncated":
-      return codecError("Truncated", `protobuf: ${p.what} needs ${p.size} bytes, only ${end - p.at} left`, p.at);
+      return codecError(
+        "Truncated",
+        `protobuf: ${p.what} needs ${p.size} bytes, only ${end - p.at} left`,
+        p.at,
+      );
     case "UnsupportedWire":
-      return codecError("Malformed", `protobuf: unsupported wire type ${p.wire} (field ${p.field})`, p.at);
+      return codecError(
+        "Malformed",
+        `protobuf: unsupported wire type ${p.wire} (field ${p.field})`,
+        p.at,
+      );
   }
 };
 
@@ -228,10 +261,17 @@ export const getAllVarints = (fields: ReadonlyArray<Field>, field: number): numb
   fields.filter((f) => f.field === field && f.value !== undefined).map((f) => f.value!);
 
 /** The first field number's scalar (varint or fixed-width), optionally of one wire type. */
-const firstScalar = (fields: ReadonlyArray<Field>, field: number, wire?: number): Field | undefined =>
-  fields.find((f) => f.field === field && f.value !== undefined && (wire === undefined || f.wire === wire));
+const firstScalar = (
+  fields: ReadonlyArray<Field>,
+  field: number,
+  wire?: number,
+): Field | undefined =>
+  fields.find(
+    (f) => f.field === field && f.value !== undefined && (wire === undefined || f.wire === wire),
+  );
 
-const viewOf = (bytes: Uint8Array): DataView => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+const viewOf = (bytes: Uint8Array): DataView =>
+  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
 /** A scalar field's value as an unsigned 64-bit integer. */
 const toUint64 = (f: Field): bigint =>
@@ -251,7 +291,7 @@ const unzigzagNumber = (v: number): number => (v % 2 === 0 ? v / 2 : -(v + 1) / 
 export const getBigInt = (
   fields: ReadonlyArray<Field>,
   field: number,
-  type: "uint64" | "int64" | "sint64" = "uint64"
+  type: "uint64" | "int64" | "sint64" = "uint64",
 ): bigint | undefined => {
   const f = firstScalar(fields, field);
   if (f === undefined) return undefined;
@@ -282,7 +322,12 @@ export const getFloat = (fields: ReadonlyArray<Field>, field: number): number | 
 export type PackedType = "varint" | "sint" | "fixed32" | "fixed64" | "float" | "double";
 
 const PACKED_SIZE: Record<PackedType, number> = {
-  varint: 0, sint: 0, fixed32: 4, float: 4, fixed64: 8, double: 8,
+  varint: 0,
+  sint: 0,
+  fixed32: 4,
+  float: 4,
+  fixed64: 8,
+  double: 8,
 };
 
 /** Read one fixed-width element of a packed run (or a single fixed field's raw bytes). */
@@ -305,7 +350,11 @@ const fixedElement = (view: DataView, at: number, type: PackedType): number => {
  * varints are exact up to 2^53. Throws a positioned `IworkError` on a
  * malformed packed run.
  */
-export const getPacked = (fields: ReadonlyArray<Field>, field: number, type: PackedType): number[] => {
+export const getPacked = (
+  fields: ReadonlyArray<Field>,
+  field: number,
+  type: PackedType,
+): number[] => {
   const size = PACKED_SIZE[type];
   const wire = size === 0 ? WIRE_VARINT : size === 8 ? WIRE_I64 : WIRE_I32;
   const out: number[] = [];
@@ -329,9 +378,11 @@ export const getPacked = (fields: ReadonlyArray<Field>, field: number, type: Pac
       }
     } else if (f.wire === wire) {
       out.push(
-        size !== 0 ? fixedElement(viewOf(f.raw!), 0, type)
-          : type === "sint" ? unzigzagNumber(f.value!)
-          : f.value!
+        size !== 0
+          ? fixedElement(viewOf(f.raw!), 0, type)
+          : type === "sint"
+            ? unzigzagNumber(f.value!)
+            : f.value!,
       );
     }
   }

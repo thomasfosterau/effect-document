@@ -4,7 +4,12 @@
 
 import { describe, expect, test } from "vite-plus/test";
 import {
-  colToIndex, indexToCol, parseA1, parseA1Absolute, parseA1Range, toA1,
+  colToIndex,
+  indexToCol,
+  parseA1,
+  parseA1Absolute,
+  parseA1Range,
+  toA1,
 } from "../../src/xlsx/index.ts";
 
 describe("indexToCol / colToIndex", () => {
@@ -73,9 +78,24 @@ describe("toA1 / parseA1", () => {
 
 describe("absolute references and ranges", () => {
   test("parses $ markers", () => {
-    expect(parseA1Absolute("$B3")).toEqual({ col: 1, row: 2, colAbsolute: true, rowAbsolute: false });
-    expect(parseA1Absolute("B$3")).toEqual({ col: 1, row: 2, colAbsolute: false, rowAbsolute: true });
-    expect(parseA1Absolute("$AA$100")).toEqual({ col: 26, row: 99, colAbsolute: true, rowAbsolute: true });
+    expect(parseA1Absolute("$B3")).toEqual({
+      col: 1,
+      row: 2,
+      colAbsolute: true,
+      rowAbsolute: false,
+    });
+    expect(parseA1Absolute("B$3")).toEqual({
+      col: 1,
+      row: 2,
+      colAbsolute: false,
+      rowAbsolute: true,
+    });
+    expect(parseA1Absolute("$AA$100")).toEqual({
+      col: 26,
+      row: 99,
+      colAbsolute: true,
+      rowAbsolute: true,
+    });
     expect(parseA1Absolute("$$A1")).toBeNull();
   });
 

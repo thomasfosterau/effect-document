@@ -10,8 +10,22 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
-  makeReaderTag, Para, type ParseError, type Reader, Slide, SlideShow, Str, TextBox, trustAs,
+  type Block,
+  type Content,
+  defineProfile,
+  type Doc,
+  document,
+  type FeaturesOf,
+  type Format,
+  makeReaderTag,
+  Para,
+  type ParseError,
+  type Reader,
+  Slide,
+  SlideShow,
+  Str,
+  TextBox,
+  trustAs,
 } from "@thomasfosterau/effect-document";
 import { componentPaths } from "./bundle.ts";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
@@ -49,10 +63,13 @@ export const makeKeynoteReader = (options?: IworkReaderOptions): Reader<KeynoteF
       const bundle = yield* openInput("keynote", input, options);
       const paths = componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n));
       const decoded = yield* eachComponent("keynote", bundle, paths, options, (obj) =>
-        obj.messages.flatMap((msg) => (TSWP_STORAGE_ARCHIVE.has(msg.type) ? storageBlocks(msg.payload) : []))
+        obj.messages.flatMap((msg) =>
+          TSWP_STORAGE_ARCHIVE.has(msg.type) ? storageBlocks(msg.payload) : [],
+        ),
       );
       const slides = decoded.map(
-        ({ items }) => new Slide({ shapes: items.length > 0 ? [new TextBox({ content: items })] : [] })
+        ({ items }) =>
+          new Slide({ shapes: items.length > 0 ? [new TextBox({ content: items })] : [] }),
       );
       if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
       return trustAs<KeynoteFeature>(document([new SlideShow({ slides })]));

@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with the Reader/Writer/Format abstractions and lossy-aware conversion",
   "keywords": [
-    "effect",
+    "converter",
     "document",
-    "schema",
+    "effect",
     "pandoc",
-    "converter"
+    "schema"
   ],
   "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/core#readme",
   "bugs": {

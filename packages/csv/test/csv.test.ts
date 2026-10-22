@@ -1,9 +1,28 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Effect, Result, Stream, pipe } from "effect";
-import { cell, document, type SheetCell, SheetRow, text, Worksheet, worksheet } from "@thomasfosterau/effect-document";
 import {
-  type CsvReaderOptions, type CsvWriterOptions, Rfc4180Dialect, StandardDialect, TsvDialect, formatCsvNumber,
-  inferCell, makeCsvReader, makeCsvWriter, renderCsvStream, renderTable, scanCsv, scanCsvStream,
+  cell,
+  document,
+  type SheetCell,
+  SheetRow,
+  text,
+  Worksheet,
+  worksheet,
+} from "@thomasfosterau/effect-document";
+import {
+  type CsvReaderOptions,
+  type CsvWriterOptions,
+  Rfc4180Dialect,
+  StandardDialect,
+  TsvDialect,
+  formatCsvNumber,
+  inferCell,
+  makeCsvReader,
+  makeCsvWriter,
+  renderCsvStream,
+  renderTable,
+  scanCsv,
+  scanCsvStream,
   synthesizeDocument,
 } from "../src/index.ts";
 
@@ -28,7 +47,7 @@ describe("CSV reader", () => {
 
   test("header row is read as text cells", async () => {
     const doc = await run(
-      makeCsvReader({ treatFirstRowAsHeader: true }).read(text("name,age\nalice,30\n"))
+      makeCsvReader({ treatFirstRowAsHeader: true }).read(text("name,age\nalice,30\n")),
     );
     const ws = firstWorksheet(doc);
     expect(ws.rows[0]!.cells.map((c) => c._tag)).toEqual(["CellText", "CellText"]);
@@ -43,28 +62,65 @@ describe("CSV reader", () => {
 
   const cells = async (input: string, options?: CsvReaderOptions) =>
     firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
-      r.cells.map((c) => ("value" in c ? c.value : null))
+      r.cells.map((c) => ("value" in c ? c.value : null)),
     );
 
   test("reads only plain decimals as numbers", async () => {
     expect(inferCell("007")).toEqual(cell.text("007"));
-    const values = ["007", "02134", "0x1F", "0b11", "+1", " 12 ", "1.", ".5", "Infinity", "12345678901234567890",
-      "1234567890.12345", "0", "-12.5", "1e3", "1000000000000000000000", "0.000123"];
+    const values = [
+      "007",
+      "02134",
+      "0x1F",
+      "0b11",
+      "+1",
+      " 12 ",
+      "1.",
+      ".5",
+      "Infinity",
+      "12345678901234567890",
+      "1234567890.12345",
+      "0",
+      "-12.5",
+      "1e3",
+      "1000000000000000000000",
+      "0.000123",
+    ];
     expect((await cells(values.join(",")))[0]).toEqual([
-      "007", "02134", "0x1F", "0b11", "+1", " 12 ", "1.", ".5", "Infinity", "12345678901234567890",
-      1234567890.12345, 0, -12.5, 1000, 1e21, 0.000123,
+      "007",
+      "02134",
+      "0x1F",
+      "0b11",
+      "+1",
+      " 12 ",
+      "1.",
+      ".5",
+      "Infinity",
+      "12345678901234567890",
+      1234567890.12345,
+      0,
+      -12.5,
+      1000,
+      1e21,
+      0.000123,
     ]);
   });
 
   test("booleans are case-insensitive and configurable", async () => {
     expect(await cells("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
     expect(await cells("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([["TRUE", true]]);
-    expect(await cells("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([[true, false, "true"]]);
+    expect(await cells("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([
+      [true, false, "true"],
+    ]);
     expect(await cells("true\n", { booleans: false })).toEqual([["true"]]);
   });
 
   test("decimalChar, groupChar and percent", async () => {
-    const options: CsvReaderOptions = { dialect: { ...TsvDialect }, decimalChar: ",", groupChar: ".", percent: true };
+    const options: CsvReaderOptions = {
+      dialect: { ...TsvDialect },
+      decimalChar: ",",
+      groupChar: ".",
+      percent: true,
+    };
     expect(await cells("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
       [1234.56, 1234.5, 0.12, 0.07, "1.23,4", "12,34.5"],
     ]);
@@ -72,27 +128,46 @@ describe("CSV reader", () => {
   });
 
   test("nullValues become blank cells", async () => {
-    const doc = await run(makeCsvReader({ nullValues: ["", "NA", "NULL"] }).read(text("NA,NULL,,na\n")));
-    expect(firstWorksheet(doc).rows[0]!.cells.map((c) => c._tag)).toEqual(["CellBlank", "CellBlank", "CellBlank", "CellText"]);
+    const doc = await run(
+      makeCsvReader({ nullValues: ["", "NA", "NULL"] }).read(text("NA,NULL,,na\n")),
+    );
+    expect(firstWorksheet(doc).rows[0]!.cells.map((c) => c._tag)).toEqual([
+      "CellBlank",
+      "CellBlank",
+      "CellBlank",
+      "CellText",
+    ]);
   });
 
   test("column inference types a column by all its values", async () => {
     const input = "1,true,a,1\n2,false,,x\n,TRUE,b,3\n";
     expect(await cells(input, { inference: "column" })).toEqual([
-      [1, true, "a", "1"], [2, false, null, "x"], [null, true, "b", "3"],
+      [1, true, "a", "1"],
+      [2, false, null, "x"],
+      [null, true, "b", "3"],
     ]);
-    expect(await cells(input)).toEqual([[1, true, "a", 1], [2, false, null, "x"], [null, true, "b", 3]]);
+    expect(await cells(input)).toEqual([
+      [1, true, "a", 1],
+      [2, false, null, "x"],
+      [null, true, "b", 3],
+    ]);
     // the header row is excluded from inference
-    expect(await cells("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true })).toEqual([
-      ["id", "ok"], [1, true],
+    expect(
+      await cells("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true }),
+    ).toEqual([
+      ["id", "ok"],
+      [1, true],
     ]);
   });
 
   test("readStream yields rows", async () => {
     const rows = await run(
-      pipe(makeCsvReader().readStream!(text("a,b\nc,d\n")), Stream.runCollect)
+      pipe(makeCsvReader().readStream!(text("a,b\nc,d\n")), Stream.runCollect),
     );
-    expect([...rows]).toEqual([["a", "b"], ["c", "d"]]);
+    expect([...rows]).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
   });
 });
 
@@ -101,11 +176,17 @@ describe("CSV scanner", () => {
     Effect.runSync(scanCsv(input, undefined, options)).rows;
 
   test("quoted fields may contain separators, doubled quotes and line breaks", () => {
-    expect(rows('a,"b,""c""\nd"\ne,f')).toEqual([["a", 'b,"c"\nd'], ["e", "f"]]);
+    expect(rows('a,"b,""c""\nd"\ne,f')).toEqual([
+      ["a", 'b,"c"\nd'],
+      ["e", "f"],
+    ]);
   });
 
   test("a wrapper inside an unquoted field is literal", () => {
-    expect(rows('12" pizza,3\n6" sub,2\n')).toEqual([['12" pizza', "3"], ['6" sub', "2"]]);
+    expect(rows('12" pizza,3\n6" sub,2\n')).toEqual([
+      ['12" pizza', "3"],
+      ['6" sub', "2"],
+    ]);
     expect(rows('"a"b,c')).toEqual([["ab", "c"]]);
   });
 
@@ -120,21 +201,32 @@ describe("CSV scanner", () => {
 
   test("multi-character separators are matched whole", () => {
     const dialect = { ...StandardDialect, separator: "||" };
-    expect(Effect.runSync(scanCsv("a|b||c\n|||\n", dialect)).rows).toEqual([["a|b", "c"], ["", "|"]]);
+    expect(Effect.runSync(scanCsv("a|b||c\n|||\n", dialect)).rows).toEqual([
+      ["a|b", "c"],
+      ["", "|"],
+    ]);
   });
 
   test("skipRows counts CRLF, LF and bare CR line endings", () => {
-    expect(rows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([["a", "b"], ["c", "d"]]);
+    expect(rows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
   });
 
   test("trimWhitespace keeps whitespace inside quotes", () => {
     expect(rows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
-    expect(Effect.runSync(scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true })).rows).toEqual([["", " a ", ""]]);
+    expect(
+      Effect.runSync(scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true })).rows,
+    ).toEqual([["", " a ", ""]]);
   });
 
   test("providedHeaders replace the header row", () => {
     const table = Effect.runSync(
-      scanCsv("h1,h2\n1,2\n", undefined, { treatFirstRowAsHeader: true, providedHeaders: ["x", "y"] })
+      scanCsv("h1,h2\n1,2\n", undefined, {
+        treatFirstRowAsHeader: true,
+        providedHeaders: ["x", "y"],
+      }),
     );
     expect(table).toEqual({ headers: ["x", "y"], rows: [["1", "2"]] });
   });
@@ -144,12 +236,18 @@ describe("CSV scanner", () => {
   });
 
   test("accepts LF, CRLF and bare CR line endings", () => {
-    expect(rows("a,b\r\nc,d\re,f\n")).toEqual([["a", "b"], ["c", "d"], ["e", "f"]]);
+    expect(rows("a,b\r\nc,d\re,f\n")).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+      ["e", "f"],
+    ]);
   });
 
   test("skips blank and comment lines, trims, and skips leading rows", () => {
     const input = "title line\n# a comment\n  \n a , b \n";
-    expect(rows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true })).toEqual([["a", "b"]]);
+    expect(rows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true })).toEqual([
+      ["a", "b"],
+    ]);
     expect(rows("a\n\nb\n", { filterEmpty: false })).toEqual([["a"], [""], ["b"]]);
   });
 
@@ -167,7 +265,9 @@ describe("CSV scanner", () => {
   });
 
   test("rejects rows with the wrong column count", () => {
-    const r = Effect.runSync(Effect.result(scanCsv("a,b\n1\n", undefined, { treatFirstRowAsHeader: true })));
+    const r = Effect.runSync(
+      Effect.result(scanCsv("a,b\n1\n", undefined, { treatFirstRowAsHeader: true })),
+    );
     expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 1 });
   });
 
@@ -178,18 +278,27 @@ describe("CSV scanner", () => {
   });
 
   test("column-count errors report the source row", () => {
-    const r = Effect.runSync(Effect.result(scanCsv('# note\n\na,"b\nc"\r\nd\n', undefined, { lineCommentMarker: "#" })));
+    const r = Effect.runSync(
+      Effect.result(scanCsv('# note\n\na,"b\nc"\r\nd\n', undefined, { lineCommentMarker: "#" })),
+    );
     expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4 });
   });
 });
 
 describe("CSV stream scanner", () => {
   const collect = (chunks: ReadonlyArray<string>, options?: Parameters<typeof scanCsvStream>[2]) =>
-    Effect.runPromise(Effect.result(Stream.runCollect(scanCsvStream(Stream.fromIterable(chunks), undefined, options))));
+    Effect.runPromise(
+      Effect.result(
+        Stream.runCollect(scanCsvStream(Stream.fromIterable(chunks), undefined, options)),
+      ),
+    );
 
   test("rows may be split across chunks anywhere", async () => {
     const r = await collect(['a,"b', '\n""c"', '""\r', "\nd,e"]);
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", 'b\n"c"'], ["d", "e"]]);
+    expect(Result.isSuccess(r) && [...r.success]).toEqual([
+      ["a", 'b\n"c"'],
+      ["d", "e"],
+    ]);
   });
 
   test("emits rows before the stream ends", async () => {
@@ -198,8 +307,8 @@ describe("CSV stream scanner", () => {
         Stream.concat(Stream.make("a,b\n"), Stream.never),
         (s) => scanCsvStream(s),
         Stream.take(1),
-        Stream.runCollect
-      )
+        Stream.runCollect,
+      ),
     );
     expect([...first]).toEqual([["a", "b"]]);
   });
@@ -218,12 +327,17 @@ describe("CSV stream scanner", () => {
 
   test("skipRows counts bare CR and CRLF split across chunks", async () => {
     const r = await collect(["junk\r", "\nmore\r", "a,b\r", "\nc,d\n"], { skipRows: 2 });
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"], ["c", "d"]]);
+    expect(Result.isSuccess(r) && [...r.success]).toEqual([
+      ["a", "b"],
+      ["c", "d"],
+    ]);
   });
 
   test("syntax errors carry their source position", async () => {
     const r = await collect(["x\n", "a,b\nc,", '"d\ne\n'], { skipRows: 1 });
-    expect(Result.isFailure(r) && r.failure.reason).toBe("Unclosed quoted field: expected a closing quote");
+    expect(Result.isFailure(r) && r.failure.reason).toBe(
+      "Unclosed quoted field: expected a closing quote",
+    );
     expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4, column: 0 });
   });
 
@@ -233,7 +347,10 @@ describe("CSV stream scanner", () => {
   });
 
   test("providedHeaders replace the header row and set the width", async () => {
-    const r = await collect(["h\n1,2\n"], { treatFirstRowAsHeader: true, providedHeaders: ["x", "y"] });
+    const r = await collect(["h\n1,2\n"], {
+      treatFirstRowAsHeader: true,
+      providedHeaders: ["x", "y"],
+    });
     expect(Result.isSuccess(r) && [...r.success]).toEqual([["1", "2"]]);
   });
 
@@ -256,7 +373,10 @@ describe("CSV writer", () => {
     const doc = document([worksheet("Sheet1", [[cell.text('say "hi"\nthere'), cell.text("x")]])]);
     const out = await run(makeCsvWriter().write(doc as never));
     const back = await run(makeCsvReader().read(out));
-    expect(firstWorksheet(back).rows[0]!.cells).toEqual([cell.text('say "hi"\nthere'), cell.text("x")]);
+    expect(firstWorksheet(back).rows[0]!.cells).toEqual([
+      cell.text('say "hi"\nthere'),
+      cell.text("x"),
+    ]);
   });
 
   test("quotes fields containing the separator", async () => {
@@ -265,8 +385,12 @@ describe("CSV writer", () => {
     if (out._tag === "Text") expect(out.text).toBe('a,"b,c"\n');
   });
 
-  const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) => document([worksheet("Sheet1", rows)]) as never;
-  const written = async (rows: ReadonlyArray<ReadonlyArray<SheetCell>>, options?: CsvWriterOptions) => {
+  const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
+    document([worksheet("Sheet1", rows)]) as never;
+  const written = async (
+    rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+    options?: CsvWriterOptions,
+  ) => {
     const out = await run(makeCsvWriter(options).write(sheet(rows)));
     return out._tag === "Text" ? out.text : "";
   };
@@ -281,10 +405,17 @@ describe("CSV writer", () => {
 
   test("writes numbers as shortest round-trip decimals", async () => {
     expect([1e21, -1.5e-7, 0.1, 123.456, -0, 2 ** 70].map(formatCsvNumber)).toEqual([
-      "1000000000000000000000", "-0.00000015", "0.1", "123.456", "0", "1180591620717411300000",
+      "1000000000000000000000",
+      "-0.00000015",
+      "0.1",
+      "123.456",
+      "0",
+      "1180591620717411300000",
     ]);
     expect(await written([[cell.number(1e21)]])).toBe("1000000000000000000000\n");
-    expect(await written([[cell.number(1.5)]], { formatNumber: (n) => n.toFixed(2) })).toBe("1.50\n");
+    expect(await written([[cell.number(1.5)]], { formatNumber: (n) => n.toFixed(2) })).toBe(
+      "1.50\n",
+    );
   });
 
   test("quotes fields with edge whitespace or a leading comment marker", async () => {
@@ -294,10 +425,18 @@ describe("CSV writer", () => {
   });
 
   test("escapeFormulae prefixes and quotes formula-like text", async () => {
-    const row = [cell.text("=HYPERLINK(\"x\")"), cell.text("+1"), cell.text("-a"), cell.text("@b"), cell.text("\tc"), cell.number(-1), cell.text("ok")];
+    const row = [
+      cell.text('=HYPERLINK("x")'),
+      cell.text("+1"),
+      cell.text("-a"),
+      cell.text("@b"),
+      cell.text("\tc"),
+      cell.number(-1),
+      cell.text("ok"),
+    ];
     expect(await written([row])).toBe('"=HYPERLINK(""x"")",+1,-a,@b,"\tc",-1,ok\n');
     expect(await written([row], { escapeFormulae: true })).toBe(
-      `"'=HYPERLINK(""x"")","'+1","'-a","'@b","'\tc",-1,ok\n`
+      `"'=HYPERLINK(""x"")","'+1","'-a","'@b","'\tc",-1,ok\n`,
     );
   });
 
@@ -306,17 +445,25 @@ describe("CSV writer", () => {
     expect(await written([row], { quoting: "all" })).toBe('"a","1","true",""\n');
     expect(await written([row], { quoting: "nonNumeric" })).toBe('"a",1,"true",""\n');
     expect(await written([row], { quoting: "none" })).toBe("a,1,true,\n");
-    const r = await Effect.runPromise(Effect.result(makeCsvWriter({ quoting: "none" }).write(sheet([[cell.text("a,b")]]))));
-    expect(Result.isFailure(r) && r.failure.reason).toBe("Row 0 has a field that needs quotes and cannot be written without quoting");
+    const r = await Effect.runPromise(
+      Effect.result(makeCsvWriter({ quoting: "none" }).write(sheet([[cell.text("a,b")]]))),
+    );
+    expect(Result.isFailure(r) && r.failure.reason).toBe(
+      "Row 0 has a field that needs quotes and cannot be written without quoting",
+    );
   });
 
   test("line breaks come from the dialect", async () => {
-    expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe("a\r\nb\r\n");
+    expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe(
+      "a\r\nb\r\n",
+    );
   });
 
   test("bom, headers and padRows", async () => {
     const rows = [[cell.text("a")], [cell.text("b"), cell.text("c"), cell.text("d")]];
-    expect(await written(rows, { bom: true, headers: ["x", "y"], padRows: true })).toBe("﻿x,y,\na,,\nb,c,d\n");
+    expect(await written(rows, { bom: true, headers: ["x", "y"], padRows: true })).toBe(
+      "﻿x,y,\na,,\nb,c,d\n",
+    );
     expect(await written([], { headers: ["x"] })).toBe("x\n");
   });
 
@@ -324,7 +471,9 @@ describe("CSV writer", () => {
     const rows = [[cell.text("a"), cell.number(1e21)], [cell.blank()], [cell.text("b,c")]];
     const options: CsvWriterOptions = { headers: ["x", "y"], padRows: true, bom: true };
     const chunks = await run(
-      Stream.runCollect(renderCsvStream(Stream.fromIterable(rows.map((cells) => new SheetRow({ cells }))), options))
+      Stream.runCollect(
+        renderCsvStream(Stream.fromIterable(rows.map((cells) => new SheetRow({ cells }))), options),
+      ),
     );
     expect([...chunks]).toEqual(["﻿", "x,y\n", "a,1000000000000000000000\n", ",\n", '"b,c",\n']);
     expect([...chunks].join("")).toBe(await written(rows, options));

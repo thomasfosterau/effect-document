@@ -24,9 +24,16 @@ export const DEFAULT_MAX_NESTING_DEPTH = 1000;
 export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
   switch (n._tag) {
     // ---- inlines
-    case "Emph": case "Strong": case "Underline": case "Strikeout":
-    case "Superscript": case "Subscript": case "SmallCaps": case "Quoted":
-    case "Link": case "Span":
+    case "Emph":
+    case "Strong":
+    case "Underline":
+    case "Strikeout":
+    case "Superscript":
+    case "Subscript":
+    case "SmallCaps":
+    case "Quoted":
+    case "Link":
+    case "Span":
       return n.content;
     case "Cite":
       return [...n.content, ...n.citations.flatMap((c) => [...c.prefix, ...c.suffix])];
@@ -35,15 +42,19 @@ export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
     case "Note":
       return n.content;
     // ---- blocks
-    case "Plain": case "Para": case "Header":
+    case "Plain":
+    case "Para":
+    case "Header":
       return n.content;
     case "LineBlock":
       return n.lines.flat();
-    case "BlockQuote": case "Div":
+    case "BlockQuote":
+    case "Div":
       return n.content;
     case "Figure":
       return [...n.caption, ...n.content];
-    case "OrderedList": case "BulletList":
+    case "OrderedList":
+    case "BulletList":
       return n.items.flat();
     case "DefinitionList":
       return n.items.flatMap((it) => [...it.term, ...it.definitions.flat()]);
@@ -54,12 +65,13 @@ export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
       ];
     case "Worksheet":
       return n.rows.flatMap((r) =>
-        r.cells.flatMap((c) => (c._tag === "CellRichText" ? c.runs : []))
+        r.cells.flatMap((c) => (c._tag === "CellRichText" ? c.runs : [])),
       );
     case "SlideShow":
       return n.slides.flatMap((s) => [...(s.notes ?? []), ...s.shapes]);
     // ---- shapes
-    case "TextBox": case "Placeholder":
+    case "TextBox":
+    case "Placeholder":
       return n.content;
     case "TableShape":
       return [n.table];
@@ -75,7 +87,7 @@ export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
  */
 export const blocksNestingDepth = (
   blocks: ReadonlyArray<Block>,
-  stopAbove = Number.POSITIVE_INFINITY
+  stopAbove = Number.POSITIVE_INFINITY,
 ): number => {
   let max = 0;
   const stack: Array<readonly [NestedNode, number]> = blocks.map((b) => [b, 1] as const);

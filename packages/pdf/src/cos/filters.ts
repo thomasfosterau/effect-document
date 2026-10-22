@@ -22,7 +22,14 @@ export class PdfFilterError extends Error {
 }
 
 /** Filters whose output is an encoded image, left for the caller. */
-export const IMAGE_FILTERS = new Set(["DCTDecode", "DCT", "JPXDecode", "CCITTFaxDecode", "CCF", "JBIG2Decode"]);
+export const IMAGE_FILTERS = new Set([
+  "DCTDecode",
+  "DCT",
+  "JPXDecode",
+  "CCITTFaxDecode",
+  "CCF",
+  "JBIG2Decode",
+]);
 
 const num = (dict: PdfDict | undefined, key: string, fallback: number): number => {
   const v = dict?.entries.get(key);
@@ -67,7 +74,8 @@ const unpredict = (data: Uint8Array, parms: PdfDict | undefined): Uint8Array => 
     if (bpc !== 8) return data; // sub-byte TIFF prediction is vanishingly rare
     const out = data.slice();
     for (let row = 0; row + rowLength <= out.length; row += rowLength) {
-      for (let i = bpp; i < rowLength; i++) out[row + i] = (out[row + i]! + out[row + i - bpp]!) & 0xff;
+      for (let i = bpp; i < rowLength; i++)
+        out[row + i] = (out[row + i]! + out[row + i - bpp]!) & 0xff;
     }
     return out;
   }
@@ -85,9 +93,15 @@ const unpredict = (data: Uint8Array, parms: PdfDict | undefined): Uint8Array => 
       const upLeft = i >= bpp ? prev[i - bpp]! : 0;
       let v = src[i]!;
       switch (type) {
-        case 1: v += left; break;
-        case 2: v += up; break;
-        case 3: v += (left + up) >> 1; break;
+        case 1:
+          v += left;
+          break;
+        case 2:
+          v += up;
+          break;
+        case 3:
+          v += (left + up) >> 1;
+          break;
         case 4: {
           const p = left + up - upLeft;
           const pa = Math.abs(p - left);
@@ -158,7 +172,14 @@ const asciiHexDecode = (data: Uint8Array): Uint8Array => {
   let hi = -1;
   for (const c of data) {
     if (c === 0x3e) break;
-    const v = c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 0x37 : c >= 0x61 && c <= 0x66 ? c - 0x57 : -1;
+    const v =
+      c >= 0x30 && c <= 0x39
+        ? c - 0x30
+        : c >= 0x41 && c <= 0x46
+          ? c - 0x37
+          : c >= 0x61 && c <= 0x66
+            ? c - 0x57
+            : -1;
     if (v < 0) continue;
     if (hi < 0) hi = v;
     else {
@@ -224,7 +245,11 @@ const runLengthDecode = (data: Uint8Array): Uint8Array => {
 // ============================================================================
 
 /** Apply one named filter. */
-export const applyFilter = (name: string, data: Uint8Array, parms: PdfDict | undefined): Uint8Array => {
+export const applyFilter = (
+  name: string,
+  data: Uint8Array,
+  parms: PdfDict | undefined,
+): Uint8Array => {
   switch (name) {
     case "FlateDecode":
     case "Fl":
@@ -262,11 +287,18 @@ export interface Decoded {
 export const decodeFilters = (
   dict: PdfDict,
   data: Uint8Array,
-  resolve: (o: PdfObject | undefined) => PdfObject | undefined = (o) => o
+  resolve: (o: PdfObject | undefined) => PdfObject | undefined = (o) => o,
 ): Decoded => {
   const filter = resolve(dict.entries.get("Filter") ?? dict.entries.get("F"));
   const parmsObj = resolve(dict.entries.get("DecodeParms") ?? dict.entries.get("DP"));
-  const names = isName(filter) ? [filter.name] : isArray(filter) ? filter.items.map((f) => resolve(f)).filter((n): n is PdfName => isName(n)).map((n) => n.name) : [];
+  const names = isName(filter)
+    ? [filter.name]
+    : isArray(filter)
+      ? filter.items
+          .map((f) => resolve(f))
+          .filter((n): n is PdfName => isName(n))
+          .map((n) => n.name)
+      : [];
   const parms = isArray(parmsObj) ? parmsObj.items.map((p) => resolve(p)) : [parmsObj];
   let out = data;
   for (let i = 0; i < names.length; i++) {

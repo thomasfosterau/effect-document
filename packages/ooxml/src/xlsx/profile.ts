@@ -27,5 +27,9 @@ export const Xlsx = defineProfile("xlsx", xlsxFeatures);
 export type XlsxFeature = FeaturesOf<typeof Xlsx>;
 
 /** What the XLSX reader produces. */
-export const XlsxRead = defineProfile("xlsx-read", [...xlsxFeatures, "cell.date", "attr.keyValue"] as const);
+export const XlsxRead = defineProfile("xlsx-read", [
+  ...xlsxFeatures,
+  "cell.date",
+  "attr.keyValue",
+] as const);
 export type XlsxReadFeature = FeaturesOf<typeof XlsxRead>;

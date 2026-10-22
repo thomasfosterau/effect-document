@@ -25,7 +25,7 @@ import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 export const encodeXstring = (s: string): string =>
   s.replace(
     /_(?=x[0-9A-Fa-f]{4}_)|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
-    (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`
+    (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`,
   );
 
 /** Escape and ST_Xstring-encode text for a SpreadsheetML element. */
@@ -64,7 +64,7 @@ export class SharedStrings {
  */
 export const cellToSpreadsheetMl = (
   c: SheetCell,
-  sharedStrings: SharedStrings
+  sharedStrings: SharedStrings,
 ): { readonly type: string | null; readonly inner: string } | null => {
   switch (c._tag) {
     case "CellBlank":
@@ -107,7 +107,7 @@ export const cellToSpreadsheetMl = (
 export const decodeXstring = (s: string): string =>
   s.includes("_x")
     ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) =>
-        String.fromCharCode(Number.parseInt(hex, 16))
+        String.fromCharCode(Number.parseInt(hex, 16)),
       )
     : s;
 
@@ -139,7 +139,7 @@ export const collectText = (element: XmlElement): string => {
 export const spreadsheetMlToCell = (
   c: XmlElement,
   sharedStrings: ReadonlyArray<string>,
-  formula?: string
+  formula?: string,
 ): SheetCell => {
   const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
@@ -150,7 +150,7 @@ export const spreadsheetMlToCell = (
   if (f !== undefined) {
     return cell.formula(
       formula ?? decodeXstring(f.text),
-      v === undefined ? undefined : decodeXstring(v.text)
+      v === undefined ? undefined : decodeXstring(v.text),
     );
   }
 

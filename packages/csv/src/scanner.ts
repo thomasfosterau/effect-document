@@ -9,7 +9,10 @@
  */
 
 import {
-  ParseError as SyntaxError, ParserStream, Parser, Token,
+  ParseError as SyntaxError,
+  ParserStream,
+  Parser,
+  Token,
 } from "@thomasfosterau/effect-parse";
 import { Effect, Result, Stream, pipe } from "effect";
 import { ParseError } from "@thomasfosterau/effect-document";
@@ -101,17 +104,18 @@ const makeQuoted = ({ wrapper, doubleWrapper }: CsvDialect): Parser.Parser<strin
   const run = Token.takeTill(wrapper[0]! + (doubleWrapper[0] ?? ""), { min: 1 });
   // a lone first character of a multi-character wrapper or escape
   const lone = Parser.preceded(Parser.not(quote), Token.any);
-  const content = doubleWrapper === ""
-    ? concat(Parser.alt(run, lone))
-    : concat(Parser.alt(Parser.as(Token.literal(doubleWrapper), wrapper), run, lone));
+  const content =
+    doubleWrapper === ""
+      ? concat(Parser.alt(run, lone))
+      : concat(Parser.alt(Parser.as(Token.literal(doubleWrapper), wrapper), run, lone));
   return Parser.preceded(
     quote,
     Parser.cut(
       Parser.terminated(
         content,
-        Parser.alt(quote, Parser.failMessage("Unclosed quoted field: expected a closing quote"))
-      )
-    )
+        Parser.alt(quote, Parser.failMessage("Unclosed quoted field: expected a closing quote")),
+      ),
+    ),
   ).pipe(Parser.context("quoted field"));
 };
 
@@ -128,21 +132,22 @@ const leadingSpace = (separator: string): Parser.Parser<string> =>
 const makeField = (dialect: CsvDialect, options: CsvScanOptions): Parser.Parser<string> => {
   const { separator, wrapper } = dialect;
   const trim = !!options.trimWhitespace;
-  const trimmed = (field: Parser.Parser<string>) => (trim ? Parser.map(field, (f) => f.trim()) : field);
+  const trimmed = (field: Parser.Parser<string>) =>
+    trim ? Parser.map(field, (f) => f.trim()) : field;
   if (wrapper === "") return trimmed(makeText(separator));
   const quoted = makeQuoted(dialect);
   if (options.quoteAnywhere) {
     // quoted and unquoted segments mix freely
     const unquoted = Parser.alt(
       makeTextPart(separator, wrapper[0]!),
-      Parser.preceded(Parser.not(Token.literal(wrapper)), Token.oneOf(wrapper[0]!))
+      Parser.preceded(Parser.not(Token.literal(wrapper)), Token.oneOf(wrapper[0]!)),
     );
     return trimmed(concat(Parser.alt(quoted, unquoted)));
   }
   const text = makeText(separator);
   const quotedField = Parser.map(
     Parser.seq(quoted, text),
-    ([value, rest]) => value + (trim ? rest.trimEnd() : rest)
+    ([value, rest]) => value + (trim ? rest.trimEnd() : rest),
   );
   if (!trim) return Parser.alt(quotedField, text);
   return Parser.preceded(leadingSpace(separator), Parser.alt(quotedField, trimmed(text)));
@@ -155,11 +160,11 @@ const makeField = (dialect: CsvDialect, options: CsvScanOptions): Parser.Parser<
  */
 const makeRow = (
   dialect: CsvDialect,
-  options: CsvScanOptions
+  options: CsvScanOptions,
 ): Parser.Parser<ReadonlyArray<string> | null> => {
   const record: Parser.Parser<ReadonlyArray<string> | null> = Parser.separated(
     makeField(dialect, options),
-    Token.literal(dialect.separator)
+    Token.literal(dialect.separator),
   );
   const skipped: Array<Parser.Parser<null>> = [];
   if (options.filterEmpty) {
@@ -169,13 +174,13 @@ const makeRow = (
     skipped.push(
       Parser.as(
         Parser.seq(blanks, Token.literal(options.lineCommentMarker), Token.takeTill("\r\n")),
-        null
-      )
+        null,
+      ),
     );
   }
   return Parser.preceded(
     Parser.not(Parser.eof),
-    Parser.terminated(Parser.alt(...skipped, record), endOfLine)
+    Parser.terminated(Parser.alt(...skipped, record), endOfLine),
   );
 };
 
@@ -184,7 +189,10 @@ const skipLines = (n: number): Parser.Parser<unknown> =>
   Parser.repeat(Parser.seq(Token.takeTill("\r\n"), endOfLine), n);
 
 /** The 0-based row and column of `offset`, counting CRLF, LF and bare CR as line breaks. */
-const positionAt = (text: string, offset: number): { readonly row: number; readonly column: number } => {
+const positionAt = (
+  text: string,
+  offset: number,
+): { readonly row: number; readonly column: number } => {
   let row = 0;
   let lineStart = 0;
   for (let i = 0; i < offset; i++) {
@@ -244,7 +252,7 @@ const columnCountError = (row: number, actual: number, expected: number): ParseE
 
 const splitHeaders = (
   records: ReadonlyArray<Located>,
-  options: CsvScanOptions
+  options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
   if (records.length === 0) return Effect.succeed({ headers: null, rows: [] });
   const dropFirst = !!options.treatFirstRowAsHeader;
@@ -271,8 +279,13 @@ const maxCachedParsers = 32;
 
 const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser => {
   const key = JSON.stringify([
-    dialect.separator, dialect.wrapper, dialect.doubleWrapper, options.skipRows ?? 0,
-    !!options.filterEmpty, !!options.trimWhitespace, options.lineCommentMarker ?? "",
+    dialect.separator,
+    dialect.wrapper,
+    dialect.doubleWrapper,
+    options.skipRows ?? 0,
+    !!options.filterEmpty,
+    !!options.trimWhitespace,
+    options.lineCommentMarker ?? "",
     !!options.quoteAnywhere,
   ]);
   let parser = tableParsers.get(key);
@@ -280,10 +293,11 @@ const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser 
     parser = Parser.compile(
       Parser.preceded(
         skipLines(options.skipRows ?? 0),
-        Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options)))
-      )
+        Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options))),
+      ),
     );
-    if (tableParsers.size >= maxCachedParsers) tableParsers.delete(tableParsers.keys().next().value!);
+    if (tableParsers.size >= maxCachedParsers)
+      tableParsers.delete(tableParsers.keys().next().value!);
   } else {
     tableParsers.delete(key);
   }
@@ -298,7 +312,7 @@ const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser 
 export const scanCsv = (
   text: string,
   dialect: CsvDialect = StandardDialect,
-  options?: CsvScanOptions
+  options?: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
   const opts = defaults(options);
   const source = stripBom(text);
@@ -308,7 +322,12 @@ export const scanCsv = (
   for (const [offset, fields] of result.success) {
     if (fields === null) continue;
     // counted only when a column-count error reports it
-    records.push({ fields, get row() { return positionAt(source, offset).row; } });
+    records.push({
+      fields,
+      get row() {
+        return positionAt(source, offset).row;
+      },
+    });
   }
   return splitHeaders(records, opts);
 };
@@ -323,37 +342,46 @@ interface HeaderState {
 
 /** Drop a leading byte order mark from a stream of text chunks. */
 const dropBom = <E, R>(chunks: Stream.Stream<string, E, R>): Stream.Stream<string, E, R> =>
-  Stream.mapAccum(chunks, () => true, (first, chunk) =>
-    !first || chunk === "" ? [first, [chunk]] as const : [false, [stripBom(chunk)]] as const
+  Stream.mapAccum(
+    chunks,
+    () => true,
+    (first, chunk) =>
+      !first || chunk === "" ? ([first, [chunk]] as const) : ([false, [stripBom(chunk)]] as const),
   );
 
 /**
  * Drop the first `n` physical lines (ended by CRLF, LF or a bare CR) from a
  * stream of text chunks. A CRLF may be split across chunks.
  */
-const dropLines = <E, R>(n: number) => (chunks: Stream.Stream<string, E, R>): Stream.Stream<string, E, R> =>
-  n <= 0
-    ? chunks
-    : Stream.mapAccum(chunks, () => ({ remaining: n, afterCr: false }), (state, chunk) => {
-        if (state.remaining === 0 && !state.afterCr) return [state, [chunk]] as const;
-        if (chunk === "") return [state, []] as const;
-        let remaining = state.remaining;
-        let afterCr = false;
-        // an LF just after a CR belongs to the same line break
-        let i = state.afterCr && chunk.charCodeAt(0) === 10 ? 1 : 0;
-        while (remaining > 0 && i < chunk.length) {
-          const c = chunk.charCodeAt(i++);
-          if (c === 10) {
-            remaining--;
-          } else if (c === 13) {
-            remaining--;
-            if (i === chunk.length) afterCr = true;
-            else if (chunk.charCodeAt(i) === 10) i++;
-          }
-        }
-        const rest = remaining > 0 ? "" : chunk.slice(i);
-        return [{ remaining, afterCr }, rest === "" ? [] : [rest]] as const;
-      });
+const dropLines =
+  <E, R>(n: number) =>
+  (chunks: Stream.Stream<string, E, R>): Stream.Stream<string, E, R> =>
+    n <= 0
+      ? chunks
+      : Stream.mapAccum(
+          chunks,
+          () => ({ remaining: n, afterCr: false }),
+          (state, chunk) => {
+            if (state.remaining === 0 && !state.afterCr) return [state, [chunk]] as const;
+            if (chunk === "") return [state, []] as const;
+            let remaining = state.remaining;
+            let afterCr = false;
+            // an LF just after a CR belongs to the same line break
+            let i = state.afterCr && chunk.charCodeAt(0) === 10 ? 1 : 0;
+            while (remaining > 0 && i < chunk.length) {
+              const c = chunk.charCodeAt(i++);
+              if (c === 10) {
+                remaining--;
+              } else if (c === 13) {
+                remaining--;
+                if (i === chunk.length) afterCr = true;
+                else if (chunk.charCodeAt(i) === 10) i++;
+              }
+            }
+            const rest = remaining > 0 ? "" : chunk.slice(i);
+            return [{ remaining, afterCr }, rest === "" ? [] : [rest]] as const;
+          },
+        );
 
 /**
  * Scan a stream of CSV text chunks into data rows, emitting each row as soon as
@@ -364,7 +392,7 @@ const dropLines = <E, R>(n: number) => (chunks: Stream.Stream<string, E, R>): St
 export const scanCsvStream = <E, R>(
   chunks: Stream.Stream<string, E, R>,
   dialect: CsvDialect = StandardDialect,
-  options?: CsvScanOptions
+  options?: CsvScanOptions,
 ): Stream.Stream<ReadonlyArray<string>, E | ParseError, R> =>
   Stream.suspend(() => {
     const opts = defaults(options);
@@ -382,12 +410,20 @@ export const scanCsvStream = <E, R>(
         return { row, fields };
       }),
       Stream.mapError((e) =>
-        SyntaxError.isParseError(e) ? fromSyntaxError(e as SyntaxError.ParseError, nextRow) : e as E
+        SyntaxError.isParseError(e)
+          ? fromSyntaxError(e as SyntaxError.ParseError, nextRow)
+          : (e as E),
       ),
       Stream.filter((r): r is Located => r.fields !== null),
       Stream.mapAccumEffect(
         (): HeaderState => ({ index: 0, headers: provided, width: provided?.length ?? null }),
-        (state, { row, fields }): Effect.Effect<readonly [HeaderState, ReadonlyArray<ReadonlyArray<string>>], ParseError> => {
+        (
+          state,
+          { row, fields },
+        ): Effect.Effect<
+          readonly [HeaderState, ReadonlyArray<ReadonlyArray<string>>],
+          ParseError
+        > => {
           const index = state.index + 1;
           if (opts.treatFirstRowAsHeader && state.index === 0) {
             const headers = state.headers ?? fields;
@@ -398,7 +434,7 @@ export const scanCsvStream = <E, R>(
             return Effect.fail(columnCountError(row, fields.length, width));
           }
           return Effect.succeed([{ index, headers: state.headers, width }, [fields]] as const);
-        }
-      )
+        },
+      ),
     );
   });

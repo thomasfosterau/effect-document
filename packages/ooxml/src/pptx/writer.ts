@@ -9,14 +9,39 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, bytes, type Content, type Doc, type Inline, makeWriterTag, type Shape, Slide,
-  TextBox, WriteError, type Writer,
+  type Block,
+  bytes,
+  type Content,
+  type Doc,
+  type Inline,
+  makeWriterTag,
+  type Shape,
+  Slide,
+  TextBox,
+  WriteError,
+  type Writer,
 } from "@thomasfosterau/effect-document";
-import { NS_PKG_REL, NS_REL_DOC, XML_DECL, escapeAttr, escapeXml, zipParts } from "../shared/index.ts";
 import {
-  NS_A, NS_P, REL_SLIDE, REL_SLIDE_MASTER, contentTypesXml, rootRelsXml,
-  slideLayoutRelsXml, slideLayoutXml, slideMasterRelsXml, slideMasterXml,
-  slideRelsXml, themeXml,
+  NS_PKG_REL,
+  NS_REL_DOC,
+  XML_DECL,
+  escapeAttr,
+  escapeXml,
+  zipParts,
+} from "../shared/index.ts";
+import {
+  NS_A,
+  NS_P,
+  REL_SLIDE,
+  REL_SLIDE_MASTER,
+  contentTypesXml,
+  rootRelsXml,
+  slideLayoutRelsXml,
+  slideLayoutXml,
+  slideMasterRelsXml,
+  slideMasterXml,
+  slideRelsXml,
+  themeXml,
 } from "./parts.ts";
 import { Pptx, type PptxFeature } from "./profile.ts";
 
@@ -35,14 +60,23 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt): string =>
 
 const inlineToRuns = (n: Inline, f: Fmt): string => {
   switch (n._tag) {
-    case "Str": return aRun(n.text, f);
-    case "Space": case "SoftBreak": return aRun(" ", f);
-    case "LineBreak": return "<a:br/>";
-    case "Emph": return inlineRuns(n.content, { ...f, i: true });
-    case "Strong": return inlineRuns(n.content, { ...f, b: true });
-    case "Underline": return inlineRuns(n.content, { ...f, u: true });
-    case "Strikeout": return inlineRuns(n.content, { ...f, strike: true });
-    default: return "";
+    case "Str":
+      return aRun(n.text, f);
+    case "Space":
+    case "SoftBreak":
+      return aRun(" ", f);
+    case "LineBreak":
+      return "<a:br/>";
+    case "Emph":
+      return inlineRuns(n.content, { ...f, i: true });
+    case "Strong":
+      return inlineRuns(n.content, { ...f, b: true });
+    case "Underline":
+      return inlineRuns(n.content, { ...f, u: true });
+    case "Strikeout":
+      return inlineRuns(n.content, { ...f, strike: true });
+    default:
+      return "";
   }
 };
 
@@ -51,7 +85,7 @@ const aPara = (bullet: string, runs: string, lvl = 0): string =>
 
 const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
   blocks.flatMap((b) =>
-    b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : []
+    b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : [],
   );
 
 const BULLET = '<a:buChar char="&#8226;"/>';
@@ -66,7 +100,8 @@ const MAX_LVL = 8;
  */
 const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
   switch (b._tag) {
-    case "Para": case "Plain":
+    case "Para":
+    case "Plain":
       return aPara("<a:buNone/>", inlineRuns(b.content, {}));
     case "Header":
       return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
@@ -80,7 +115,7 @@ const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
             it
               .filter((x) => x._tag === "BulletList" || x._tag === "OrderedList")
               .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
-              .join("")
+              .join(""),
         )
         .join("");
     }
@@ -102,7 +137,7 @@ const shapeXml = (shape: Shape, idx: number): string => {
     isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
   const paras =
     content.map((b) => blockToParas(b, 0, inTitle)).join("") ||
-    '<a:p><a:pPr><a:buNone/></a:pPr></a:p>';
+    "<a:p><a:pPr><a:buNone/></a:pPr></a:p>";
   return (
     `<p:sp>` +
     `<p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr${txBox}/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
@@ -127,7 +162,10 @@ const presentationXml = (slideCount: number): string =>
   `<p:presentation xmlns:p="${NS_P}" xmlns:r="${NS_REL_DOC}" xmlns:a="${NS_A}">` +
   `<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rIdMaster"/></p:sldMasterIdLst>` +
   `<p:sldIdLst>` +
-  Array.from({ length: slideCount }, (_, i) => `<p:sldId id="${256 + i}" r:id="rIdSlide${i + 1}"/>`).join("") +
+  Array.from(
+    { length: slideCount },
+    (_, i) => `<p:sldId id="${256 + i}" r:id="rIdSlide${i + 1}"/>`,
+  ).join("") +
   `</p:sldIdLst>` +
   `<p:sldSz cx="9144000" cy="6858000" type="screen4x3"/><p:notesSz cx="6858000" cy="9144000"/>` +
   `</p:presentation>`;
@@ -138,7 +176,8 @@ const presentationRelsXml = (slideCount: number): string =>
   `<Relationship Id="rIdMaster" Type="${REL_SLIDE_MASTER}" Target="slideMasters/slideMaster1.xml"/>` +
   Array.from(
     { length: slideCount },
-    (_, i) => `<Relationship Id="rIdSlide${i + 1}" Type="${REL_SLIDE}" Target="slides/slide${i + 1}.xml"/>`
+    (_, i) =>
+      `<Relationship Id="rIdSlide${i + 1}" Type="${REL_SLIDE}" Target="slides/slide${i + 1}.xml"/>`,
   ).join("") +
   `</Relationships>`;
 
@@ -181,7 +220,11 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
         return bytes(zipParts(files, level));
       },
       catch: (cause) =>
-        new WriteError({ format: "pptx", reason: `Failed to generate pptx: ${String(cause)}`, cause }),
+        new WriteError({
+          format: "pptx",
+          reason: `Failed to generate pptx: ${String(cause)}`,
+          cause,
+        }),
     });
   return { format: "pptx", profile: Pptx, write };
 };

@@ -1,7 +1,16 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
-  cell, document, header, para, str, strong, worksheet, blocksToText,
-  SheetColumn, SheetRow, Worksheet,
+  cell,
+  document,
+  header,
+  para,
+  str,
+  strong,
+  worksheet,
+  blocksToText,
+  SheetColumn,
+  SheetRow,
+  Worksheet,
 } from "../../src/schema/index.ts";
 import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.ts";
 
@@ -38,7 +47,7 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
     // the loss report names exactly what changed
     const features = loss.entries.map((e) => e.feature);
     expect(features).toEqual(
-      expect.arrayContaining(["sheet.multiple", "cell.date", "cell.formula"])
+      expect.arrayContaining(["sheet.multiple", "cell.date", "cell.formula"]),
     );
     expect(loss.isLossless).toBe(false);
 
@@ -74,7 +83,10 @@ describe("narrow: prose -> markdown subset", () => {
 describe("narrow: column-level styling", () => {
   // a profile allowing column metadata but not styling
   const Columns = defineProfile("columns", [
-    "sheet.worksheet", "sheet.columns", "cell.text", "cell.number",
+    "sheet.worksheet",
+    "sheet.columns",
+    "cell.text",
+    "cell.number",
   ] as const);
 
   test("strips per-column styles the target can't represent (and reports it)", () => {

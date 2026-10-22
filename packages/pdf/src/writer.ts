@@ -18,10 +18,24 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, bytes, type Content, type Doc, type Inline, makeWriterTag, WriteError, type Writer,
+  type Block,
+  bytes,
+  type Content,
+  type Doc,
+  type Inline,
+  makeWriterTag,
+  WriteError,
+  type Writer,
 } from "@thomasfosterau/effect-document";
 import {
-  type PdfObject, type PdfRef, latin1ToBytes, pdfArray, pdfDict, pdfName, pdfStream, pdfTextString,
+  type PdfObject,
+  type PdfRef,
+  latin1ToBytes,
+  pdfArray,
+  pdfDict,
+  pdfName,
+  pdfStream,
+  pdfTextString,
 } from "./cos/objects.ts";
 import { PdfBuilder, fileId, flateStream } from "./cos/serialize.ts";
 import { type StandardFont, baseEncoding, standardWidths, winAnsiCode } from "./text/encodings.ts";
@@ -59,7 +73,14 @@ interface Style {
   readonly url: string | undefined;
 }
 
-const PLAIN: Style = { bold: false, italic: false, mono: false, underline: false, strike: false, url: undefined };
+const PLAIN: Style = {
+  bold: false,
+  italic: false,
+  mono: false,
+  underline: false,
+  strike: false,
+  url: undefined,
+};
 
 const fontOf = (s: Pick<Style, "bold" | "italic" | "mono">): StandardFont => {
   const family = s.mono ? "Courier" : "Helvetica";
@@ -102,19 +123,41 @@ interface Piece {
 }
 
 /** Flatten inlines into styled text pieces; `null` marks a hard line break. */
-const flatten = (inlines: ReadonlyArray<Inline>, style: Style, out: Array<Piece | null> = []): Array<Piece | null> => {
+const flatten = (
+  inlines: ReadonlyArray<Inline>,
+  style: Style,
+  out: Array<Piece | null> = [],
+): Array<Piece | null> => {
   for (const n of inlines) {
     switch (n._tag) {
-      case "Str": out.push({ text: n.text, style }); break;
+      case "Str":
+        out.push({ text: n.text, style });
+        break;
       case "Space":
-      case "SoftBreak": out.push({ text: " ", style }); break;
-      case "LineBreak": out.push(null); break;
-      case "Emph": flatten(n.content, { ...style, italic: true }, out); break;
-      case "Strong": flatten(n.content, { ...style, bold: true }, out); break;
-      case "Underline": flatten(n.content, { ...style, underline: true }, out); break;
-      case "Strikeout": flatten(n.content, { ...style, strike: true }, out); break;
-      case "Code": out.push({ text: n.text, style: { ...style, mono: true } }); break;
-      case "Link": flatten(n.content, { ...style, url: n.target.url }, out); break;
+      case "SoftBreak":
+        out.push({ text: " ", style });
+        break;
+      case "LineBreak":
+        out.push(null);
+        break;
+      case "Emph":
+        flatten(n.content, { ...style, italic: true }, out);
+        break;
+      case "Strong":
+        flatten(n.content, { ...style, bold: true }, out);
+        break;
+      case "Underline":
+        flatten(n.content, { ...style, underline: true }, out);
+        break;
+      case "Strikeout":
+        flatten(n.content, { ...style, strike: true }, out);
+        break;
+      case "Code":
+        out.push({ text: n.text, style: { ...style, mono: true } });
+        break;
+      case "Link":
+        flatten(n.content, { ...style, url: n.target.url }, out);
+        break;
       default:
         // outside the PDF profile; narrowing removes these before we get here
         break;
@@ -137,7 +180,11 @@ interface LaidLine {
 }
 
 /** Break styled pieces into lines no wider than `maxWidth`. */
-const breakLines = (pieces: ReadonlyArray<Piece | null>, size: number, maxWidth: number): LaidLine[] => {
+const breakLines = (
+  pieces: ReadonlyArray<Piece | null>,
+  size: number,
+  maxWidth: number,
+): LaidLine[] => {
   // tokens: words and spaces, each in one style
   type Tok = { text: string; style: Style; space: boolean } | null;
   const toks: Tok[] = [];
@@ -157,7 +204,8 @@ const breakLines = (pieces: ReadonlyArray<Piece | null>, size: number, maxWidth:
   const push = (text: string, style: Style): void => {
     const width = measure(text, fontOf(style), size);
     const last = segs[segs.length - 1];
-    if (last !== undefined && last.style === style) segs[segs.length - 1] = { ...last, text: last.text + text, width: last.width + width };
+    if (last !== undefined && last.style === style)
+      segs[segs.length - 1] = { ...last, text: last.text + text, width: last.width + width };
     else segs.push({ text, style, x, width });
     x += width;
   };
@@ -283,18 +331,33 @@ class Typesetter {
   }
 
   /** Set laid-out lines at a left offset, with a line height. */
-  lines(lines: ReadonlyArray<LaidLine>, left: number, size: number, lineHeight: number, marker?: { text: string; x: number }): void {
+  lines(
+    lines: ReadonlyArray<LaidLine>,
+    left: number,
+    size: number,
+    lineHeight: number,
+    marker?: { text: string; x: number },
+  ): void {
     const ascent = size * 0.75;
     lines.forEach((line, i) => {
       this.need(lineHeight);
       const baseline = this.y - ascent - (lineHeight - size) / 2;
-      if (i === 0 && marker !== undefined) this.text(marker.text, PLAIN, size, this.margin + marker.x, baseline);
-      for (const seg of line.segments) this.text(seg.text, seg.style, size, this.margin + left + seg.x, baseline, seg.width);
+      if (i === 0 && marker !== undefined)
+        this.text(marker.text, PLAIN, size, this.margin + marker.x, baseline);
+      for (const seg of line.segments)
+        this.text(seg.text, seg.style, size, this.margin + left + seg.x, baseline, seg.width);
       this.y -= lineHeight;
     });
   }
 
-  private text(text: string, style: Style, size: number, x: number, y: number, width?: number): void {
+  private text(
+    text: string,
+    style: Style,
+    size: number,
+    x: number,
+    y: number,
+    width?: number,
+  ): void {
     if (text === "") return;
     const font = fontOf(style);
     this.fonts.add(font);
@@ -308,14 +371,17 @@ class Typesetter {
     };
     if (style.underline) rule(-size * 0.12);
     if (style.strike) rule(size * 0.3);
-    if (style.url !== undefined) this.page.links.push({ rect: [x, y - size * 0.22, x + w, y + size * 0.8], url: style.url });
+    if (style.url !== undefined)
+      this.page.links.push({ rect: [x, y - size * 0.22, x + w, y + size * 0.8], url: style.url });
   }
 
   /** A horizontal rule across the text width. */
   rule(left: number): void {
     this.need(this.body);
     const y = this.y - this.body / 2;
-    this.page.ops.push(`0.5 w ${num(this.margin + left)} ${num(y)} m ${num(this.width - this.margin)} ${num(y)} l S`);
+    this.page.ops.push(
+      `0.5 w ${num(this.margin + left)} ${num(y)} m ${num(this.width - this.margin)} ${num(y)} l S`,
+    );
     this.y -= this.body;
   }
 
@@ -332,7 +398,12 @@ class Typesetter {
 const fontKey = (font: StandardFont): string => "F" + font.replace(/[^A-Za-z]/g, "");
 
 /** Lay out a sequence of blocks. */
-const layoutBlocks = (ts: Typesetter, blocks: ReadonlyArray<Block>, left: number, tight = false): void => {
+const layoutBlocks = (
+  ts: Typesetter,
+  blocks: ReadonlyArray<Block>,
+  left: number,
+  tight = false,
+): void => {
   const body = ts.body;
   const textWidth = ts.width - 2 * ts.margin - left;
   blocks.forEach((b, i) => {
@@ -341,7 +412,8 @@ const layoutBlocks = (ts: Typesetter, blocks: ReadonlyArray<Block>, left: number
       case "Plain": {
         const lines = breakLines(flatten(b.content, PLAIN), body, textWidth);
         ts.lines(lines, left, body, body * 1.35);
-        if (!tight || i < blocks.length - 1) ts.space(b._tag === "Para" ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
+        if (!tight || i < blocks.length - 1)
+          ts.space(b._tag === "Para" ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
         break;
       }
       case "Header": {
@@ -364,7 +436,17 @@ const layoutBlocks = (ts: Typesetter, blocks: ReadonlyArray<Block>, left: number
             const indent = chunk.length - chunk.trimStart().length;
             const text = chunk.trimStart();
             out.push({
-              segments: text === "" ? [] : [{ text, style: { ...PLAIN, mono: true }, x: indent * charWidth, width: text.length * charWidth }],
+              segments:
+                text === ""
+                  ? []
+                  : [
+                      {
+                        text,
+                        style: { ...PLAIN, mono: true },
+                        x: indent * charWidth,
+                        width: text.length * charWidth,
+                      },
+                    ],
               width: chunk.length * charWidth,
             });
             if (raw.length === 0) break;
@@ -385,7 +467,11 @@ const layoutBlocks = (ts: Typesetter, blocks: ReadonlyArray<Block>, left: number
               ts.lines(lines, left + indent, body, body * 1.35, { text: marker, x: left + 4 });
               ts.space(body * 0.15);
             } else {
-              if (c === 0) ts.lines([{ segments: [], width: 0 }], left + indent, body, body * 1.35, { text: marker, x: left + 4 });
+              if (c === 0)
+                ts.lines([{ segments: [], width: 0 }], left + indent, body, body * 1.35, {
+                  text: marker,
+                  x: left + 4,
+                });
               layoutBlocks(ts, [child], left + indent, true);
             }
           });
@@ -422,7 +508,8 @@ const metaString = (meta: Record<string, unknown>, key: string): PdfObject | und
 
 /** Render a PDF-profile document to PDF bytes. */
 export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}): Uint8Array => {
-  const [width, height] = typeof options.pageSize === "object" ? options.pageSize : PAGE_SIZES[options.pageSize ?? "a4"];
+  const [width, height] =
+    typeof options.pageSize === "object" ? options.pageSize : PAGE_SIZES[options.pageSize ?? "a4"];
   const ts = new Typesetter(width, height, options.margin ?? 72, options.fontSize ?? 11);
   layoutBlocks(ts, doc.blocks, 0);
 
@@ -431,48 +518,63 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
   const pagesRef = pdf.alloc();
   const fontRefs: Record<string, PdfRef> = {};
   for (const font of [...ts.fonts].sort()) {
-    fontRefs[fontKey(font)] = pdf.add(pdfDict({
-      Type: pdfName("Font"),
-      Subtype: pdfName("Type1"),
-      BaseFont: pdfName(font),
-      Encoding: pdfName("WinAnsiEncoding"),
-    }));
+    fontRefs[fontKey(font)] = pdf.add(
+      pdfDict({
+        Type: pdfName("Font"),
+        Subtype: pdfName("Type1"),
+        BaseFont: pdfName(font),
+        Encoding: pdfName("WinAnsiEncoding"),
+      }),
+    );
   }
-  const resources = pdfDict({ Font: pdfDict(fontRefs), ProcSet: pdfArray([pdfName("PDF"), pdfName("Text")]) });
+  const resources = pdfDict({
+    Font: pdfDict(fontRefs),
+    ProcSet: pdfArray([pdfName("PDF"), pdfName("Text")]),
+  });
 
   const kids: PdfRef[] = [];
   for (const page of ts.pages) {
     const content = latin1ToBytes(page.ops.join("\n"));
-    const contentRef = pdf.add(options.compress === false ? pdfStream(pdfDict(), content) : flateStream(content));
-    const annots = page.links.map(({ rect, url }) =>
-      pdf.add(pdfDict({
-        Type: pdfName("Annot"),
-        Subtype: pdfName("Link"),
-        Rect: pdfArray(rect.map((n) => Math.round(n * 100) / 100)),
-        Border: pdfArray([0, 0, 0]),
-        A: pdfDict({ Type: pdfName("Action"), S: pdfName("URI"), URI: pdfTextString(url) }),
-      }))
+    const contentRef = pdf.add(
+      options.compress === false ? pdfStream(pdfDict(), content) : flateStream(content),
     );
-    kids.push(pdf.add(pdfDict({
-      Type: pdfName("Page"),
-      Parent: pagesRef,
-      MediaBox: pdfArray([0, 0, width, height]),
-      Resources: resources,
-      Contents: contentRef,
-      Annots: annots.length > 0 ? pdfArray(annots) : undefined,
-    })));
+    const annots = page.links.map(({ rect, url }) =>
+      pdf.add(
+        pdfDict({
+          Type: pdfName("Annot"),
+          Subtype: pdfName("Link"),
+          Rect: pdfArray(rect.map((n) => Math.round(n * 100) / 100)),
+          Border: pdfArray([0, 0, 0]),
+          A: pdfDict({ Type: pdfName("Action"), S: pdfName("URI"), URI: pdfTextString(url) }),
+        }),
+      ),
+    );
+    kids.push(
+      pdf.add(
+        pdfDict({
+          Type: pdfName("Page"),
+          Parent: pagesRef,
+          MediaBox: pdfArray([0, 0, width, height]),
+          Resources: resources,
+          Contents: contentRef,
+          Annots: annots.length > 0 ? pdfArray(annots) : undefined,
+        }),
+      ),
+    );
   }
   pdf.set(pagesRef, pdfDict({ Type: pdfName("Pages"), Kids: pdfArray(kids), Count: kids.length }));
   pdf.set(catalogRef, pdfDict({ Type: pdfName("Catalog"), Pages: pagesRef }));
 
   const meta = doc.meta as Record<string, unknown>;
-  const info = pdf.add(pdfDict({
-    Title: metaString(meta, "title"),
-    Author: metaString(meta, "author"),
-    Subject: metaString(meta, "subject"),
-    Keywords: metaString(meta, "keywords"),
-    Producer: pdfTextString("effect-document"),
-  }));
+  const info = pdf.add(
+    pdfDict({
+      Title: metaString(meta, "title"),
+      Author: metaString(meta, "author"),
+      Subject: metaString(meta, "subject"),
+      Keywords: metaString(meta, "keywords"),
+      Producer: pdfTextString("effect-document"),
+    }),
+  );
   const seed = latin1ToBytes(JSON.stringify(meta) + ts.pages.map((p) => p.ops.join("")).join(""));
   return pdf.build({ root: catalogRef, info, extra: { ID: fileId(seed) }, version: "1.7" });
 };
@@ -482,7 +584,12 @@ export const makePdfWriter = (options: PdfWriterOptions = {}): Writer<PdfFeature
   const write = (doc: Doc<PdfFeature>): Effect.Effect<Content, WriteError> =>
     Effect.try({
       try: () => bytes(renderPdf(doc, options)),
-      catch: (cause) => new WriteError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
+      catch: (cause) =>
+        new WriteError({
+          format: "pdf",
+          reason: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
     });
   return { format: "pdf", profile: Pdf, write };
 };

@@ -13,8 +13,15 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Content, type Doc, document, limitNestingDepth, makeReaderTag, type Meta, ParseError,
-  type Reader, trustAs,
+  type Content,
+  type Doc,
+  document,
+  limitNestingDepth,
+  makeReaderTag,
+  type Meta,
+  ParseError,
+  type Reader,
+  trustAs,
 } from "@thomasfosterau/effect-document";
 import { PdfFile } from "./cos/file.ts";
 import { isString, latin1ToBytes } from "./cos/objects.ts";
@@ -28,8 +35,12 @@ export const pdfBytes = (input: Content): Uint8Array =>
   input._tag === "Bytes" ? input.bytes : latin1ToBytes(input.text);
 
 const META_KEYS = [
-  ["Title", "title"], ["Author", "author"], ["Subject", "subject"], ["Keywords", "keywords"],
-  ["Creator", "creator"], ["Producer", "producer"],
+  ["Title", "title"],
+  ["Author", "author"],
+  ["Subject", "subject"],
+  ["Keywords", "keywords"],
+  ["Creator", "creator"],
+  ["Producer", "producer"],
 ] as const;
 
 /** The document information dictionary as metadata. */
@@ -49,17 +60,23 @@ export const readMeta = (file: PdfFile): Meta => {
 export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
   Effect.try({
     try: () => PdfFile.open(pdfBytes(input)),
-    catch: (cause) => new ParseError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
+    catch: (cause) =>
+      new ParseError({
+        format: "pdf",
+        reason: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      }),
   }).pipe(
     Effect.flatMap((file) =>
       file.encrypted
         ? Effect.fail(new ParseError({ format: "pdf", reason: "encrypted PDFs are not supported" }))
-        : Effect.succeed(file)
-    )
+        : Effect.succeed(file),
+    ),
   );
 
 /** The positioned text of every page. */
-export const readPages = (file: PdfFile): PageText[] => file.pages().map((page) => extractPageText(file, page));
+export const readPages = (file: PdfFile): PageText[] =>
+  file.pages().map((page) => extractPageText(file, page));
 
 export interface PdfReaderOptions {
   /**
@@ -76,8 +93,13 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
     Effect.flatMap(openPdf(input), (file) =>
       Effect.try({
         try: () => trustAs<PdfFeature>(document(layoutBlocks(readPages(file)), readMeta(file))),
-        catch: (cause) => new ParseError({ format: "pdf", reason: cause instanceof Error ? cause.message : String(cause), cause }),
-      })
+        catch: (cause) =>
+          new ParseError({
+            format: "pdf",
+            reason: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
+      }),
     ).pipe(Effect.flatMap((doc) => limitNestingDepth("pdf", doc, options?.maxDepth)));
   return { format: "pdf", profile: Pdf, read };
 };

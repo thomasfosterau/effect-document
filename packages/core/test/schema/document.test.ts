@@ -1,8 +1,21 @@
 import { describe, expect, test } from "vite-plus/test";
 import { Effect, Schema } from "effect";
 import {
-  Document, Header, Para, Worksheet, blocksToText, cell, document,
-  header, inlinesToText, para, plainText, str, strong, table, worksheet,
+  Document,
+  Header,
+  Para,
+  Worksheet,
+  blocksToText,
+  cell,
+  document,
+  header,
+  inlinesToText,
+  para,
+  plainText,
+  str,
+  strong,
+  table,
+  worksheet,
 } from "../../src/schema/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -25,7 +38,7 @@ describe("schema constructors", () => {
         [cell.text("alice"), cell.number(30), cell.boolean(true)],
         [cell.text("bob"), cell.number(25), cell.blank()],
       ],
-      ["name", "age", "active"]
+      ["name", "age", "active"],
     );
     expect(ws).toBeInstanceOf(Worksheet);
     // header row + 2 data rows
@@ -52,10 +65,9 @@ describe("text collapse", () => {
 
 describe("JSON round-trip via Schema", () => {
   test("encode then decode is identity (prose)", async () => {
-    const doc = document(
-      [header(2, [str("Hi")]), para([str("body "), strong([str("bold")])])],
-      { title: "t" }
-    );
+    const doc = document([header(2, [str("Hi")]), para([str("body "), strong([str("bold")])])], {
+      title: "t",
+    });
     const encoded = await run(Schema.encodeEffect(Document)(doc));
     // encoded is plain JSON
     expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded as unknown as object);

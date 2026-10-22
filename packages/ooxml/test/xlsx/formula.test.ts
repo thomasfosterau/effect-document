@@ -12,7 +12,7 @@ describe("translateFormula", () => {
 
   test("leaves sheet names, function names, strings and quoted sheets alone", () => {
     expect(translateFormula(`Sheet1!A1+'My A1'!B2+LOG10(C3)+"D4"+Table1[Col]`, 1, 0)).toBe(
-      `Sheet1!A2+'My A1'!B3+LOG10(C4)+"D4"+Table1[Col]`
+      `Sheet1!A2+'My A1'!B3+LOG10(C4)+"D4"+Table1[Col]`,
     );
   });
 

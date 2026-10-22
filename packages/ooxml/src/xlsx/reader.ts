@@ -15,8 +15,18 @@
 
 import { Effect, Layer } from "effect";
 import {
-  cell, type Content, contentToBytes, type Doc, document, makeReaderTag,
-  ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
+  cell,
+  type Content,
+  contentToBytes,
+  type Doc,
+  document,
+  makeReaderTag,
+  ParseError,
+  type Reader,
+  type SheetCell,
+  SheetRow,
+  trustAs,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
 import { parseA1, parseA1Range } from "./a1.ts";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.ts";
@@ -102,13 +112,14 @@ const declaredExtent = (root: XmlElement): { rows: number; columns: number } | n
 const parseWorksheetRows = (
   root: XmlElement,
   sharedStrings: ReadonlyArray<string>,
-  maxCells: number
+  maxCells: number,
 ): WorksheetGrid => {
   const sheetData = findChild(root, "sheetData");
   if (sheetData === undefined) return { _tag: "Grid", rows: [] };
 
   // Rows and cells without an `r` attribute follow the previous one.
-  const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> = [];
+  const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> =
+    [];
   let rowIndex = -1;
   for (const rowEl of findChildren(sheetData, "row")) {
     const rAttr = rowEl.attrs["r"];
@@ -119,7 +130,8 @@ const parseWorksheetRows = (
       const parsed = ref === undefined ? null : parseA1(ref);
       colIndex = parsed === null ? colIndex + 1 : parsed.col;
       const row = parsed === null ? rowIndex : parsed.row;
-      if (Number.isSafeInteger(row) && row >= 0) positioned.push({ el: cellEl, row, col: colIndex });
+      if (Number.isSafeInteger(row) && row >= 0)
+        positioned.push({ el: cellEl, row, col: colIndex });
     }
   }
 
@@ -206,16 +218,21 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const { pkg, workbookPath, relationships } = yield* Effect.try({
         try: () => {
           const pkg = new OpcReader(contentToBytes(input), options?.limits);
-          if (pkg.text("_rels/.rels") === null) throw new Error("Missing required package part: _rels/.rels");
+          if (pkg.text("_rels/.rels") === null)
+            throw new Error("Missing required package part: _rels/.rels");
           const workbookPath = pkg.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
           pkg.expectMainPart(workbookPath, "xlsx", WORKBOOK_CONTENT_TYPES);
-          return { pkg, workbookPath, relationships: pkg.rels(workbookPath).filter((r) => !r.external) };
+          return {
+            pkg,
+            workbookPath,
+            relationships: pkg.rels(workbookPath).filter((r) => !r.external),
+          };
         },
         catch: (cause) => ooxmlParseError("xlsx", cause),
       });
 
       const sharedStringsRel = relationships.find((rel) =>
-        rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX)
+        rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX),
       );
       const sharedStrings: ReadonlyArray<string> =
         sharedStringsRel === undefined
@@ -242,7 +259,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
           const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
           if (kind !== undefined) {
             worksheets.push(
-              new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] })
+              new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] }),
             );
             continue;
           }
@@ -273,7 +290,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             columns: [],
             rows: grid.rows.map((cells) => new SheetRow({ cells })),
             merges: [],
-          })
+          }),
         );
       }
 

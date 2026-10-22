@@ -5,10 +5,37 @@
 
 import { Schema } from "effect";
 import {
-  Block, BulletList, CellBlank, CellBoolean, CellDate, CellError, CellFormula,
-  CellNumber, CellRichText, CellText, CodeBlock, ColSpec, Emph, Header, type Inline, Link,
-  OrderedList, Para, Plain, type SheetCell, SheetRow, Slide, SlideShow,
-  type Shape, Str, Strong, Table, TableCell, TableRow, TextBox, Worksheet,
+  Block,
+  BulletList,
+  CellBlank,
+  CellBoolean,
+  CellDate,
+  CellError,
+  CellFormula,
+  CellNumber,
+  CellRichText,
+  CellText,
+  CodeBlock,
+  ColSpec,
+  Emph,
+  Header,
+  type Inline,
+  Link,
+  OrderedList,
+  Para,
+  Plain,
+  type SheetCell,
+  SheetRow,
+  Slide,
+  SlideShow,
+  type Shape,
+  Str,
+  Strong,
+  Table,
+  TableCell,
+  TableRow,
+  TextBox,
+  Worksheet,
 } from "./ast.ts";
 
 // ============================================================================
@@ -35,11 +62,8 @@ export type DocumentEncoded = Schema.Codec.Encoded<typeof Document>;
 export const str = (text: string): Str => new Str({ text });
 export const emph = (content: ReadonlyArray<Inline>): Emph => new Emph({ content });
 export const strong = (content: ReadonlyArray<Inline>): Strong => new Strong({ content });
-export const link = (
-  content: ReadonlyArray<Inline>,
-  url: string,
-  title?: string
-): Link => new Link({ content, target: { url, title } });
+export const link = (content: ReadonlyArray<Inline>, url: string, title?: string): Link =>
+  new Link({ content, target: { url, title } });
 
 // ============================================================================
 // Constructors - block
@@ -63,22 +87,17 @@ export const table = (options: {
   readonly headers?: ReadonlyArray<string> | undefined;
   readonly rows: ReadonlyArray<ReadonlyArray<ReadonlyArray<Block>>>;
 }): Table => {
-  const colCount = Math.max(
-    options.headers?.length ?? 0,
-    ...options.rows.map((r) => r.length)
-  );
+  const colCount = Math.max(options.headers?.length ?? 0, ...options.rows.map((r) => r.length));
   const head =
     options.headers === undefined
       ? []
       : [
           new TableRow({
-            cells: options.headers.map(
-              (h) => new TableCell({ content: [plainText(h)] })
-            ),
+            cells: options.headers.map((h) => new TableCell({ content: [plainText(h)] })),
           }),
         ];
   const body = options.rows.map(
-    (row) => new TableRow({ cells: row.map((blocks) => new TableCell({ content: blocks })) })
+    (row) => new TableRow({ cells: row.map((blocks) => new TableCell({ content: blocks })) }),
   );
   return new Table({
     caption: options.caption,
@@ -101,8 +120,7 @@ export const cell = {
   date: (value: Date): CellDate => new CellDate({ value }),
   error: (value: string): CellError => new CellError({ value }),
   blank: (): CellBlank => new CellBlank(),
-  formula: (formula: string, result?: string): CellFormula =>
-    new CellFormula({ formula, result }),
+  formula: (formula: string, result?: string): CellFormula => new CellFormula({ formula, result }),
   richText: (runs: ReadonlyArray<Inline>): CellRichText => new CellRichText({ runs }),
 } as const;
 
@@ -110,12 +128,9 @@ export const cell = {
 export const worksheet = (
   name: string,
   rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-  headers?: ReadonlyArray<string>
+  headers?: ReadonlyArray<string>,
 ): Worksheet => {
-  const allRows =
-    headers === undefined
-      ? rows
-      : [headers.map((h) => cell.text(h)), ...rows];
+  const allRows = headers === undefined ? rows : [headers.map((h) => cell.text(h)), ...rows];
   return new Worksheet({
     name,
     columns: [],
@@ -129,22 +144,17 @@ export const worksheet = (
 // ============================================================================
 
 export const textBox = (content: ReadonlyArray<Block>): TextBox => new TextBox({ content });
-export const slide = (
-  shapes: ReadonlyArray<Shape>,
-  notes?: ReadonlyArray<Block>
-): Slide => new Slide({ shapes, notes });
-export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow =>
-  new SlideShow({ slides });
+export const slide = (shapes: ReadonlyArray<Shape>, notes?: ReadonlyArray<Block>): Slide =>
+  new Slide({ shapes, notes });
+export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow => new SlideShow({ slides });
 
 // ============================================================================
 // Document constructor
 // ============================================================================
 
 /** Construct a document from blocks (with optional metadata). */
-export const document = (
-  blocks: ReadonlyArray<Block>,
-  meta: Meta = {}
-): Document => new Document({ meta, blocks });
+export const document = (blocks: ReadonlyArray<Block>, meta: Meta = {}): Document =>
+  new Document({ meta, blocks });
 
 // ============================================================================
 // Text-collapse utilities
@@ -233,12 +243,19 @@ const expandShape = (shape: Shape): TextPart[] => {
       return [{ b: shape.table }];
     case "TextBox":
     case "Placeholder":
-      return joinParts(shape.content.map((b) => [{ b }]), "\n");
+      return joinParts(
+        shape.content.map((b) => [{ b }]),
+        "\n",
+      );
   }
 };
 
 const expandBlock = (block: Block): TextPart[] => {
-  const blocks = (bs: ReadonlyArray<Block>) => joinParts(bs.map((b) => [{ b }]), "\n");
+  const blocks = (bs: ReadonlyArray<Block>) =>
+    joinParts(
+      bs.map((b) => [{ b }]),
+      "\n",
+    );
   switch (block._tag) {
     case "Plain":
     case "Para":
@@ -263,26 +280,39 @@ const expandBlock = (block: Block): TextPart[] => {
           "\n",
           ...joinParts(it.definitions.map(blocks), "\n"),
         ]),
-        "\n"
+        "\n",
       );
     case "HorizontalRule":
       return [""];
     case "Table":
       return joinParts(
         [...block.head, ...block.body, ...block.foot].map((row) =>
-          joinParts(row.cells.map((cl) => blocks(cl.content)), "\t")
+          joinParts(
+            row.cells.map((cl) => blocks(cl.content)),
+            "\t",
+          ),
         ),
-        "\n"
+        "\n",
       );
     case "Worksheet":
       return joinParts(
-        block.rows.map((row) => joinParts(row.cells.map((c) => [{ c }]), "\t")),
-        "\n"
+        block.rows.map((row) =>
+          joinParts(
+            row.cells.map((c) => [{ c }]),
+            "\t",
+          ),
+        ),
+        "\n",
       );
     case "SlideShow":
       return joinParts(
-        block.slides.map((sl) => joinParts(sl.shapes.map((s) => [{ s }]), "\n")),
-        "\n\n"
+        block.slides.map((sl) =>
+          joinParts(
+            sl.shapes.map((s) => [{ s }]),
+            "\n",
+          ),
+        ),
+        "\n\n",
       );
   }
 };
@@ -297,10 +327,13 @@ const collapse = (parts: ReadonlyArray<TextPart>): string => {
       continue;
     }
     const next =
-      "b" in part ? expandBlock(part.b)
-      : "i" in part ? expandInline(part.i)
-      : "s" in part ? expandShape(part.s)
-      : expandCell(part.c);
+      "b" in part
+        ? expandBlock(part.b)
+        : "i" in part
+          ? expandInline(part.i)
+          : "s" in part
+            ? expandShape(part.s)
+            : expandCell(part.c);
     for (let n = next.length - 1; n >= 0; n--) stack.push(next[n]!);
   }
   return out;
@@ -319,4 +352,9 @@ export const shapeToText = (shape: Shape): string => collapse([{ s: shape }]);
 
 /** Collapse a sequence of blocks to plain text (one line per block). */
 export const blocksToText = (blocks: ReadonlyArray<Block>): string =>
-  collapse(joinParts(blocks.map((b) => [{ b }]), "\n"));
+  collapse(
+    joinParts(
+      blocks.map((b) => [{ b }]),
+      "\n",
+    ),
+  );

@@ -112,7 +112,7 @@ export const rootRelsXml = (): string =>
 export const contentTypesXml = (slideCount: number): string => {
   const slides = Array.from(
     { length: slideCount },
-    (_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="${CT_SLIDE}"/>`
+    (_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="${CT_SLIDE}"/>`,
   ).join("");
   return (
     XML_DECL +

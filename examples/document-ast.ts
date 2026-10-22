@@ -6,7 +6,16 @@
 
 import { Effect, Schema } from "effect";
 import {
-  Document, Profiles, cell, document, header, narrow, para, str, strong, worksheet,
+  Document,
+  Profiles,
+  cell,
+  document,
+  header,
+  narrow,
+  para,
+  str,
+  strong,
+  worksheet,
 } from "@thomasfosterau/effect-document";
 
 const program = Effect.gen(function* () {
@@ -16,7 +25,7 @@ const program = Effect.gen(function* () {
       header(1, [str("Quarterly Report")]),
       para([str("Sales were "), strong([str("up 12%")]), str(" this quarter.")]),
     ],
-    { title: "Q2 Report", author: "effect-document" }
+    { title: "Q2 Report", author: "effect-document" },
   );
 
   // --- The whole schema is JSON-serializable via Effect Schema ------------
@@ -38,7 +47,7 @@ const program = Effect.gen(function* () {
         [cell.text("North"), cell.number(42000), cell.date(new Date("2026-06-30"))],
         [cell.text("South"), cell.number(38500), cell.date(new Date("2026-06-30"))],
       ],
-      ["region", "revenue", "as_of"]
+      ["region", "revenue", "as_of"],
     ),
   ]);
 

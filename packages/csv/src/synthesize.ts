@@ -5,7 +5,12 @@
 
 import { Effect } from "effect";
 import {
-  cell, type Doc, document, type FeaturesOf, trustAs, worksheet,
+  cell,
+  type Doc,
+  document,
+  type FeaturesOf,
+  trustAs,
+  worksheet,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 
@@ -45,30 +50,24 @@ class SeedableRng {
 
 const generateRandomContent = (
   lengthRange: readonly [number, number],
-  rng: SeedableRng | null
+  rng: SeedableRng | null,
 ): Effect.Effect<string> =>
   Effect.sync(() => {
-    const chars =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const len = rng
       ? rng.between(lengthRange[0], lengthRange[1])
-      : Math.floor(Math.random() * (lengthRange[1] - lengthRange[0] + 1)) +
-        lengthRange[0];
+      : Math.floor(Math.random() * (lengthRange[1] - lengthRange[0] + 1)) + lengthRange[0];
 
     let result = "";
     for (let i = 0; i < len; i++) {
-      const idx = rng
-        ? rng.between(0, chars.length - 1)
-        : Math.floor(Math.random() * chars.length);
+      const idx = rng ? rng.between(0, chars.length - 1) : Math.floor(Math.random() * chars.length);
       result += chars[idx]!;
     }
     return result;
   });
 
 /** Generate a table of random string data according to the spec. */
-export const synthesizeTable = (
-  spec: SynthesisSpec
-): Effect.Effect<SynthesizedTable, never> =>
+export const synthesizeTable = (spec: SynthesisSpec): Effect.Effect<SynthesizedTable, never> =>
   Effect.gen(function* () {
     const rawLengthRange = spec.fieldLengthRange ?? [5, 20];
     const lower = Math.min(rawLengthRange[0], rawLengthRange[1]);
@@ -84,8 +83,7 @@ export const synthesizeTable = (
 
     const rows: string[][] = [];
     const rawQuantity = spec.quantity;
-    const quantity =
-      Number.isFinite(rawQuantity) && rawQuantity > 0 ? Math.floor(rawQuantity) : 0;
+    const quantity = Number.isFinite(rawQuantity) && rawQuantity > 0 ? Math.floor(rawQuantity) : 0;
 
     for (let rowIdx = 0; rowIdx < quantity; rowIdx++) {
       const row: string[] = [];
@@ -103,7 +101,7 @@ export const synthesizeTable = (
  */
 export const synthesizeDocument = (
   spec: SynthesisSpec,
-  sheetName: string = "Sheet1"
+  sheetName: string = "Sheet1",
 ): Effect.Effect<Doc<CsvFeature>, never> =>
   Effect.map(synthesizeTable(spec), ({ headers, rows }) =>
     trustAs<CsvFeature>(
@@ -111,8 +109,8 @@ export const synthesizeDocument = (
         worksheet(
           sheetName,
           rows.map((row) => row.map((v) => cell.text(v))),
-          headers
+          headers,
         ),
-      ])
-    )
+      ]),
+    ),
   );

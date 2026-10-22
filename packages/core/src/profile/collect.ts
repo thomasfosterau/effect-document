@@ -6,14 +6,18 @@
 
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
-  type Block, type Inline, type SheetCell, type Shape, type Table, type Worksheet,
+  type Block,
+  type Inline,
+  type SheetCell,
+  type Shape,
+  type Table,
+  type Worksheet,
   type SlideShow,
 } from "../schema/ast.ts";
 import { Document } from "../schema/document.ts";
 import { type Feature, featureOfTag } from "../schema/feature.ts";
 
-const attrOf = (n: unknown): Attributes | undefined =>
-  (n as { readonly attr?: Attributes }).attr;
+const attrOf = (n: unknown): Attributes | undefined => (n as { readonly attr?: Attributes }).attr;
 
 const addTag = (tag: string, acc: Set<Feature>): void => {
   const f = featureOfTag(tag);
@@ -46,9 +50,16 @@ const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
   addTag(n._tag, acc);
   addAttr(n, acc);
   switch (n._tag) {
-    case "Emph": case "Strong": case "Underline": case "Strikeout":
-    case "Superscript": case "Subscript": case "SmallCaps": case "Quoted":
-    case "Link": case "Span":
+    case "Emph":
+    case "Strong":
+    case "Underline":
+    case "Strikeout":
+    case "Superscript":
+    case "Subscript":
+    case "SmallCaps":
+    case "Quoted":
+    case "Link":
+    case "Span":
       pushInlines(n.content, stack);
       break;
     case "Cite":
@@ -124,22 +135,28 @@ const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
   addTag(b._tag, acc);
   addAttr(b, acc);
   switch (b._tag) {
-    case "Plain": case "Para": case "Header":
+    case "Plain":
+    case "Para":
+    case "Header":
       pushInlines(b.content, stack);
       break;
     case "LineBlock":
       for (const line of b.lines) pushInlines(line, stack);
       break;
-    case "CodeBlock": case "RawBlock": case "HorizontalRule":
+    case "CodeBlock":
+    case "RawBlock":
+    case "HorizontalRule":
       break;
-    case "BlockQuote": case "Div":
+    case "BlockQuote":
+    case "Div":
       pushBlocks(b.content, stack);
       break;
     case "Figure":
       pushBlocks(b.caption, stack);
       pushBlocks(b.content, stack);
       break;
-    case "OrderedList": case "BulletList":
+    case "OrderedList":
+    case "BulletList":
       for (const item of b.items) pushBlocks(item, stack);
       break;
     case "DefinitionList":
@@ -172,19 +189,22 @@ export const collectFeatures = (doc: Document): Set<Feature> => {
   while (stack.length > 0) {
     const work = stack.pop()!;
     switch (work.k) {
-      case "block": walkBlock(work.n, acc, stack); break;
-      case "inline": walkInline(work.n, acc, stack); break;
-      case "shape": walkShape(work.n, acc, stack); break;
+      case "block":
+        walkBlock(work.n, acc, stack);
+        break;
+      case "inline":
+        walkInline(work.n, acc, stack);
+        break;
+      case "shape":
+        walkShape(work.n, acc, stack);
+        break;
     }
   }
   return acc;
 };
 
 /** Features the document uses that are not in `allowed`. */
-export const unsupportedFeatures = (
-  doc: Document,
-  allowed: ReadonlySet<Feature>
-): Feature[] => {
+export const unsupportedFeatures = (doc: Document, allowed: ReadonlySet<Feature>): Feature[] => {
   const out: Feature[] = [];
   for (const f of collectFeatures(doc)) if (!allowed.has(f)) out.push(f);
   return out;

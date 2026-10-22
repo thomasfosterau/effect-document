@@ -10,7 +10,12 @@ import { OpcError, XmlPartError } from "./opc.ts";
 export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
   if (cause instanceof XmlPartError) {
     const { line, column } = cause.failure.position;
-    return new ParseError({ format, reason: cause.message, position: { row: line, column }, cause });
+    return new ParseError({
+      format,
+      reason: cause.message,
+      position: { row: line, column },
+      cause,
+    });
   }
   if (cause instanceof OpcError) {
     return new ParseError({

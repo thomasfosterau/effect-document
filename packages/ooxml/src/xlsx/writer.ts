@@ -8,7 +8,12 @@
 
 import { Effect, Layer } from "effect";
 import {
-  bytes, type Content, type Doc, makeWriterTag, type Worksheet, WriteError,
+  bytes,
+  type Content,
+  type Doc,
+  makeWriterTag,
+  type Worksheet,
+  WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
 import { Xlsx, type XlsxFeature } from "./profile.ts";
@@ -17,13 +22,10 @@ import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.t
 import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
 
-
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
-const CT_WORKBOOK =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
-const CT_WORKSHEET =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+const CT_WORKBOOK = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
+const CT_WORKSHEET = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 const CT_SHARED_STRINGS =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
 const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
@@ -85,7 +87,7 @@ const contentTypesXml = (sheetCount: number): string => {
   const overrides = Array.from(
     { length: sheetCount },
     (_, i) =>
-      `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`
+      `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`,
   ).join("");
   return (
     XML_DECL +
@@ -139,7 +141,7 @@ const workbookRelsXml = (sheetCount: number): string => {
   const sheetRels = Array.from(
     { length: sheetCount },
     (_, i) =>
-      `<Relationship Id="rId${i + 1}" Type="${REL_WORKSHEET}" Target="worksheets/sheet${i + 1}.xml"/>`
+      `<Relationship Id="rId${i + 1}" Type="${REL_WORKSHEET}" Target="worksheets/sheet${i + 1}.xml"/>`,
   ).join("");
   return (
     XML_DECL +
@@ -215,8 +217,8 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
-            row.cells.some((c) => c._tag === "CellFormula" && c.result === undefined)
-          )
+            row.cells.some((c) => c._tag === "CellFormula" && c.result === undefined),
+          ),
         );
 
         const files: Record<string, string> = {
@@ -226,7 +228,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           "docProps/app.xml": appPropsXml(),
           "xl/workbook.xml": workbookXml(
             sanitizeSheetNames(worksheets.map((w) => w.name)),
-            recalculate
+            recalculate,
           ),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),

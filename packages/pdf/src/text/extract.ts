@@ -11,7 +11,18 @@
  */
 
 import type { PdfFile, PdfPage } from "../cos/file.ts";
-import { type PdfDict, type PdfObject, type PdfStream, dictOf, isArray, isDict, isName, isRef, isStream, isString } from "../cos/objects.ts";
+import {
+  type PdfDict,
+  type PdfObject,
+  type PdfStream,
+  dictOf,
+  isArray,
+  isDict,
+  isName,
+  isRef,
+  isStream,
+  isString,
+} from "../cos/objects.ts";
 import { type Operation, parseContentStream } from "../cos/parser.ts";
 import { decodeTextString } from "./encodings.ts";
 import { type PdfFont, loadFont } from "./font.ts";
@@ -63,10 +74,14 @@ const mul = (m1: Matrix, m2: Matrix): Matrix => [
   m1[4] * m2[1] + m1[5] * m2[3] + m2[5],
 ];
 
-const apply = (m: Matrix, x: number, y: number): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+const apply = (m: Matrix, x: number, y: number): [number, number] => [
+  m[0] * x + m[2] * y + m[4],
+  m[1] * x + m[3] * y + m[5],
+];
 
 const toMatrix = (operands: ReadonlyArray<PdfObject>): Matrix | undefined => {
-  if (operands.length < 6 || !operands.slice(0, 6).every((o) => typeof o === "number")) return undefined;
+  if (operands.length < 6 || !operands.slice(0, 6).every((o) => typeof o === "number"))
+    return undefined;
   return operands.slice(0, 6) as unknown as Matrix;
 };
 
@@ -77,10 +92,14 @@ const pageMatrix = (page: PdfPage): { matrix: Matrix; width: number; height: num
   const h = y1 - y0;
   const origin: Matrix = [1, 0, 0, 1, -x0, -y0];
   switch (page.rotate) {
-    case 90: return { matrix: mul(origin, [0, -1, 1, 0, 0, w]), width: h, height: w };
-    case 180: return { matrix: mul(origin, [-1, 0, 0, -1, w, h]), width: w, height: h };
-    case 270: return { matrix: mul(origin, [0, 1, -1, 0, h, 0]), width: h, height: w };
-    default: return { matrix: origin, width: w, height: h };
+    case 90:
+      return { matrix: mul(origin, [0, -1, 1, 0, 0, w]), width: h, height: w };
+    case 180:
+      return { matrix: mul(origin, [-1, 0, 0, -1, w, h]), width: w, height: h };
+    case 270:
+      return { matrix: mul(origin, [0, 1, -1, 0, h, 0]), width: h, height: w };
+    default:
+      return { matrix: origin, width: w, height: h };
   }
 };
 
@@ -119,7 +138,13 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
     return f;
   };
 
-  const run = (ops: ReadonlyArray<Operation>, resources: PdfDict | undefined, initial: Matrix, depth: number, forms: Set<PdfStream>): void => {
+  const run = (
+    ops: ReadonlyArray<Operation>,
+    resources: PdfDict | undefined,
+    initial: Matrix,
+    depth: number,
+    forms: Set<PdfStream>,
+  ): void => {
     let gs: GState = {
       ctm: initial,
       text: { font: undefined, size: 0, charSpace: 0, wordSpace: 0, scale: 1, leading: 0, rise: 0 },
@@ -181,11 +206,21 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           tm = IDENTITY;
           tlm = IDENTITY;
           break;
-        case "Tc": gs.text.charSpace = n(0); break;
-        case "Tw": gs.text.wordSpace = n(0); break;
-        case "Tz": gs.text.scale = n(0) / 100; break;
-        case "TL": gs.text.leading = n(0); break;
-        case "Ts": gs.text.rise = n(0); break;
+        case "Tc":
+          gs.text.charSpace = n(0);
+          break;
+        case "Tw":
+          gs.text.wordSpace = n(0);
+          break;
+        case "Tz":
+          gs.text.scale = n(0) / 100;
+          break;
+        case "TL":
+          gs.text.leading = n(0);
+          break;
+        case "Ts":
+          gs.text.rise = n(0);
+          break;
         case "Tf": {
           const name = operands[0];
           if (isName(name)) gs.text.font = fontFor(resources, name.name);
@@ -243,7 +278,9 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
         }
         case "gs": {
           const name = operands[0];
-          const ext = isName(name) ? file.lookupDict(file.lookupDict(resources, "ExtGState"), name.name) : undefined;
+          const ext = isName(name)
+            ? file.lookupDict(file.lookupDict(resources, "ExtGState"), name.name)
+            : undefined;
           const f = file.lookupArray(ext, "Font");
           if (f !== undefined) {
             const size = file.resolve(f.items[1]);
@@ -256,16 +293,30 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           const name = operands[0];
           if (!isName(name) || depth >= MAX_FORM_DEPTH) break;
           const xobj = file.lookup(file.lookupDict(resources, "XObject"), name.name);
-          if (!isStream(xobj) || file.lookupName(xobj.dict, "Subtype") !== "Form" || forms.has(xobj)) break;
+          if (
+            !isStream(xobj) ||
+            file.lookupName(xobj.dict, "Subtype") !== "Form" ||
+            forms.has(xobj)
+          )
+            break;
           let contents: ReadonlyArray<Operation>;
           try {
             contents = parseContentStream(file.decode(xobj).data);
           } catch {
             break;
           }
-          const m = toMatrix(file.lookupArray(xobj.dict, "Matrix")?.items.map((x) => file.resolve(x) ?? 0) ?? []) ?? IDENTITY;
+          const m =
+            toMatrix(
+              file.lookupArray(xobj.dict, "Matrix")?.items.map((x) => file.resolve(x) ?? 0) ?? [],
+            ) ?? IDENTITY;
           forms.add(xobj);
-          run(contents, file.lookupDict(xobj.dict, "Resources") ?? resources, mul(m, gs.ctm), depth + 1, forms);
+          run(
+            contents,
+            file.lookupDict(xobj.dict, "Resources") ?? resources,
+            mul(m, gs.ctm),
+            depth + 1,
+            forms,
+          );
           forms.delete(xobj);
           break;
         }
@@ -274,9 +325,13 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           break;
         case "BDC": {
           let props = operands[1];
-          if (isName(props)) props = file.lookup(file.lookupDict(resources, "Properties"), props.name);
+          if (isName(props))
+            props = file.lookup(file.lookupDict(resources, "Properties"), props.name);
           const actual = isDict(props) ? file.resolve(props.entries.get("ActualText")) : undefined;
-          marked.push({ start: glyphs.length, actual: isString(actual) ? decodeTextString(actual.bytes) : undefined });
+          marked.push({
+            start: glyphs.length,
+            actual: isString(actual) ? decodeTextString(actual.bytes) : undefined,
+          });
           break;
         }
         case "EMC": {

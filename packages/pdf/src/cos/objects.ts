@@ -69,7 +69,11 @@ const latin1 = (s: string): Uint8Array => {
   return out;
 };
 
-export const pdfString = (bytes: Uint8Array, hex = false): PdfString => ({ _tag: "String", bytes, hex });
+export const pdfString = (bytes: Uint8Array, hex = false): PdfString => ({
+  _tag: "String",
+  bytes,
+  hex,
+});
 
 /** A string from a JavaScript string's code units, one byte each (Latin-1). */
 export const pdfLatin1 = (s: string): PdfString => pdfString(latin1(s));
@@ -93,14 +97,20 @@ export const pdfArray = (items: PdfObject[]): PdfArray => ({ _tag: "Array", item
 export const pdfRef = (num: number, gen = 0): PdfRef => ({ _tag: "Ref", num, gen });
 
 /** A dictionary from a record; `undefined` values are left out. */
-export const pdfDict = (entries: Record<string, PdfObject | undefined> | Map<string, PdfObject> = {}): PdfDict => {
+export const pdfDict = (
+  entries: Record<string, PdfObject | undefined> | Map<string, PdfObject> = {},
+): PdfDict => {
   if (entries instanceof Map) return { _tag: "Dict", entries };
   const map = new Map<string, PdfObject>();
   for (const [k, v] of Object.entries(entries)) if (v !== undefined) map.set(k, v);
   return { _tag: "Dict", entries: map };
 };
 
-export const pdfStream = (dict: PdfDict, data: Uint8Array): PdfStream => ({ _tag: "Stream", dict, data });
+export const pdfStream = (dict: PdfDict, data: Uint8Array): PdfStream => ({
+  _tag: "Stream",
+  dict,
+  data,
+});
 
 // ============================================================================
 // Guards
@@ -109,7 +119,10 @@ export const pdfStream = (dict: PdfDict, data: Uint8Array): PdfStream => ({ _tag
 export const isString = (o: PdfObject | undefined): o is PdfString =>
   typeof o === "object" && o !== null && o._tag === "String";
 export const isName = (o: PdfObject | undefined, name?: string): o is PdfName =>
-  typeof o === "object" && o !== null && o._tag === "Name" && (name === undefined || o.name === name);
+  typeof o === "object" &&
+  o !== null &&
+  o._tag === "Name" &&
+  (name === undefined || o.name === name);
 export const isArray = (o: PdfObject | undefined): o is PdfArray =>
   typeof o === "object" && o !== null && o._tag === "Array";
 export const isDict = (o: PdfObject | undefined): o is PdfDict =>

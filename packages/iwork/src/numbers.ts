@@ -11,8 +11,17 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Content, defineProfile, type Doc, document, type FeaturesOf, type Format, makeReaderTag,
-  type ParseError, type Reader, trustAs, Worksheet,
+  type Content,
+  defineProfile,
+  type Doc,
+  document,
+  type FeaturesOf,
+  type Format,
+  makeReaderTag,
+  type ParseError,
+  type Reader,
+  trustAs,
+  Worksheet,
 } from "@thomasfosterau/effect-document";
 import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.ts";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
@@ -78,15 +87,19 @@ export const makeNumbersReader = (options?: IworkReaderOptions): Reader<NumbersF
   const read = (input: Content): Effect.Effect<Doc<NumbersFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("numbers", input, options);
-      const decoded = yield* eachComponent("numbers", bundle, Object.keys(bundle.components), options, (obj) =>
-        obj.messages.flatMap((msg) => find(msg.type, obj.identifier, msg.payload))
+      const decoded = yield* eachComponent(
+        "numbers",
+        bundle,
+        Object.keys(bundle.components),
+        options,
+        (obj) => obj.messages.flatMap((msg) => find(msg.type, obj.identifier, msg.payload)),
       );
       const names = inDocumentOrder(decoded.flatMap(({ items }) => items)).map(({ name }, i) =>
-        name === undefined ? `Sheet${i + 1}` : decodeUtf8(name)
+        name === undefined ? `Sheet${i + 1}` : decodeUtf8(name),
       );
       if (names.length === 0) names.push("Sheet1");
       const sheets = names.map(
-        (name) => new Worksheet({ name, columns: [], rows: [], merges: [] })
+        (name) => new Worksheet({ name, columns: [], rows: [], merges: [] }),
       );
       return trustAs<NumbersFeature>(document(sheets));
     });

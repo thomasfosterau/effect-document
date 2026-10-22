@@ -48,8 +48,7 @@ export interface CellRange {
 }
 
 /** Render a 0-indexed (col, row) pair as an A1 reference: (1, 2) -> "B3" */
-export const toA1 = (col: number, row: number): string =>
-  `${indexToCol(col)}${row + 1}`;
+export const toA1 = (col: number, row: number): string => `${indexToCol(col)}${row + 1}`;
 
 // ============================================================================
 // Grammar
@@ -58,28 +57,28 @@ export const toA1 = (col: number, row: number): string =>
 const dollar = Parser.map(Parser.opt(Token.literal("$")), Option.isSome);
 const columnLetters = Parser.map(
   Token.takeWhile(Token.range("A", "Z"), { min: 1 }),
-  colToIndex
+  colToIndex,
 ).pipe(Parser.expected("column letters"));
 const rowNumber = Parser.map(Ascii.digit1, (digits) => Number.parseInt(digits, 10) - 1).pipe(
   Parser.filter((row) => row >= 0),
-  Parser.expected("row number")
+  Parser.expected("row number"),
 );
 
 /** A plain A1 reference, as in a SpreadsheetML cell's `r` attribute: "B3". */
 export const a1Cell: Parser.Parser<CellRef> = Parser.compile(
-  Parser.struct({ col: columnLetters, row: rowNumber })
+  Parser.struct({ col: columnLetters, row: rowNumber }),
 );
 
 /** An A1 reference with optional `$` markers: "$B$3". */
 export const a1AbsoluteCell: Parser.Parser<AbsoluteCellRef> = Parser.map(
   Parser.seq(dollar, columnLetters, dollar, rowNumber),
-  ([colAbsolute, col, rowAbsolute, row]) => ({ col, row, colAbsolute, rowAbsolute })
+  ([colAbsolute, col, rowAbsolute, row]) => ({ col, row, colAbsolute, rowAbsolute }),
 );
 
 /** An A1 range, "A1:B2", or a single cell. */
 export const a1Range: Parser.Parser<CellRange> = Parser.map(
   Parser.seq(a1AbsoluteCell, Parser.opt(Parser.preceded(Token.literal(":"), a1AbsoluteCell))),
-  ([start, end]) => ({ start, end: Option.getOrElse(end, () => start) })
+  ([start, end]) => ({ start, end: Option.getOrElse(end, () => start) }),
 );
 
 const parseOrNull = <A>(parser: Parser.Parser<A>, ref: string): A | null =>

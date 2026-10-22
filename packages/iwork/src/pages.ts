@@ -10,8 +10,19 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
-  makeReaderTag, Para, type ParseError, type Reader, Str, trustAs,
+  type Block,
+  type Content,
+  defineProfile,
+  type Doc,
+  document,
+  type FeaturesOf,
+  type Format,
+  makeReaderTag,
+  Para,
+  type ParseError,
+  type Reader,
+  Str,
+  trustAs,
 } from "@thomasfosterau/effect-document";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
@@ -37,12 +48,19 @@ export const makePagesReader = (options?: IworkReaderOptions): Reader<PagesFeatu
   const read = (input: Content): Effect.Effect<Doc<PagesFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("pages", input, options);
-      const decoded = yield* eachComponent("pages", bundle, Object.keys(bundle.components), options, (obj) =>
-        obj.messages.flatMap((msg) =>
-          TSWP_STORAGE_ARCHIVE.has(msg.type)
-            ? storageParagraphs(msg.payload).map((line): Block => new Para({ content: [new Str({ text: line })] }))
-            : []
-        )
+      const decoded = yield* eachComponent(
+        "pages",
+        bundle,
+        Object.keys(bundle.components),
+        options,
+        (obj) =>
+          obj.messages.flatMap((msg) =>
+            TSWP_STORAGE_ARCHIVE.has(msg.type)
+              ? storageParagraphs(msg.payload).map(
+                  (line): Block => new Para({ content: [new Str({ text: line })] }),
+                )
+              : [],
+          ),
       );
       return trustAs<PagesFeature>(document(decoded.flatMap(({ items }) => items)));
     });

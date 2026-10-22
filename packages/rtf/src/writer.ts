@@ -12,7 +12,13 @@
 import { Effect, Layer } from "effect";
 import { absurd } from "effect/Function";
 import {
-  type Block, type Content, type Doc, type Inline, makeWriterTag, text, type WriteError,
+  type Block,
+  type Content,
+  type Doc,
+  type Inline,
+  makeWriterTag,
+  text,
+  type WriteError,
   type Writer,
 } from "@thomasfosterau/effect-document";
 import { Rtf, type RtfFeature } from "./profile.ts";
@@ -64,15 +70,24 @@ const escapeRtf = (s: string): string => {
 
 const renderInline = (n: RtfInline): string => {
   switch (n._tag) {
-    case "Str": return escapeRtf(n.text);
-    case "Space": return " ";
-    case "SoftBreak": return " ";
-    case "LineBreak": return "\\line ";
-    case "Emph": return `{\\i ${renderInlines(n.content)}}`;
-    case "Strong": return `{\\b ${renderInlines(n.content)}}`;
-    case "Underline": return `{\\ul ${renderInlines(n.content)}}`;
-    case "Strikeout": return `{\\strike ${renderInlines(n.content)}}`;
-    default: return absurd(n);
+    case "Str":
+      return escapeRtf(n.text);
+    case "Space":
+      return " ";
+    case "SoftBreak":
+      return " ";
+    case "LineBreak":
+      return "\\line ";
+    case "Emph":
+      return `{\\i ${renderInlines(n.content)}}`;
+    case "Strong":
+      return `{\\b ${renderInlines(n.content)}}`;
+    case "Underline":
+      return `{\\ul ${renderInlines(n.content)}}`;
+    case "Strikeout":
+      return `{\\strike ${renderInlines(n.content)}}`;
+    default:
+      return absurd(n);
   }
 };
 
@@ -86,7 +101,8 @@ const headingSize = (level: number): number => Math.max(20, 36 - (level - 1) * 4
 const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
 /** A heading's paragraph style: `\sN` for `heading N`, outline level N - 1, bold and larger. */
-const headingStyle = (level: number): string => `\\s${level}\\outlinelevel${level - 1}\\b\\fs${headingSize(level)}`;
+const headingStyle = (level: number): string =>
+  `\\s${level}\\outlinelevel${level - 1}\\b\\fs${headingSize(level)}`;
 
 const renderBlock = (b: RtfBlock, bodySize: number, eol: string): string => {
   switch (b._tag) {
@@ -105,21 +121,32 @@ const fontName = (name: string): string => escapeRtf(name.replaceAll(";", ""));
 
 /** The RTF header: code page, fonts, colours, styles and page setup. */
 const renderHeader = (options: RtfWriterOptions, bodySize: number, eol: string): string => {
-  const fonts = `{\\fonttbl{\\f0\\fswiss\\fcharset0 ${fontName(options.font ?? "Helvetica")};}`
-    + `{\\f1\\fmodern\\fcharset0 Courier New;}}`;
-  const styles = `{\\stylesheet{\\s0\\fs${bodySize} Normal;}`
-    + HEADING_LEVELS.map((level) => `{${headingStyle(level)}\\sbasedon0\\snext0 heading ${level};}`).join("")
-    + "}";
-  const page = ([
-    ["paperw", options.paperWidth], ["paperh", options.paperHeight],
-    ["margl", options.marginLeft], ["margr", options.marginRight],
-    ["margt", options.marginTop], ["margb", options.marginBottom],
-  ] as const)
+  const fonts =
+    `{\\fonttbl{\\f0\\fswiss\\fcharset0 ${fontName(options.font ?? "Helvetica")};}` +
+    `{\\f1\\fmodern\\fcharset0 Courier New;}}`;
+  const styles =
+    `{\\stylesheet{\\s0\\fs${bodySize} Normal;}` +
+    HEADING_LEVELS.map(
+      (level) => `{${headingStyle(level)}\\sbasedon0\\snext0 heading ${level};}`,
+    ).join("") +
+    "}";
+  const page = (
+    [
+      ["paperw", options.paperWidth],
+      ["paperh", options.paperHeight],
+      ["margl", options.marginLeft],
+      ["margr", options.marginRight],
+      ["margt", options.marginTop],
+      ["margb", options.marginBottom],
+    ] as const
+  )
     .filter(([, value]) => value !== undefined)
     .map(([word, value]) => `\\${word}${Math.round(value!)}`)
     .join("");
-  return `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1${eol}${fonts}${eol}{\\colortbl;}${eol}${styles}${eol}`
-    + `${page}\\f0\\fs${bodySize}${eol}`;
+  return (
+    `{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1${eol}${fonts}${eol}{\\colortbl;}${eol}${styles}${eol}` +
+    `${page}\\f0\\fs${bodySize}${eol}`
+  );
 };
 
 /** Create an RTF Writer. */

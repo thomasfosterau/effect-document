@@ -28,15 +28,18 @@ export const toParseError = (format: string, e: IworkError): ParseError =>
 export const openInput = (
   format: string,
   input: Content,
-  options?: IworkReaderOptions
+  options?: IworkReaderOptions,
 ): Effect.Effect<IworkBundle, ParseError> =>
   Effect.suspend(() =>
     Effect.fromResult(
       Result.mapError(
-        openBundle(contentToBytes(input), options?.limits === undefined ? undefined : { limits: options.limits }),
-        (e) => toParseError(format, e)
-      )
-    )
+        openBundle(
+          contentToBytes(input),
+          options?.limits === undefined ? undefined : { limits: options.limits },
+        ),
+        (e) => toParseError(format, e),
+      ),
+    ),
   );
 
 /**
@@ -50,7 +53,7 @@ export const eachComponent = <A>(
   bundle: IworkBundle,
   names: ReadonlyArray<string>,
   options: IworkReaderOptions | undefined,
-  visit: (obj: IworkObject) => ReadonlyArray<A>
+  visit: (obj: IworkObject) => ReadonlyArray<A>,
 ): Effect.Effect<Array<{ readonly name: string; readonly items: A[] }>, ParseError> =>
   Effect.gen(function* () {
     const out: Array<{ readonly name: string; readonly items: A[] }> = [];
@@ -59,7 +62,9 @@ export const eachComponent = <A>(
       if (Result.isSuccess(result)) {
         out.push({ name, items: result.success });
       } else if (options?.lenient === true) {
-        yield* Effect.logWarning(`${format}: skipping a component that failed to decode: ${result.failure.message}`);
+        yield* Effect.logWarning(
+          `${format}: skipping a component that failed to decode: ${result.failure.message}`,
+        );
       } else {
         return yield* Effect.fail(toParseError(format, result.failure));
       }
@@ -70,7 +75,7 @@ export const eachComponent = <A>(
 const visitComponent = <A>(
   bundle: IworkBundle,
   name: string,
-  visit: (obj: IworkObject) => ReadonlyArray<A>
+  visit: (obj: IworkObject) => ReadonlyArray<A>,
 ): Result.Result<A[], IworkError> => {
   const decoded = decodeComponent(bundle, name);
   if (Result.isFailure(decoded)) return Result.fail(decoded.failure);

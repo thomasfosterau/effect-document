@@ -4,12 +4,12 @@
   "version": "0.0.0",
   "description": "CSV/TSV reader and writer for effect-document, with streaming",
   "keywords": [
-    "effect",
-    "document",
     "csv",
-    "tsv",
+    "document",
+    "effect",
+    "parser",
     "stream",
-    "parser"
+    "tsv"
   ],
   "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/csv#readme",
   "bugs": {

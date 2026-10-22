@@ -12,12 +12,41 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, BulletList, type Content, contentToBytes, type Doc, document, Emph, Header,
-  type Inline, LineBreak, makeReaderTag, OrderedList, Para, ParseError, Placeholder, Plain, type Reader,
-  type Shape, Slide, SlideShow, Str, Strikeout, Strong, TextBox, trustAs, Underline,
+  type Block,
+  BulletList,
+  type Content,
+  contentToBytes,
+  type Doc,
+  document,
+  Emph,
+  Header,
+  type Inline,
+  LineBreak,
+  makeReaderTag,
+  OrderedList,
+  Para,
+  ParseError,
+  Placeholder,
+  Plain,
+  type Reader,
+  type Shape,
+  Slide,
+  SlideShow,
+  Str,
+  Strikeout,
+  Strong,
+  TextBox,
+  trustAs,
+  Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
+  type OpcLimits,
+  OpcReader,
+  type XmlElement,
+  findChild,
+  findChildren,
+  getAttr,
+  ooxmlParseError,
 } from "../shared/index.ts";
 import { PptxRead, type PptxReadFeature } from "./profile.ts";
 
@@ -57,7 +86,8 @@ const isTrue = (v: string | undefined): boolean => v === "1" || v === "true";
 
 const runFmt = (r: XmlElement): Fmt => {
   const rPr = findChild(r, "rPr");
-  const attr = (name: string): string | undefined => (rPr === undefined ? undefined : getAttr(rPr, name));
+  const attr = (name: string): string | undefined =>
+    rPr === undefined ? undefined : getAttr(rPr, name);
   return {
     b: isTrue(attr("b")),
     i: isTrue(attr("i")),
@@ -126,7 +156,9 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const bullet = paragraphBullet(p);
     if (bullet === null) {
       while (open.length > 0) close();
-      out.push(asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }));
+      out.push(
+        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+      );
       continue;
     }
     const level = paragraphLevel(p);
@@ -134,7 +166,8 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const top = open[open.length - 1];
     if (top !== undefined && top.level === level && top.kind !== bullet) close();
     const current = open[open.length - 1];
-    if (current === undefined || current.level < level) open.push({ kind: bullet, level, items: [] });
+    if (current === undefined || current.level < level)
+      open.push({ kind: bullet, level, items: [] });
     open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
   }
   while (open.length > 0) close();
@@ -149,7 +182,7 @@ const shapeOf = (sp: XmlElement): Shape => {
   const nvPr = nvSpPr === undefined ? undefined : findChild(nvSpPr, "nvPr");
   const ph = nvPr === undefined ? undefined : findChild(nvPr, "ph");
   // A <p:ph> without a type is an "obj" placeholder (ST_PlaceholderType default).
-  const placeholderType = ph === undefined ? undefined : getAttr(ph, "type") ?? "obj";
+  const placeholderType = ph === undefined ? undefined : (getAttr(ph, "type") ?? "obj");
   const txBody = findChild(sp, "txBody");
   const asHeaders = placeholderType !== undefined && TITLE_PLACEHOLDERS.has(placeholderType);
   const content = txBody === undefined ? [] : txBodyToBlocks(txBody, asHeaders);
@@ -174,7 +207,8 @@ const shapeElements = (spTree: XmlElement): XmlElement[] => {
   while (stack.length > 0) {
     const el = stack.pop()!;
     if (el.name === "sp") out.push(el);
-    else if (el.name === "grpSp") for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
+    else if (el.name === "grpSp")
+      for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
   }
   return out;
 };
@@ -214,8 +248,7 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
 
         return trustAs<PptxReadFeature>(document([new SlideShow({ slides })]));
       },
-      catch: (cause) =>
-        ooxmlParseError("pptx", cause),
+      catch: (cause) => ooxmlParseError("pptx", cause),
     });
   return { format: "pptx", profile: PptxRead, read };
 };

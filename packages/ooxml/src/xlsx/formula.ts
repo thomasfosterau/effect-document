@@ -48,11 +48,19 @@ export const translateFormula = (formula: string, rows: number, cols: number): s
     const after = formula[offset + match.length];
     // Part of a longer name, a function call ("LOG10("), a sheet prefix
     // ("Sheet1!") or a table name ("Table1[") rather than a reference.
-    if (isNameChar(before) || isNameChar(after) || after === "(" || after === "!" || after === "[") {
+    if (
+      isNameChar(before) ||
+      isNameChar(after) ||
+      after === "(" ||
+      after === "!" ||
+      after === "["
+    ) {
       return match;
     }
 
-    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<string | undefined>;
+    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<
+      string | undefined
+    >;
     if (cl !== undefined) {
       if (colToIndex(cl.toUpperCase()) > MAX_COL || Number.parseInt(rd!, 10) - 1 > MAX_ROW) {
         return match;

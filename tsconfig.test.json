@@ -2,68 +2,27 @@
   "$schema": "https://raw.githubusercontent.com/Effect-TS/language-service/refs/heads/main/schema.json",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "paths": {
-      "@thomasfosterau/effect-document": [
-        "./packages/core/src/index.ts"
-      ],
-      "@thomasfosterau/effect-document/schema": [
-        "./packages/core/src/schema/index.ts"
-      ],
-      "@thomasfosterau/effect-document/profile": [
-        "./packages/core/src/profile/index.ts"
-      ],
-      "@thomasfosterau/effect-document/profiles": [
-        "./packages/core/src/profile/profiles.ts"
-      ],
-      "@thomasfosterau/effect-document/io": [
-        "./packages/core/src/io/index.ts"
-      ],
-      "@thomasfosterau/effect-csv": [
-        "./packages/csv/src/index.ts"
-      ],
-      "@thomasfosterau/effect-iwork": [
-        "./packages/iwork/src/index.ts"
-      ],
-      "@thomasfosterau/effect-iwork/pages": [
-        "./packages/iwork/src/pages.ts"
-      ],
-      "@thomasfosterau/effect-iwork/numbers": [
-        "./packages/iwork/src/numbers.ts"
-      ],
-      "@thomasfosterau/effect-iwork/keynote": [
-        "./packages/iwork/src/keynote.ts"
-      ],
-      "@thomasfosterau/effect-iwork/codec": [
-        "./packages/iwork/src/codec.ts"
-      ],
-      "@thomasfosterau/effect-ooxml": [
-        "./packages/ooxml/src/index.ts"
-      ],
-      "@thomasfosterau/effect-ooxml/xlsx": [
-        "./packages/ooxml/src/xlsx/index.ts"
-      ],
-      "@thomasfosterau/effect-ooxml/docx": [
-        "./packages/ooxml/src/docx/index.ts"
-      ],
-      "@thomasfosterau/effect-ooxml/pptx": [
-        "./packages/ooxml/src/pptx/index.ts"
-      ],
-      "@thomasfosterau/effect-pdf": [
-        "./packages/pdf/src/index.ts"
-      ],
-      "@thomasfosterau/effect-pdf/cos": [
-        "./packages/pdf/src/cos/index.ts"
-      ],
-      "@thomasfosterau/effect-rtf": [
-        "./packages/rtf/src/index.ts"
-      ]
+      "@thomasfosterau/effect-document": ["./packages/core/src/index.ts"],
+      "@thomasfosterau/effect-document/schema": ["./packages/core/src/schema/index.ts"],
+      "@thomasfosterau/effect-document/profile": ["./packages/core/src/profile/index.ts"],
+      "@thomasfosterau/effect-document/profiles": ["./packages/core/src/profile/profiles.ts"],
+      "@thomasfosterau/effect-document/io": ["./packages/core/src/io/index.ts"],
+      "@thomasfosterau/effect-csv": ["./packages/csv/src/index.ts"],
+      "@thomasfosterau/effect-iwork": ["./packages/iwork/src/index.ts"],
+      "@thomasfosterau/effect-iwork/pages": ["./packages/iwork/src/pages.ts"],
+      "@thomasfosterau/effect-iwork/numbers": ["./packages/iwork/src/numbers.ts"],
+      "@thomasfosterau/effect-iwork/keynote": ["./packages/iwork/src/keynote.ts"],
+      "@thomasfosterau/effect-iwork/codec": ["./packages/iwork/src/codec.ts"],
+      "@thomasfosterau/effect-ooxml": ["./packages/ooxml/src/index.ts"],
+      "@thomasfosterau/effect-ooxml/xlsx": ["./packages/ooxml/src/xlsx/index.ts"],
+      "@thomasfosterau/effect-ooxml/docx": ["./packages/ooxml/src/docx/index.ts"],
+      "@thomasfosterau/effect-ooxml/pptx": ["./packages/ooxml/src/pptx/index.ts"],
+      "@thomasfosterau/effect-pdf": ["./packages/pdf/src/index.ts"],
+      "@thomasfosterau/effect-pdf/cos": ["./packages/pdf/src/cos/index.ts"],
+      "@thomasfosterau/effect-rtf": ["./packages/rtf/src/index.ts"]
     }
   },
-  "include": [
-    "test",
-    "examples"
-  ]
+  "include": ["test", "examples"]
 }

@@ -22,7 +22,8 @@ const bytesToCode = (bytes: Uint8Array): number => {
 
 const utf16 = (bytes: Uint8Array): string => {
   let s = "";
-  for (let i = 0; i + 1 < bytes.length; i += 2) s += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!);
+  for (let i = 0; i + 1 < bytes.length; i += 2)
+    s += String.fromCharCode((bytes[i]! << 8) | bytes[i + 1]!);
   if (bytes.length % 2 === 1) s += String.fromCharCode(bytes[bytes.length - 1]!);
   return s;
 };
@@ -34,7 +35,9 @@ export class CMap {
   /** Code space ranges: which byte lengths make a code. */
   readonly codespaces: Array<Range<null>> = [];
   private readonly unicode = new Map<number, string>();
-  private readonly unicodeRanges: Array<Range<{ readonly base: Uint8Array } | ReadonlyArray<string>>> = [];
+  private readonly unicodeRanges: Array<
+    Range<{ readonly base: Uint8Array } | ReadonlyArray<string>>
+  > = [];
   private readonly cids = new Map<number, number>();
   private readonly cidRanges: Array<Range<number>> = [];
   /** The CMap this one extends (`usecmap`), by name. */
@@ -43,7 +46,10 @@ export class CMap {
   vertical = false;
 
   /** Split a string into character codes using the code space ranges. */
-  codes(bytes: Uint8Array, fallbackLength = 1): Array<{ readonly code: number; readonly len: number }> {
+  codes(
+    bytes: Uint8Array,
+    fallbackLength = 1,
+  ): Array<{ readonly code: number; readonly len: number }> {
     const out: Array<{ code: number; len: number }> = [];
     const spaces = this.codespaces;
     let pos = 0;
@@ -57,7 +63,8 @@ export class CMap {
           break;
         }
       }
-      const len = matched || (spaces.length > 0 ? Math.min(...spaces.map((s) => s.len)) : fallbackLength);
+      const len =
+        matched || (spaces.length > 0 ? Math.min(...spaces.map((s) => s.len)) : fallbackLength);
       const n = Math.min(len, bytes.length - pos);
       out.push({ code: bytesToCode(bytes.subarray(pos, pos + n)), len: n });
       pos += n;
@@ -81,7 +88,8 @@ export class CMap {
   toCid(code: number, len: number): number | undefined {
     const direct = this.cids.get(key(code, len));
     if (direct !== undefined) return direct;
-    for (const r of this.cidRanges) if (r.len === len && code >= r.lo && code <= r.hi) return r.value + (code - r.lo);
+    for (const r of this.cidRanges)
+      if (r.len === len && code >= r.lo && code <= r.hi) return r.value + (code - r.lo);
     return undefined;
   }
 
@@ -106,7 +114,12 @@ export class CMap {
       for (let c = l; c <= h; c++) this.unicode.set(key(c, lo.length), incremented(dst, c - l));
       return;
     }
-    this.unicodeRanges.push({ len: lo.length, lo: l, hi: h, value: dst instanceof Uint8Array ? { base: dst } : dst });
+    this.unicodeRanges.push({
+      len: lo.length,
+      lo: l,
+      hi: h,
+      value: dst instanceof Uint8Array ? { base: dst } : dst,
+    });
   }
 
   addCid(src: Uint8Array, cid: number): void {
@@ -131,11 +144,16 @@ const incremented = (base: Uint8Array, by: number): string => {
   return utf16(out);
 };
 
-const dstString = (o: PdfObject | undefined, glyphName: (name: string) => string | undefined): string | undefined =>
-  isString(o) ? utf16(o.bytes) : isName(o) ? glyphName(o.name) : undefined;
+const dstString = (
+  o: PdfObject | undefined,
+  glyphName: (name: string) => string | undefined,
+): string | undefined => (isString(o) ? utf16(o.bytes) : isName(o) ? glyphName(o.name) : undefined);
 
 /** Parse a CMap program (the decoded data of a CMap stream). */
-export const parseCMap = (data: Uint8Array, glyphName: (name: string) => string | undefined = () => undefined): CMap => {
+export const parseCMap = (
+  data: Uint8Array,
+  glyphName: (name: string) => string | undefined = () => undefined,
+): CMap => {
   const cmap = new CMap();
   const lexer = new Lexer(data);
   const operands: PdfObject[] = [];
@@ -192,7 +210,12 @@ export const parseCMap = (data: Uint8Array, glyphName: (name: string) => string 
 };
 
 /** Apply a section's operands as soon as an entry is complete. */
-const consume = (cmap: CMap, section: string, operands: PdfObject[], glyphName: (name: string) => string | undefined): void => {
+const consume = (
+  cmap: CMap,
+  section: string,
+  operands: PdfObject[],
+  glyphName: (name: string) => string | undefined,
+): void => {
   switch (section) {
     case "codespacerange":
       while (operands.length >= 2) {
@@ -210,25 +233,27 @@ const consume = (cmap: CMap, section: string, operands: PdfObject[], glyphName: 
     case "bfrange":
       while (operands.length >= 3) {
         const [lo, hi, dst] = operands.splice(0, 3);
-        if (isString(lo) && isString(hi) && isString(dst)) cmap.addUnicodeRange(lo.bytes, hi.bytes, dst.bytes);
+        if (isString(lo) && isString(hi) && isString(dst))
+          cmap.addUnicodeRange(lo.bytes, hi.bytes, dst.bytes);
       }
       break;
     case "cidchar":
     case "notdefchar":
       while (operands.length >= 2) {
         const [src, cid] = operands.splice(0, 2);
-        if (isString(src) && typeof cid === "number" && section === "cidchar") cmap.addCid(src.bytes, cid);
+        if (isString(src) && typeof cid === "number" && section === "cidchar")
+          cmap.addCid(src.bytes, cid);
       }
       break;
     case "cidrange":
     case "notdefrange":
       while (operands.length >= 3) {
         const [lo, hi, cid] = operands.splice(0, 3);
-        if (isString(lo) && isString(hi) && typeof cid === "number" && section === "cidrange") cmap.addCidRange(lo.bytes, hi.bytes, cid);
+        if (isString(lo) && isString(hi) && typeof cid === "number" && section === "cidrange")
+          cmap.addCidRange(lo.bytes, hi.bytes, cid);
       }
       break;
     default:
       operands.length = 0;
   }
 };
-

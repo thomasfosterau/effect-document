@@ -17,10 +17,29 @@
 
 import { type Decoded, decodeFilters } from "./filters.ts";
 import {
-  type PdfArray, type PdfDict, type PdfObject, type PdfRef, type PdfStream, dictOf, isArray, isDict,
-  isName, isRef, isStream, pdfDict,
+  type PdfArray,
+  type PdfDict,
+  type PdfObject,
+  type PdfRef,
+  type PdfStream,
+  dictOf,
+  isArray,
+  isDict,
+  isName,
+  isRef,
+  isStream,
+  pdfDict,
 } from "./objects.ts";
-import { Lexer, Parser, PdfSyntaxError, ascii, indexOf, isKeyword, isWhitespace, lastIndexOf } from "./parser.ts";
+import {
+  Lexer,
+  Parser,
+  PdfSyntaxError,
+  ascii,
+  indexOf,
+  isKeyword,
+  isWhitespace,
+  lastIndexOf,
+} from "./parser.ts";
 
 /** Where an indirect object lives. */
 export type XrefEntry =
@@ -68,7 +87,10 @@ export class PdfFile {
   private constructor(bytes: Uint8Array) {
     this.bytes = bytes;
     const header = indexOf(bytes.subarray(0, 1024), ascii("%PDF-"));
-    const vm = header >= 0 ? /^(\d\.\d)/.exec(String.fromCharCode(...bytes.subarray(header + 5, header + 8))) : null;
+    const vm =
+      header >= 0
+        ? /^(\d\.\d)/.exec(String.fromCharCode(...bytes.subarray(header + 5, header + 8)))
+        : null;
     let version = vm?.[1] ?? "1.4";
 
     let xref: Map<number, XrefEntry> | undefined;
@@ -79,7 +101,8 @@ export class PdfFile {
       xref = read.xref;
       trailer = read.trailer;
       this.xref = xref;
-      if (!isDict(this.resolve(trailer.entries.get("Root")))) throw new PdfSyntaxError("no document catalog", 0);
+      if (!isDict(this.resolve(trailer.entries.get("Root"))))
+        throw new PdfSyntaxError("no document catalog", 0);
     } catch {
       const rebuilt = this.rebuild();
       xref = rebuilt.xref;
@@ -95,7 +118,11 @@ export class PdfFile {
       throw new PdfSyntaxError("not a PDF file: no document catalog found", 0);
     }
     const catalogVersion = this.resolve(this.catalog.entries.get("Version"));
-    if (isName(catalogVersion) && /^\d\.\d$/.test(catalogVersion.name) && catalogVersion.name > version) {
+    if (
+      isName(catalogVersion) &&
+      /^\d\.\d$/.test(catalogVersion.name) &&
+      catalogVersion.name > version
+    ) {
       version = catalogVersion.name;
     }
     this.version = version;
@@ -127,7 +154,10 @@ export class PdfFile {
 
   /** The numbers of every object in the cross-reference data (free entries excluded). */
   objectNumbers(): number[] {
-    return [...this.xref.entries()].filter(([, e]) => e._tag !== "Free").map(([n]) => n).sort((a, b) => a - b);
+    return [...this.xref.entries()]
+      .filter(([, e]) => e._tag !== "Free")
+      .map(([n]) => n)
+      .sort((a, b) => a - b);
   }
 
   /** Where an object lives, according to the cross-reference data. */
@@ -327,7 +357,10 @@ export class PdfFile {
         if (i === 0 && start === 1 && offset === 0 && gen === 65535 && type.word === "f") start = 0;
         const num = start + i;
         if (entries.has(num)) continue;
-        entries.set(num, type.word === "n" && offset > 0 ? { _tag: "Offset", offset, gen } : { _tag: "Free" });
+        entries.set(
+          num,
+          type.word === "n" && offset > 0 ? { _tag: "Offset", offset, gen } : { _tag: "Free" },
+        );
       }
     }
     const trailer = parser.object();
@@ -342,11 +375,15 @@ export class PdfFile {
     }
     const dict = object.dict;
     const w = dict.entries.get("W");
-    if (!isArray(w) || w.items.length < 3) throw new PdfSyntaxError("xref stream without /W", offset);
+    if (!isArray(w) || w.items.length < 3)
+      throw new PdfSyntaxError("xref stream without /W", offset);
     const widths = w.items.map((x) => (typeof x === "number" ? x : 0));
-    const size = typeof dict.entries.get("Size") === "number" ? (dict.entries.get("Size") as number) : 0;
+    const size =
+      typeof dict.entries.get("Size") === "number" ? (dict.entries.get("Size") as number) : 0;
     const indexObj = dict.entries.get("Index");
-    const index = isArray(indexObj) ? indexObj.items.map((x) => (typeof x === "number" ? x : 0)) : [0, size];
+    const index = isArray(indexObj)
+      ? indexObj.items.map((x) => (typeof x === "number" ? x : 0))
+      : [0, size];
     const data = decodeFilters(dict, object.data).data;
     const rowLength = widths[0]! + widths[1]! + widths[2]!;
     const field = (pos: number, width: number): number => {
@@ -385,7 +422,16 @@ export class PdfFile {
     for (let at = indexOf(bytes, OBJ); at >= 0; at = indexOf(bytes, OBJ, at + 3)) {
       // `obj` must end a token: `n g obj` followed by a delimiter
       const after = bytes[at + 3];
-      if (after !== undefined && !isWhitespace(after) && after !== 0x3c && after !== 0x5b && after !== 0x2f && after !== 0x25 && after !== 0x28) continue;
+      if (
+        after !== undefined &&
+        !isWhitespace(after) &&
+        after !== 0x3c &&
+        after !== 0x5b &&
+        after !== 0x2f &&
+        after !== 0x25 &&
+        after !== 0x28
+      )
+        continue;
       let p = at - 1;
       if (!isWhitespace(bytes[p] ?? 0x41)) continue;
       while (p >= 0 && isWhitespace(bytes[p]!)) p--;
@@ -397,7 +443,15 @@ export class PdfFile {
       const numEnd = p + 1;
       while (p >= 0 && isDigit(bytes[p])) p--;
       if (p + 1 === numEnd) continue;
-      if (p >= 0 && !isWhitespace(bytes[p]!) && bytes[p] !== 0x3e && bytes[p] !== 0x29 && bytes[p] !== 0x5d && bytes[p] !== 0x7d) continue;
+      if (
+        p >= 0 &&
+        !isWhitespace(bytes[p]!) &&
+        bytes[p] !== 0x3e &&
+        bytes[p] !== 0x29 &&
+        bytes[p] !== 0x5d &&
+        bytes[p] !== 0x7d
+      )
+        continue;
       const num = Number(String.fromCharCode(...bytes.subarray(p + 1, numEnd)));
       xref.set(num, { _tag: "Offset", offset: p + 1, gen }); // later definitions win
     }
@@ -408,7 +462,11 @@ export class PdfFile {
     this.objectStreams.clear();
 
     const trailers: PdfDict[] = [];
-    for (let at = indexOf(bytes, TRAILER); at >= 0; at = indexOf(bytes, TRAILER, at + TRAILER.length)) {
+    for (
+      let at = indexOf(bytes, TRAILER);
+      at >= 0;
+      at = indexOf(bytes, TRAILER, at + TRAILER.length)
+    ) {
       try {
         const t = new Parser(new Lexer(bytes, at + TRAILER.length)).object();
         if (isDict(t)) trailers.unshift(t);
@@ -422,12 +480,14 @@ export class PdfFile {
       if (!isStream(o)) continue;
       if (isName(o.dict.entries.get("Type"), "ObjStm")) {
         try {
-          const n = typeof o.dict.entries.get("N") === "number" ? (o.dict.entries.get("N") as number) : 0;
+          const n =
+            typeof o.dict.entries.get("N") === "number" ? (o.dict.entries.get("N") as number) : 0;
           const header = new Parser(new Lexer(this.decode(o).data));
           for (let i = 0; i < n; i++) {
             const objNum = header.object();
             header.object();
-            if (typeof objNum === "number" && !xref.has(objNum)) xref.set(objNum, { _tag: "Compressed", stream: num, index: i });
+            if (typeof objNum === "number" && !xref.has(objNum))
+              xref.set(objNum, { _tag: "Compressed", stream: num, index: i });
           }
         } catch {
           // skip an undecodable object stream
@@ -462,7 +522,15 @@ export class PdfFile {
   pages(): PdfPage[] {
     const out: PdfPage[] = [];
     const visited = new Set<PdfDict>();
-    const walk = (node: PdfObject | undefined, inherited: { resources?: PdfDict | undefined; mediaBox?: PdfObject | undefined; rotate?: number | undefined }, depth: number): void => {
+    const walk = (
+      node: PdfObject | undefined,
+      inherited: {
+        resources?: PdfDict | undefined;
+        mediaBox?: PdfObject | undefined;
+        rotate?: number | undefined;
+      },
+      depth: number,
+    ): void => {
       const ref = isRef(node) ? node : undefined;
       const dict = dictOf(this.resolve(node));
       if (dict === undefined || visited.has(dict) || depth > 64) return;
@@ -504,7 +572,17 @@ const mergeTrailers = (trailers: ReadonlyArray<PdfDict>): PdfDict => {
   const entries = new Map<string, PdfObject>();
   for (const t of trailers) {
     for (const [k, v] of t.entries) {
-      if (k === "Prev" || k === "XRefStm" || k === "Type" || k === "W" || k === "Index" || k === "Filter" || k === "DecodeParms" || k === "Length") continue;
+      if (
+        k === "Prev" ||
+        k === "XRefStm" ||
+        k === "Type" ||
+        k === "W" ||
+        k === "Index" ||
+        k === "Filter" ||
+        k === "DecodeParms" ||
+        k === "Length"
+      )
+        continue;
       if (!entries.has(k)) entries.set(k, v);
     }
   }

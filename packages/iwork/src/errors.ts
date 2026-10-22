@@ -63,7 +63,7 @@ export const shiftOffset = (e: IworkError, by: number): IworkError =>
 /** Fill in the component / object an error happened in, keeping any already set. */
 export const withLocation = (
   e: IworkError,
-  location: { readonly component?: string; readonly objectId?: bigint }
+  location: { readonly component?: string; readonly objectId?: bigint },
 ): IworkError => {
   const component = e.component ?? location.component;
   const objectId = e.objectId ?? location.objectId;
@@ -92,7 +92,11 @@ export const fromParseError = (e: ParseError.ParseError<unknown>): IworkError =>
 export const toIworkError = (cause: unknown): IworkError =>
   isIworkError(cause)
     ? cause
-    : new IworkError({ reason: "Malformed", detail: cause instanceof Error ? cause.message : String(cause), cause });
+    : new IworkError({
+        reason: "Malformed",
+        detail: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      });
 
 const fields = (e: IworkError) => ({
   reason: e.reason,

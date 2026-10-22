@@ -14,7 +14,14 @@
  */
 
 import {
-  type PdfDict, type PdfObject, type PdfStream, pdfArray, pdfDict, pdfName, pdfRef, pdfStream,
+  type PdfDict,
+  type PdfObject,
+  type PdfStream,
+  pdfArray,
+  pdfDict,
+  pdfName,
+  pdfRef,
+  pdfStream,
   pdfString,
 } from "./objects.ts";
 
@@ -43,7 +50,13 @@ const isRegular = (c: number): boolean => WHITESPACE[c] === 0 && DELIMITER[c] ==
 const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39;
 
 const hexValue = (c: number): number =>
-  c >= 0x30 && c <= 0x39 ? c - 0x30 : c >= 0x41 && c <= 0x46 ? c - 0x37 : c >= 0x61 && c <= 0x66 ? c - 0x57 : -1;
+  c >= 0x30 && c <= 0x39
+    ? c - 0x30
+    : c >= 0x41 && c <= 0x46
+      ? c - 0x37
+      : c >= 0x61 && c <= 0x66
+        ? c - 0x57
+        : -1;
 
 // ============================================================================
 // Lexer
@@ -83,7 +96,8 @@ export class Lexer {
       if (WHITESPACE[c] === 1) this.pos++;
       else if (c === 0x25) {
         // % comment, to the end of the line
-        while (this.pos < buf.length && buf[this.pos] !== 0x0a && buf[this.pos] !== 0x0d) this.pos++;
+        while (this.pos < buf.length && buf[this.pos] !== 0x0a && buf[this.pos] !== 0x0d)
+          this.pos++;
       } else break;
     }
   }
@@ -96,10 +110,18 @@ export class Lexer {
     const start = this.pos;
     const c = buf[this.pos]!;
     switch (c) {
-      case 0x5b: this.pos++; return { kind: "punct", char: "[" };
-      case 0x5d: this.pos++; return { kind: "punct", char: "]" };
-      case 0x7b: this.pos++; return { kind: "punct", char: "{" };
-      case 0x7d: this.pos++; return { kind: "punct", char: "}" };
+      case 0x5b:
+        this.pos++;
+        return { kind: "punct", char: "[" };
+      case 0x5d:
+        this.pos++;
+        return { kind: "punct", char: "]" };
+      case 0x7b:
+        this.pos++;
+        return { kind: "punct", char: "{" };
+      case 0x7d:
+        this.pos++;
+        return { kind: "punct", char: "}" };
       case 0x3c:
         if (buf[this.pos + 1] === 0x3c) {
           this.pos += 2;
@@ -113,13 +135,16 @@ export class Lexer {
         }
         this.pos++; // a stray `>`: skip it
         return this.next();
-      case 0x28: return { kind: "value", value: this.literalString() };
-      case 0x2f: return { kind: "value", value: this.name() };
+      case 0x28:
+        return { kind: "value", value: this.literalString() };
+      case 0x2f:
+        return { kind: "value", value: this.name() };
       case 0x29:
         this.pos++; // a stray `)`
         return this.next();
     }
-    if (isDigit(c) || c === 0x2b || c === 0x2d || c === 0x2e) return { kind: "value", value: this.number() };
+    if (isDigit(c) || c === 0x2b || c === 0x2d || c === 0x2e)
+      return { kind: "value", value: this.number() };
     while (this.pos < buf.length && isRegular(buf[this.pos]!)) this.pos++;
     if (this.pos === start) {
       this.pos++;
@@ -218,11 +243,21 @@ export class Lexer {
         if (this.pos >= buf.length) break;
         const e = buf[this.pos++]!;
         switch (e) {
-          case 0x6e: out.push(0x0a); continue; // \n
-          case 0x72: out.push(0x0d); continue; // \r
-          case 0x74: out.push(0x09); continue; // \t
-          case 0x62: out.push(0x08); continue; // \b
-          case 0x66: out.push(0x0c); continue; // \f
+          case 0x6e:
+            out.push(0x0a);
+            continue; // \n
+          case 0x72:
+            out.push(0x0d);
+            continue; // \r
+          case 0x74:
+            out.push(0x09);
+            continue; // \t
+          case 0x62:
+            out.push(0x08);
+            continue; // \b
+          case 0x66:
+            out.push(0x0c);
+            continue; // \f
           case 0x0d: // line continuation
             if (buf[this.pos] === 0x0a) this.pos++;
             continue;
@@ -268,7 +303,11 @@ const ENDSTREAM = [0x65, 0x6e, 0x64, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d]; // "en
 /** Find a byte sequence at or after `from`. */
 export const indexOf = (buf: Uint8Array, needle: ReadonlyArray<number>, from = 0): number => {
   const first = needle[0]!;
-  outer: for (let i = buf.indexOf(first, from); i >= 0 && i <= buf.length - needle.length; i = buf.indexOf(first, i + 1)) {
+  outer: for (
+    let i = buf.indexOf(first, from);
+    i >= 0 && i <= buf.length - needle.length;
+    i = buf.indexOf(first, i + 1)
+  ) {
     for (let j = 1; j < needle.length; j++) if (buf[i + j] !== needle[j]) continue outer;
     return i;
   }
@@ -276,7 +315,11 @@ export const indexOf = (buf: Uint8Array, needle: ReadonlyArray<number>, from = 0
 };
 
 /** Find a byte sequence at or before `from`, searching backwards. */
-export const lastIndexOf = (buf: Uint8Array, needle: ReadonlyArray<number>, from = buf.length): number => {
+export const lastIndexOf = (
+  buf: Uint8Array,
+  needle: ReadonlyArray<number>,
+  from = buf.length,
+): number => {
   for (let i = Math.min(from, buf.length - needle.length); i >= 0; i--) {
     let match = true;
     for (let j = 0; j < needle.length; j++) {
@@ -335,20 +378,27 @@ export class Parser {
       case "eof":
         return undefined;
       case "value":
-        if (typeof t.value === "number" && Number.isInteger(t.value) && t.value >= 0) return this.maybeRef(t.value);
+        if (typeof t.value === "number" && Number.isInteger(t.value) && t.value >= 0)
+          return this.maybeRef(t.value);
         return t.value;
       case "keyword":
         switch (t.word) {
-          case "true": return true;
-          case "false": return false;
-          case "null": return null;
+          case "true":
+            return true;
+          case "false":
+            return false;
+          case "null":
+            return null;
         }
         return { _tag: "Keyword", word: t.word };
       case "punct":
         switch (t.char) {
-          case "[": return this.array();
-          case "<<": return this.dictOrStream();
-          default: return { _tag: "Keyword", word: t.char };
+          case "[":
+            return this.array();
+          case "<<":
+            return this.dictOrStream();
+          default:
+            return { _tag: "Keyword", word: t.char };
         }
     }
   }
@@ -367,7 +417,12 @@ export class Parser {
     const saved = this.lexer.pos;
     const peeked = this.peeked;
     const gen = this.peek();
-    if (gen.kind === "value" && typeof gen.value === "number" && Number.isInteger(gen.value) && gen.value >= 0) {
+    if (
+      gen.kind === "value" &&
+      typeof gen.value === "number" &&
+      Number.isInteger(gen.value) &&
+      gen.value >= 0
+    ) {
       this.peeked = undefined;
       const r = this.peek();
       if (r.kind === "keyword" && r.word === "R") {
@@ -390,7 +445,14 @@ export class Parser {
         break;
       }
       if (t.kind === "punct" && t.char === ">>") break; // unterminated: let the dictionary close
-      if (t.kind === "keyword" && t.word !== "true" && t.word !== "false" && t.word !== "null" && t.word !== "R") break;
+      if (
+        t.kind === "keyword" &&
+        t.word !== "true" &&
+        t.word !== "false" &&
+        t.word !== "null" &&
+        t.word !== "R"
+      )
+        break;
       const x = this.item();
       if (x === undefined || isKeyword(x)) continue;
       items.push(x);
@@ -407,9 +469,16 @@ export class Parser {
         this.peeked = undefined;
         break;
       }
-      if (t.kind === "keyword" && (t.word === "endobj" || t.word === "stream" || t.word === "obj")) break;
+      if (t.kind === "keyword" && (t.word === "endobj" || t.word === "stream" || t.word === "obj"))
+        break;
       this.peeked = undefined;
-      if (t.kind !== "value" || typeof t.value !== "object" || t.value === null || t.value._tag !== "Name") continue;
+      if (
+        t.kind !== "value" ||
+        typeof t.value !== "object" ||
+        t.value === null ||
+        t.value._tag !== "Name"
+      )
+        continue;
       const key = t.value.name;
       const v = this.peek();
       if (v.kind === "punct" && v.char === ">>") {
@@ -438,8 +507,17 @@ export class Parser {
     if (buf[start] === 0x0a) start++;
 
     const declared = dict.entries.get("Length");
-    let length = typeof declared === "number" ? declared : declared === undefined ? undefined : this.resolveLength?.(declared);
-    if (length !== undefined && (length < 0 || !Number.isFinite(length) || !this.endstreamAt(start + length))) length = undefined;
+    let length =
+      typeof declared === "number"
+        ? declared
+        : declared === undefined
+          ? undefined
+          : this.resolveLength?.(declared);
+    if (
+      length !== undefined &&
+      (length < 0 || !Number.isFinite(length) || !this.endstreamAt(start + length))
+    )
+      length = undefined;
 
     let end: number;
     if (length !== undefined) end = start + length;
@@ -476,9 +554,12 @@ export class Parser {
     const gen = this.token();
     const kw = this.token();
     if (
-      num.kind !== "value" || typeof num.value !== "number" ||
-      gen.kind !== "value" || typeof gen.value !== "number" ||
-      kw.kind !== "keyword" || kw.word !== "obj"
+      num.kind !== "value" ||
+      typeof num.value !== "number" ||
+      gen.kind !== "value" ||
+      typeof gen.value !== "number" ||
+      kw.kind !== "keyword" ||
+      kw.word !== "obj"
     ) {
       throw new PdfSyntaxError("expected an indirect object header (n g obj)", start);
     }
@@ -552,7 +633,13 @@ const inlineImage = (parser: Parser, lexer: Lexer): PdfStream => {
   const start = lexer.pos + 1; // one whitespace byte after ID
   let i = start;
   for (; i < buf.length - 1; i++) {
-    if (buf[i] === 0x45 && buf[i + 1] === 0x49 && isWhitespace(buf[i - 1] ?? 0x20) && EI_END(buf, i + 2)) break;
+    if (
+      buf[i] === 0x45 &&
+      buf[i + 1] === 0x49 &&
+      isWhitespace(buf[i - 1] ?? 0x20) &&
+      EI_END(buf, i + 2)
+    )
+      break;
   }
   const end = i >= buf.length - 1 ? buf.length : i;
   lexer.pos = Math.min(buf.length, end + 2);

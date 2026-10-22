@@ -29,17 +29,20 @@ const program = Effect.gen(function* () {
   yield* pipe(
     rows,
     Stream.take(5),
-    Stream.runForEach((row) => Effect.sync(() => console.log(row.join(", "))))
+    Stream.runForEach((row) => Effect.sync(() => console.log(row.join(", ")))),
   );
 
   console.log("\n=== Batched processing ===");
   const batchCount = yield* pipe(
     rows,
     Stream.grouped(1000),
-    Stream.runFold(() => 0, (count: number, batch) => {
-      console.log(`Processed batch ${count + 1}: ${batch.length} rows`);
-      return count + 1;
-    })
+    Stream.runFold(
+      () => 0,
+      (count: number, batch) => {
+        console.log(`Processed batch ${count + 1}: ${batch.length} rows`);
+        return count + 1;
+      },
+    ),
   );
   console.log(`\nTotal batches: ${batchCount}`);
 });
