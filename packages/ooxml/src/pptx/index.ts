@@ -7,7 +7,7 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Pptx, type PptxFeature } from "./profile.js";
+import { Pptx, type PptxFeature, PptxRead, type PptxReadFeature } from "./profile.js";
 import { makePptxReader, type PptxReaderOptions } from "./reader.js";
 import { makePptxWriter, type PptxWriterOptions } from "./writer.js";
 
@@ -24,13 +24,13 @@ export interface PptxFormatOptions {
 }
 
 /** Create a PPTX Format bundle with custom reader/writer options. */
-export const makeFormat = (options?: PptxFormatOptions): Format<PptxFeature> => ({
+export const makeFormat = (options?: PptxFormatOptions): Format<PptxReadFeature, PptxFeature> => ({
   id: "pptx",
-  readProfile: Pptx,
+  readProfile: PptxRead,
   writeProfile: Pptx,
   reader: makePptxReader(options?.reader),
   writer: makePptxWriter(options?.writer),
 });
 
 /** The PPTX format bundle with default options, for use with `convert`. */
-export const format: Format<PptxFeature> = makeFormat();
+export const format: Format<PptxReadFeature, PptxFeature> = makeFormat();

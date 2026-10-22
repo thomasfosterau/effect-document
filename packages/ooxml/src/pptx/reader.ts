@@ -1,5 +1,5 @@
 /**
- * The PPTX Reader: .pptx bytes -> a presentation document in the PPTX profile.
+ * The PPTX Reader: .pptx bytes -> a presentation document in the PPTX read profile.
  *
  * Walks `ppt/presentation.xml` for the ordered slide list, then each slide's
  * shape tree: every `<p:sp>` (including those inside `<p:grpSp>` groups, which
@@ -19,7 +19,7 @@ import {
 import {
   type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
 } from "../shared/index.js";
-import { Pptx, type PptxFeature } from "./profile.js";
+import { PptxRead, type PptxReadFeature } from "./profile.js";
 
 export interface PptxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
@@ -180,8 +180,8 @@ const shapeElements = (spTree: XmlElement): XmlElement[] => {
 };
 
 /** Create a PPTX Reader. */
-export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxFeature> => {
-  const read = (input: Content): Effect.Effect<Doc<PptxFeature>, ParseError> =>
+export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeature> => {
+  const read = (input: Content): Effect.Effect<Doc<PptxReadFeature>, ParseError> =>
     Effect.try({
       try: () => {
         const pkg = new OpcReader(contentToBytes(input), options?.limits);
@@ -212,13 +212,13 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxFeature>
           slides.push(new Slide({ shapes }));
         }
 
-        return trustAs<PptxFeature>(document([new SlideShow({ slides })]));
+        return trustAs<PptxReadFeature>(document([new SlideShow({ slides })]));
       },
       catch: (cause) =>
         ooxmlParseError("pptx", cause),
     });
-  return { format: "pptx", profile: Pptx, read };
+  return { format: "pptx", profile: PptxRead, read };
 };
 
-export const PptxReaderTag = makeReaderTag<PptxFeature>("pptx");
+export const PptxReaderTag = makeReaderTag<PptxReadFeature>("pptx");
 export const PptxReaderLive = Layer.succeed(PptxReaderTag, makePptxReader());
