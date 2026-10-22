@@ -7,7 +7,11 @@
  * normalizes the trailing newline, so text is not necessarily byte-identical).
  */
 
-import { Effect, Layer, Stream, pipe } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import { pipe } from "effect/Function";
 import {
   cell,
   type Content,
@@ -128,7 +132,7 @@ const toCell = (raw: string, value: Inferred): SheetCell =>
     ? cell.blank()
     : value === undefined
       ? cell.text(raw)
-      : typeof value === "number"
+      : Predicate.isNumber(value)
         ? cell.number(value)
         : cell.boolean(value);
 
@@ -152,7 +156,7 @@ const inferRows = (
   for (const row of values) {
     row.forEach((value, c) => {
       if (value === null || columns[c] === "text") return;
-      const kind = value === undefined ? "text" : typeof value === "number" ? "number" : "boolean";
+      const kind = value === undefined ? "text" : Predicate.isNumber(value) ? "number" : "boolean";
       columns[c] = columns[c] === undefined || columns[c] === kind ? kind : "text";
     });
   }

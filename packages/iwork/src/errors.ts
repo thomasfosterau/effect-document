@@ -8,7 +8,8 @@
  * so a reader can report it, or skip just that component.
  */
 
-import { Data } from "effect";
+import * as Arr from "effect/Array";
+import * as Data from "effect/Data";
 import type { ParseError } from "@thomasfosterau/effect-parse";
 
 export type IworkErrorReason =
@@ -46,7 +47,7 @@ export class IworkError extends Data.TaggedError("IworkError")<{
     if (this.component !== undefined) where.push(this.component);
     if (this.objectId !== undefined) where.push(`object ${this.objectId}`);
     if (this.offset !== undefined) where.push(`offset ${this.offset}`);
-    return where.length > 0 ? `${where.join(", ")}: ${this.detail}` : this.detail;
+    return Arr.isReadonlyArrayNonEmpty(where) ? `${where.join(", ")}: ${this.detail}` : this.detail;
   }
 }
 
@@ -78,7 +79,9 @@ export const withLocation = (
 /** Convert an effect-parse error (from a framing grammar) into an `IworkError`. */
 export const fromParseError = (e: ParseError.ParseError<unknown>): IworkError => {
   const what = e.description ?? `expected ${e.expected.join(" or ")}`;
-  const detail = e.context.length > 0 ? `${e.context.join(" in ")}: ${what}` : what;
+  const detail = Arr.isReadonlyArrayNonEmpty(e.context)
+    ? `${e.context.join(" in ")}: ${what}`
+    : what;
   return new IworkError({
     // running out of input (a short take, or a failure at the very end) is truncation
     reason: e.kind === "Take" || e.offset >= e.input.length ? "Truncated" : "Malformed",

@@ -16,8 +16,9 @@
  * required namespaces are understood, otherwise the `mc:Fallback`.
  */
 
+import * as Arr from "effect/Array";
 import { ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
-import { Result } from "effect";
+import * as Result from "effect/Result";
 
 // ============================================================================
 // Escaping
@@ -45,23 +46,22 @@ const charRef = (code: number): string =>
 export const unescapeXml = (s: string): string =>
   s.includes("&")
     ? s.replace(/&(#x[0-9a-fA-F]+|#\d+|lt|gt|quot|apos|amp);/g, (whole, ref: string) => {
-        switch (ref) {
-          case "lt":
-            return "<";
-          case "gt":
-            return ">";
-          case "quot":
-            return '"';
-          case "apos":
-            return "'";
-          case "amp":
-            return "&";
-          default:
-            return charRef(
-              ref[1] === "x"
-                ? Number.parseInt(ref.substring(2), 16)
-                : Number.parseInt(ref.substring(1), 10),
-            );
+        if (ref === "lt") {
+          return "<";
+        } else if (ref === "gt") {
+          return ">";
+        } else if (ref === "quot") {
+          return '"';
+        } else if (ref === "apos") {
+          return "'";
+        } else if (ref === "amp") {
+          return "&";
+        } else {
+          return charRef(
+            ref[1] === "x"
+              ? Number.parseInt(ref.substring(2), 16)
+              : Number.parseInt(ref.substring(1), 10),
+          );
         }
       })
     : s;
@@ -342,61 +342,53 @@ const buildTree = (
   for (const token of tokens) {
     if (token === null) continue;
     const top = stack[stack.length - 1];
-    switch (token.k) {
-      case "text":
-        if (top !== undefined) top.el.text += token.text;
-        else if (token.text.trim() !== "") {
-          return Result.fail(
-            failAt(
-              input,
-              token.at,
-              root === undefined ? "expected root element" : "expected end of input",
-              [root === undefined ? "root element" : "end of input"],
-            ),
-          );
-        }
-        break;
-      case "open": {
-        if (top === undefined && root !== undefined) {
-          return Result.fail(
-            failAt(input, token.at - 1, "expected end of input", ["end of input"]),
-          );
-        }
-        const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
-        const el: MutableElement = {
-          name: localName(token.name),
-          ns: scope.get(prefixOf(token.name)) ?? "",
-          attrs: token.attrs,
-          children: [],
-          text: "",
-        };
-        // Scopes are only consulted to disambiguate attributes and resolve
-        // mc:Choice requirements, so only those elements record one.
-        if (el.ns === NS_MCE || hasSeveralAttrs(token.attrs)) scopes.set(el, scope);
-        if (top === undefined) root = el;
-        else top.el.children.push(el);
-        if (!token.empty) stack.push({ el, raw: token.name, at: token.at, scope });
-        else if (el.ns === NS_MCE && el.name === "AlternateContent" && top !== undefined)
-          top.el.children.pop();
-        break;
+    if (token.k === "text") {
+      if (top !== undefined) top.el.text += token.text;
+      else if (token.text.trim() !== "") {
+        return Result.fail(
+          failAt(
+            input,
+            token.at,
+            root === undefined ? "expected root element" : "expected end of input",
+            [root === undefined ? "root element" : "end of input"],
+          ),
+        );
       }
-      case "close": {
-        if (top === undefined) {
-          return Result.fail(failAt(input, token.at, `unexpected closing tag </${token.name}>`));
-        }
-        if (top.raw !== token.name) {
-          return Result.fail(
-            failAt(input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`),
-          );
-        }
-        stack.pop();
-        const parent = stack[stack.length - 1];
-        // Markup Compatibility: replace the AlternateContent with one branch.
-        if (parent !== undefined && top.el.ns === NS_MCE && top.el.name === "AlternateContent") {
-          parent.el.children.pop();
-          parent.el.children.push(...alternateContent(top.el, scopes));
-        }
-        break;
+    } else if (token.k === "open") {
+      if (top === undefined && root !== undefined) {
+        return Result.fail(failAt(input, token.at - 1, "expected end of input", ["end of input"]));
+      }
+      const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
+      const el: MutableElement = {
+        name: localName(token.name),
+        ns: scope.get(prefixOf(token.name)) ?? "",
+        attrs: token.attrs,
+        children: [],
+        text: "",
+      };
+      // Scopes are only consulted to disambiguate attributes and resolve
+      // mc:Choice requirements, so only those elements record one.
+      if (el.ns === NS_MCE || hasSeveralAttrs(token.attrs)) scopes.set(el, scope);
+      if (top === undefined) root = el;
+      else top.el.children.push(el);
+      if (!token.empty) stack.push({ el, raw: token.name, at: token.at, scope });
+      else if (el.ns === NS_MCE && el.name === "AlternateContent" && top !== undefined)
+        top.el.children.pop();
+    } else if (token.k === "close") {
+      if (top === undefined) {
+        return Result.fail(failAt(input, token.at, `unexpected closing tag </${token.name}>`));
+      }
+      if (top.raw !== token.name) {
+        return Result.fail(
+          failAt(input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`),
+        );
+      }
+      stack.pop();
+      const parent = stack[stack.length - 1];
+      // Markup Compatibility: replace the AlternateContent with one branch.
+      if (parent !== undefined && top.el.ns === NS_MCE && top.el.name === "AlternateContent") {
+        parent.el.children.pop();
+        parent.el.children.push(...alternateContent(top.el, scopes));
       }
     }
   }
@@ -448,7 +440,7 @@ export const findChildren = (element: XmlElement, name: string): ReadonlyArray<X
 export const findAll = (element: XmlElement, name: string): ReadonlyArray<XmlElement> => {
   const results: XmlElement[] = [];
   const stack: XmlElement[] = [...element.children].reverse();
-  while (stack.length > 0) {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const el = stack.pop()!;
     if (el.name === name) results.push(el);
     for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
@@ -472,5 +464,5 @@ export const getAttr = (element: XmlElement, name: string): string | undefined =
     const own = matches.find((key) => scope?.get(prefixOf(key)) === element.ns);
     if (own !== undefined) return element.attrs[own];
   }
-  return matches.length > 0 ? element.attrs[matches[0]!] : undefined;
+  return Arr.isReadonlyArrayNonEmpty(matches) ? element.attrs[matches[0]!] : undefined;
 };

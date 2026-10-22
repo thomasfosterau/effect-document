@@ -9,7 +9,11 @@
  * Use `Rfc4180Dialect` for the CRLF line endings RFC 4180 specifies.
  */
 
-import { Effect, Layer, Stream } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import {
   cellToText,
   type Content,
@@ -185,7 +189,7 @@ const cellFields = (
 ): ReadonlyArray<Field> => {
   const format = options.formatNumber ?? formatCsvNumber;
   return cells.map((c) =>
-    c._tag === "CellNumber"
+    Predicate.isTagged(c, "CellNumber")
       ? { value: format(c.value), numeric: true }
       : { value: cellToText(c), numeric: false },
   );
@@ -218,7 +222,7 @@ export const renderTable = (
         ? wrapField("", dialect)
         : row.map((f) => renderField(f, dialect)).join(dialect.separator),
     )
-    .join(dialect.linebreak) + (rows.length > 0 ? dialect.linebreak : "");
+    .join(dialect.linebreak) + (Arr.isReadonlyArrayNonEmpty(rows) ? dialect.linebreak : "");
 
 /**
  * Render a stream of worksheet rows to CSV text, one chunk per row (the BOM
@@ -263,7 +267,7 @@ export const makeCsvWriter = (options?: CsvWriterOptions): Writer<CsvFeature> =>
 
   const write = (doc: Doc<CsvFeature>): Effect.Effect<Content, WriteError> =>
     Effect.suspend(() => {
-      const ws = doc.blocks.find((b): b is Worksheet => b._tag === "Worksheet");
+      const ws = doc.blocks.find((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
       const rows = ws === undefined ? [] : ws.rows.map((row) => cellFields(row.cells, opts));
       return Effect.map(renderRows(rows, opts), text);
     });

@@ -1,5 +1,6 @@
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { strToU8, zipSync } from "fflate";
 import { bytes } from "@thomasfosterau/effect-document";
 import {
@@ -18,7 +19,7 @@ import { cell, document, para, str, trustAs, worksheet } from "@thomasfosterau/e
 const zip = (files: Record<string, string | Uint8Array>) =>
   zipSync(
     Object.fromEntries(
-      Object.entries(files).map(([k, v]) => [k, typeof v === "string" ? strToU8(v) : v]),
+      Object.entries(files).map(([k, v]) => [k, Predicate.isString(v) ? strToU8(v) : v]),
     ),
   );
 
@@ -112,7 +113,7 @@ describe("readers (#55)", () => {
     const out = Effect.runSync(
       makeDocxWriter().write(trustAs(document([para([str("hi")])])) as never),
     );
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
     return out;
   };
 

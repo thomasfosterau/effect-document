@@ -8,7 +8,7 @@
  */
 
 import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
-import { Result } from "effect";
+import * as Result from "effect/Result";
 import { fromParseError, isIworkError, shiftOffset } from "./errors.ts";
 import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.ts";
 

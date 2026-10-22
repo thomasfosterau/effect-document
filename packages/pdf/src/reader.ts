@@ -11,7 +11,9 @@
  * no text (there is no OCR).
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Content,
   type Doc,
@@ -32,7 +34,7 @@ import { Pdf, type PdfFeature } from "./profile.ts";
 
 /** PDF bytes from content; text is taken one byte per character (Latin-1). */
 export const pdfBytes = (input: Content): Uint8Array =>
-  input._tag === "Bytes" ? input.bytes : latin1ToBytes(input.text);
+  Predicate.isTagged(input, "Bytes") ? input.bytes : latin1ToBytes(input.text);
 
 const META_KEYS = [
   ["Title", "title"],

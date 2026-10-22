@@ -8,7 +8,8 @@
  * this path is unvalidated against real files - treat it as best-effort.
  */
 
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   type Content,

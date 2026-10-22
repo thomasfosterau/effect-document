@@ -1,5 +1,6 @@
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   cell,
   contentToText,
@@ -29,7 +30,7 @@ describe("convert", () => {
 
     // sanity: the bytes are a real workbook we can read back
     const back = await run(makeXlsxReader().read(content));
-    const ws = back.blocks.find((b) => b._tag === "Worksheet") as Worksheet;
+    const ws = back.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
     expect(ws.rows[1]!.cells[1]).toMatchObject({ _tag: "CellNumber", value: 999.99 });
   });
 

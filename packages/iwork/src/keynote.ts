@@ -8,7 +8,9 @@
  * Styling and exact title/body roles are not yet reconstructed.
  */
 
-import { Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   type Content,
@@ -69,9 +71,11 @@ export const makeKeynoteReader = (options?: IworkReaderOptions): Reader<KeynoteF
       );
       const slides = decoded.map(
         ({ items }) =>
-          new Slide({ shapes: items.length > 0 ? [new TextBox({ content: items })] : [] }),
+          new Slide({
+            shapes: Arr.isReadonlyArrayNonEmpty(items) ? [new TextBox({ content: items })] : [],
+          }),
       );
-      if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
+      if (Arr.isReadonlyArrayEmpty(slides)) slides.push(new Slide({ shapes: [] }));
       return trustAs<KeynoteFeature>(document([new SlideShow({ slides })]));
     });
   return { format: "keynote", profile: Keynote, read };

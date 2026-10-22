@@ -9,7 +9,10 @@
  * part defines the Heading1-6, Code and TableGrid styles it refers to.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   bytes,
@@ -96,7 +99,7 @@ const rPr = (f: Fmt): string => {
   if (f.strike) parts.push("<w:strike/>");
   if (f.caps) parts.push("<w:smallCaps/>");
   if (f.vert) parts.push(`<w:vertAlign w:val="${f.vert}"/>`);
-  return parts.length > 0 ? `<w:rPr>${parts.join("")}</w:rPr>` : "";
+  return Arr.isReadonlyArrayNonEmpty(parts) ? `<w:rPr>${parts.join("")}</w:rPr>` : "";
 };
 
 /** Run content for text: `\n` becomes `w:br` and `\t` becomes `w:tab`. */
@@ -120,43 +123,39 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt, rel: RelCollector): strin
   ns.map((n) => inlineToRuns(n, f, rel)).join("");
 
 const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
-  switch (n._tag) {
-    case "Str":
-      return run(n.text, f);
-    case "Space":
-    case "SoftBreak":
-      return run(" ", f);
-    case "LineBreak":
-      return `<w:r>${rPr(f)}<w:br/></w:r>`;
-    case "Emph":
-      return inlineRuns(n.content, { ...f, i: true }, rel);
-    case "Strong":
-      return inlineRuns(n.content, { ...f, b: true }, rel);
-    case "Underline":
-      return inlineRuns(n.content, { ...f, u: true }, rel);
-    case "Strikeout":
-      return inlineRuns(n.content, { ...f, strike: true }, rel);
-    case "Superscript":
-      return inlineRuns(n.content, { ...f, vert: "superscript" }, rel);
-    case "Subscript":
-      return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
-    case "SmallCaps":
-      return inlineRuns(n.content, { ...f, caps: true }, rel);
-    case "Code":
-      return run(n.text, f);
-    case "Quoted": {
-      const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
-      return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
-    }
-    case "Link": {
-      // "#name" links to a bookmark in this document; anything else is external.
-      const target = n.target.url.startsWith("#")
-        ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
-        : `r:id="${rel.addHyperlink(n.target.url)}"`;
-      return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
-    }
-    default:
-      return "";
+  if (Predicate.isTagged(n, "Str")) {
+    return run(n.text, f);
+  } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
+    return run(" ", f);
+  } else if (Predicate.isTagged(n, "LineBreak")) {
+    return `<w:r>${rPr(f)}<w:br/></w:r>`;
+  } else if (Predicate.isTagged(n, "Emph")) {
+    return inlineRuns(n.content, { ...f, i: true }, rel);
+  } else if (Predicate.isTagged(n, "Strong")) {
+    return inlineRuns(n.content, { ...f, b: true }, rel);
+  } else if (Predicate.isTagged(n, "Underline")) {
+    return inlineRuns(n.content, { ...f, u: true }, rel);
+  } else if (Predicate.isTagged(n, "Strikeout")) {
+    return inlineRuns(n.content, { ...f, strike: true }, rel);
+  } else if (Predicate.isTagged(n, "Superscript")) {
+    return inlineRuns(n.content, { ...f, vert: "superscript" }, rel);
+  } else if (Predicate.isTagged(n, "Subscript")) {
+    return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
+  } else if (Predicate.isTagged(n, "SmallCaps")) {
+    return inlineRuns(n.content, { ...f, caps: true }, rel);
+  } else if (Predicate.isTagged(n, "Code")) {
+    return run(n.text, f);
+  } else if (Predicate.isTagged(n, "Quoted")) {
+    const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
+    return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
+  } else if (Predicate.isTagged(n, "Link")) {
+    // "#name" links to a bookmark in this document; anything else is external.
+    const target = n.target.url.startsWith("#")
+      ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
+      : `r:id="${rel.addHyperlink(n.target.url)}"`;
+    return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
+  } else {
+    return "";
   }
 };
 
@@ -188,7 +187,9 @@ const renderList = (
       const [first, ...rest] = item;
       const lead =
         first !== undefined &&
-        (first._tag === "Para" || first._tag === "Plain" || first._tag === "Header");
+        (Predicate.isTagged(first, "Para") ||
+          Predicate.isTagged(first, "Plain") ||
+          Predicate.isTagged(first, "Header"));
       return (
         listParagraph(lead ? first.content : [], numId, ilvl, rel) +
         (lead ? rest : item).map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL))).join("")
@@ -219,29 +220,26 @@ const renderTable = (t: Table, rel: RelCollector): string => {
 
 /** `ilvl`: the list level a nested list here would take (0 outside lists). */
 const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
-  switch (b._tag) {
-    case "Para":
-    case "Plain":
-      return `<w:p>${inlineRuns(b.content, {}, rel)}</w:p>`;
-    case "Header":
-      return `<w:p><w:pPr><w:pStyle w:val="Heading${b.level}"/></w:pPr>${inlineRuns(b.content, {}, rel)}</w:p>`;
-    case "HorizontalRule":
-      return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
-    case "BulletList":
-      return renderList(b.items, NUM_BULLET, ilvl, rel);
-    case "OrderedList":
-      return renderList(b.items, rel.addOrderedList(b.start ?? 1), ilvl, rel);
-    case "BlockQuote":
-    case "Div":
-      return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
-    case "LineBlock":
-      return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
-    case "CodeBlock":
-      return `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(b.text)}</w:r></w:p>`;
-    case "Table":
-      return renderTable(b, rel);
-    default:
-      return "";
+  if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain")) {
+    return `<w:p>${inlineRuns(b.content, {}, rel)}</w:p>`;
+  } else if (Predicate.isTagged(b, "Header")) {
+    return `<w:p><w:pPr><w:pStyle w:val="Heading${b.level}"/></w:pPr>${inlineRuns(b.content, {}, rel)}</w:p>`;
+  } else if (Predicate.isTagged(b, "HorizontalRule")) {
+    return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
+  } else if (Predicate.isTagged(b, "BulletList")) {
+    return renderList(b.items, NUM_BULLET, ilvl, rel);
+  } else if (Predicate.isTagged(b, "OrderedList")) {
+    return renderList(b.items, rel.addOrderedList(b.start ?? 1), ilvl, rel);
+  } else if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
+    return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
+  } else if (Predicate.isTagged(b, "LineBlock")) {
+    return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
+  } else if (Predicate.isTagged(b, "CodeBlock")) {
+    return `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(b.text)}</w:r></w:p>`;
+  } else if (Predicate.isTagged(b, "Table")) {
+    return renderTable(b, rel);
+  } else {
+    return "";
   }
 };
 

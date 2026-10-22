@@ -11,6 +11,7 @@
  * length-delimited (2), 32-bit (5).
  */
 
+import * as Predicate from "effect/Predicate";
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
 import { codecError, type IworkError } from "./errors.ts";
 
@@ -104,14 +105,14 @@ const fixedAt = (c: Cursor, size: number): number => {
 const fieldAt = (c: Cursor): Field | Problem => {
   const start = c.pos;
   const tag = varintAt(c);
-  if (typeof tag !== "number") return tag;
+  if (!Predicate.isNumber(tag)) return tag;
   const field = Math.floor(tag / 8);
   const wire = tag & 7;
   const valueStart = c.pos;
   switch (wire) {
     case WIRE_VARINT: {
       const value = varintAt(c);
-      if (typeof value !== "number") return value;
+      if (!Predicate.isNumber(value)) return value;
       return value > Number.MAX_SAFE_INTEGER
         ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
         : { field, wire, value };
@@ -126,7 +127,7 @@ const fieldAt = (c: Cursor): Field | Problem => {
     }
     case WIRE_LEN: {
       const length = varintAt(c);
-      if (typeof length !== "number") return length;
+      if (!Predicate.isNumber(length)) return length;
       if (c.end - c.pos < length) {
         return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
       }
@@ -175,7 +176,7 @@ export const varint: Parser.Parser<number, never, never, Uint8Array> = Parser.ma
   const start = state.pos;
   if (start >= state.end) return state.eoi("Token", ["varint"], 1);
   const value = varintAt(state);
-  return typeof value === "number" ? value : fail(state, value);
+  return Predicate.isNumber(value) ? value : fail(state, value);
 }, "varint");
 
 /**
@@ -225,7 +226,7 @@ const problemError = (p: Problem, end: number): IworkError => {
 export const readVarint = (buf: Uint8Array, pos: number): { value: number; pos: number } => {
   const cursor: Cursor = { input: buf, pos, end: buf.length };
   const value = varintAt(cursor);
-  if (typeof value === "number") return { value, pos: cursor.pos };
+  if (Predicate.isNumber(value)) return { value, pos: cursor.pos };
   throw problemError(value, buf.length);
 };
 
@@ -332,15 +333,14 @@ const PACKED_SIZE: Record<PackedType, number> = {
 
 /** Read one fixed-width element of a packed run (or a single fixed field's raw bytes). */
 const fixedElement = (view: DataView, at: number, type: PackedType): number => {
-  switch (type) {
-    case "double":
-      return view.getFloat64(at, true);
-    case "float":
-      return view.getFloat32(at, true);
-    case "fixed32":
-      return view.getUint32(at, true);
-    default:
-      return view.getUint32(at, true) + view.getUint32(at + 4, true) * 2 ** 32;
+  if (type === "double") {
+    return view.getFloat64(at, true);
+  } else if (type === "float") {
+    return view.getFloat32(at, true);
+  } else if (type === "fixed32") {
+    return view.getUint32(at, true);
+  } else {
+    return view.getUint32(at, true) + view.getUint32(at + 4, true) * 2 ** 32;
   }
 };
 
@@ -366,7 +366,7 @@ export const getPacked = (
         const c: Cursor = { input: bytes, pos: 0, end: bytes.length };
         while (c.pos < c.end) {
           const v = varintAt(c);
-          if (typeof v !== "number") throw problemError(v, bytes.length);
+          if (!Predicate.isNumber(v)) throw problemError(v, bytes.length);
           out.push(type === "sint" ? unzigzagNumber(v) : v);
         }
       } else {

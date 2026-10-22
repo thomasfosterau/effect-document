@@ -1,5 +1,7 @@
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { Effect, Result } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { zipSync } from "fflate";
 import {
   blocksToText,
@@ -78,7 +80,9 @@ describe("Keynote slide components", () => {
     const show = doc.blocks[0] as SlideShow;
     expect(
       show.slides.map((slide) =>
-        blocksToText(slide.shapes.flatMap((s) => (s._tag === "TextBox" ? s.content : []))),
+        blocksToText(
+          slide.shapes.flatMap((s) => (Predicate.isTagged(s, "TextBox") ? s.content : [])),
+        ),
       ),
     ).toEqual(["first", "second", "third"]);
   });

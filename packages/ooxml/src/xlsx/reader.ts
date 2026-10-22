@@ -13,7 +13,10 @@
  * rather than allocating the grid.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   cell,
   type Content,
@@ -162,7 +165,7 @@ const parseWorksheetRows = (
         : translateFormula(master.formula, row - master.row, col - master.col);
 
     const value = spreadsheetMlToCell(el, sharedStrings, formula);
-    if (value._tag === "CellBlank") continue;
+    if (Predicate.isTagged(value, "CellBlank")) continue;
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
@@ -243,7 +246,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const sheetsEl = findChild(workbookRoot, "sheets");
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
 
-      if (sheetEntries.length === 0) {
+      if (Arr.isReadonlyArrayEmpty(sheetEntries)) {
         return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
       }
 
@@ -276,7 +279,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
 
         const worksheetRoot = yield* parsePart(pkg, target);
         const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
-        if (grid._tag === "TooLarge") {
+        if (Predicate.isTagged(grid, "TooLarge")) {
           return yield* new ParseError({
             format: "xlsx",
             reason:

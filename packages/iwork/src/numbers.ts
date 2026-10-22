@@ -9,7 +9,10 @@
  * codec against real Numbers files and surfaces the workbook's sheets.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Content,
   defineProfile,
@@ -70,8 +73,8 @@ const find = (type: number, id: bigint, payload: Uint8Array): Found[] => {
  * its place after the listed ones, in component order.
  */
 const inDocumentOrder = (found: ReadonlyArray<Found>) => {
-  const sheets = found.filter((f) => f._tag === "Sheet");
-  const order = found.find((f) => f._tag === "Order")?.ids ?? [];
+  const sheets = found.filter((f) => Predicate.isTagged(f, "Sheet"));
+  const order = found.find((f) => Predicate.isTagged(f, "Order"))?.ids ?? [];
   const rank = new Map(order.map((id, i) => [id, i]));
   return sheets
     .map((sheet, i) => ({ sheet, key: rank.get(sheet.id) ?? order.length + i }))
@@ -97,7 +100,7 @@ export const makeNumbersReader = (options?: IworkReaderOptions): Reader<NumbersF
       const names = inDocumentOrder(decoded.flatMap(({ items }) => items)).map(({ name }, i) =>
         name === undefined ? `Sheet${i + 1}` : decodeUtf8(name),
       );
-      if (names.length === 0) names.push("Sheet1");
+      if (Arr.isReadonlyArrayEmpty(names)) names.push("Sheet1");
       const sheets = names.map(
         (name) => new Worksheet({ name, columns: [], rows: [], merges: [] }),
       );

@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   type Block,
@@ -52,19 +53,17 @@ describe("DOCX round-trip", () => {
     const back = roundtrip([para([strong([str("b")]), emph([str("i")])])]);
     const p = back.blocks[0];
     expect(p?._tag).toBe("Para");
-    if (p?._tag === "Para") {
-      expect(findInline(p.content, "Strong")).toBeDefined();
-      expect(findInline(p.content, "Emph")).toBeDefined();
-    }
+    assert(p?._tag === "Para");
+    expect(findInline(p.content, "Strong")).toBeDefined();
+    expect(findInline(p.content, "Emph")).toBeDefined();
   });
 
   test("preserves a hyperlink and its URL", () => {
     const back = roundtrip([para([str("see "), link([str("here")], "https://example.com")])]);
     const p = back.blocks[0];
-    if (p?._tag === "Para") {
-      const lnk = p.content.find((i) => i._tag === "Link");
-      expect(lnk).toMatchObject({ _tag: "Link", target: { url: "https://example.com" } });
-    }
+    assert(p?._tag === "Para");
+    const lnk = p.content.find((i) => Predicate.isTagged(i, "Link"));
+    expect(lnk).toMatchObject({ _tag: "Link", target: { url: "https://example.com" } });
   });
 
   test("preserves bullet and ordered lists", () => {
@@ -74,7 +73,8 @@ describe("DOCX round-trip", () => {
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["BulletList", "OrderedList"]);
     const bl = back.blocks[0];
-    if (bl?._tag === "BulletList") expect(bl.items).toHaveLength(2);
+    assert(bl?._tag === "BulletList");
+    expect(bl.items).toHaveLength(2);
   });
 
   test("preserves a table with a header row", () => {
@@ -83,11 +83,10 @@ describe("DOCX round-trip", () => {
     ]);
     const t = back.blocks[0];
     expect(t?._tag).toBe("Table");
-    if (t?._tag === "Table") {
-      expect(t.head).toHaveLength(1);
-      expect(t.body).toHaveLength(1);
-      expect(blocksToText([t])).toContain("Name\tAge");
-    }
+    assert(t?._tag === "Table");
+    expect(t.head).toHaveLength(1);
+    expect(t.body).toHaveLength(1);
+    expect(blocksToText([t])).toContain("Name\tAge");
   });
 
   test("output conforms to the DOCX profile", () => {
@@ -167,12 +166,15 @@ describe("DOCX correctness (#72)", () => {
   const r = (text: string, rPr = "") =>
     `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
   const inlinesOf = (b: Block | undefined): ReadonlyArray<Inline> =>
-    b !== undefined && (b._tag === "Para" || b._tag === "Plain" || b._tag === "Header")
+    b !== undefined &&
+    (Predicate.isTagged(b, "Para") ||
+      Predicate.isTagged(b, "Plain") ||
+      Predicate.isTagged(b, "Header"))
       ? b.content
       : [];
   const parts = (blocks: ReadonlyArray<Block>) => {
     const out = run(makeDocxWriter().write(doc(blocks)));
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };

@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import {
   blocksToText,
@@ -31,7 +32,7 @@ const readBack = (slides: Slide[]) =>
   run(makePptxReader().read(run(makePptxWriter().write(deckOf(...slides)))));
 
 const firstSlideShow = (blocks: ReadonlyArray<{ _tag: string }>) =>
-  blocks.find((b) => b._tag === "SlideShow") as
+  blocks.find((b) => Predicate.isTagged(b, "SlideShow")) as
     | { _tag: "SlideShow"; slides: ReadonlyArray<Slide> }
     | undefined;
 
@@ -60,9 +61,8 @@ describe("PPTX round-trip", () => {
     const ss = firstSlideShow(back.blocks)!;
     const shape = ss.slides[0]!.shapes[0]!;
     expect(shape._tag).toBe("TextBox");
-    if (shape._tag === "TextBox") {
-      expect(shape.content[0]?._tag).toBe("BulletList");
-    }
+    assert(Predicate.isTagged(shape, "TextBox"));
+    expect(shape.content[0]?._tag).toBe("BulletList");
   });
 
   test("reads a placeholder shape back as a Placeholder", () => {
@@ -87,7 +87,7 @@ describe("PPTX reader fixes (#81)", () => {
   /** A writer-made deck whose first slide's shape tree is replaced by `tree`. */
   const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => void) => {
     const out = run(makePptxWriter().write(deckOf(slide([]))));
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
     const files = unzipSync(out.bytes);
     files["ppt/slides/slide1.xml"] = strToU8(
       `<p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`,
@@ -105,7 +105,9 @@ describe("PPTX reader fixes (#81)", () => {
       `<p:grpSp><p:nvGrpSpPr/><p:grpSpPr/>${sp(para1("three"))}</p:grpSp></p:grpSp>` +
       sp(para1("four"));
     expect(
-      shapesOf(deckWith(tree)).map((s) => blocksToText(s._tag === "TextBox" ? s.content : [])),
+      shapesOf(deckWith(tree)).map((s) =>
+        blocksToText(Predicate.isTagged(s, "TextBox") ? s.content : []),
+      ),
     ).toEqual(["one", "two", "three", "four"]);
   });
 
@@ -134,7 +136,7 @@ describe("PPTX reader fixes (#81)", () => {
       slide([new Placeholder({ placeholderType: "title", content: [header(1, [str("Hello")])] })]),
     ]);
     const ph = firstSlideShow(back.blocks)!.slides[0]!.shapes[0]!;
-    expect(ph._tag === "Placeholder" && ph.content[0]).toMatchObject({
+    expect(Predicate.isTagged(ph, "Placeholder") && ph.content[0]).toMatchObject({
       _tag: "Header",
       content: [{ _tag: "Str", text: "Hello" }],
     });

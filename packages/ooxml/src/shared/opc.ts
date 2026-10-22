@@ -6,9 +6,10 @@
  * relationships on the way in, and zip a set of parts on the way out.
  */
 
+import * as Predicate from "effect/Predicate";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ParseError as XmlSyntaxError } from "@thomasfosterau/effect-parse";
-import { Result } from "effect";
+import * as Result from "effect/Result";
 import { findChildren, getAttr, parseXmlResult, type XmlElement } from "./xml.ts";
 
 /** A resolved relationship from a `.rels` file. */
@@ -291,7 +292,7 @@ export const zipParts = (
 ): Uint8Array => {
   const encoded: Record<string, Uint8Array> = {};
   for (const [path, content] of Object.entries(files)) {
-    encoded[path] = typeof content === "string" ? strToU8(content) : content;
+    encoded[path] = Predicate.isString(content) ? strToU8(content) : content;
   }
   return zipSync(encoded, { level, mtime: ZIP_MTIME });
 };

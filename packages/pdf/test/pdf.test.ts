@@ -1,6 +1,7 @@
+import * as Predicate from "effect/Predicate";
 import { readFile } from "node:fs/promises";
-import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
 import {
   type Block,
   blocksToText,
@@ -57,7 +58,7 @@ const write = (
   options = {},
 ): Uint8Array => {
   const c = run(makePdfWriter(options).write(doc(blocks, meta)));
-  if (c._tag !== "Bytes") throw new Error("expected bytes");
+  if (!Predicate.isTagged(c, "Bytes")) throw new Error("expected bytes");
   return c.bytes;
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
@@ -182,16 +183,15 @@ describe("PDF round trip", () => {
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Para", "Header", "Para"]);
     const [h1, p, h2, p2] = back.blocks as [Block, Block, Block, Block];
-    expect(h1._tag === "Header" && h1.level).toBe(1);
-    expect(h2._tag === "Header" && h2.level).toBe(2);
-    expect(h1._tag === "Header" && h1.content).toEqual([str("Annual Report")]);
-    const tags = p._tag === "Para" ? p.content.map((i: Inline) => i._tag) : [];
+    expect(Predicate.isTagged(h1, "Header") && h1.level).toBe(1);
+    expect(Predicate.isTagged(h2, "Header") && h2.level).toBe(2);
+    expect(Predicate.isTagged(h1, "Header") && h1.content).toEqual([str("Annual Report")]);
+    const tags = Predicate.isTagged(p, "Para") ? p.content.map((i: Inline) => i._tag) : [];
     expect(tags).toEqual(["Str", "Strong", "Str", "Emph", "Str", "Link", "Str"]);
-    if (p._tag === "Para") {
-      const l = p.content[5]!;
-      expect(l._tag === "Link" && l.target.url).toBe("https://example.com");
-    }
-    expect(p2._tag === "Para" && p2.content.map((i: Inline) => i._tag)).toEqual([
+    assert(Predicate.isTagged(p, "Para"));
+    const l = p.content[5]!;
+    expect(Predicate.isTagged(l, "Link") && l.target.url).toBe("https://example.com");
+    expect(Predicate.isTagged(p2, "Para") && p2.content.map((i: Inline) => i._tag)).toEqual([
       "Str",
       "Code",
       "Str",
@@ -205,7 +205,7 @@ describe("PDF round trip", () => {
     expect(back.blocks.length).toBe(2);
     expect(
       back.blocks[0]!._tag === "Para" &&
-        back.blocks[0]!.content.some((i: Inline) => i._tag === "SoftBreak"),
+        back.blocks[0]!.content.some((i: Inline) => Predicate.isTagged(i, "SoftBreak")),
     ).toBe(true);
     expect(blocksToText([back.blocks[0]!])).toBe(long);
   });
@@ -221,12 +221,11 @@ describe("PDF round trip", () => {
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["BulletList", "OrderedList"]);
     const ul = back.blocks[0]!;
-    if (ul._tag === "BulletList") {
-      expect(ul.items.length).toBe(3);
-      expect(ul.items[1]!.map((b) => b._tag)).toEqual(["Plain", "BulletList"]);
-    }
+    assert(Predicate.isTagged(ul, "BulletList"));
+    expect(ul.items.length).toBe(3);
+    expect(ul.items[1]!.map((b) => b._tag)).toEqual(["Plain", "BulletList"]);
     const ol = back.blocks[1]!;
-    expect(ol._tag === "OrderedList" && ol.start).toBe(1);
+    expect(Predicate.isTagged(ol, "OrderedList") && ol.start).toBe(1);
     expect(blocksToText(back.blocks)).toContain("inner");
   });
 
@@ -235,7 +234,7 @@ describe("PDF round trip", () => {
     const back = roundTrip([para([str("Before")]), codeBlock(code), para([str("After")])]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["Para", "CodeBlock", "Para"]);
     const cb = back.blocks[1]!;
-    expect(cb._tag === "CodeBlock" && cb.text).toBe(code);
+    expect(Predicate.isTagged(cb, "CodeBlock") && cb.text).toBe(code);
   });
 
   test("a hyphen at a line break joins the word", () => {
@@ -378,7 +377,7 @@ describe("real-world files", () => {
     expect(text).toContain("Ünïcödé text: Ελληνικά, Русский, 中文.");
     expect(text).toContain("line joining logic is exercised properly");
     const p = back.blocks[1]!;
-    expect(p._tag === "Para" && p.content.map((i: Inline) => i._tag)).toEqual([
+    expect(Predicate.isTagged(p, "Para") && p.content.map((i: Inline) => i._tag)).toEqual([
       "Str",
       "Strong",
       "Str",
@@ -403,7 +402,7 @@ describe("real-world files", () => {
       "CodeBlock",
     ]);
     const cb = back.blocks[6]!;
-    expect(cb._tag === "CodeBlock" && cb.text).toBe("def f(x):\n    return x * 2");
+    expect(Predicate.isTagged(cb, "CodeBlock") && cb.text).toBe("def f(x):\n    return x * 2");
     expect(blocksToText(back.blocks)).toContain("ligatures: office affluent. Price €5.");
   });
 });

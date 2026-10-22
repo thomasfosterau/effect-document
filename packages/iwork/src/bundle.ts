@@ -16,7 +16,10 @@
  * {@link openBundleDirectory}.
  */
 
-import { Effect, FileSystem, Result } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Result from "effect/Result";
 import { unzipSync } from "fflate";
 import { decodeIwa, type IworkObject } from "./archive.ts";
 import { codecError, IworkError, isIworkError, withLocation } from "./errors.ts";
@@ -179,7 +182,7 @@ export const openBundle = (
       if (isIndexZip(name)) innerComponents(data, budget, components);
       else components[name] = data;
     }
-    if (Object.keys(components).length === 0) throw noComponents(names);
+    if (Arr.isReadonlyArrayEmpty(Object.keys(components))) throw noComponents(names);
     const readEntry = (path: string): Effect.Effect<Uint8Array, IworkError> =>
       Effect.suspend(() => {
         try {
@@ -260,7 +263,8 @@ export const openBundleDirectory = (
         components[name] = data;
       }
     }
-    if (Object.keys(components).length === 0) return yield* Effect.fail(noComponents(names));
+    if (Arr.isReadonlyArrayEmpty(Object.keys(components)))
+      return yield* Effect.fail(noComponents(names));
     const readEntry = (entry: string) => readChecked(entry, { limits, total: 0 });
     return { components, entries: names, readEntry };
   });

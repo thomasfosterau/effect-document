@@ -1,5 +1,9 @@
-import { describe, expect, test } from "vite-plus/test";
-import { Effect, Result, Stream, pipe } from "effect";
+import * as Predicate from "effect/Predicate";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Stream from "effect/Stream";
+import { pipe } from "effect/Function";
 import {
   cell,
   document,
@@ -29,7 +33,7 @@ import {
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
 const firstWorksheet = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet =>
-  doc.blocks.find((b) => b._tag === "Worksheet") as Worksheet;
+  doc.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
 
 describe("CSV reader", () => {
   test("infers number/boolean/blank cells", async () => {
@@ -42,7 +46,7 @@ describe("CSV reader", () => {
   test("inferTypes: false keeps every value as text", async () => {
     const doc = await run(makeCsvReader({ inferTypes: false }).read(text("1,true\n")));
     const ws = firstWorksheet(doc);
-    expect(ws.rows[0]!.cells.every((c) => c._tag === "CellText")).toBe(true);
+    expect(ws.rows[0]!.cells.every((c) => Predicate.isTagged(c, "CellText"))).toBe(true);
   });
 
   test("header row is read as text cells", async () => {
@@ -258,10 +262,9 @@ describe("CSV scanner", () => {
   test("an unclosed quote fails with its line and column", () => {
     const r = Effect.runSync(Effect.result(scanCsv('a,b\nc,"d\ne\n')));
     expect(Result.isFailure(r)).toBe(true);
-    if (Result.isFailure(r)) {
-      expect(r.failure.reason).toContain("closing quote");
-      expect(r.failure.position).toEqual({ row: 3, column: 0 });
-    }
+    assert(Result.isFailure(r));
+    expect(r.failure.reason).toContain("closing quote");
+    expect(r.failure.position).toEqual({ row: 3, column: 0 });
   });
 
   test("rejects rows with the wrong column count", () => {
@@ -366,7 +369,8 @@ describe("CSV writer", () => {
     const doc = await run(makeCsvReader().read(text(input)));
     const out = await run(makeCsvWriter().write(doc));
     expect(out._tag).toBe("Text");
-    if (out._tag === "Text") expect(out.text).toBe(input);
+    assert(Predicate.isTagged(out, "Text"));
+    expect(out.text).toBe(input);
   });
 
   test("round-trips fields containing quotes and line breaks", async () => {
@@ -382,7 +386,8 @@ describe("CSV writer", () => {
   test("quotes fields containing the separator", async () => {
     const doc = await run(makeCsvReader().read(text('a,"b,c"\n')));
     const out = await run(makeCsvWriter().write(doc));
-    if (out._tag === "Text") expect(out.text).toBe('a,"b,c"\n');
+    assert(Predicate.isTagged(out, "Text"));
+    expect(out.text).toBe('a,"b,c"\n');
   });
 
   const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
@@ -392,7 +397,7 @@ describe("CSV writer", () => {
     options?: CsvWriterOptions,
   ) => {
     const out = await run(makeCsvWriter(options).write(sheet(rows)));
-    return out._tag === "Text" ? out.text : "";
+    return Predicate.isTagged(out, "Text") ? out.text : "";
   };
 
   test("keeps rows holding a single blank cell", async () => {

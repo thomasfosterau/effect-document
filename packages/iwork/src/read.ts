@@ -4,7 +4,8 @@
  * reader's `ParseError` without losing where it happened.
  */
 
-import { Effect, Result } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { type Content, contentToBytes, ParseError } from "@thomasfosterau/effect-document";
 import type { IworkObject } from "./archive.ts";
 import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.ts";

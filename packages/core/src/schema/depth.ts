@@ -8,6 +8,8 @@
  * safe bounds.
  */
 
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
 import type { Block, Inline, Shape } from "./ast.ts";
 import type { Document } from "./document.ts";
 
@@ -65,7 +67,7 @@ export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
       ];
     case "Worksheet":
       return n.rows.flatMap((r) =>
-        r.cells.flatMap((c) => (c._tag === "CellRichText" ? c.runs : [])),
+        r.cells.flatMap((c) => (Predicate.isTagged(c, "CellRichText") ? c.runs : [])),
       );
     case "SlideShow":
       return n.slides.flatMap((s) => [...(s.notes ?? []), ...s.shapes]);
@@ -91,7 +93,7 @@ export const blocksNestingDepth = (
 ): number => {
   let max = 0;
   const stack: Array<readonly [NestedNode, number]> = blocks.map((b) => [b, 1] as const);
-  while (stack.length > 0) {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const [node, depth] = stack.pop()!;
     if (depth > max) {
       max = depth;

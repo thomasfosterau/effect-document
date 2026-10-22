@@ -4,7 +4,9 @@
  * compiler knows exactly which subset of the schema a given format produces.
  */
 
-import { Context, Effect, type Stream } from "effect";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 import { type Doc, type Profile } from "../profile/profile.ts";
 import { DEFAULT_MAX_NESTING_DEPTH, nestingDepth } from "../schema/depth.ts";
 import type { Document } from "../schema/document.ts";

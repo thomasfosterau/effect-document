@@ -2,7 +2,7 @@
  * Tagged error types for readers, writers, profile checks, and conversions.
  */
 
-import { Data } from "effect";
+import * as Data from "effect/Data";
 import type { Feature } from "../schema/feature.ts";
 
 /** A reader failed to parse source content into the document schema. */

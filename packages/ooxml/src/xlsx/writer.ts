@@ -6,7 +6,10 @@
  * fflate. The input type guarantees only worksheet blocks reach the writer.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   bytes,
   type Content,
@@ -170,7 +173,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
   // rows and columns) is declared in <dimension> for the reader to recover.
   const maxCols = ws.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
   const dimension =
-    ws.rows.length === 0 || maxCols === 0
+    Arr.isReadonlyArrayEmpty(ws.rows) || maxCols === 0
       ? ""
       : `<dimension ref="A1:${toA1(maxCols - 1, ws.rows.length - 1)}"/>`;
   const rows = ws.rows
@@ -207,8 +210,10 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
   const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> =>
     Effect.try({
       try: () => {
-        const worksheets = doc.blocks.filter((b): b is Worksheet => b._tag === "Worksheet");
-        if (worksheets.length === 0) {
+        const worksheets = doc.blocks.filter((b): b is Worksheet =>
+          Predicate.isTagged(b, "Worksheet"),
+        );
+        if (Arr.isReadonlyArrayEmpty(worksheets)) {
           throw new Error("document contains no worksheets to write");
         }
 
@@ -217,7 +222,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
-            row.cells.some((c) => c._tag === "CellFormula" && c.result === undefined),
+            row.cells.some((c) => Predicate.isTagged(c, "CellFormula") && c.result === undefined),
           ),
         );
 

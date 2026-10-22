@@ -10,7 +10,7 @@
  * TypeScript the plain-JSON shape it needs to type those suspended references.
  */
 
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 import { Attributes, Style, attrField } from "./attributes.ts";
 
 // ============================================================================

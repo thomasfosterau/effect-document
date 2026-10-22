@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, test } from "vite-plus/test";
-import { Result } from "effect";
+import * as Result from "effect/Result";
 import {
   escapeAttr,
   escapeXml,

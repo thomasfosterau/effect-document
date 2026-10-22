@@ -10,7 +10,9 @@
  * relationship or part is missing fails the read, as in XLSX.
  */
 
-import { Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   BulletList,
@@ -147,7 +149,7 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const list = open.pop()!;
     const parent = open[open.length - 1];
     if (parent === undefined) out.push(listBlock(list));
-    else if (parent.items.length === 0) parent.items.push([listBlock(list)]);
+    else if (Arr.isReadonlyArrayEmpty(parent.items)) parent.items.push([listBlock(list)]);
     else parent.items[parent.items.length - 1]!.push(listBlock(list));
   };
 
@@ -155,14 +157,14 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const inlines = paragraphInlines(p);
     const bullet = paragraphBullet(p);
     if (bullet === null) {
-      while (open.length > 0) close();
+      while (Arr.isReadonlyArrayNonEmpty(open)) close();
       out.push(
         asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
       );
       continue;
     }
     const level = paragraphLevel(p);
-    while (open.length > 0 && open[open.length - 1]!.level > level) close();
+    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
     const top = open[open.length - 1];
     if (top !== undefined && top.level === level && top.kind !== bullet) close();
     const current = open[open.length - 1];
@@ -170,7 +172,7 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
       open.push({ kind: bullet, level, items: [] });
     open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
   }
-  while (open.length > 0) close();
+  while (Arr.isReadonlyArrayNonEmpty(open)) close();
   return out;
 };
 
@@ -204,7 +206,7 @@ const shapeOf = (sp: XmlElement): Shape => {
 const shapeElements = (spTree: XmlElement): XmlElement[] => {
   const out: XmlElement[] = [];
   const stack: XmlElement[] = [...spTree.children].reverse();
-  while (stack.length > 0) {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const el = stack.pop()!;
     if (el.name === "sp") out.push(el);
     else if (el.name === "grpSp")

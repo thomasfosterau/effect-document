@@ -18,6 +18,8 @@
  * majority of generators; text that is not upright (rotated) is skipped.
  */
 
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
 import {
   type Block,
   BulletList,
@@ -253,7 +255,7 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
   const result: Inline[] = [];
   for (const n of out) {
     const prev = result[result.length - 1];
-    if (n._tag === "Str" && prev?._tag === "Str")
+    if (Predicate.isTagged(n, "Str") && prev?._tag === "Str")
       result[result.length - 1] = new Str({ text: prev.text + n.text });
     else result.push(n);
   }
@@ -281,7 +283,7 @@ const linesToInlines = (
 // ============================================================================
 
 const median = (xs: number[]): number | undefined => {
-  if (xs.length === 0) return undefined;
+  if (Arr.isReadonlyArrayEmpty(xs)) return undefined;
   const s = [...xs].sort((a, b) => a - b);
   return s[Math.floor(s.length / 2)];
 };
@@ -350,7 +352,7 @@ const buildList = (items: ReadonlyArray<Item>, size: number): Block[] => {
       entries.push([new Plain({ content: linesToInlines(it.lines) })]);
       i++;
     }
-    if (entries.length === 0) {
+    if (Arr.isReadonlyArrayEmpty(entries)) {
       // a shallower item than the list started with: start a new list there
       entries.push([new Plain({ content: linesToInlines(items[i]!.lines) })]);
       i++;
@@ -372,7 +374,7 @@ const buildList = (items: ReadonlyArray<Item>, size: number): Block[] => {
 /** Infer prose blocks from the text of a document's pages. */
 export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   const lines = pages.flatMap((p, i) => buildLines(p, i));
-  if (lines.length === 0) return [];
+  if (Arr.isReadonlyArrayEmpty(lines)) return [];
 
   // the body size: the size most characters of prose are set in (code is often smaller)
   const bySize = new Map<number, number>();
@@ -499,7 +501,7 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
         const l = lines[i]!;
         const m = markerOf(l);
         if (m === undefined || isHeading(l) || l.mono) break;
-        if (items.length > 0 && gapBefore(i) > breakGap * 1.25) break;
+        if (Arr.isReadonlyArrayNonEmpty(items) && gapBefore(i) > breakGap * 1.25) break;
         const item: Item = {
           markerX: l.x0,
           marker: m,

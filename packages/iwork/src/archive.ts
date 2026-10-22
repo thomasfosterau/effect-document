@@ -11,7 +11,7 @@
  * `registry.ts`). Every declared length is checked against the buffer.
  */
 
-import { Result } from "effect";
+import * as Result from "effect/Result";
 import { codecError, type IworkError, shiftOffset, toIworkError, withLocation } from "./errors.ts";
 import { type DechunkOptions, dechunk } from "./iwa.ts";
 import {

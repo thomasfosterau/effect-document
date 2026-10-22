@@ -3,6 +3,7 @@
  * ergonomic constructors and text-collapse utilities.
  */
 
+import * as Match from "effect/Match";
 import { Schema } from "effect";
 import {
   Block,
@@ -184,70 +185,60 @@ const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string):
 };
 
 const expandInline = (inline: Inline): TextPart[] => {
-  switch (inline._tag) {
-    case "Str":
-      return [inline.text];
-    case "Code":
-    case "Math":
-    case "RawInline":
-      return [inline.text];
-    case "Space":
-    case "SoftBreak":
-      return [" "];
-    case "LineBreak":
-      return ["\n"];
-    case "Image":
-      return inlineParts(inline.alt);
-    case "Emph":
-    case "Strong":
-    case "Underline":
-    case "Strikeout":
-    case "Superscript":
-    case "Subscript":
-    case "SmallCaps":
-    case "Quoted":
-    case "Cite":
-    case "Link":
-    case "Span":
-      return inlineParts(inline.content);
-    case "Note":
-      return [];
-  }
+  const text = (n: { readonly text: string }): TextPart[] => [n.text];
+  const content = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
+    inlineParts(n.content);
+  const space = (): TextPart[] => [" "];
+  return Match.valueTags(inline, {
+    Str: text,
+    Code: text,
+    Math: text,
+    RawInline: text,
+    Space: space,
+    SoftBreak: space,
+    LineBreak: () => ["\n"],
+    Image: (n) => inlineParts(n.alt),
+    Emph: content,
+    Strong: content,
+    Underline: content,
+    Strikeout: content,
+    Superscript: content,
+    Subscript: content,
+    SmallCaps: content,
+    Quoted: content,
+    Cite: content,
+    Link: content,
+    Span: content,
+    Note: () => [],
+  });
 };
 
 const expandCell = (c: SheetCell): TextPart[] => {
-  switch (c._tag) {
-    case "CellText":
-    case "CellError":
-      return [c.value];
-    case "CellNumber":
-      return [String(c.value)];
-    case "CellBoolean":
-      return [c.value ? "true" : "false"];
-    case "CellDate":
-      return [c.value.toISOString()];
-    case "CellBlank":
-      return [""];
-    case "CellFormula":
-      return [c.result ?? ""];
-    case "CellRichText":
-      return inlineParts(c.runs);
-  }
+  const value = (n: { readonly value: string }): TextPart[] => [n.value];
+  return Match.valueTags(c, {
+    CellText: value,
+    CellError: value,
+    CellNumber: (n) => [String(n.value)],
+    CellBoolean: (n) => [n.value ? "true" : "false"],
+    CellDate: (n) => [n.value.toISOString()],
+    CellBlank: () => [""],
+    CellFormula: (n) => [n.result ?? ""],
+    CellRichText: (n) => inlineParts(n.runs),
+  });
 };
 
 const expandShape = (shape: Shape): TextPart[] => {
-  switch (shape._tag) {
-    case "Picture":
-      return [shape.alt ?? ""];
-    case "TableShape":
-      return [{ b: shape.table }];
-    case "TextBox":
-    case "Placeholder":
-      return joinParts(
-        shape.content.map((b) => [{ b }]),
-        "\n",
-      );
-  }
+  const prose = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] =>
+    joinParts(
+      n.content.map((b) => [{ b }]),
+      "\n",
+    );
+  return Match.valueTags(shape, {
+    Picture: (n) => [n.alt ?? ""],
+    TableShape: (n) => [{ b: n.table }],
+    TextBox: prose,
+    Placeholder: prose,
+  });
 };
 
 const expandBlock = (block: Block): TextPart[] => {
@@ -256,65 +247,65 @@ const expandBlock = (block: Block): TextPart[] => {
       bs.map((b) => [{ b }]),
       "\n",
     );
-  switch (block._tag) {
-    case "Plain":
-    case "Para":
-    case "Header":
-      return inlineParts(block.content);
-    case "LineBlock":
-      return joinParts(block.lines.map(inlineParts), "\n");
-    case "CodeBlock":
-    case "RawBlock":
-      return [block.text];
-    case "BlockQuote":
-    case "Div":
-    case "Figure":
-      return blocks(block.content);
-    case "OrderedList":
-    case "BulletList":
-      return joinParts(block.items.map(blocks), "\n");
-    case "DefinitionList":
-      return joinParts(
-        block.items.map((it) => [
+  const inlines = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
+    inlineParts(n.content);
+  const text = (n: { readonly text: string }): TextPart[] => [n.text];
+  const nested = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] => blocks(n.content);
+  const items = (n: { readonly items: ReadonlyArray<ReadonlyArray<Block>> }): TextPart[] =>
+    joinParts(n.items.map(blocks), "\n");
+  return Match.valueTags(block, {
+    Plain: inlines,
+    Para: inlines,
+    Header: inlines,
+    LineBlock: (n) => joinParts(n.lines.map(inlineParts), "\n"),
+    CodeBlock: text,
+    RawBlock: text,
+    BlockQuote: nested,
+    Div: nested,
+    Figure: nested,
+    OrderedList: items,
+    BulletList: items,
+    DefinitionList: (n) =>
+      joinParts(
+        n.items.map((it) => [
           ...inlineParts(it.term),
           "\n",
           ...joinParts(it.definitions.map(blocks), "\n"),
         ]),
         "\n",
-      );
-    case "HorizontalRule":
-      return [""];
-    case "Table":
-      return joinParts(
-        [...block.head, ...block.body, ...block.foot].map((row) =>
+      ),
+    HorizontalRule: () => [""],
+    Table: (n) =>
+      joinParts(
+        [...n.head, ...n.body, ...n.foot].map((row) =>
           joinParts(
             row.cells.map((cl) => blocks(cl.content)),
             "\t",
           ),
         ),
         "\n",
-      );
-    case "Worksheet":
-      return joinParts(
-        block.rows.map((row) =>
+      ),
+    Worksheet: (n) =>
+      joinParts(
+        n.rows.map((row) =>
           joinParts(
             row.cells.map((c) => [{ c }]),
             "\t",
           ),
         ),
         "\n",
-      );
-    case "SlideShow":
-      return joinParts(
-        block.slides.map((sl) =>
+      ),
+    SlideShow: (n) =>
+      joinParts(
+        n.slides.map((sl) =>
           joinParts(
             sl.shapes.map((s) => [{ s }]),
             "\n",
           ),
         ),
         "\n\n",
-      );
-  }
+      ),
+  });
 };
 
 const collapse = (parts: ReadonlyArray<TextPart>): string => {

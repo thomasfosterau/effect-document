@@ -7,7 +7,10 @@
  * the result is a structurally valid deck.
  */
 
-import { Effect, Layer } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   bytes,
@@ -59,24 +62,22 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt): string =>
   ns.map((n) => inlineToRuns(n, f)).join("");
 
 const inlineToRuns = (n: Inline, f: Fmt): string => {
-  switch (n._tag) {
-    case "Str":
-      return aRun(n.text, f);
-    case "Space":
-    case "SoftBreak":
-      return aRun(" ", f);
-    case "LineBreak":
-      return "<a:br/>";
-    case "Emph":
-      return inlineRuns(n.content, { ...f, i: true });
-    case "Strong":
-      return inlineRuns(n.content, { ...f, b: true });
-    case "Underline":
-      return inlineRuns(n.content, { ...f, u: true });
-    case "Strikeout":
-      return inlineRuns(n.content, { ...f, strike: true });
-    default:
-      return "";
+  if (Predicate.isTagged(n, "Str")) {
+    return aRun(n.text, f);
+  } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
+    return aRun(" ", f);
+  } else if (Predicate.isTagged(n, "LineBreak")) {
+    return "<a:br/>";
+  } else if (Predicate.isTagged(n, "Emph")) {
+    return inlineRuns(n.content, { ...f, i: true });
+  } else if (Predicate.isTagged(n, "Strong")) {
+    return inlineRuns(n.content, { ...f, b: true });
+  } else if (Predicate.isTagged(n, "Underline")) {
+    return inlineRuns(n.content, { ...f, u: true });
+  } else if (Predicate.isTagged(n, "Strikeout")) {
+    return inlineRuns(n.content, { ...f, strike: true });
+  } else {
+    return "";
   }
 };
 
@@ -85,7 +86,11 @@ const aPara = (bullet: string, runs: string, lvl = 0): string =>
 
 const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
   blocks.flatMap((b) =>
-    b._tag === "Para" || b._tag === "Plain" || b._tag === "Header" ? [...b.content] : [],
+    Predicate.isTagged(b, "Para") ||
+    Predicate.isTagged(b, "Plain") ||
+    Predicate.isTagged(b, "Header")
+      ? [...b.content]
+      : [],
   );
 
 const BULLET = '<a:buChar char="&#8226;"/>';
@@ -107,13 +112,15 @@ const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
       return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
     case "BulletList":
     case "OrderedList": {
-      const bullet = b._tag === "BulletList" ? BULLET : AUTO_NUM;
+      const bullet = Predicate.isTagged(b, "BulletList") ? BULLET : AUTO_NUM;
       return b.items
         .map(
           (it) =>
             aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
             it
-              .filter((x) => x._tag === "BulletList" || x._tag === "OrderedList")
+              .filter(
+                (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
+              )
               .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
               .join(""),
         )
@@ -127,12 +134,16 @@ const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
 const shapeXml = (shape: Shape, idx: number): string => {
   const id = idx + 2; // id 1 is the group shape
   const y = 457200 + idx * 1100000;
-  const isPlaceholder = shape._tag === "Placeholder";
+  const isPlaceholder = Predicate.isTagged(shape, "Placeholder");
   const ph = isPlaceholder
     ? `<p:ph type="${escapeAttr(shape.placeholderType)}"${shape.idx !== undefined ? ` idx="${shape.idx}"` : ""}/>`
     : "";
-  const txBox = shape._tag === "TextBox" ? ' txBox="1"' : "";
-  const content = shape._tag === "Picture" ? [] : shape._tag === "TableShape" ? [] : shape.content;
+  const txBox = Predicate.isTagged(shape, "TextBox") ? ' txBox="1"' : "";
+  const content = Predicate.isTagged(shape, "Picture")
+    ? []
+    : Predicate.isTagged(shape, "TableShape")
+      ? []
+      : shape.content;
   const inTitle =
     isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
   const paras =
@@ -195,11 +206,12 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
         const slides: Slide[] = [];
         const loose: Block[] = [];
         for (const b of doc.blocks) {
-          if (b._tag === "SlideShow") slides.push(...b.slides);
+          if (Predicate.isTagged(b, "SlideShow")) slides.push(...b.slides);
           else loose.push(b);
         }
-        if (loose.length > 0) slides.push(new Slide({ shapes: [new TextBox({ content: loose })] }));
-        if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
+        if (Arr.isReadonlyArrayNonEmpty(loose))
+          slides.push(new Slide({ shapes: [new TextBox({ content: loose })] }));
+        if (Arr.isReadonlyArrayEmpty(slides)) slides.push(new Slide({ shapes: [] }));
 
         const files: Record<string, string> = {
           "[Content_Types].xml": contentTypesXml(slides.length),

@@ -11,7 +11,9 @@
  * and a page break ends the paragraph.
  */
 
-import { Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   BulletList,
@@ -178,48 +180,37 @@ class InlineCollector {
 
   /** Close any field left open at the end of the paragraph. */
   finish(): Piece[] {
-    while (this.fields.length > 0) this.emitField(this.fields.pop()!);
+    while (Arr.isReadonlyArrayNonEmpty(this.fields)) this.emitField(this.fields.pop()!);
     return this.out;
   }
 
   run(r: XmlElement): void {
     const f = readFmt(r);
     for (const child of r.children) {
-      switch (child.name) {
-        case "t":
-          this.push(wrap(new Str({ text: child.text }), f));
-          break;
-        case "br":
-          this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
-          break;
-        case "cr":
-          this.push(new LineBreak());
-          break;
-        case "tab":
-          this.push(wrap(new Str({ text: "\t" }), f));
-          break;
-        case "noBreakHyphen":
-          this.push(wrap(new Str({ text: "‑" }), f));
-          break;
-        case "softHyphen":
-          this.push(wrap(new Str({ text: "­" }), f));
-          break;
-        case "instrText": {
+      if (child.name === "t") {
+        this.push(wrap(new Str({ text: child.text }), f));
+      } else if (child.name === "br") {
+        this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
+      } else if (child.name === "cr") {
+        this.push(new LineBreak());
+      } else if (child.name === "tab") {
+        this.push(wrap(new Str({ text: "\t" }), f));
+      } else if (child.name === "noBreakHyphen") {
+        this.push(wrap(new Str({ text: "‑" }), f));
+      } else if (child.name === "softHyphen") {
+        this.push(wrap(new Str({ text: "­" }), f));
+      } else if (child.name === "instrText") {
+        const field = this.fields[this.fields.length - 1];
+        if (field !== undefined && field.phase === "instr") field.instr += child.text;
+      } else if (child.name === "fldChar") {
+        const type = getAttr(child, "fldCharType");
+        if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
+        else if (type === "separate") {
           const field = this.fields[this.fields.length - 1];
-          if (field !== undefined && field.phase === "instr") field.instr += child.text;
-          break;
-        }
-        case "fldChar": {
-          const type = getAttr(child, "fldCharType");
-          if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
-          else if (type === "separate") {
-            const field = this.fields[this.fields.length - 1];
-            if (field !== undefined) field.phase = "result";
-          } else if (type === "end") {
-            const field = this.fields.pop();
-            if (field !== undefined) this.emitField(field);
-          }
-          break;
+          if (field !== undefined) field.phase = "result";
+        } else if (type === "end") {
+          const field = this.fields.pop();
+          if (field !== undefined) this.emitField(field);
         }
       }
     }
@@ -281,8 +272,8 @@ const paragraphSegments = (p: XmlElement, rels: ReadonlyMap<string, string>): In
     if (piece === PAGE_BREAK) segments.push([]);
     else segments[segments.length - 1]!.push(piece);
   }
-  const nonEmpty = segments.filter((s) => s.length > 0);
-  return nonEmpty.length > 0 ? nonEmpty : [[]];
+  const nonEmpty = segments.filter((s) => Arr.isReadonlyArrayNonEmpty(s));
+  return Arr.isReadonlyArrayNonEmpty(nonEmpty) ? nonEmpty : [[]];
 };
 
 const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[] =>
@@ -471,11 +462,11 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
     const list = open.pop()!;
     const outer = open[open.length - 1];
     if (outer === undefined) out.push(listBlock(list));
-    else if (outer.items.length === 0) outer.items.push([listBlock(list)]);
+    else if (Arr.isReadonlyArrayEmpty(outer.items)) outer.items.push([listBlock(list)]);
     else outer.items[outer.items.length - 1]!.push(listBlock(list));
   };
   const closeAll = (): void => {
-    while (open.length > 0) close();
+    while (Arr.isReadonlyArrayNonEmpty(open)) close();
   };
 
   const visit = (el: XmlElement): void => {
@@ -488,7 +479,7 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
           continue;
         }
         const kind = ctx.numbering.kind(li.numId, li.ilvl);
-        while (open.length > 0 && open[open.length - 1]!.level > li.ilvl) close();
+        while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
         const top = open[open.length - 1];
         // A different kind or numbering instance at the same level is a new list.
         if (

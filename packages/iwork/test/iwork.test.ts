@@ -1,6 +1,8 @@
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
 import { readFileSync } from "node:fs";
-import { Effect, Result } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { zipSync } from "fflate";
 import { blocksToText, bytes, type SlideShow } from "@thomasfosterau/effect-document";
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
@@ -88,7 +90,7 @@ describe("Keynote reader (real .key fixture)", () => {
   test("extracts slide text into a conforming presentation document", () => {
     const doc = run(Keynote.makeKeynoteReader().read(bytes(fixture("simple-oneslide.key"))));
     expect(Keynote.Keynote.is(doc)).toBe(true);
-    const ss = doc.blocks.find((b) => b._tag === "SlideShow") as SlideShow;
+    const ss = doc.blocks.find((b) => Predicate.isTagged(b, "SlideShow")) as SlideShow;
     expect(ss.slides).toHaveLength(1);
     const text = blocksToText(doc.blocks);
     expect(text).toContain("Example Presentation");
@@ -103,7 +105,7 @@ describe("Numbers reader (real .numbers fixture, structure only)", () => {
     const doc = run(Numbers.makeNumbersReader().read(bytes(fixture("test-1.numbers"))));
     expect(Numbers.Numbers.is(doc)).toBe(true);
     const names = doc.blocks
-      .filter((b) => b._tag === "Worksheet")
+      .filter((b) => Predicate.isTagged(b, "Worksheet"))
       .map((b) => (b as { name: string }).name);
     expect(names).toEqual(["ZZZ_Sheet_1", "ZZZ_Sheet_2"]);
   });

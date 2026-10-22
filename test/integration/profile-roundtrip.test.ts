@@ -5,8 +5,9 @@
  * (or, for the few purely textual normalisations, the text must match).
  */
 
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { convert, narrow } from "@thomasfosterau/effect-document";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
@@ -237,7 +238,7 @@ describe("convert reports what a writer can't preserve (#109)", () => {
     const out = Effect.runSync(
       Xlsx.makeXlsxWriter().write(trustAs(document([worksheet("S", [[cell.number(1)]])]))),
     );
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
     const files = unzipSync(out.bytes);
     files["xl/worksheets/sheet1.xml"] = strToU8(
       strFromU8(files["xl/worksheets/sheet1.xml"]!).replace(

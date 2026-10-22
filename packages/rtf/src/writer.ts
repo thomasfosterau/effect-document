@@ -9,8 +9,8 @@
  * groups (`{\b ...}`), which keeps the on/off bookkeeping trivial.
  */
 
+import * as Match from "effect/Match";
 import { Effect, Layer } from "effect";
-import { absurd } from "effect/Function";
 import {
   type Block,
   type Content,
@@ -41,9 +41,9 @@ export interface RtfWriterOptions {
   readonly marginBottom?: number | undefined;
 }
 
-// The node types the profile allows: `"inline.softBreak"` -> `SoftBreak`. Switches
-// over these end in `absurd`, so a feature added to the profile but not to the
-// writer is a compile error.
+// The node types the profile allows: `"inline.softBreak"` -> `SoftBreak`. Branches
+// over these use the exhaustive `Match.valueTags`, so a feature added to the
+// profile but not to the writer is a compile error.
 type TagOf<F, Kind extends string> = F extends `${Kind}.${infer Name}` ? Capitalize<Name> : never;
 type RtfInline = Extract<Inline, { readonly _tag: TagOf<RtfFeature, "inline"> }>;
 type RtfBlock = Extract<Block, { readonly _tag: TagOf<RtfFeature, "block"> }>;
@@ -68,28 +68,17 @@ const escapeRtf = (s: string): string => {
   return out;
 };
 
-const renderInline = (n: RtfInline): string => {
-  switch (n._tag) {
-    case "Str":
-      return escapeRtf(n.text);
-    case "Space":
-      return " ";
-    case "SoftBreak":
-      return " ";
-    case "LineBreak":
-      return "\\line ";
-    case "Emph":
-      return `{\\i ${renderInlines(n.content)}}`;
-    case "Strong":
-      return `{\\b ${renderInlines(n.content)}}`;
-    case "Underline":
-      return `{\\ul ${renderInlines(n.content)}}`;
-    case "Strikeout":
-      return `{\\strike ${renderInlines(n.content)}}`;
-    default:
-      return absurd(n);
-  }
-};
+const renderInline = (n: RtfInline): string =>
+  Match.valueTags(n, {
+    Str: (s) => escapeRtf(s.text),
+    Space: () => " ",
+    SoftBreak: () => " ",
+    LineBreak: () => "\\line ",
+    Emph: (m) => `{\\i ${renderInlines(m.content)}}`,
+    Strong: (m) => `{\\b ${renderInlines(m.content)}}`,
+    Underline: (m) => `{\\ul ${renderInlines(m.content)}}`,
+    Strikeout: (m) => `{\\strike ${renderInlines(m.content)}}`,
+  });
 
 // a profile-conforming document only contains the profile's node types
 const renderInlines = (ns: ReadonlyArray<Inline>): string =>
@@ -105,15 +94,14 @@ const headingStyle = (level: number): string =>
   `\\s${level}\\outlinelevel${level - 1}\\b\\fs${headingSize(level)}`;
 
 const renderBlock = (b: RtfBlock, bodySize: number, eol: string): string => {
-  switch (b._tag) {
-    case "Para":
-    case "Plain":
-      return `\\pard ${renderInlines(b.content)}\\par${eol}`;
-    case "Header":
-      return `\\pard${headingStyle(b.level)} ${renderInlines(b.content)}\\b0\\fs${bodySize}\\par${eol}`;
-    default:
-      return absurd(b);
-  }
+  const para = (p: { readonly content: ReadonlyArray<Inline> }) =>
+    `\\pard ${renderInlines(p.content)}\\par${eol}`;
+  return Match.valueTags(b, {
+    Para: para,
+    Plain: para,
+    Header: (h) =>
+      `\\pard${headingStyle(h.level)} ${renderInlines(h.content)}\\b0\\fs${bodySize}\\par${eol}`,
+  });
 };
 
 /** A font name for the font table, where `;` ends the name. */

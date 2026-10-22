@@ -8,13 +8,17 @@
  * ({@link scanCsvStream}).
  */
 
+import * as Arr from "effect/Array";
 import {
   ParseError as SyntaxError,
   ParserStream,
   Parser,
   Token,
 } from "@thomasfosterau/effect-parse";
-import { Effect, Result, Stream, pipe } from "effect";
+import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
+import * as Stream from "effect/Stream";
+import { pipe } from "effect/Function";
 import { ParseError } from "@thomasfosterau/effect-document";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 
@@ -254,7 +258,7 @@ const splitHeaders = (
   records: ReadonlyArray<Located>,
   options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
-  if (records.length === 0) return Effect.succeed({ headers: null, rows: [] });
+  if (Arr.isReadonlyArrayEmpty(records)) return Effect.succeed({ headers: null, rows: [] });
   const dropFirst = !!options.treatFirstRowAsHeader;
   const headers = options.providedHeaders ?? (dropFirst ? records[0]!.fields : null);
   const data = dropFirst ? records.slice(1) : records;

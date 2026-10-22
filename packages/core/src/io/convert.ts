@@ -10,7 +10,7 @@
  * The writer therefore always receives a document it can represent.
  */
 
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { type Feature } from "../schema/feature.ts";
 import { type LossReport, narrow } from "../profile/narrow.ts";
 import { ConversionError, type ParseError, type WriteError } from "./errors.ts";

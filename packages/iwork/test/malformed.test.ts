@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vite-plus/test";
 import { readFileSync } from "node:fs";
-import { ByteSize, Effect, FileSystem, Result } from "effect";
+import * as ByteSize from "effect/ByteSize";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Result from "effect/Result";
 import { unzipSync, zipSync } from "fflate";
 import { bytes, type ParseError } from "@thomasfosterau/effect-document";
 import { decodeArchiveStream, decodeIwa } from "../src/archive.ts";
@@ -337,7 +340,7 @@ const randomBytes = (rand: () => number, max: number): Uint8Array =>
 const mutate = (rand: () => number, input: Uint8Array): Uint8Array => {
   let out: Uint8Array = input.slice();
   const edits = 1 + Math.floor(rand() * 4);
-  for (let i = 0; i < edits && out.length > 0; i++) {
+  for (let i = 0; i < edits && out.byteLength > 0; i++) {
     const at = Math.floor(rand() * out.length);
     switch (Math.floor(rand() * 4)) {
       case 0:

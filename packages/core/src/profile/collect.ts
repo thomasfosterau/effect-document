@@ -4,6 +4,8 @@
  * a document conforms to a profile iff every feature it uses is allowed.
  */
 
+import * as Predicate from "effect/Predicate";
+import * as Arr from "effect/Array";
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block,
@@ -49,34 +51,30 @@ const pushBlocks = (ns: ReadonlyArray<Block>, stack: Stack): void => {
 const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
   addTag(n._tag, acc);
   addAttr(n, acc);
-  switch (n._tag) {
-    case "Emph":
-    case "Strong":
-    case "Underline":
-    case "Strikeout":
-    case "Superscript":
-    case "Subscript":
-    case "SmallCaps":
-    case "Quoted":
-    case "Link":
-    case "Span":
-      pushInlines(n.content, stack);
-      break;
-    case "Cite":
-      pushInlines(n.content, stack);
-      for (const c of n.citations) {
-        pushInlines(c.prefix, stack);
-        pushInlines(c.suffix, stack);
-      }
-      break;
-    case "Image":
-      pushInlines(n.alt, stack);
-      break;
-    case "Note":
-      pushBlocks(n.content, stack);
-      break;
-    default:
-      break;
+  if (
+    Predicate.isTagged(n, "Emph") ||
+    Predicate.isTagged(n, "Strong") ||
+    Predicate.isTagged(n, "Underline") ||
+    Predicate.isTagged(n, "Strikeout") ||
+    Predicate.isTagged(n, "Superscript") ||
+    Predicate.isTagged(n, "Subscript") ||
+    Predicate.isTagged(n, "SmallCaps") ||
+    Predicate.isTagged(n, "Quoted") ||
+    Predicate.isTagged(n, "Link") ||
+    Predicate.isTagged(n, "Span")
+  ) {
+    pushInlines(n.content, stack);
+  } else if (Predicate.isTagged(n, "Cite")) {
+    pushInlines(n.content, stack);
+    for (const c of n.citations) {
+      pushInlines(c.prefix, stack);
+      pushInlines(c.suffix, stack);
+    }
+  } else if (Predicate.isTagged(n, "Image")) {
+    pushInlines(n.alt, stack);
+  } else if (Predicate.isTagged(n, "Note")) {
+    pushBlocks(n.content, stack);
+  } else {
   }
 };
 
@@ -94,12 +92,12 @@ const walkTable = (t: Table, acc: Set<Feature>, stack: Stack): void => {
 const walkCell = (c: SheetCell, acc: Set<Feature>, stack: Stack): void => {
   addTag(c._tag, acc);
   if (c.style !== undefined) acc.add("cell.style");
-  if (c._tag === "CellRichText") pushInlines(c.runs, stack);
+  if (Predicate.isTagged(c, "CellRichText")) pushInlines(c.runs, stack);
 };
 
 const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
-  if (w.merges.length > 0) acc.add("sheet.merges");
-  if (w.columns.length > 0) acc.add("sheet.columns");
+  if (Arr.isReadonlyArrayNonEmpty(w.merges)) acc.add("sheet.merges");
+  if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
   for (const col of w.columns) if (col.style !== undefined) acc.add("cell.style");
   for (const row of w.rows) for (const c of row.cells) walkCell(c, acc, stack);
 };
@@ -107,16 +105,11 @@ const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
 const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
   addTag(s._tag, acc);
   addAttr(s, acc);
-  switch (s._tag) {
-    case "TextBox":
-    case "Placeholder":
-      pushBlocks(s.content, stack);
-      break;
-    case "TableShape":
-      walkTable(s.table, acc, stack);
-      break;
-    case "Picture":
-      break;
+  if (Predicate.isTagged(s, "TextBox") || Predicate.isTagged(s, "Placeholder")) {
+    pushBlocks(s.content, stack);
+  } else if (Predicate.isTagged(s, "TableShape")) {
+    walkTable(s.table, acc, stack);
+  } else if (Predicate.isTagged(s, "Picture")) {
   }
 };
 
@@ -134,46 +127,37 @@ const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
 const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
   addTag(b._tag, acc);
   addAttr(b, acc);
-  switch (b._tag) {
-    case "Plain":
-    case "Para":
-    case "Header":
-      pushInlines(b.content, stack);
-      break;
-    case "LineBlock":
-      for (const line of b.lines) pushInlines(line, stack);
-      break;
-    case "CodeBlock":
-    case "RawBlock":
-    case "HorizontalRule":
-      break;
-    case "BlockQuote":
-    case "Div":
-      pushBlocks(b.content, stack);
-      break;
-    case "Figure":
-      pushBlocks(b.caption, stack);
-      pushBlocks(b.content, stack);
-      break;
-    case "OrderedList":
-    case "BulletList":
-      for (const item of b.items) pushBlocks(item, stack);
-      break;
-    case "DefinitionList":
-      for (const item of b.items) {
-        pushInlines(item.term, stack);
-        for (const def of item.definitions) pushBlocks(def, stack);
-      }
-      break;
-    case "Table":
-      walkTable(b, acc, stack);
-      break;
-    case "Worksheet":
-      walkWorksheet(b, acc, stack);
-      break;
-    case "SlideShow":
-      walkSlideShow(b, acc, stack);
-      break;
+  if (
+    Predicate.isTagged(b, "Plain") ||
+    Predicate.isTagged(b, "Para") ||
+    Predicate.isTagged(b, "Header")
+  ) {
+    pushInlines(b.content, stack);
+  } else if (Predicate.isTagged(b, "LineBlock")) {
+    for (const line of b.lines) pushInlines(line, stack);
+  } else if (
+    Predicate.isTagged(b, "CodeBlock") ||
+    Predicate.isTagged(b, "RawBlock") ||
+    Predicate.isTagged(b, "HorizontalRule")
+  ) {
+  } else if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
+    pushBlocks(b.content, stack);
+  } else if (Predicate.isTagged(b, "Figure")) {
+    pushBlocks(b.caption, stack);
+    pushBlocks(b.content, stack);
+  } else if (Predicate.isTagged(b, "OrderedList") || Predicate.isTagged(b, "BulletList")) {
+    for (const item of b.items) pushBlocks(item, stack);
+  } else if (Predicate.isTagged(b, "DefinitionList")) {
+    for (const item of b.items) {
+      pushInlines(item.term, stack);
+      for (const def of item.definitions) pushBlocks(def, stack);
+    }
+  } else if (Predicate.isTagged(b, "Table")) {
+    walkTable(b, acc, stack);
+  } else if (Predicate.isTagged(b, "Worksheet")) {
+    walkWorksheet(b, acc, stack);
+  } else if (Predicate.isTagged(b, "SlideShow")) {
+    walkSlideShow(b, acc, stack);
   }
 };
 
@@ -181,23 +165,19 @@ const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
 export const collectFeatures = (doc: Document): Set<Feature> => {
   const acc = new Set<Feature>();
   let worksheetCount = 0;
-  for (const b of doc.blocks) if (b._tag === "Worksheet") worksheetCount += 1;
+  for (const b of doc.blocks) if (Predicate.isTagged(b, "Worksheet")) worksheetCount += 1;
   if (worksheetCount > 1) acc.add("sheet.multiple");
 
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
-  while (stack.length > 0) {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const work = stack.pop()!;
-    switch (work.k) {
-      case "block":
-        walkBlock(work.n, acc, stack);
-        break;
-      case "inline":
-        walkInline(work.n, acc, stack);
-        break;
-      case "shape":
-        walkShape(work.n, acc, stack);
-        break;
+    if (work.k === "block") {
+      walkBlock(work.n, acc, stack);
+    } else if (work.k === "inline") {
+      walkInline(work.n, acc, stack);
+    } else if (work.k === "shape") {
+      walkShape(work.n, acc, stack);
     }
   }
   return acc;

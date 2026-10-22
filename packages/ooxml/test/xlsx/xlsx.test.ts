@@ -1,5 +1,6 @@
+import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   bytes,
@@ -25,7 +26,7 @@ const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 type SpreadsheetF = XlsxFeature;
 
 const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet[] =>
-  doc.blocks.filter((b) => b._tag === "Worksheet") as Worksheet[];
+  doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet[];
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -43,7 +44,7 @@ const packageWith = (
   sheets: string | ReadonlyArray<{ name: string; xml: string; type?: string }>,
   sharedStrings?: string,
 ) => {
-  const list = typeof sheets === "string" ? [{ name: "S", xml: sheets }] : sheets;
+  const list = Predicate.isString(sheets) ? [{ name: "S", xml: sheets }] : sheets;
   const files: Record<string, Uint8Array> = {
     "_rels/.rels": strToU8(
       `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
@@ -277,7 +278,9 @@ describe("XLSX reader fixes (#60)", () => {
     );
     const c = (await readSheets(xlsx))[0]!.rows[0]!.cells[0]!;
     expect(c._tag).toBe("CellDate");
-    expect(c._tag === "CellDate" && c.value.toISOString()).toBe("2024-03-05T00:00:00.000Z");
+    expect(Predicate.isTagged(c, "CellDate") && c.value.toISOString()).toBe(
+      "2024-03-05T00:00:00.000Z",
+    );
   });
 });
 
@@ -286,7 +289,7 @@ describe("XLSX writer validity (#61)", () => {
     trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
   const parts = async (doc: Doc<SpreadsheetF>) => {
     const out = await run(makeXlsxWriter().write(doc));
-    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };
@@ -410,7 +413,7 @@ describe("XLSX writer validity (#61)", () => {
       const expected = rows.map((r) => r.map((c) => cellToText(c)));
       const width = Math.max(...rows.map((r) => r.length));
       // A sheet with no valued cell reads back empty, whatever its declared size.
-      const allBlank = rows.every((r) => r.every((c) => c._tag === "CellBlank"));
+      const allBlank = rows.every((r) => r.every((c) => Predicate.isTagged(c, "CellBlank")));
       expect(back.rows.map((r) => r.cells.map((c) => cellToText(c)))).toEqual(
         allBlank ? [] : expected.map((r) => [...r, ...Array(width - r.length).fill("")]),
       );

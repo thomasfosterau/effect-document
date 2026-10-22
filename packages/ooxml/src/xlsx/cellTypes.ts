@@ -154,33 +154,28 @@ export const spreadsheetMlToCell = (
     );
   }
 
-  switch (type) {
-    case "s": {
-      if (v === undefined) return cell.blank();
-      const index = Number.parseInt(v.text, 10);
-      const value = sharedStrings[index];
-      return value === undefined ? cell.blank() : cell.text(value);
-    }
-    case "inlineStr": {
-      const is = findChild(c, "is");
-      return is === undefined ? cell.blank() : cell.text(collectText(is));
-    }
-    case "str":
-      return v === undefined ? cell.blank() : cell.text(decodeXstring(v.text));
-    case "b":
-      return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
-    case "e":
-      return v === undefined ? cell.blank() : cell.error(v.text);
-    case "d": {
-      // An ISO 8601 date (Strict files and some producers).
-      if (v === undefined || v.text.trim() === "") return cell.blank();
-      const date = new Date(v.text.trim());
-      return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
-    }
-    default: {
-      if (v === undefined || v.text.trim() === "") return cell.blank();
-      const num = Number(v.text);
-      return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
-    }
+  if (type === "s") {
+    if (v === undefined) return cell.blank();
+    const index = Number.parseInt(v.text, 10);
+    const value = sharedStrings[index];
+    return value === undefined ? cell.blank() : cell.text(value);
+  } else if (type === "inlineStr") {
+    const is = findChild(c, "is");
+    return is === undefined ? cell.blank() : cell.text(collectText(is));
+  } else if (type === "str") {
+    return v === undefined ? cell.blank() : cell.text(decodeXstring(v.text));
+  } else if (type === "b") {
+    return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
+  } else if (type === "e") {
+    return v === undefined ? cell.blank() : cell.error(v.text);
+  } else if (type === "d") {
+    // An ISO 8601 date (Strict files and some producers).
+    if (v === undefined || v.text.trim() === "") return cell.blank();
+    const date = new Date(v.text.trim());
+    return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
+  } else {
+    if (v === undefined || v.text.trim() === "") return cell.blank();
+    const num = Number(v.text);
+    return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
   }
 };
