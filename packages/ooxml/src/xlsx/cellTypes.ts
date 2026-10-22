@@ -9,7 +9,9 @@
  * - Rich-text cells are written as their flattened text.
  */
 
+import * as HashMap from "effect/HashMap";
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import { cell, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
 import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
@@ -151,29 +153,56 @@ export const spreadsheetMlToCell = (
     );
   }
 
-  if (type === "s") {
-    if (v === undefined) return cell.blank();
-    const index = Number.parseInt(v.text, 10);
-    const value = sharedStrings[index];
-    return value === undefined ? cell.blank() : cell.text(value);
-  } else if (type === "inlineStr") {
-    const is = findChild(c, "is");
-    return is === undefined ? cell.blank() : cell.text(collectText(is));
-  } else if (type === "str") {
-    return v === undefined ? cell.blank() : cell.text(decodeXstring(v.text));
-  } else if (type === "b") {
-    return v === undefined ? cell.blank() : cell.boolean(v.text.trim() === "1");
-  } else if (type === "e") {
-    return v === undefined ? cell.blank() : cell.error(v.text);
-  } else if (type === "d") {
-    // An ISO 8601 date (Strict files and some producers).
-    if (v === undefined || v.text.trim() === "") return cell.blank();
-    // oxlint-disable-next-line effect/use-clock-service -- parses the cell's date, never reads the clock
-    const date = new Date(v.text.trim());
-    return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
-  } else {
-    if (v === undefined || v.text.trim() === "") return cell.blank();
-    const num = Number(v.text);
-    return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
-  }
+  const read = HashMap.get(CELL_READERS, type);
+  return Option.isSome(read) ? read.value(c, v, sharedStrings) : numberCell(v);
 };
+
+type CellReader = (
+  c: XmlElement,
+  v: XmlElement | undefined,
+  sharedStrings: ReadonlyArray<string>,
+) => SheetCell;
+
+/** A cell whose `<v>`, when present, maps to a cell through `f`. */
+const valued =
+  (f: (v: XmlElement) => SheetCell): CellReader =>
+  (_, v) =>
+    v === undefined ? cell.blank() : f(v);
+
+/** A numeric cell (`t="n"`, the default). */
+const numberCell = (v: XmlElement | undefined): SheetCell => {
+  if (v === undefined || v.text.trim() === "") return cell.blank();
+  const num = Number(v.text);
+  return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
+};
+
+/** The readers for each `t` cell type other than the numeric default. */
+const CELL_READERS = HashMap.make<ReadonlyArray<readonly [string, CellReader]>>(
+  [
+    "s",
+    (_, v, sharedStrings) => {
+      const value = v === undefined ? undefined : sharedStrings[Number.parseInt(v.text, 10)];
+      return value === undefined ? cell.blank() : cell.text(value);
+    },
+  ],
+  [
+    "inlineStr",
+    (c) => {
+      const is = findChild(c, "is");
+      return is === undefined ? cell.blank() : cell.text(collectText(is));
+    },
+  ],
+  ["str", valued((v) => cell.text(decodeXstring(v.text)))],
+  ["b", valued((v) => cell.boolean(v.text.trim() === "1"))],
+  ["e", valued((v) => cell.error(v.text))],
+  [
+    // An ISO 8601 date (Strict files and some producers).
+    "d",
+    (_, v) => {
+      if (v === undefined || v.text.trim() === "") return cell.blank();
+      // oxlint-disable-next-line effect/use-clock-service -- parses the cell's date, never reads the clock
+      const date = new Date(v.text.trim());
+      return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
+    },
+  ],
+);

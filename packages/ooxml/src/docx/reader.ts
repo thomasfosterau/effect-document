@@ -13,7 +13,10 @@
 
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
+import * as HashSet from "effect/HashSet";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
   type Block,
   BulletList,
@@ -151,6 +154,12 @@ const hyperlinkField = (instr: string): string | null => {
   return url === null ? null : url[1]!;
 };
 
+/** Run children that stand for a fixed character. */
+const RUN_TEXT = HashMap.make(["tab", "\t"], ["noBreakHyphen", "\u2011"], ["softHyphen", "\u00ad"]);
+
+/** Wrappers whose runs are visible text: tracked insertions and moves, smart tags, custom XML. */
+const TRANSPARENT_WRAPPERS = HashSet.make("ins", "moveTo", "smartTag", "customXml");
+
 /**
  * Collects a paragraph's inlines, threading complex-field state
  * (`w:fldChar` begin/separate/end, `w:instrText`) across runs: a field's
@@ -187,68 +196,77 @@ class InlineCollector {
 
   run(r: XmlElement): void {
     const f = readFmt(r);
-    for (const child of r.children) {
-      if (child.name === "t") {
-        this.push(wrap(new Str({ text: child.text }), f));
-      } else if (child.name === "br") {
-        this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
-      } else if (child.name === "cr") {
-        this.push(new LineBreak());
-      } else if (child.name === "tab") {
-        this.push(wrap(new Str({ text: "\t" }), f));
-      } else if (child.name === "noBreakHyphen") {
-        this.push(wrap(new Str({ text: "‑" }), f));
-      } else if (child.name === "softHyphen") {
-        this.push(wrap(new Str({ text: "­" }), f));
-      } else if (child.name === "instrText") {
-        const field = this.fields[this.fields.length - 1];
-        if (field !== undefined && field.phase === "instr") field.instr += child.text;
-      } else if (child.name === "fldChar") {
-        const type = getAttr(child, "fldCharType");
-        if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
-        else if (type === "separate") {
-          const field = this.fields[this.fields.length - 1];
-          if (field !== undefined) field.phase = "result";
-        } else if (type === "end") {
-          const field = this.fields.pop();
-          if (field !== undefined) this.emitField(field);
-        }
-      }
+    for (const child of r.children) this.runChild(child, f);
+  }
+
+  private runChild(child: XmlElement, f: Fmt): void {
+    const text = child.name === "t" ? Option.some(child.text) : HashMap.get(RUN_TEXT, child.name);
+    if (Option.isSome(text)) this.push(wrap(new Str({ text: text.value }), f));
+    else if (child.name === "br")
+      this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
+    else if (child.name === "cr") this.push(new LineBreak());
+    else if (child.name === "instrText") this.instrText(child.text);
+    else if (child.name === "fldChar") this.fldChar(getAttr(child, "fldCharType"));
+  }
+
+  private instrText(text: string): void {
+    const field = this.fields[this.fields.length - 1];
+    if (field !== undefined && field.phase === "instr") field.instr += text;
+  }
+
+  private fldChar(type: string | undefined): void {
+    if (type === "begin") this.fields.push({ instr: "", phase: "instr", result: [] });
+    else if (type === "separate") {
+      const field = this.fields[this.fields.length - 1];
+      if (field !== undefined) field.phase = "result";
+    } else if (type === "end") {
+      const field = this.fields.pop();
+      if (field !== undefined) this.emitField(field);
     }
   }
 
   /** Paragraph-level content: runs and the containers that wrap them. */
   content(parent: XmlElement): void {
-    for (const child of parent.children) {
-      const name = child.name;
-      if (name === "r") this.run(child);
-      // Tracked insertions, moves and wrappers whose runs are visible text.
-      else if (name === "ins" || name === "moveTo" || name === "smartTag" || name === "customXml")
-        this.content(child);
-      else if (name === "sdt") {
-        const sdtContent = findChild(child, "sdtContent");
-        if (sdtContent !== undefined) this.content(sdtContent);
-      } else if (name === "hyperlink") {
-        const inner = new InlineCollector(this.rels);
-        inner.content(child);
-        const id = getAttr(child, "id");
-        const anchor = getAttr(child, "anchor");
-        const url =
-          id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
-        const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
-        this.push(new Link({ content, target: { url } }));
-      } else if (name === "fldSimple") {
-        const inner = new InlineCollector(this.rels);
-        inner.content(child);
-        const result = inner.finish();
-        const url = hyperlinkField(getAttr(child, "instr") ?? "");
-        if (url !== null) {
-          const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
-          this.push(new Link({ content, target: { url } }));
-        } else for (const x of result) this.push(x);
-      }
-      // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+    for (const child of parent.children) this.contentChild(child);
+  }
+
+  private contentChild(child: XmlElement): void {
+    if (child.name === "r") this.run(child);
+    // Tracked insertions, moves and wrappers whose runs are visible text.
+    else if (HashSet.has(TRANSPARENT_WRAPPERS, child.name)) this.content(child);
+    else if (child.name === "sdt") {
+      const sdtContent = findChild(child, "sdtContent");
+      if (sdtContent !== undefined) this.content(sdtContent);
+    } else if (child.name === "hyperlink") this.hyperlink(child);
+    else if (child.name === "fldSimple") this.fldSimple(child);
+    // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+  }
+
+  /** The inlines inside `el`, collected on their own (fields do not cross it). */
+  private inner(el: XmlElement): Piece[] {
+    const inner = new InlineCollector(this.rels);
+    inner.content(el);
+    return inner.finish();
+  }
+
+  private hyperlink(el: XmlElement): void {
+    const id = getAttr(el, "id");
+    const anchor = getAttr(el, "anchor");
+    const url =
+      id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
+    const content = this.inner(el).filter((x): x is Inline => x !== PAGE_BREAK);
+    this.push(new Link({ content, target: { url } }));
+  }
+
+  private fldSimple(el: XmlElement): void {
+    const result = this.inner(el);
+    const url = hyperlinkField(getAttr(el, "instr") ?? "");
+    if (url === null) {
+      for (const x of result) this.push(x);
+      return;
     }
+    const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
+    this.push(new Link({ content, target: { url } }));
   }
 }
 

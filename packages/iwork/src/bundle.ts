@@ -302,22 +302,21 @@ export const compareComponentPaths = (a: string, b: string): Ordering => {
   const as = a.replace(EXTENSION, "").split(/(\d+)/);
   const bs = b.replace(EXTENSION, "").split(/(\d+)/);
   for (let i = 0; i < Math.min(as.length, bs.length); i++) {
-    const x = as[i]!;
-    const y = bs[i]!;
-    if (x === y) continue;
     // split() puts the digit runs at odd indexes
-    if (i % 2 === 1) {
-      const n = x.replace(/^0+/, "");
-      const m = y.replace(/^0+/, "");
-      if (n.length !== m.length) return n.length < m.length ? -1 : 1;
-      if (n !== m) return n < m ? -1 : 1;
-      continue;
-    }
-    return x < y ? -1 : 1;
+    const order = i % 2 === 1 ? DigitRunOrder(as[i]!, bs[i]!) : Order.String(as[i]!, bs[i]!);
+    if (order !== 0) return order;
   }
-  if (as.length !== bs.length) return as.length < bs.length ? -1 : 1;
-  return a < b ? -1 : a > b ? 1 : 0;
+  return as.length !== bs.length ? Order.Number(as.length, bs.length) : Order.String(a, b);
 };
+
+/** Digit runs by value: without leading zeros, the shorter run is the smaller number. */
+const DigitRunOrder: Order.Order<string> = Order.mapInput(
+  Order.combine(
+    Order.mapInput(Order.Number, (digits: string) => digits.length),
+    Order.String,
+  ),
+  (run: string) => run.replace(/^0+/, ""),
+);
 
 /** Component paths in natural order, as an `Order` (see {@link compareComponentPaths}). */
 export const ComponentPathOrder: Order.Order<string> = Order.make(compareComponentPaths);

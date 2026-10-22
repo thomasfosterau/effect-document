@@ -110,31 +110,46 @@ const fieldAt = (c: Cursor): Field | Problem => {
   const field = Math.floor(tag / 8);
   const wire = tag & 7;
   const valueStart = c.pos;
-  if (wire === WIRE_VARINT) {
-    const value = varintAt(c);
-    if (!Predicate.isNumber(value)) return value;
-    return value > Number.MAX_SAFE_INTEGER
-      ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
-      : { field, wire, value };
-  }
-  if (wire === WIRE_I64 || wire === WIRE_I32) {
-    const size = wire === WIRE_I64 ? 8 : 4;
-    if (c.end - c.pos < size)
-      return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
-    const raw = c.input.subarray(c.pos, c.pos + size);
-    return { field, wire, value: fixedAt(c, size), raw };
-  }
-  if (wire === WIRE_LEN) {
-    const length = varintAt(c);
-    if (!Predicate.isNumber(length)) return length;
-    if (c.end - c.pos < length) {
-      return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
-    }
-    const bytes = c.input.subarray(c.pos, c.pos + length);
-    c.pos += length;
-    return { field, wire, bytes };
-  }
+  if (wire === WIRE_VARINT) return varintValue(c, field, wire, valueStart);
+  if (wire === WIRE_I64 || wire === WIRE_I32) return fixedValue(c, field, wire, valueStart);
+  if (wire === WIRE_LEN) return lengthDelimited(c, field, wire);
   return { _tag: "UnsupportedWire", wire, field, at: start };
+};
+
+const varintValue = (
+  c: Cursor,
+  field: number,
+  wire: number,
+  valueStart: number,
+): Field | Problem => {
+  const value = varintAt(c);
+  if (!Predicate.isNumber(value)) return value;
+  return value > Number.MAX_SAFE_INTEGER
+    ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
+    : { field, wire, value };
+};
+
+const fixedValue = (
+  c: Cursor,
+  field: number,
+  wire: number,
+  valueStart: number,
+): Field | Problem => {
+  const size = wire === WIRE_I64 ? 8 : 4;
+  if (c.end - c.pos < size)
+    return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
+  const raw = c.input.subarray(c.pos, c.pos + size);
+  return { field, wire, value: fixedAt(c, size), raw };
+};
+
+const lengthDelimited = (c: Cursor, field: number, wire: number): Field | Problem => {
+  const length = varintAt(c);
+  if (!Predicate.isNumber(length)) return length;
+  if (c.end - c.pos < length)
+    return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
+  const bytes = c.input.subarray(c.pos, c.pos + length);
+  c.pos += length;
+  return { field, wire, bytes };
 };
 
 const isProblem = (r: Field | Problem): r is Problem => "_tag" in r;

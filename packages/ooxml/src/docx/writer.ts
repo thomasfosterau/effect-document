@@ -12,14 +12,18 @@
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
   type Block,
   bytes,
   type Content,
   type Doc,
   type Inline,
+  type Link,
   makeWriterTag,
+  type Quoted,
   type Table,
   type TableRow,
   WriteError,
@@ -122,41 +126,40 @@ const run = (text: string, f: Fmt): string => `<w:r>${rPr(f)}${runContent(text)}
 const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt, rel: RelCollector): string =>
   ns.map((n) => inlineToRuns(n, f, rel)).join("");
 
+/** The run formatting each mark inline adds to its content. */
+const MARKS = HashMap.make<ReadonlyArray<readonly [string, Fmt]>>(
+  ["Emph", { i: true }],
+  ["Strong", { b: true }],
+  ["Underline", { u: true }],
+  ["Strikeout", { strike: true }],
+  ["Superscript", { vert: "superscript" }],
+  ["Subscript", { vert: "subscript" }],
+  ["SmallCaps", { caps: true }],
+);
+
+const quotedRuns = (n: Quoted, f: Fmt, rel: RelCollector): string => {
+  const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
+  return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
+};
+
+const hyperlinkRuns = (n: Link, f: Fmt, rel: RelCollector): string => {
+  // "#name" links to a bookmark in this document; anything else is external.
+  const target = n.target.url.startsWith("#")
+    ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
+    : `r:id="${rel.addHyperlink(n.target.url)}"`;
+  return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
+};
+
 const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
-  if (Predicate.isTagged(n, "Str")) {
-    return run(n.text, f);
-  } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
-    return run(" ", f);
-  } else if (Predicate.isTagged(n, "LineBreak")) {
-    return `<w:r>${rPr(f)}<w:br/></w:r>`;
-  } else if (Predicate.isTagged(n, "Emph")) {
-    return inlineRuns(n.content, { ...f, i: true }, rel);
-  } else if (Predicate.isTagged(n, "Strong")) {
-    return inlineRuns(n.content, { ...f, b: true }, rel);
-  } else if (Predicate.isTagged(n, "Underline")) {
-    return inlineRuns(n.content, { ...f, u: true }, rel);
-  } else if (Predicate.isTagged(n, "Strikeout")) {
-    return inlineRuns(n.content, { ...f, strike: true }, rel);
-  } else if (Predicate.isTagged(n, "Superscript")) {
-    return inlineRuns(n.content, { ...f, vert: "superscript" }, rel);
-  } else if (Predicate.isTagged(n, "Subscript")) {
-    return inlineRuns(n.content, { ...f, vert: "subscript" }, rel);
-  } else if (Predicate.isTagged(n, "SmallCaps")) {
-    return inlineRuns(n.content, { ...f, caps: true }, rel);
-  } else if (Predicate.isTagged(n, "Code")) {
-    return run(n.text, f);
-  } else if (Predicate.isTagged(n, "Quoted")) {
-    const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
-    return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
-  } else if (Predicate.isTagged(n, "Link")) {
-    // "#name" links to a bookmark in this document; anything else is external.
-    const target = n.target.url.startsWith("#")
-      ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
-      : `r:id="${rel.addHyperlink(n.target.url)}"`;
-    return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
-  } else {
-    return "";
-  }
+  if (Predicate.isTagged(n, "Str") || Predicate.isTagged(n, "Code")) return run(n.text, f);
+  if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) return run(" ", f);
+  if (Predicate.isTagged(n, "LineBreak")) return `<w:r>${rPr(f)}<w:br/></w:r>`;
+  if (Predicate.isTagged(n, "Quoted")) return quotedRuns(n, f, rel);
+  if (Predicate.isTagged(n, "Link")) return hyperlinkRuns(n, f, rel);
+  if (Predicate.isTagged(n, "Note") || !("content" in n)) return "";
+  // the marks; the profile has no other inline with content
+  const mark = HashMap.get(MARKS, n._tag);
+  return Option.isSome(mark) ? inlineRuns(n.content, { ...f, ...mark.value }, rel) : "";
 };
 
 // ============================================================================

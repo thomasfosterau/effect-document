@@ -37,16 +37,15 @@ const MAX_EXPANSION = 64 / 3;
 const truncated = (what: string, at: number): IworkError =>
   codecError("Truncated", `snappy: ${what} runs past the end of the block`, at);
 
-/**
- * Decompress one raw Snappy block. Throws an `IworkError` (and nothing else)
- * on malformed input: every length and copy offset is checked, and the output
- * must be exactly the length the preamble declares.
- */
-export const decompressBlock = (input: Uint8Array, options?: DecompressOptions): Uint8Array => {
-  const maxLength = options?.maxLength ?? DEFAULT_MAX_BLOCK_LENGTH;
-  let pos = 0;
+/** A block's preamble: the uncompressed length it declares and where its elements start. */
+interface Preamble {
+  readonly length: number;
+  readonly start: number;
+}
 
-  // Preamble: little-endian varint of the uncompressed length (a uint32, so at most 5 bytes).
+/** Read and check the preamble: a little-endian varint (a uint32, so at most 5 bytes). */
+const readPreamble = (input: Uint8Array, maxLength: number): Preamble => {
+  let pos = 0;
   let outLen = 0;
   let shift = 0;
   for (;;) {
@@ -72,6 +71,20 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
       0,
     );
   }
+  return { length: outLen, start: pos };
+};
+
+/**
+ * Decompress one raw Snappy block. Throws an `IworkError` (and nothing else)
+ * on malformed input: every length and copy offset is checked, and the output
+ * must be exactly the length the preamble declares.
+ */
+export const decompressBlock = (input: Uint8Array, options?: DecompressOptions): Uint8Array => {
+  const { length: outLen, start } = readPreamble(
+    input,
+    options?.maxLength ?? DEFAULT_MAX_BLOCK_LENGTH,
+  );
+  let pos = start;
 
   const out = new Uint8Array(outLen);
   let o = 0;
@@ -96,53 +109,50 @@ export const decompressBlock = (input: Uint8Array, options?: DecompressOptions):
     for (let i = 0; i < len; i++) out[o++] = out[s++]!;
   };
 
+  /** A literal element: its length is in the tag, or in 1-4 bytes after it. */
+  const literal = (at: number, tag: number): void => {
+    let len = tag >> 2;
+    if (len < 60) {
+      len += 1;
+    } else {
+      const n = len - 59; // 60..63 -> 1..4 extra length bytes
+      if (input.length - pos < n) throw truncated("literal length", at);
+      let v = 0;
+      for (let i = 0; i < n; i++) v += input[pos++]! * 2 ** (8 * i);
+      len = v + 1;
+    }
+    if (len > input.length - pos) throw truncated(`literal of ${len} bytes`, at);
+    if (len > outLen - o) {
+      throw codecError(
+        "Malformed",
+        `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`,
+        at,
+      );
+    }
+    out.set(input.subarray(pos, pos + len), o);
+    pos += len;
+    o += len;
+  };
+
+  /**
+   * A copy element with a 1-, 2- or 4-byte little-endian offset (`kind` 1, 2
+   * or 3); a 1-byte offset takes three more high bits from the tag.
+   */
+  const copyElement = (at: number, kind: number, tag: number): void => {
+    const size = kind === 1 ? 1 : kind === 2 ? 2 : 4;
+    if (input.length - pos < size) throw truncated("copy offset", at);
+    let offset = 0;
+    for (let i = 0; i < size; i++) offset += input[pos++]! * 2 ** (8 * i);
+    if (kind === 1) copy(at, ((tag >> 2) & 0x07) + 4, ((tag >> 5) << 8) + offset);
+    else copy(at, (tag >> 2) + 1, offset);
+  };
+
   while (pos < input.length) {
     const at = pos;
     const tag = input[pos++]!;
     const kind = tag & 0x03;
-    if (kind === 0) {
-      // Literal
-      let len = tag >> 2;
-      if (len < 60) {
-        len += 1;
-      } else {
-        const n = len - 59; // 60..63 -> 1..4 extra length bytes
-        if (input.length - pos < n) throw truncated("literal length", at);
-        let v = 0;
-        for (let i = 0; i < n; i++) v += input[pos++]! * 2 ** (8 * i);
-        len = v + 1;
-      }
-      if (len > input.length - pos) throw truncated(`literal of ${len} bytes`, at);
-      if (len > outLen - o) {
-        throw codecError(
-          "Malformed",
-          `snappy: literal of ${len} bytes overruns the declared ${outLen}-byte output`,
-          at,
-        );
-      }
-      out.set(input.subarray(pos, pos + len), o);
-      pos += len;
-      o += len;
-    } else if (kind === 1) {
-      // Copy, 1-byte offset
-      if (input.length - pos < 1) throw truncated("copy offset", at);
-      const len = ((tag >> 2) & 0x07) + 4;
-      copy(at, len, ((tag >> 5) << 8) + input[pos++]!);
-    } else if (kind === 2) {
-      // Copy, 2-byte offset
-      if (input.length - pos < 2) throw truncated("copy offset", at);
-      const len = (tag >> 2) + 1;
-      copy(at, len, input[pos++]! + input[pos++]! * 256);
-    } else {
-      // Copy, 4-byte offset
-      if (input.length - pos < 4) throw truncated("copy offset", at);
-      const len = (tag >> 2) + 1;
-      copy(
-        at,
-        len,
-        input[pos++]! + input[pos++]! * 256 + input[pos++]! * 65536 + input[pos++]! * 16777216,
-      );
-    }
+    if (kind === 0) literal(at, tag);
+    else copyElement(at, kind, tag);
   }
   if (o !== outLen) {
     throw codecError(

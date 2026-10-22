@@ -327,81 +327,112 @@ const hasSeveralAttrs = (attrs: Record<string, string>): boolean => {
 /** Parsed elements' in-scope namespace declarations, for `getAttr`. */
 const elementScopes = new WeakMap<XmlElement, Scope>();
 
+type TokenOf<K extends string> = Extract<NonNullable<XmlToken>, { readonly k: K }>;
+type Failure = ParseError.ParseError<string> | undefined;
+
+interface Frame {
+  readonly el: MutableElement;
+  readonly raw: string;
+  readonly at: number;
+  readonly scope: Scope;
+}
+
+/** The open elements while tokens arrive; each step returns the failure it hits, if any. */
+class TreeBuilder {
+  readonly input: string;
+  root: MutableElement | undefined = undefined;
+  readonly stack: Frame[] = [];
+
+  constructor(input: string) {
+    this.input = input;
+  }
+
+  get top(): Frame | undefined {
+    return this.stack[this.stack.length - 1];
+  }
+
+  text(token: TokenOf<"text">): Failure {
+    const top = this.top;
+    if (top !== undefined) top.el.text += token.text;
+    else if (token.text.trim() !== "") {
+      const what = this.root === undefined ? "root element" : "end of input";
+      return failAt(this.input, token.at, `expected ${what}`, [what]);
+    }
+    return undefined;
+  }
+
+  open(token: TokenOf<"open">): Failure {
+    const top = this.top;
+    if (top === undefined && this.root !== undefined)
+      return failAt(this.input, token.at - 1, "expected end of input", ["end of input"]);
+    const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
+    const el: MutableElement = {
+      name: localName(token.name),
+      ns: scope.get(prefixOf(token.name)) ?? "",
+      attrs: token.attrs,
+      children: [],
+      text: "",
+    };
+    // Scopes are only consulted to disambiguate attributes and resolve
+    // mc:Choice requirements, so only those elements record one.
+    if (el.ns === NS_MCE || hasSeveralAttrs(token.attrs)) elementScopes.set(el, scope);
+    if (top === undefined) this.root = el;
+    else top.el.children.push(el);
+    if (!token.empty) this.stack.push({ el, raw: token.name, at: token.at, scope });
+    else if (isAlternateContent(el) && top !== undefined) top.el.children.pop();
+    return undefined;
+  }
+
+  close(token: TokenOf<"close">): Failure {
+    const top = this.stack.pop();
+    if (top === undefined)
+      return failAt(this.input, token.at, `unexpected closing tag </${token.name}>`);
+    if (top.raw !== token.name)
+      return failAt(this.input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`);
+    const parent = this.top;
+    // Markup Compatibility: replace the AlternateContent with one branch.
+    if (parent !== undefined && isAlternateContent(top.el)) {
+      parent.el.children.pop();
+      parent.el.children.push(...alternateContent(top.el, elementScopes));
+    }
+    return undefined;
+  }
+
+  finish(): Result.Result<XmlElement, ParseError.ParseError<string>> {
+    const open = this.top;
+    if (open !== undefined)
+      return Result.fail(
+        failAt(this.input, this.input.length, `expected closing tag </${open.raw}>`, [
+          "closing tag",
+        ]),
+      );
+    if (this.root === undefined)
+      return Result.fail(
+        failAt(this.input, this.input.length, "expected root element", ["root element"]),
+      );
+    return Result.succeed(this.root);
+  }
+}
+
+const isAlternateContent = (el: MutableElement): boolean =>
+  el.ns === NS_MCE && el.name === "AlternateContent";
+
 const buildTree = (
   input: string,
   tokens: ReadonlyArray<XmlToken>,
 ): Result.Result<XmlElement, ParseError.ParseError<string>> => {
-  let root: MutableElement | undefined;
-  const stack: Array<{
-    readonly el: MutableElement;
-    readonly raw: string;
-    readonly at: number;
-    readonly scope: Scope;
-  }> = [];
-  const scopes = elementScopes;
-
+  const tree = new TreeBuilder(input);
   for (const token of tokens) {
     if (token === null) continue;
-    const top = stack[stack.length - 1];
-    if (token.k === "text") {
-      if (top !== undefined) top.el.text += token.text;
-      else if (token.text.trim() !== "") {
-        return Result.fail(
-          failAt(
-            input,
-            token.at,
-            root === undefined ? "expected root element" : "expected end of input",
-            [root === undefined ? "root element" : "end of input"],
-          ),
-        );
-      }
-    } else if (token.k === "open") {
-      if (top === undefined && root !== undefined) {
-        return Result.fail(failAt(input, token.at - 1, "expected end of input", ["end of input"]));
-      }
-      const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
-      const el: MutableElement = {
-        name: localName(token.name),
-        ns: scope.get(prefixOf(token.name)) ?? "",
-        attrs: token.attrs,
-        children: [],
-        text: "",
-      };
-      // Scopes are only consulted to disambiguate attributes and resolve
-      // mc:Choice requirements, so only those elements record one.
-      if (el.ns === NS_MCE || hasSeveralAttrs(token.attrs)) scopes.set(el, scope);
-      if (top === undefined) root = el;
-      else top.el.children.push(el);
-      if (!token.empty) stack.push({ el, raw: token.name, at: token.at, scope });
-      else if (el.ns === NS_MCE && el.name === "AlternateContent" && top !== undefined)
-        top.el.children.pop();
-    } else if (token.k === "close") {
-      if (top === undefined) {
-        return Result.fail(failAt(input, token.at, `unexpected closing tag </${token.name}>`));
-      }
-      if (top.raw !== token.name) {
-        return Result.fail(
-          failAt(input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`),
-        );
-      }
-      stack.pop();
-      const parent = stack[stack.length - 1];
-      // Markup Compatibility: replace the AlternateContent with one branch.
-      if (parent !== undefined && top.el.ns === NS_MCE && top.el.name === "AlternateContent") {
-        parent.el.children.pop();
-        parent.el.children.push(...alternateContent(top.el, scopes));
-      }
-    }
+    const failure =
+      token.k === "text"
+        ? tree.text(token)
+        : token.k === "open"
+          ? tree.open(token)
+          : tree.close(token);
+    if (failure !== undefined) return Result.fail(failure);
   }
-  const open = stack[stack.length - 1];
-  if (open !== undefined) {
-    return Result.fail(
-      failAt(input, input.length, `expected closing tag </${open.raw}>`, ["closing tag"]),
-    );
-  }
-  if (root === undefined)
-    return Result.fail(failAt(input, input.length, "expected root element", ["root element"]));
-  return Result.succeed(root);
+  return tree.finish();
 };
 
 /**
