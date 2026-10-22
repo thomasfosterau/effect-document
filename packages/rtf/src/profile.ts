@@ -10,6 +10,7 @@ import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document"
 export const rtfFeatures = [
   "block.para",
   "block.plain",
+  "block.header",
   "inline.str",
   "inline.space",
   "inline.softBreak",
