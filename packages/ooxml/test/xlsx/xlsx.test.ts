@@ -4,11 +4,11 @@ import { strToU8, zipSync } from "fflate";
 import {
   bytes, cell, cellToText, type Doc, document, type FeaturesOf, trustAs, worksheet, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { makeXlsxReader, makeXlsxWriter } from "../../src/xlsx/index.js";
+import { makeXlsxReader, makeXlsxWriter, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.js";
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
-type SpreadsheetF = FeaturesOf<typeof Spreadsheet>;
+type SpreadsheetF = XlsxFeature;
 
 const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet[] =>
   doc.blocks.filter((b) => b._tag === "Worksheet") as Worksheet[];
@@ -93,7 +93,7 @@ describe("XLSX round-trip", () => {
   test("reader output conforms to the Spreadsheet profile", async () => {
     const doc = trustAs<SpreadsheetF>(document([worksheet("S", [[cell.error("#DIV/0!")]])]));
     const xlsx = await run(makeXlsxWriter().write(doc));
-    const back: Doc<SpreadsheetF> = await run(makeXlsxReader().read(xlsx));
+    const back: Doc<XlsxReadFeature> = await run(makeXlsxReader().read(xlsx));
     expect(Spreadsheet.is(back)).toBe(true);
     expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({ _tag: "CellError" });
   });

@@ -36,3 +36,26 @@ export const pdfFeatures = [
 export const Pdf = defineProfile("pdf", pdfFeatures);
 
 export type PdfFeature = FeaturesOf<typeof Pdf>;
+
+/**
+ * What the PDF writer preserves through `read(write(doc))` (#109). Block
+ * quotes, rules, line breaks, underline and strikeout aren't recovered by the
+ * layout reader, so those are narrowed away (with a loss report) on write.
+ */
+export const PdfWrite = defineProfile("pdf-write", [
+  "block.plain",
+  "block.para",
+  "block.header",
+  "block.bulletList",
+  "block.orderedList",
+  "block.codeBlock",
+  "inline.str",
+  "inline.space",
+  "inline.softBreak",
+  "inline.emph",
+  "inline.strong",
+  "inline.code",
+  "inline.link",
+] as const);
+
+export type PdfWriteFeature = FeaturesOf<typeof PdfWrite>;

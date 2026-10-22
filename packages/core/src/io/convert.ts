@@ -2,7 +2,7 @@
  * The conversion pipeline - the equivalent of `pandoc -f <from> -t <to>`.
  *
  * It reads with the `from` format, then reconciles the result to the `to`
- * format's profile before writing:
+ * format's write profile (what its writer preserves) before writing:
  *   - if `from`'s profile is a subset of `to`'s, this is a free widening
  *     (nothing is lost);
  *   - otherwise it narrows, down-converting/dropping what `to` can't represent
@@ -19,9 +19,9 @@ import type { Format } from "./format.js";
 
 export interface ConvertOptions<A extends Feature, B extends Feature> {
   /** Source format. */
-  readonly from: Format<A>;
+  readonly from: Format<A, any>;
   /** Target format. */
-  readonly to: Format<B>;
+  readonly to: Format<any, B>;
   /** Source content. */
   readonly input: Content;
 }
@@ -66,7 +66,7 @@ export const convert = <A extends Feature, B extends Feature>({
     }
 
     const source = yield* reader.read(input);
-    const { document, loss } = narrow(source, to.profile);
+    const { document, loss } = narrow(source, to.writeProfile);
     const content = yield* writer.write(document);
     return { content, loss };
   });

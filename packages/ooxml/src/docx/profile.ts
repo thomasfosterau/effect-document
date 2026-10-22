@@ -1,7 +1,13 @@
 /**
  * The DOCX profile: a rich prose subset of the schema - headings, paragraphs,
- * block quotes, ordered/bullet lists, code blocks, tables and horizontal rules,
- * with the common inline formatting plus links. (No spreadsheets or slides.)
+ * ordered/bullet lists and tables, with the common inline formatting plus
+ * links. (No spreadsheets or slides.)
+ *
+ * Following the profile policy (#109), it holds only what survives
+ * `read(write(doc))`. The writer also renders block quotes, divs and line
+ * blocks (flattened), code blocks, rules, inline code and quotations, but
+ * they don't read back as such, so converting to DOCX narrows them with a
+ * loss report until they round-trip.
  */
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
@@ -10,14 +16,9 @@ export const docxFeatures = [
   "block.plain",
   "block.para",
   "block.header",
-  "block.blockQuote",
   "block.bulletList",
   "block.orderedList",
-  "block.codeBlock",
   "block.table",
-  "block.horizontalRule",
-  "block.div",
-  "block.lineBlock",
   "inline.str",
   "inline.space",
   "inline.softBreak",
@@ -29,9 +30,7 @@ export const docxFeatures = [
   "inline.superscript",
   "inline.subscript",
   "inline.smallCaps",
-  "inline.code",
   "inline.link",
-  "inline.quoted",
 ] as const;
 
 /** The DOCX (WordprocessingML) profile. */

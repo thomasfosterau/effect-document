@@ -8,7 +8,7 @@ import * as Csv from "@thomasfosterau/effect-csv";
 import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
 import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-ooxml/xlsx";
 
-type SpreadsheetF = FeaturesOf<typeof Spreadsheet>;
+type SpreadsheetF = FeaturesOf<typeof Xlsx.profile>;
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 

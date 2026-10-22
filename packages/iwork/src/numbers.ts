@@ -64,7 +64,8 @@ export const profile = Numbers;
 /** The Numbers format bundle (read-only, structure only) for use with `convert`. */
 export const format: Format<NumbersFeature> = {
   id: "numbers",
-  profile: Numbers,
+  readProfile: Numbers,
+  writeProfile: Numbers,
   reader: makeNumbersReader(),
 };
 

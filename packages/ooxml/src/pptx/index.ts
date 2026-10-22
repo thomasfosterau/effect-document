@@ -26,7 +26,8 @@ export interface PptxFormatOptions {
 /** Create a PPTX Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: PptxFormatOptions): Format<PptxFeature> => ({
   id: "pptx",
-  profile: Pptx,
+  readProfile: Pptx,
+  writeProfile: Pptx,
   reader: makePptxReader(options?.reader),
   writer: makePptxWriter(options?.writer),
 });

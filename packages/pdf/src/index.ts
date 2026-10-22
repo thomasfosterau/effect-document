@@ -7,7 +7,7 @@
  */
 
 import { type Format } from "@thomasfosterau/effect-document";
-import { Pdf, type PdfFeature } from "./profile.js";
+import { Pdf, type PdfFeature, PdfWrite, type PdfWriteFeature } from "./profile.js";
 import { makePdfReader } from "./reader.js";
 import { makePdfWriter } from "./writer.js";
 
@@ -23,9 +23,12 @@ export { layoutBlocks } from "./text/layout.js";
 export const profile = Pdf;
 
 /** The PDF format bundle, for use with `convert`. */
-export const format: Format<PdfFeature> = {
+export const format: Format<PdfFeature, PdfWriteFeature> = {
   id: "pdf",
-  profile: Pdf,
+  readProfile: Pdf,
+  writeProfile: PdfWrite,
   reader: makePdfReader(),
-  writer: makePdfWriter(),
+  // The writer renders the whole PDF profile; the format only promises what
+  // reads back, so `convert` narrows to that.
+  writer: { format: "pdf", profile: PdfWrite, write: makePdfWriter().write },
 };

@@ -1,5 +1,5 @@
 /**
- * The XLSX Reader: .xlsx bytes -> a multi-worksheet document in the Spreadsheet
+ * The XLSX Reader: .xlsx bytes -> a multi-worksheet document in the XLSX read
  * profile.
  *
  * Unzips the OOXML package with fflate, resolves the workbook and worksheet
@@ -15,16 +15,18 @@
 import { Effect, Layer } from "effect";
 import { strFromU8, unzipSync } from "fflate";
 import {
-  cell, type Content, contentToBytes, type Doc, document, type FeaturesOf, makeReaderTag,
+  cell, type Content, contentToBytes, type Doc, document, makeReaderTag,
   ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 import { parseA1, parseA1Range } from "./a1.js";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
 import { translateFormula } from "./formula.js";
 import { findChild, findChildren, getAttr, parseXml, type XmlElement } from "./xml.js";
 
-export type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
+import { XlsxRead, type XlsxReadFeature } from "./profile.js";
+
+/** @deprecated The reader's features are now {@link XlsxReadFeature}. */
+export type SpreadsheetFeature = XlsxReadFeature;
 
 const REL_OFFICE_DOCUMENT_SUFFIX = "/officeDocument";
 const REL_WORKSHEET_SUFFIX = "/worksheet";
@@ -220,10 +222,10 @@ const parseWorksheetRows = (
 // ============================================================================
 
 /** Create an XLSX Reader with the given options baked in. */
-export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetFeature> => {
+export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeature> => {
   const maxCells = options?.maxCells ?? DEFAULT_MAX_CELLS;
 
-  const read = (input: Content): Effect.Effect<Doc<SpreadsheetFeature>, ParseError> =>
+  const read = (input: Content): Effect.Effect<Doc<XlsxReadFeature>, ParseError> =>
     Effect.gen(function* () {
       const archive: XlsxArchive = yield* Effect.try({
         try: () => ({ files: unzipSync(contentToBytes(input)) }),
@@ -309,14 +311,14 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetF
         );
       }
 
-      return trustAs<SpreadsheetFeature>(document(worksheets));
+      return trustAs<XlsxReadFeature>(document(worksheets));
     });
 
-  return { format: "xlsx", profile: Spreadsheet, read };
+  return { format: "xlsx", profile: XlsxRead, read };
 };
 
 /** Context tag for dependency-injection style usage. */
-export const XlsxReaderTag = makeReaderTag<SpreadsheetFeature>("xlsx");
+export const XlsxReaderTag = makeReaderTag<XlsxReadFeature>("xlsx");
 
 /** Layer providing an XLSX Reader with default options. */
 export const XlsxReaderLive = Layer.succeed(XlsxReaderTag, makeXlsxReader());

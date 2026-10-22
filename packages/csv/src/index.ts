@@ -29,7 +29,8 @@ export interface CsvFormatOptions {
 /** Create a CSV Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: CsvFormatOptions): Format<CsvFeature> => ({
   id: "csv",
-  profile: Csv,
+  readProfile: Csv,
+  writeProfile: Csv,
   reader: makeCsvReader(options?.reader),
   writer: makeCsvWriter(options?.writer),
 });
@@ -46,7 +47,8 @@ export const format: Format<CsvFeature> = makeFormat();
 /** The TSV (tab-separated values) format bundle. */
 export const tsvFormat: Format<CsvFeature> = {
   id: "tsv",
-  profile: Csv,
+  readProfile: Csv,
+  writeProfile: Csv,
   reader: makeCsvReader({ dialect: TsvDialect }),
   writer: makeCsvWriter({ dialect: TsvDialect }),
 };

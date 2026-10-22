@@ -59,7 +59,8 @@ export const profile = Pages;
 /** The Pages format bundle (read-only) for use with `convert`. */
 export const format: Format<PagesFeature> = {
   id: "pages",
-  profile: Pages,
+  readProfile: Pages,
+  writeProfile: Pages,
   reader: makePagesReader(),
 };
 
