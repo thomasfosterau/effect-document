@@ -33,6 +33,7 @@
     "@vitest/coverage-istanbul": "catalog:",
     "effect": "catalog:",
     "fallow": "catalog:",
+    "fflate": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

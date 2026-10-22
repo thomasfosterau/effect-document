@@ -71,6 +71,7 @@ import {
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { type Feature } from "../schema/feature.ts";
 import { type Doc, type Profile } from "./profile.ts";
+import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
 // ============================================================================
 // Loss report
@@ -175,71 +176,92 @@ const narrowAttr = (attr: Attributes | undefined, ctx: Ctx): Attributes | undefi
 const narrowInlines = (inlines: ReadonlyArray<Inline>, ctx: Ctx): Inline[] =>
   inlines.flatMap((i) => narrowInline(i, ctx));
 
-const narrowInline = (n: Inline, ctx: Ctx): Inline[] => {
-  const has = (f: Feature) => ctx.allowed.has(f);
-  if (Predicate.isTagged(n, "Emph")) {
+/**
+ * A formatting wrapper: kept with its narrowed content when the profile has
+ * `feature`, else replaced by that content (a `converted` loss).
+ */
+const wrapper =
+  <N extends { readonly content: ReadonlyArray<Inline> }>(
+    feature: Feature,
+    detail: string,
+    rebuild: (n: N, content: Inline[], ctx: Ctx) => Inline,
+  ) =>
+  (n: N, ctx: Ctx): Inline[] => {
     const inner = narrowInlines(n.content, ctx);
-    if (has("inline.emph")) return [new Emph({ content: inner })];
-    ctx.rec.convert("inline.emph", "Emph unwrapped to its text");
+    if (ctx.allowed.has(feature)) return [rebuild(n, inner, ctx)];
+    ctx.rec.convert(feature, detail);
     return inner;
-  }
-  if (Predicate.isTagged(n, "Strong")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.strong")) return [new Strong({ content: inner })];
-    ctx.rec.convert("inline.strong", "Strong unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Underline")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.underline")) return [new Underline({ content: inner })];
-    ctx.rec.convert("inline.underline", "Underline unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Strikeout")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.strikeout")) return [new Strikeout({ content: inner })];
-    ctx.rec.convert("inline.strikeout", "Strikeout unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Superscript")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.superscript")) return [new Superscript({ content: inner })];
-    ctx.rec.convert("inline.superscript", "Superscript unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Subscript")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.subscript")) return [new Subscript({ content: inner })];
-    ctx.rec.convert("inline.subscript", "Subscript unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "SmallCaps")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.smallCaps")) return [new SmallCaps({ content: inner })];
-    ctx.rec.convert("inline.smallCaps", "SmallCaps unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Quoted")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.quoted")) return [new Quoted({ quoteType: n.quoteType, content: inner })];
-    ctx.rec.convert("inline.quoted", "Quoted unwrapped to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Span")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.span")) return [new Span({ attr: narrowAttr(n.attr, ctx), content: inner })];
-    ctx.rec.convert("inline.span", "Span unwrapped to its content");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Link")) {
-    const inner = narrowInlines(n.content, ctx);
-    if (has("inline.link"))
-      return [new Link({ attr: narrowAttr(n.attr, ctx), content: inner, target: n.target })];
-    ctx.rec.convert("inline.link", "Link reduced to its text");
-    return inner;
-  }
-  if (Predicate.isTagged(n, "Image")) {
-    if (has("inline.image"))
+  };
+
+/** A text-bearing inline: kept when the profile has `feature`, else its text as a `Str`. */
+const textual =
+  <N extends { readonly text: string }>(
+    feature: Feature,
+    detail: string,
+    rebuild: (n: N, ctx: Ctx) => Inline,
+  ) =>
+  (n: N, ctx: Ctx): Inline[] => {
+    if (ctx.allowed.has(feature)) return [rebuild(n, ctx)];
+    ctx.rec.convert(feature, detail);
+    return [new Str({ text: n.text })];
+  };
+
+/** Kept as it is: every profile has these. */
+const always = (n: Inline): Inline[] => [n];
+
+const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
+  Str: always,
+  Space: always,
+  SoftBreak: always,
+  LineBreak: always,
+  Emph: wrapper("inline.emph", "Emph unwrapped to its text", (_, content) => new Emph({ content })),
+  Strong: wrapper(
+    "inline.strong",
+    "Strong unwrapped to its text",
+    (_, content) => new Strong({ content }),
+  ),
+  Underline: wrapper(
+    "inline.underline",
+    "Underline unwrapped to its text",
+    (_, content) => new Underline({ content }),
+  ),
+  Strikeout: wrapper(
+    "inline.strikeout",
+    "Strikeout unwrapped to its text",
+    (_, content) => new Strikeout({ content }),
+  ),
+  Superscript: wrapper(
+    "inline.superscript",
+    "Superscript unwrapped to its text",
+    (_, content) => new Superscript({ content }),
+  ),
+  Subscript: wrapper(
+    "inline.subscript",
+    "Subscript unwrapped to its text",
+    (_, content) => new Subscript({ content }),
+  ),
+  SmallCaps: wrapper(
+    "inline.smallCaps",
+    "SmallCaps unwrapped to its text",
+    (_, content) => new SmallCaps({ content }),
+  ),
+  Quoted: wrapper(
+    "inline.quoted",
+    "Quoted unwrapped to its text",
+    (n, content) => new Quoted({ quoteType: n.quoteType, content }),
+  ),
+  Span: wrapper(
+    "inline.span",
+    "Span unwrapped to its content",
+    (n, content, ctx) => new Span({ attr: narrowAttr(n.attr, ctx), content }),
+  ),
+  Link: wrapper(
+    "inline.link",
+    "Link reduced to its text",
+    (n, content, ctx) => new Link({ attr: narrowAttr(n.attr, ctx), content, target: n.target }),
+  ),
+  Image: (n, ctx) => {
+    if (ctx.allowed.has("inline.image"))
       return [
         new Image({
           attr: narrowAttr(n.attr, ctx),
@@ -249,95 +271,118 @@ const narrowInline = (n: Inline, ctx: Ctx): Inline[] => {
       ];
     ctx.rec.convert("inline.image", "Image reduced to its alt text");
     return narrowInlines(n.alt, ctx);
-  }
-  if (Predicate.isTagged(n, "Code")) {
-    if (has("inline.code")) return [new Code({ attr: narrowAttr(n.attr, ctx), text: n.text })];
-    ctx.rec.convert("inline.code", "Code reduced to text");
-    return [new Str({ text: n.text })];
-  }
-  if (Predicate.isTagged(n, "Math")) {
-    if (has("inline.math")) return [new Math({ mathType: n.mathType, text: n.text })];
-    ctx.rec.convert("inline.math", "Math reduced to text");
-    return [new Str({ text: n.text })];
-  }
-  if (Predicate.isTagged(n, "Cite")) {
-    if (has("inline.cite")) {
-      return [
-        new Cite({
-          citations: n.citations.map(
-            (c) =>
-              new Citation({
-                id: c.id,
-                mode: c.mode,
-                prefix: narrowInlines(c.prefix, ctx),
-                suffix: narrowInlines(c.suffix, ctx),
-              }),
-          ),
-          content: narrowInlines(n.content, ctx),
-        }),
-      ];
+  },
+  Code: textual(
+    "inline.code",
+    "Code reduced to text",
+    (n, ctx) => new Code({ attr: narrowAttr(n.attr, ctx), text: n.text }),
+  ),
+  Math: textual(
+    "inline.math",
+    "Math reduced to text",
+    (n) => new Math({ mathType: n.mathType, text: n.text }),
+  ),
+  Cite: (n, ctx) => {
+    if (!ctx.allowed.has("inline.cite")) {
+      ctx.rec.convert("inline.cite", "Cite reduced to its text");
+      return narrowInlines(n.content, ctx);
     }
-    ctx.rec.convert("inline.cite", "Cite reduced to its text");
-    return narrowInlines(n.content, ctx);
-  }
-  if (Predicate.isTagged(n, "RawInline")) {
-    if (has("inline.rawInline")) return [new RawInline({ format: n.format, text: n.text })];
+    const citations = n.citations.map(
+      (c) =>
+        new Citation({
+          id: c.id,
+          mode: c.mode,
+          prefix: narrowInlines(c.prefix, ctx),
+          suffix: narrowInlines(c.suffix, ctx),
+        }),
+    );
+    return [new Cite({ citations, content: narrowInlines(n.content, ctx) })];
+  },
+  RawInline: (n, ctx) => {
+    if (ctx.allowed.has("inline.rawInline"))
+      return [new RawInline({ format: n.format, text: n.text })];
     ctx.rec.drop("inline.rawInline", "raw inline content dropped");
     return [];
-  }
-  if (Predicate.isTagged(n, "Note")) {
-    if (has("inline.note")) return [new Note({ content: narrowBlocks(n.content, ctx) })];
+  },
+  Note: (n, ctx) => {
+    if (ctx.allowed.has("inline.note"))
+      return [new Note({ content: narrowBlocks(n.content, ctx) })];
     ctx.rec.drop("inline.note", "note dropped");
     return [];
-  }
-  // Str, Space, SoftBreak and LineBreak are in every profile
-  return [n];
+  },
 };
+
+const narrowInline = (n: Inline, ctx: Ctx): Inline[] => dispatchTag(INLINE, n, ctx);
 
 // ---- spreadsheet ----------------------------------------------------------
 
+type CellStyle = SheetCell["style"];
+
+/** A typed cell: kept when the profile has `feature`, else converted to a text cell. */
+const typedCell =
+  <C extends SheetCell>(
+    feature: Feature,
+    detail: string,
+    keep: (c: C, style: CellStyle, ctx: Ctx) => SheetCell,
+    asText: (c: C, style: CellStyle, ctx: Ctx) => SheetCell,
+  ) =>
+  (c: C, style: CellStyle, ctx: Ctx): SheetCell => {
+    if (ctx.allowed.has(feature)) return keep(c, style, ctx);
+    ctx.rec.convert(feature, detail);
+    return asText(c, style, ctx);
+  };
+
+const cellText = (c: SheetCell, style: CellStyle): SheetCell =>
+  new CellText({ value: cellToText(c), style });
+
+const CELL: TagHandlers<SheetCell, [CellStyle, Ctx], SheetCell> = {
+  CellText: (c, style) => new CellText({ value: c.value, style }),
+  CellBlank: (_, style) => new CellBlank({ style }),
+  CellNumber: typedCell<CellNumber>(
+    "cell.number",
+    "number cell converted to text",
+    (c, style) => new CellNumber({ value: c.value, style }),
+    cellText,
+  ),
+  CellBoolean: typedCell<CellBoolean>(
+    "cell.boolean",
+    "boolean cell converted to text",
+    (c, style) => new CellBoolean({ value: c.value, style }),
+    cellText,
+  ),
+  CellDate: typedCell<CellDate>(
+    "cell.date",
+    "date cell converted to ISO text",
+    (c, style) => new CellDate({ value: c.value, style }),
+    cellText,
+  ),
+  CellError: typedCell(
+    "cell.error",
+    "error cell converted to text",
+    (c, style) => new CellError({ value: c.value, style }),
+    (c, style) => new CellText({ value: c.value, style }),
+  ),
+  CellFormula: typedCell(
+    "cell.formula",
+    "formula cell converted to its cached result",
+    (c, style) => new CellFormula({ formula: c.formula, result: c.result, style }),
+    (c, style) => new CellText({ value: c.result ?? "", style }),
+  ),
+  CellRichText: typedCell(
+    "cell.richText",
+    "rich-text cell flattened to text",
+    (c, style, ctx) => new CellRichText({ runs: narrowInlines(c.runs, ctx), style }),
+    (c, style) => new CellText({ value: inlinesToText(c.runs), style }),
+  ),
+};
+
 const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
-  const has = (f: Feature) => ctx.allowed.has(f);
   let style = c.style;
-  if (style !== undefined && !has("cell.style")) {
+  if (style !== undefined && !ctx.allowed.has("cell.style")) {
     ctx.rec.drop("cell.style", "cell styling dropped");
     style = undefined;
   }
-  if (Predicate.isTagged(c, "CellText")) {
-    return new CellText({ value: c.value, style });
-  }
-  if (Predicate.isTagged(c, "CellBlank")) {
-    return new CellBlank({ style });
-  }
-  if (Predicate.isTagged(c, "CellNumber")) {
-    if (has("cell.number")) return new CellNumber({ value: c.value, style });
-    ctx.rec.convert("cell.number", "number cell converted to text");
-    return new CellText({ value: cellToText(c), style });
-  }
-  if (Predicate.isTagged(c, "CellBoolean")) {
-    if (has("cell.boolean")) return new CellBoolean({ value: c.value, style });
-    ctx.rec.convert("cell.boolean", "boolean cell converted to text");
-    return new CellText({ value: cellToText(c), style });
-  }
-  if (Predicate.isTagged(c, "CellDate")) {
-    if (has("cell.date")) return new CellDate({ value: c.value, style });
-    ctx.rec.convert("cell.date", "date cell converted to ISO text");
-    return new CellText({ value: cellToText(c), style });
-  }
-  if (Predicate.isTagged(c, "CellError")) {
-    if (has("cell.error")) return new CellError({ value: c.value, style });
-    ctx.rec.convert("cell.error", "error cell converted to text");
-    return new CellText({ value: c.value, style });
-  }
-  if (Predicate.isTagged(c, "CellFormula")) {
-    if (has("cell.formula"))
-      return new CellFormula({ formula: c.formula, result: c.result, style });
-    ctx.rec.convert("cell.formula", "formula cell converted to its cached result");
-    return new CellText({ value: c.result ?? "", style });
-  }
-  if (has("cell.richText")) return new CellRichText({ runs: narrowInlines(c.runs, ctx), style });
-  ctx.rec.convert("cell.richText", "rich-text cell flattened to text");
-  return new CellText({ value: inlinesToText(c.runs), style });
+  return dispatchTag(CELL, c, style, ctx);
 };
 
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
@@ -410,40 +455,46 @@ const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
 
 // ---- presentation ---------------------------------------------------------
 
-const narrowShape = (s: Shape, ctx: Ctx): Shape[] => {
-  const has = (f: Feature) => ctx.allowed.has(f);
-  if (Predicate.isTagged(s, "TextBox")) {
-    if (has("shape.textBox"))
-      return [
-        new TextBox({ attr: narrowAttr(s.attr, ctx), content: narrowBlocks(s.content, ctx) }),
-      ];
-    ctx.rec.drop("shape.textBox", "text box dropped");
+/** A shape: kept (rebuilt) when the profile has `feature`, else dropped. */
+const shape =
+  <S extends Shape>(feature: Feature, detail: string, rebuild: (s: S, ctx: Ctx) => Shape) =>
+  (s: S, ctx: Ctx): Shape[] => {
+    if (ctx.allowed.has(feature)) return [rebuild(s, ctx)];
+    ctx.rec.drop(feature, detail);
     return [];
-  }
-  if (Predicate.isTagged(s, "Picture")) {
-    if (has("shape.picture"))
-      return [new Picture({ attr: narrowAttr(s.attr, ctx), src: s.src, alt: s.alt })];
-    ctx.rec.drop("shape.picture", "picture dropped");
-    return [];
-  }
-  if (Predicate.isTagged(s, "TableShape")) {
-    if (has("shape.table"))
-      return [new TableShape({ attr: narrowAttr(s.attr, ctx), table: narrowTable(s.table, ctx) })];
-    ctx.rec.drop("shape.table", "table shape dropped");
-    return [];
-  }
-  if (has("shape.placeholder"))
-    return [
+  };
+
+const SHAPE: TagHandlers<Shape, [Ctx], Shape[]> = {
+  TextBox: shape(
+    "shape.textBox",
+    "text box dropped",
+    (s, ctx) =>
+      new TextBox({ attr: narrowAttr(s.attr, ctx), content: narrowBlocks(s.content, ctx) }),
+  ),
+  Picture: shape(
+    "shape.picture",
+    "picture dropped",
+    (s, ctx) => new Picture({ attr: narrowAttr(s.attr, ctx), src: s.src, alt: s.alt }),
+  ),
+  TableShape: shape(
+    "shape.table",
+    "table shape dropped",
+    (s, ctx) => new TableShape({ attr: narrowAttr(s.attr, ctx), table: narrowTable(s.table, ctx) }),
+  ),
+  Placeholder: shape(
+    "shape.placeholder",
+    "placeholder dropped",
+    (s, ctx) =>
       new Placeholder({
         attr: narrowAttr(s.attr, ctx),
         placeholderType: s.placeholderType,
         idx: s.idx,
         content: narrowBlocks(s.content, ctx),
       }),
-    ];
-  ctx.rec.drop("shape.placeholder", "placeholder dropped");
-  return [];
+  ),
 };
+
+const narrowShape = (s: Shape, ctx: Ctx): Shape[] => dispatchTag(SHAPE, s, ctx);
 
 const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
   const slides = d.slides.map((sl) => {
@@ -505,136 +556,144 @@ const blockFeature = (tag: Block["_tag"]): Feature =>
 const narrowBlocks = (blocks: ReadonlyArray<Block>, ctx: Ctx): Block[] =>
   blocks.flatMap((b) => narrowBlock(b, ctx));
 
-const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
-  const feature = blockFeature(b._tag);
-  const has = (f: Feature) => ctx.allowed.has(f);
+/** A slide shape's block content, for flattening a deck into prose. */
+const shapeBlocks = (sh: Shape): ReadonlyArray<Block> =>
+  Predicate.isTagged(sh, "TextBox") || Predicate.isTagged(sh, "Placeholder")
+    ? sh.content
+    : Predicate.isTagged(sh, "TableShape")
+      ? [sh.table]
+      : [];
 
-  if (!has(feature)) {
-    if (Predicate.isTagged(b, "Header")) {
-      const inner = narrowInlines(b.content, ctx);
-      ctx.rec.convert(feature, "heading converted to a paragraph");
-      return narrowBlock(new Para({ content: inner }), ctx);
-    }
-    if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
-      ctx.rec.convert(feature, `${b._tag} unwrapped to its contents`);
-      return narrowBlocks(b.content, ctx);
-    }
-    if (Predicate.isTagged(b, "Figure")) {
-      ctx.rec.convert(feature, "figure unwrapped to caption + contents");
-      return narrowBlocks([...b.caption, ...b.content], ctx);
-    }
-    if (Predicate.isTagged(b, "OrderedList") || Predicate.isTagged(b, "BulletList")) {
-      ctx.rec.convert(feature, "list flattened to its item blocks");
-      return narrowBlocks(b.items.flat(), ctx);
-    }
-    if (Predicate.isTagged(b, "DefinitionList")) {
-      ctx.rec.convert(feature, "definition list flattened");
-      return narrowBlocks(
-        b.items.flatMap((it) => [new Para({ content: it.term }), ...it.definitions.flat()]),
-        ctx,
-      );
-    }
-    if (Predicate.isTagged(b, "LineBlock")) {
-      ctx.rec.convert(feature, "line block converted to a paragraph");
-      return narrowBlock(new Para({ content: b.lines.flat() }), ctx);
-    }
-    if (Predicate.isTagged(b, "CodeBlock") || Predicate.isTagged(b, "RawBlock")) {
-      ctx.rec.convert(feature, `${b._tag} converted to a paragraph`);
-      return narrowBlock(new Para({ content: [new Str({ text: b.text })] }), ctx);
-    }
-    if (Predicate.isTagged(b, "Table")) {
-      if (has("sheet.worksheet")) return tableToWorksheet(b, ctx);
-      ctx.rec.drop(feature, "table dropped (target cannot represent tables)");
-      return [];
-    }
-    if (Predicate.isTagged(b, "Worksheet")) {
-      if (has("block.table")) return worksheetToTable(b, ctx);
-      ctx.rec.drop(feature, "worksheet dropped (target cannot represent grids)");
-      return [];
-    }
-    if (Predicate.isTagged(b, "SlideShow")) {
-      ctx.rec.convert(feature, "slides flattened to their block content");
-      return narrowBlocks(
-        b.slides.flatMap((s) => [
-          ...s.shapes.flatMap((sh): ReadonlyArray<Block> =>
-            Predicate.isTagged(sh, "TextBox") || Predicate.isTagged(sh, "Placeholder")
-              ? sh.content
-              : Predicate.isTagged(sh, "TableShape")
-                ? [sh.table]
-                : [],
-          ),
-          ...(s.notes ?? []),
-        ]),
-        ctx,
-      );
-    }
-    if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain")) {
-      ctx.rec.drop(feature, `${b._tag} dropped`);
-      return [];
-    }
+/** Rewrite a block the profile lacks (`feature`) as blocks it may have, re-narrowed. */
+const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
+  Header: (b, feature, ctx) => {
+    const inner = narrowInlines(b.content, ctx);
+    ctx.rec.convert(feature, "heading converted to a paragraph");
+    return narrowBlock(new Para({ content: inner }), ctx);
+  },
+  BlockQuote: (b, feature, ctx) => {
+    ctx.rec.convert(feature, `${b._tag} unwrapped to its contents`);
+    return narrowBlocks(b.content, ctx);
+  },
+  Div: (b, feature, ctx) => {
+    ctx.rec.convert(feature, `${b._tag} unwrapped to its contents`);
+    return narrowBlocks(b.content, ctx);
+  },
+  Figure: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "figure unwrapped to caption + contents");
+    return narrowBlocks([...b.caption, ...b.content], ctx);
+  },
+  OrderedList: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "list flattened to its item blocks");
+    return narrowBlocks(b.items.flat(), ctx);
+  },
+  BulletList: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "list flattened to its item blocks");
+    return narrowBlocks(b.items.flat(), ctx);
+  },
+  DefinitionList: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "definition list flattened");
+    return narrowBlocks(
+      b.items.flatMap((it) => [new Para({ content: it.term }), ...it.definitions.flat()]),
+      ctx,
+    );
+  },
+  LineBlock: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "line block converted to a paragraph");
+    return narrowBlock(new Para({ content: b.lines.flat() }), ctx);
+  },
+  CodeBlock: (b, feature, ctx) => {
+    ctx.rec.convert(feature, `${b._tag} converted to a paragraph`);
+    return narrowBlock(new Para({ content: [new Str({ text: b.text })] }), ctx);
+  },
+  RawBlock: (b, feature, ctx) => {
+    ctx.rec.convert(feature, `${b._tag} converted to a paragraph`);
+    return narrowBlock(new Para({ content: [new Str({ text: b.text })] }), ctx);
+  },
+  Table: (b, feature, ctx) => {
+    if (ctx.allowed.has("sheet.worksheet")) return tableToWorksheet(b, ctx);
+    ctx.rec.drop(feature, "table dropped (target cannot represent tables)");
+    return [];
+  },
+  Worksheet: (b, feature, ctx) => {
+    if (ctx.allowed.has("block.table")) return worksheetToTable(b, ctx);
+    ctx.rec.drop(feature, "worksheet dropped (target cannot represent grids)");
+    return [];
+  },
+  SlideShow: (b, feature, ctx) => {
+    ctx.rec.convert(feature, "slides flattened to their block content");
+    return narrowBlocks(
+      b.slides.flatMap((s) => [...s.shapes.flatMap(shapeBlocks), ...(s.notes ?? [])]),
+      ctx,
+    );
+  },
+  Para: (b, feature, ctx) => {
+    ctx.rec.drop(feature, `${b._tag} dropped`);
+    return [];
+  },
+  Plain: (b, feature, ctx) => {
+    ctx.rec.drop(feature, `${b._tag} dropped`);
+    return [];
+  },
+  HorizontalRule: (_, feature, ctx) => {
     ctx.rec.drop(feature, "horizontal rule dropped");
     return [];
-  }
+  },
+};
 
-  if (Predicate.isTagged(b, "Plain")) {
-    return [new Plain({ content: narrowInlines(b.content, ctx) })];
-  }
-  if (Predicate.isTagged(b, "Para")) {
-    return [new Para({ content: narrowInlines(b.content, ctx) })];
-  }
-  if (Predicate.isTagged(b, "Header")) {
-    return [
-      new Header({
-        level: b.level,
-        attr: narrowAttr(b.attr, ctx),
-        content: narrowInlines(b.content, ctx),
-      }),
-    ];
-  }
-  if (Predicate.isTagged(b, "BlockQuote")) {
-    return [new BlockQuote({ content: narrowBlocks(b.content, ctx) })];
-  }
-  if (Predicate.isTagged(b, "Div")) {
-    return [new Div({ attr: narrowAttr(b.attr, ctx), content: narrowBlocks(b.content, ctx) })];
-  }
-  if (Predicate.isTagged(b, "Figure")) {
-    return [
-      new Figure({
-        attr: narrowAttr(b.attr, ctx),
-        caption: narrowBlocks(b.caption, ctx),
-        content: narrowBlocks(b.content, ctx),
-      }),
-    ];
-  }
-  if (Predicate.isTagged(b, "OrderedList")) {
-    return [
-      new OrderedList({
-        attr: narrowAttr(b.attr, ctx),
-        start: b.start,
-        numberStyle: b.numberStyle,
-        numberDelim: b.numberDelim,
-        items: b.items.map((it) => narrowBlocks(it, ctx)),
-      }),
-    ];
-  }
-  if (Predicate.isTagged(b, "BulletList")) {
-    return [
-      new BulletList({
-        attr: narrowAttr(b.attr, ctx),
-        items: b.items.map((it) => narrowBlocks(it, ctx)),
-      }),
-    ];
-  }
-  if (Predicate.isTagged(b, "Table")) {
-    return [narrowTable(b, ctx)];
-  }
-  if (Predicate.isTagged(b, "Worksheet")) {
-    return [narrowWorksheet(b, ctx)];
-  }
-  if (Predicate.isTagged(b, "SlideShow")) {
-    return [narrowSlideShow(b, ctx)];
-  }
-  return [b];
+/** Narrow the contents of a block the profile has. */
+const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
+  Plain: (b, ctx) => [new Plain({ content: narrowInlines(b.content, ctx) })],
+  Para: (b, ctx) => [new Para({ content: narrowInlines(b.content, ctx) })],
+  Header: (b, ctx) => [
+    new Header({
+      level: b.level,
+      attr: narrowAttr(b.attr, ctx),
+      content: narrowInlines(b.content, ctx),
+    }),
+  ],
+  BlockQuote: (b, ctx) => [new BlockQuote({ content: narrowBlocks(b.content, ctx) })],
+  Div: (b, ctx) => [
+    new Div({ attr: narrowAttr(b.attr, ctx), content: narrowBlocks(b.content, ctx) }),
+  ],
+  Figure: (b, ctx) => [
+    new Figure({
+      attr: narrowAttr(b.attr, ctx),
+      caption: narrowBlocks(b.caption, ctx),
+      content: narrowBlocks(b.content, ctx),
+    }),
+  ],
+  OrderedList: (b, ctx) => [
+    new OrderedList({
+      attr: narrowAttr(b.attr, ctx),
+      start: b.start,
+      numberStyle: b.numberStyle,
+      numberDelim: b.numberDelim,
+      items: b.items.map((it) => narrowBlocks(it, ctx)),
+    }),
+  ],
+  BulletList: (b, ctx) => [
+    new BulletList({
+      attr: narrowAttr(b.attr, ctx),
+      items: b.items.map((it) => narrowBlocks(it, ctx)),
+    }),
+  ],
+  Table: (b, ctx) => [narrowTable(b, ctx)],
+  Worksheet: (b, ctx) => [narrowWorksheet(b, ctx)],
+  SlideShow: (b, ctx) => [narrowSlideShow(b, ctx)],
+  // no inline content or attributes to narrow
+  DefinitionList: (b) => [b],
+  LineBlock: (b) => [b],
+  CodeBlock: (b) => [b],
+  RawBlock: (b) => [b],
+  HorizontalRule: (b) => [b],
+};
+
+const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
+  const feature = blockFeature(b._tag);
+  return ctx.allowed.has(feature)
+    ? dispatchTag(KEEP, b, ctx)
+    : dispatchTag(FALLBACK, b, feature, ctx);
 };
 
 /**

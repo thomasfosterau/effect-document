@@ -18,6 +18,7 @@ import {
 } from "../schema/ast.ts";
 import { Document } from "../schema/document.ts";
 import { type Feature, featureOfTag } from "../schema/feature.ts";
+import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
 const attrOf = (n: unknown): Attributes | undefined =>
   // SAFETY: called only on document nodes, every one of which declares `attr`
@@ -51,34 +52,49 @@ const pushBlocks = (ns: ReadonlyArray<Block>, stack: Stack): void => {
   for (const n of ns) stack.push({ k: "block", n });
 };
 
-const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
-  addTag(n._tag, acc);
-  addAttr(n, acc);
-  if (
-    Predicate.isTagged(n, "Emph") ||
-    Predicate.isTagged(n, "Strong") ||
-    Predicate.isTagged(n, "Underline") ||
-    Predicate.isTagged(n, "Strikeout") ||
-    Predicate.isTagged(n, "Superscript") ||
-    Predicate.isTagged(n, "Subscript") ||
-    Predicate.isTagged(n, "SmallCaps") ||
-    Predicate.isTagged(n, "Quoted") ||
-    Predicate.isTagged(n, "Link") ||
-    Predicate.isTagged(n, "Span")
-  ) {
-    pushInlines(n.content, stack);
-  } else if (Predicate.isTagged(n, "Cite")) {
+type Walk<N extends { readonly _tag: string }> = TagHandlers<N, [Set<Feature>, Stack], void>;
+
+const inlineContent = (
+  n: { readonly content: ReadonlyArray<Inline> },
+  _: Set<Feature>,
+  stack: Stack,
+) => pushInlines(n.content, stack);
+const leaf = (): void => {};
+
+/** Push an inline's children; its own tag and attributes are recorded by `walkInline`. */
+const INLINE_CHILDREN: Walk<Inline> = {
+  Emph: inlineContent,
+  Strong: inlineContent,
+  Underline: inlineContent,
+  Strikeout: inlineContent,
+  Superscript: inlineContent,
+  Subscript: inlineContent,
+  SmallCaps: inlineContent,
+  Quoted: inlineContent,
+  Link: inlineContent,
+  Span: inlineContent,
+  Cite: (n, _, stack) => {
     pushInlines(n.content, stack);
     for (const c of n.citations) {
       pushInlines(c.prefix, stack);
       pushInlines(c.suffix, stack);
     }
-  } else if (Predicate.isTagged(n, "Image")) {
-    pushInlines(n.alt, stack);
-  } else if (Predicate.isTagged(n, "Note")) {
-    pushBlocks(n.content, stack);
-  } else {
-  }
+  },
+  Image: (n, _, stack) => pushInlines(n.alt, stack),
+  Note: (n, _, stack) => pushBlocks(n.content, stack),
+  Str: leaf,
+  Space: leaf,
+  SoftBreak: leaf,
+  LineBreak: leaf,
+  Code: leaf,
+  Math: leaf,
+  RawInline: leaf,
+};
+
+const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
+  addTag(n._tag, acc);
+  addAttr(n, acc);
+  dispatchTag(INLINE_CHILDREN, n, acc, stack);
 };
 
 const walkTable = (t: Table, acc: Set<Feature>, stack: Stack): void => {
@@ -105,15 +121,17 @@ const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   for (const row of w.rows) for (const c of row.cells) walkCell(c, acc, stack);
 };
 
+const SHAPE_CHILDREN: Walk<Shape> = {
+  TextBox: (s, _, stack) => pushBlocks(s.content, stack),
+  Placeholder: (s, _, stack) => pushBlocks(s.content, stack),
+  TableShape: (s, acc, stack) => walkTable(s.table, acc, stack),
+  Picture: leaf,
+};
+
 const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
   addTag(s._tag, acc);
   addAttr(s, acc);
-  if (Predicate.isTagged(s, "TextBox") || Predicate.isTagged(s, "Placeholder")) {
-    pushBlocks(s.content, stack);
-  } else if (Predicate.isTagged(s, "TableShape")) {
-    walkTable(s.table, acc, stack);
-  } else if (Predicate.isTagged(s, "Picture")) {
-  }
+  dispatchTag(SHAPE_CHILDREN, s, acc, stack);
 };
 
 const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
@@ -127,41 +145,52 @@ const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
   }
 };
 
-const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
-  addTag(b._tag, acc);
-  addAttr(b, acc);
-  if (
-    Predicate.isTagged(b, "Plain") ||
-    Predicate.isTagged(b, "Para") ||
-    Predicate.isTagged(b, "Header")
-  ) {
-    pushInlines(b.content, stack);
-  } else if (Predicate.isTagged(b, "LineBlock")) {
+const blockContent = (
+  n: { readonly content: ReadonlyArray<Block> },
+  _: Set<Feature>,
+  stack: Stack,
+) => pushBlocks(n.content, stack);
+const listItems = (
+  n: { readonly items: ReadonlyArray<ReadonlyArray<Block>> },
+  _: Set<Feature>,
+  stack: Stack,
+) => {
+  for (const item of n.items) pushBlocks(item, stack);
+};
+
+const BLOCK_CHILDREN: Walk<Block> = {
+  Plain: inlineContent,
+  Para: inlineContent,
+  Header: inlineContent,
+  LineBlock: (b, _, stack) => {
     for (const line of b.lines) pushInlines(line, stack);
-  } else if (
-    Predicate.isTagged(b, "CodeBlock") ||
-    Predicate.isTagged(b, "RawBlock") ||
-    Predicate.isTagged(b, "HorizontalRule")
-  ) {
-  } else if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
-    pushBlocks(b.content, stack);
-  } else if (Predicate.isTagged(b, "Figure")) {
+  },
+  CodeBlock: leaf,
+  RawBlock: leaf,
+  HorizontalRule: leaf,
+  BlockQuote: blockContent,
+  Div: blockContent,
+  Figure: (b, _, stack) => {
     pushBlocks(b.caption, stack);
     pushBlocks(b.content, stack);
-  } else if (Predicate.isTagged(b, "OrderedList") || Predicate.isTagged(b, "BulletList")) {
-    for (const item of b.items) pushBlocks(item, stack);
-  } else if (Predicate.isTagged(b, "DefinitionList")) {
+  },
+  OrderedList: listItems,
+  BulletList: listItems,
+  DefinitionList: (b, _, stack) => {
     for (const item of b.items) {
       pushInlines(item.term, stack);
       for (const def of item.definitions) pushBlocks(def, stack);
     }
-  } else if (Predicate.isTagged(b, "Table")) {
-    walkTable(b, acc, stack);
-  } else if (Predicate.isTagged(b, "Worksheet")) {
-    walkWorksheet(b, acc, stack);
-  } else if (Predicate.isTagged(b, "SlideShow")) {
-    walkSlideShow(b, acc, stack);
-  }
+  },
+  Table: walkTable,
+  Worksheet: walkWorksheet,
+  SlideShow: walkSlideShow,
+};
+
+const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
+  addTag(b._tag, acc);
+  addAttr(b, acc);
+  dispatchTag(BLOCK_CHILDREN, b, acc, stack);
 };
 
 /** The set of features a document uses. */
