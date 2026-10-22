@@ -18,45 +18,151 @@ import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.js";
 
 export type CsvFeature = FeaturesOf<typeof Csv>;
 
-export interface CsvReaderOptions extends CsvScanOptions {
+/** How raw strings become typed values. The option names follow CSVW where it has one. */
+export interface CsvInferenceOptions {
+  /**
+   * `cell` (the default): each value is inferred on its own, so a column may
+   * mix types. `column`: a column is numeric only if every non-null value in it
+   * is a number, and boolean only if every one is a boolean; otherwise the
+   * whole column is text. Without `treatFirstRowAsHeader` the header row counts
+   * as data, so its names make every column text.
+   */
+  readonly inference?: "column" | "cell";
+  /**
+   * The spellings of true and false, matched case-insensitively unless
+   * `booleansCaseSensitive` is set (defaults to `["true", "false"]`). `false`
+   * turns boolean inference off.
+   */
+  readonly booleans?: readonly [truthy: string, falsy: string] | false;
+  readonly booleansCaseSensitive?: boolean;
+  /** The decimal separator of numbers (defaults to "."). */
+  readonly decimalChar?: string;
+  /**
+   * The digit-group separator of numbers, such as "," for `1,234.56` (none by
+   * default). Groups must be three digits; ungrouped numbers still parse.
+   */
+  readonly groupChar?: string;
+  /** Read a trailing `%` as a percentage: `12%` becomes 0.12. Off by default. */
+  readonly percent?: boolean;
+  /** Values read as blank cells, matched exactly (defaults to `[""]`). */
+  readonly nullValues?: ReadonlyArray<string>;
+}
+
+export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
   /** The CSV dialect to parse with (defaults to StandardDialect). */
   readonly dialect?: CsvDialect;
   /**
-   * Infer cell types from string values: numbers, booleans ("true"/"false"),
-   * and empty strings (-> blank cells). Set to false to keep every value as a
-   * text cell, preserving values exactly. Defaults to true.
+   * Infer cell types from string values: numbers, booleans and null values
+   * (-> blank cells), shaped by the {@link CsvInferenceOptions}. Set to false to
+   * keep every value as a text cell, preserving values exactly. Defaults to
+   * true.
+   *
+   * Inference is convenient but lossy. Only plain decimals are read as numbers
+   * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`, with up to 15 significant digits),
+   * so codes such as `007`, `0x1F`, `+1` and 20-digit IDs stay text. Numbers
+   * still lose their written form: `1.10` reads as 1.1 and `1e3` as 1000.
+   * Without `treatFirstRowAsHeader`, a numeric header row is read as numbers.
    */
   readonly inferTypes?: boolean;
   /** Name of the produced worksheet (defaults to "Sheet1"). */
   readonly sheetName?: string;
 }
 
-/** Infer a typed cell from a raw CSV string value. */
-export const inferCell = (raw: string): SheetCell => {
-  if (raw === "") return cell.blank();
-  if (raw === "true") return cell.boolean(true);
-  if (raw === "false") return cell.boolean(false);
-  if (raw.trim() !== "") {
-    const num = Number(raw);
-    if (Number.isFinite(num)) return cell.number(num);
-  }
-  return cell.text(raw);
+// ============================================================================
+// Inference
+// ============================================================================
+
+/** A raw value's inferred type: a number, a boolean, `null` for blank, or `undefined` for text. */
+type Inferred = number | boolean | null | undefined;
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Significant digits: from the first non-zero digit to the last. */
+const significantDigits = (digits: string): number => digits.replace(/^0+/, "").replace(/0+$/, "").length;
+
+const maxSignificantDigits = 15;
+
+/** Build the value classifier for a set of inference options. */
+const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferred) => {
+  const nulls = new Set(options.nullValues ?? [""]);
+  const caseSensitive = !!options.booleansCaseSensitive;
+  const fold = (s: string) => (caseSensitive ? s : s.toLowerCase());
+  const [truthy, falsy] = options.booleans === false ? [] : (options.booleans ?? ["true", "false"]).map(fold);
+  const group = options.groupChar ? escapeRegExp(options.groupChar) : undefined;
+  const integer = group === undefined ? "0|[1-9]\\d*" : `0|[1-9]\\d{0,2}(?:${group}\\d{3})+|[1-9]\\d*`;
+  const number = new RegExp(
+    `^(-?)(${integer})(?:${escapeRegExp(options.decimalChar ?? ".")}(\\d+))?(?:[eE]([+-]?\\d+))?${options.percent ? "(%?)" : "()"}$`
+  );
+  const groups = group === undefined ? undefined : new RegExp(group, "g");
+  return (raw) => {
+    if (nulls.has(raw)) return null;
+    const folded = fold(raw);
+    if (folded === truthy) return true;
+    if (folded === falsy) return false;
+    const m = number.exec(raw);
+    if (m === null) return undefined;
+    const [, sign, grouped = "", frac = "", exp = "0", pct] = m;
+    const int = groups === undefined ? grouped : grouped.replace(groups, "");
+    if (significantDigits(int + frac) > maxSignificantDigits) return undefined;
+    // a percentage shifts the exponent, so `7%` parses exactly as 0.07
+    return Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
+  };
 };
+
+const toCell = (raw: string, value: Inferred): SheetCell =>
+  value === null ? cell.blank()
+  : value === undefined ? cell.text(raw)
+  : typeof value === "number" ? cell.number(value)
+  : cell.boolean(value);
+
+const defaultClassifier = makeClassifier({});
+
+/** Infer a typed cell from a raw CSV string value, on its own. */
+export const inferCell = (raw: string, options?: CsvInferenceOptions): SheetCell =>
+  toCell(raw, (options === undefined ? defaultClassifier : makeClassifier(options))(raw));
+
+/** Type rows of raw values, by column or by cell. */
+const inferRows = (
+  rows: ReadonlyArray<ReadonlyArray<string>>,
+  options: CsvInferenceOptions,
+  classify: (raw: string) => Inferred
+): Array<Array<SheetCell>> => {
+  const values = rows.map((row) => row.map(classify));
+  if (options.inference !== "column") return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
+  // each column's type, from its non-null values (undefined while it has none)
+  const columns: Array<"number" | "boolean" | "text" | undefined> = [];
+  for (const row of values) {
+    row.forEach((value, c) => {
+      if (value === null || columns[c] === "text") return;
+      const kind = value === undefined ? "text" : typeof value === "number" ? "number" : "boolean";
+      columns[c] = columns[c] === undefined || columns[c] === kind ? kind : "text";
+    });
+  }
+  return rows.map((row, r) =>
+    row.map((raw, c) => {
+      const value = values[r]![c];
+      return toCell(raw, value === null || columns[c] !== "text" ? value : undefined);
+    })
+  );
+};
+
+// ============================================================================
+// Reader
+// ============================================================================
 
 /** Create a CSV Reader with the given options baked in. */
 export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> => {
   const dialect = options?.dialect ?? StandardDialect;
   const inferTypes = options?.inferTypes ?? true;
   const sheetName = options?.sheetName ?? "Sheet1";
-  const toCell: (raw: string) => SheetCell = inferTypes ? inferCell : cell.text;
+  const classify = makeClassifier(options ?? {});
 
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     pipe(
       scanCsv(contentToText(input), dialect, options),
       Effect.map(({ headers, rows }) => {
-        const grid: SheetCell[][] = [];
-        if (headers !== null) grid.push(headers.map((h) => cell.text(h)));
-        for (const row of rows) grid.push(row.map(toCell));
+        const body = inferTypes ? inferRows(rows, options ?? {}, classify) : rows.map((row) => row.map(cell.text));
+        const grid = headers === null ? body : [headers.map((h) => cell.text(h)), ...body];
         const ws = new Worksheet({
           name: sheetName,
           columns: [],
