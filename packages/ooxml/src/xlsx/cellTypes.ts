@@ -9,6 +9,7 @@
  * - Rich-text cells are written as their flattened text.
  */
 
+import * as Match from "effect/Match";
 import { cell, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
 import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
@@ -24,6 +25,7 @@ import { escapeXml, findChild, type XmlElement } from "./xml.ts";
  */
 export const encodeXstring = (s: string): string =>
   s.replace(
+    // oxlint-disable-next-line eslint/no-control-regex -- the C0 controls are among the characters to encode
     /_(?=x[0-9A-Fa-f]{4}_)|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
     (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`,
   );
@@ -66,33 +68,28 @@ export const cellToSpreadsheetMl = (
   c: SheetCell,
   sharedStrings: SharedStrings,
 ): { readonly type: string | null; readonly inner: string } | null => {
-  switch (c._tag) {
-    case "CellBlank":
-      return null;
-    case "CellNumber":
-      // SpreadsheetML numbers are finite; NaN and ±Infinity become #NUM!.
-      return Number.isFinite(c.value)
-        ? { type: null, inner: `<v>${String(c.value)}</v>` }
-        : { type: "e", inner: "<v>#NUM!</v>" };
-    case "CellBoolean":
-      return { type: "b", inner: `<v>${c.value ? "1" : "0"}</v>` };
-    case "CellError":
-      return { type: "e", inner: `<v>${escapeXstring(c.value)}</v>` };
-    case "CellFormula":
-      // SpreadsheetML stores formulas without the leading "=".
-      return {
-        type: "str",
-        inner:
-          `<f>${escapeXstring(c.formula.replace(/^=/, ""))}</f>` +
-          `<v>${escapeXstring(c.result ?? "")}</v>`,
-      };
-    case "CellText":
-      return { type: "s", inner: `<v>${sharedStrings.intern(c.value)}</v>` };
-    case "CellDate":
-      return { type: "s", inner: `<v>${sharedStrings.intern(c.value.toISOString())}</v>` };
-    case "CellRichText":
-      return { type: "s", inner: `<v>${sharedStrings.intern(inlinesToText(c.runs))}</v>` };
-  }
+  // a branch per cell type; `Match.valueTags` keeps the mapping exhaustive
+  const shared = (text: string) => ({ type: "s", inner: `<v>${sharedStrings.intern(text)}</v>` });
+  return Match.valueTags(c, {
+    CellBlank: () => null,
+    // SpreadsheetML numbers are finite; NaN and ±Infinity become #NUM!.
+    CellNumber: (n) =>
+      Number.isFinite(n.value)
+        ? { type: null, inner: `<v>${String(n.value)}</v>` }
+        : { type: "e", inner: "<v>#NUM!</v>" },
+    CellBoolean: (n) => ({ type: "b", inner: `<v>${n.value ? "1" : "0"}</v>` }),
+    CellError: (n) => ({ type: "e", inner: `<v>${escapeXstring(n.value)}</v>` }),
+    // SpreadsheetML stores formulas without the leading "=".
+    CellFormula: (n) => ({
+      type: "str",
+      inner:
+        `<f>${escapeXstring(n.formula.replace(/^=/, ""))}</f>` +
+        `<v>${escapeXstring(n.result ?? "")}</v>`,
+    }),
+    CellText: (n) => shared(n.value),
+    CellDate: (n) => shared(n.value.toISOString()),
+    CellRichText: (n) => shared(inlinesToText(n.runs)),
+  });
 };
 
 // ============================================================================
@@ -171,6 +168,7 @@ export const spreadsheetMlToCell = (
   } else if (type === "d") {
     // An ISO 8601 date (Strict files and some producers).
     if (v === undefined || v.text.trim() === "") return cell.blank();
+    // oxlint-disable-next-line effect/use-clock-service -- parses the cell's date, never reads the clock
     const date = new Date(v.text.trim());
     return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
   } else {

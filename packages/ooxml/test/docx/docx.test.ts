@@ -143,7 +143,7 @@ describe("DOCX correctness (#72)", () => {
 
   /** A hand-built package around a `w:body`, with optional numbering and hyperlink rels. */
   const docxWith = (body: string, numbering?: string, rels = "") => {
-    const files: Record<string, Uint8Array> = {
+    const files = {
       "_rels/.rels": strToU8(
         `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
       ),
@@ -157,9 +157,16 @@ describe("DOCX correctness (#72)", () => {
           `</Relationships>`,
       ),
     };
-    if (numbering !== undefined)
-      files["word/numbering.xml"] = strToU8(`<w:numbering ${W}>${numbering}</w:numbering>`);
-    return bytes(zipSync(files));
+    return bytes(
+      zipSync(
+        numbering === undefined
+          ? files
+          : {
+              ...files,
+              "word/numbering.xml": strToU8(`<w:numbering ${W}>${numbering}</w:numbering>`),
+            },
+      ),
+    );
   };
   const read = (body: string, numbering?: string, rels?: string) =>
     run(makeDocxReader().read(docxWith(body, numbering, rels)));
@@ -174,7 +181,7 @@ describe("DOCX correctness (#72)", () => {
       : [];
   const parts = (blocks: ReadonlyArray<Block>) => {
     const out = run(makeDocxWriter().write(doc(blocks)));
-    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };

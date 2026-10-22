@@ -347,7 +347,7 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
       try: () => {
         const rel = new RelCollector();
         const body = doc.blocks.map((b) => renderBlock(b, rel, 0)).join("");
-        const files: Record<string, string> = {
+        const files = {
           "[Content_Types].xml": contentTypesXml(),
           "_rels/.rels": rootRelsXml(),
           "word/document.xml": documentXml(body),

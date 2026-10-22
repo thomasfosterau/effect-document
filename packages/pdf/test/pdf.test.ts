@@ -1,7 +1,9 @@
 import * as Predicate from "effect/Predicate";
-import { readFile } from "node:fs/promises";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import {
   type Block,
   blocksToText,
@@ -58,14 +60,23 @@ const write = (
   options = {},
 ): Uint8Array => {
   const c = run(makePdfWriter(options).write(doc(blocks, meta)));
-  if (!Predicate.isTagged(c, "Bytes")) throw new Error("expected bytes");
+  assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
   return c.bytes;
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
 const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) =>
   read(write(blocks, meta));
-const fixture = async (name: string) =>
-  new Uint8Array(await readFile(new URL(`./fixtures/${name}`, import.meta.url)));
+/** Reads one of the PDFs under `test/fixtures` (provenance: its README). */
+const fixture = (name: string): Promise<Uint8Array> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      return yield* fs.readFile(
+        yield* path.fromFileUrl(new URL(`./fixtures/${name}`, import.meta.url)),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 
 /** A one-page PDF with the given content stream and resources. */
 const onePage = (

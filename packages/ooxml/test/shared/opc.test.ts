@@ -1,5 +1,6 @@
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Result from "effect/Result";
 import * as Effect from "effect/Effect";
 import { strToU8, zipSync } from "fflate";
 import { bytes } from "@thomasfosterau/effect-document";
@@ -90,14 +91,10 @@ describe("OpcReader (#55)", () => {
 
   test("malformed XML reports the part, line and column", () => {
     const pkg = new OpcReader(zip({ "p.xml": "<a>\n  <b></a>" }));
-    try {
-      pkg.xml("p.xml");
-      throw new Error("expected a failure");
-    } catch (e) {
-      expect(e).toBeInstanceOf(XmlPartError);
-      expect((e as XmlPartError).part).toBe("p.xml");
-      expect((e as XmlPartError).failure.position).toEqual({ line: 2, column: 4 });
-    }
+    const e = Result.flip(Result.try(() => pkg.xml("p.xml")));
+    assert(Result.isSuccess(e) && e.success instanceof XmlPartError, "expected an XmlPartError");
+    expect(e.success.part).toBe("p.xml");
+    expect(e.success.failure.position).toEqual({ line: 2, column: 4 });
   });
 
   test("zip output is byte-deterministic", () => {
@@ -113,7 +110,7 @@ describe("readers (#55)", () => {
     const out = Effect.runSync(
       makeDocxWriter().write(trustAs(document([para([str("hi")])])) as never),
     );
-    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     return out;
   };
 

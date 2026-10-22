@@ -2,7 +2,7 @@
  * Tests for the minimal XML utilities
  */
 
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Result from "effect/Result";
 import {
   escapeAttr,
@@ -114,7 +114,7 @@ describe("parseXml", () => {
 
   const failure = (xml: string) => {
     const r = parseXmlResult(xml);
-    if (Result.isSuccess(r)) throw new Error("expected a parse failure");
+    assert(Result.isFailure(r), "expected a parse failure");
     return r.failure;
   };
 

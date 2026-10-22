@@ -21,7 +21,7 @@ export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
     return new ParseError({
       format,
       reason: `${cause.kind}: ${cause.message}`,
-      ...(cause.kind === "LimitExceeded" ? { code: "LimitExceeded" as const } : {}),
+      code: cause.kind === "LimitExceeded" ? "LimitExceeded" : undefined,
       cause,
     });
   }

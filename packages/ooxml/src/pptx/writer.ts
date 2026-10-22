@@ -104,31 +104,26 @@ const MAX_LVL = 8;
  * whose text the reader takes as headers, so headers there need no bold.
  */
 const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
-  switch (b._tag) {
-    case "Para":
-    case "Plain":
-      return aPara("<a:buNone/>", inlineRuns(b.content, {}));
-    case "Header":
-      return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
-    case "BulletList":
-    case "OrderedList": {
-      const bullet = Predicate.isTagged(b, "BulletList") ? BULLET : AUTO_NUM;
-      return b.items
-        .map(
-          (it) =>
-            aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
-            it
-              .filter(
-                (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
-              )
-              .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
-              .join(""),
-        )
-        .join("");
-    }
-    default:
-      return "";
+  if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain"))
+    return aPara("<a:buNone/>", inlineRuns(b.content, {}));
+  if (Predicate.isTagged(b, "Header"))
+    return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
+  if (Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")) {
+    const bullet = Predicate.isTagged(b, "BulletList") ? BULLET : AUTO_NUM;
+    return b.items
+      .map(
+        (it) =>
+          aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
+          it
+            .filter(
+              (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
+            )
+            .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
+            .join(""),
+      )
+      .join("");
   }
+  return "";
 };
 
 const shapeXml = (shape: Shape, idx: number): string => {
@@ -213,7 +208,7 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
           slides.push(new Slide({ shapes: [new TextBox({ content: loose })] }));
         if (Arr.isReadonlyArrayEmpty(slides)) slides.push(new Slide({ shapes: [] }));
 
-        const files: Record<string, string> = {
+        const files = {
           "[Content_Types].xml": contentTypesXml(slides.length),
           "_rels/.rels": rootRelsXml(),
           "ppt/presentation.xml": presentationXml(slides.length),
@@ -223,11 +218,13 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
           "ppt/slideLayouts/slideLayout1.xml": slideLayoutXml(),
           "ppt/slideLayouts/_rels/slideLayout1.xml.rels": slideLayoutRelsXml(),
           "ppt/theme/theme1.xml": themeXml(),
+          ...Object.fromEntries(
+            slides.flatMap((slide, i) => [
+              [`ppt/slides/slide${i + 1}.xml`, slideXml(slide)],
+              [`ppt/slides/_rels/slide${i + 1}.xml.rels`, slideRelsXml()],
+            ]),
+          ),
         };
-        slides.forEach((slide, i) => {
-          files[`ppt/slides/slide${i + 1}.xml`] = slideXml(slide);
-          files[`ppt/slides/_rels/slide${i + 1}.xml.rels`] = slideRelsXml();
-        });
 
         return bytes(zipParts(files, level));
       },

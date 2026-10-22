@@ -141,6 +141,7 @@ const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(
     (pairs) =>
       `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`,
   ),
+  // SAFETY: every pair is a [name, value] of strings, so the entries make a string record
   Parser.map((pairs) => Object.fromEntries(pairs) as Record<string, string>),
 );
 

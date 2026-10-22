@@ -49,6 +49,7 @@ import {
   Underline,
 } from "@thomasfosterau/effect-document";
 import {
+  OpcError,
   type OpcLimits,
   OpcReader,
   type XmlElement,
@@ -219,46 +220,34 @@ class InlineCollector {
   /** Paragraph-level content: runs and the containers that wrap them. */
   content(parent: XmlElement): void {
     for (const child of parent.children) {
-      switch (child.name) {
-        case "r":
-          this.run(child);
-          break;
-        // Tracked insertions, moves and wrappers whose runs are visible text.
-        case "ins":
-        case "moveTo":
-        case "smartTag":
-        case "customXml":
-          this.content(child);
-          break;
-        case "sdt": {
-          const sdtContent = findChild(child, "sdtContent");
-          if (sdtContent !== undefined) this.content(sdtContent);
-          break;
-        }
-        case "hyperlink": {
-          const inner = new InlineCollector(this.rels);
-          inner.content(child);
-          const id = getAttr(child, "id");
-          const anchor = getAttr(child, "anchor");
-          const url =
-            id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
-          const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
+      const name = child.name;
+      if (name === "r") this.run(child);
+      // Tracked insertions, moves and wrappers whose runs are visible text.
+      else if (name === "ins" || name === "moveTo" || name === "smartTag" || name === "customXml")
+        this.content(child);
+      else if (name === "sdt") {
+        const sdtContent = findChild(child, "sdtContent");
+        if (sdtContent !== undefined) this.content(sdtContent);
+      } else if (name === "hyperlink") {
+        const inner = new InlineCollector(this.rels);
+        inner.content(child);
+        const id = getAttr(child, "id");
+        const anchor = getAttr(child, "anchor");
+        const url =
+          id !== undefined ? (this.rels.get(id) ?? "") : anchor !== undefined ? `#${anchor}` : "";
+        const content = inner.finish().filter((x): x is Inline => x !== PAGE_BREAK);
+        this.push(new Link({ content, target: { url } }));
+      } else if (name === "fldSimple") {
+        const inner = new InlineCollector(this.rels);
+        inner.content(child);
+        const result = inner.finish();
+        const url = hyperlinkField(getAttr(child, "instr") ?? "");
+        if (url !== null) {
+          const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
           this.push(new Link({ content, target: { url } }));
-          break;
-        }
-        case "fldSimple": {
-          const inner = new InlineCollector(this.rels);
-          inner.content(child);
-          const result = inner.finish();
-          const url = hyperlinkField(getAttr(child, "instr") ?? "");
-          if (url !== null) {
-            const content = result.filter((x): x is Inline => x !== PAGE_BREAK);
-            this.push(new Link({ content, target: { url } }));
-          } else for (const x of result) this.push(x);
-          break;
-        }
-        // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+        } else for (const x of result) this.push(x);
       }
+      // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
     }
   }
 }
@@ -522,7 +511,7 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
         const docPath = pkg.rootTarget("/officeDocument", "word/document.xml");
         pkg.expectMainPart(docPath, "docx", MAIN_CONTENT_TYPES);
         const xml = pkg.text(docPath);
-        if (xml === null) throw new Error(`missing document part: ${docPath}`);
+        if (xml === null) throw new OpcError("MissingPart", `missing document part: ${docPath}`);
         const rels = new Map<string, string>();
         let numberingPath: string | undefined;
         for (const r of pkg.rels(docPath)) {

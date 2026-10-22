@@ -23,13 +23,11 @@ export interface Relationship {
 }
 
 /** Percent-decode a part-name URI, leaving malformed escapes as they are. */
-const decodePartName = (s: string): string => {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-};
+const decodePartName = (s: string): string =>
+  Result.getOrElse(
+    Result.try(() => decodeURIComponent(s)),
+    () => s,
+  );
 
 /** Resolve a relationship target against the base directory of its source part. */
 export const resolveTarget = (baseDir: string, target: string): string => {
@@ -72,9 +70,9 @@ export const DEFAULT_OPC_LIMITS: OpcLimits = {
 
 /** A package that breaks a resource limit or isn't the expected kind of package. */
 export class OpcError extends Error {
-  readonly kind: "LimitExceeded" | "WrongPackageType";
+  readonly kind: "LimitExceeded" | "WrongPackageType" | "MissingPart";
 
-  constructor(kind: "LimitExceeded" | "WrongPackageType", message: string) {
+  constructor(kind: "LimitExceeded" | "WrongPackageType" | "MissingPart", message: string) {
     super(message);
     this.kind = kind;
   }
@@ -283,6 +281,7 @@ export class OpcReader {
 }
 
 /** The fixed timestamp written into zips so output is byte-for-byte deterministic. */
+// oxlint-disable-next-line effect/use-clock-service -- a fixed epoch, not the current time
 export const ZIP_MTIME = new Date("1980-01-01T00:00:00Z");
 
 /** Zip a set of named parts into OPC package bytes. */

@@ -43,6 +43,7 @@ export const translateFormula = (formula: string, rows: number, cols: number): s
   if (rows === 0 && cols === 0) return formula;
   return formula.replace(TOKEN, (match, ...groups) => {
     if (match.startsWith('"') || match.startsWith("'")) return match;
+    // SAFETY: TOKEN has 12 capture groups, so `replace` passes the match offset 13th
     const offset = groups[12] as number;
     const before = formula[offset - 1];
     const after = formula[offset + match.length];
@@ -58,6 +59,7 @@ export const translateFormula = (formula: string, rows: number, cols: number): s
       return match;
     }
 
+    // SAFETY: the first 12 replacer arguments after the match are TOKEN's capture groups
     const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<
       string | undefined
     >;

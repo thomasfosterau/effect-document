@@ -1,5 +1,5 @@
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
@@ -45,7 +45,7 @@ const packageWith = (
   sharedStrings?: string,
 ) => {
   const list = Predicate.isString(sheets) ? [{ name: "S", xml: sheets }] : sheets;
-  const files: Record<string, Uint8Array> = {
+  const files = {
     "_rels/.rels": strToU8(
       `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
     ),
@@ -69,14 +69,18 @@ const packageWith = (
           : `<Relationship Id="rIdS" Type="${REL}/sharedStrings" Target="sharedStrings.xml"/>`) +
         `</Relationships>`,
     ),
+    ...Object.fromEntries(list.map((s, i) => [`xl/worksheets/sheet${i + 1}.xml`, strToU8(s.xml)])),
   };
-  list.forEach((s, i) => {
-    files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(s.xml);
-  });
-  if (sharedStrings !== undefined) {
-    files["xl/sharedStrings.xml"] = strToU8(`<sst xmlns="${NS_MAIN}">${sharedStrings}</sst>`);
-  }
-  return bytes(zipSync(files));
+  return bytes(
+    zipSync(
+      sharedStrings === undefined
+        ? files
+        : {
+            ...files,
+            "xl/sharedStrings.xml": strToU8(`<sst xmlns="${NS_MAIN}">${sharedStrings}</sst>`),
+          },
+    ),
+  );
 };
 
 describe("XLSX round-trip", () => {
@@ -289,7 +293,7 @@ describe("XLSX writer validity (#61)", () => {
     trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
   const parts = async (doc: Doc<SpreadsheetF>) => {
     const out = await run(makeXlsxWriter().write(doc));
-    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
   };
@@ -315,6 +319,7 @@ describe("XLSX writer validity (#61)", () => {
     const part = await parts(doc);
     const sst = part("xl/sharedStrings.xml")!;
     expect(sst).toContain("a_x0001_b_x001F_c\td\ne_x005F_x0041_f_xD800_g");
+    // oxlint-disable-next-line eslint/no-control-regex -- asserts no C0 control survives the encoding
     expect(/[\u0000-\u0008]/.test(sst + part("xl/worksheets/sheet1.xml"))).toBe(false);
     const back = worksheets(
       await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),

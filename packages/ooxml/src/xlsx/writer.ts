@@ -59,6 +59,10 @@ const truncate = (s: string, max: number): string => {
   return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
 };
 
+/** Characters a sheet name may not contain: `[]:*?/\` and the C0 controls. */
+// oxlint-disable-next-line eslint/no-control-regex -- the C0 controls are among the characters a sheet name forbids
+const SHEET_NAME_FORBIDDEN = /[[\]:*?/\\\u0000-\u001F]/g;
+
 /**
  * Make sheet names Excel accepts, deterministically: `[ ] : * ? / \` and
  * control characters become `_`, leading/trailing apostrophes are dropped, empty names become
@@ -68,7 +72,7 @@ const truncate = (s: string, max: number): string => {
 export const sanitizeSheetNames = (names: ReadonlyArray<string>): ReadonlyArray<string> => {
   const used = new Set<string>();
   return names.map((raw, i) => {
-    let base = raw.replace(/[[\]:*?/\\\u0000-\u001F]/g, "_").replace(/^'+|'+$/g, "");
+    let base = raw.replace(SHEET_NAME_FORBIDDEN, "_").replace(/^'+|'+$/g, "");
     if (base === "") base = `Sheet${i + 1}`;
     if (base.toLowerCase() === "history") base = `${base}_`;
     base = truncate(base, MAX_SHEET_NAME);
@@ -207,16 +211,14 @@ export interface XlsxWriterOptions {
 export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature> => {
   const level = options?.compressionLevel ?? 6;
 
-  const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> =>
-    Effect.try({
+  const write = (doc: Doc<XlsxFeature>): Effect.Effect<Content, WriteError> => {
+    const worksheets = doc.blocks.filter((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
+    if (Arr.isReadonlyArrayEmpty(worksheets))
+      return Effect.fail(
+        new WriteError({ format: "xlsx", reason: "document contains no worksheets to write" }),
+      );
+    return Effect.try({
       try: () => {
-        const worksheets = doc.blocks.filter((b): b is Worksheet =>
-          Predicate.isTagged(b, "Worksheet"),
-        );
-        if (Arr.isReadonlyArrayEmpty(worksheets)) {
-          throw new Error("document contains no worksheets to write");
-        }
-
         const sharedStrings = new SharedStrings();
         const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings));
 
@@ -226,7 +228,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           ),
         );
 
-        const files: Record<string, string> = {
+        const files = {
           "[Content_Types].xml": contentTypesXml(worksheets.length),
           "_rels/.rels": rootRelsXml(),
           "docProps/core.xml": corePropsXml(),
@@ -237,10 +239,10 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           ),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
+          ...Object.fromEntries(
+            sheetXmls.map((xml, i) => [`xl/worksheets/sheet${i + 1}.xml`, xml]),
+          ),
         };
-        sheetXmls.forEach((xml, i) => {
-          files[`xl/worksheets/sheet${i + 1}.xml`] = xml;
-        });
 
         return bytes(zipParts(files, level));
       },
@@ -251,6 +253,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           cause,
         }),
     });
+  };
 
   return { format: "xlsx", profile: Xlsx, write };
 };

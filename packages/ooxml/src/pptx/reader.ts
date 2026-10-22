@@ -42,6 +42,7 @@ import {
   Underline,
 } from "@thomasfosterau/effect-document";
 import {
+  OpcError,
   type OpcLimits,
   OpcReader,
   type XmlElement,
@@ -224,7 +225,8 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
         const presPath = pkg.rootTarget("/officeDocument", "ppt/presentation.xml");
         pkg.expectMainPart(presPath, "pptx", MAIN_CONTENT_TYPES);
         const presXml = pkg.text(presPath);
-        if (presXml === null) throw new Error(`missing presentation part: ${presPath}`);
+        if (presXml === null)
+          throw new OpcError("MissingPart", `missing presentation part: ${presPath}`);
         const pres = pkg.xml(presPath)!;
 
         const rels = new Map<string, string>();
@@ -238,9 +240,10 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
           // use the relationship id (r:id), not the numeric slide id attribute
           const rid = getAttr(sldId, "r:id");
           const target = rid === undefined ? undefined : rels.get(rid);
-          if (target === undefined) throw new Error(`cannot resolve slide relationship "${rid}"`);
+          if (target === undefined)
+            throw new OpcError("MissingPart", `cannot resolve slide relationship "${rid}"`);
           const slideXml = pkg.text(target);
-          if (slideXml === null) throw new Error(`missing slide part: ${target}`);
+          if (slideXml === null) throw new OpcError("MissingPart", `missing slide part: ${target}`);
           const slideRoot = pkg.xml(target)!;
           const cSld = findChild(slideRoot, "cSld");
           const spTree = cSld === undefined ? undefined : findChild(cSld, "spTree");

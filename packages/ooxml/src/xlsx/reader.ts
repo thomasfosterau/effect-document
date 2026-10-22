@@ -34,7 +34,7 @@ import {
 import { parseA1, parseA1Range } from "./a1.ts";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.ts";
 import { translateFormula } from "./formula.ts";
-import { type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
+import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
 import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
@@ -84,7 +84,8 @@ const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, Pars
   Effect.try({
     try: () => {
       const root = pkg.xml(path);
-      if (root === null) throw new Error(`Missing required package part: ${path}`);
+      if (root === null)
+        throw new OpcError("MissingPart", `Missing required package part: ${path}`);
       return root;
     },
     catch: (cause) => ooxmlParseError("xlsx", cause),
@@ -222,7 +223,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
         try: () => {
           const pkg = new OpcReader(contentToBytes(input), options?.limits);
           if (pkg.text("_rels/.rels") === null)
-            throw new Error("Missing required package part: _rels/.rels");
+            throw new OpcError("MissingPart", "Missing required package part: _rels/.rels");
           const workbookPath = pkg.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
           pkg.expectMainPart(workbookPath, "xlsx", WORKBOOK_CONTENT_TYPES);
           return {
@@ -250,52 +251,56 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
         return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
       }
 
-      const worksheets: Worksheet[] = [];
-      for (const sheetEl of sheetEntries) {
-        const name = getAttr(sheetEl, "name") ?? `Sheet${worksheets.length + 1}`;
-        const relId = getAttr(sheetEl, "id");
-        const rel = relationships.find((r) => r.id === relId);
+      const worksheets = yield* Effect.forEach(
+        sheetEntries,
+        (sheetEl, index) =>
+          Effect.gen(function* () {
+            const name = getAttr(sheetEl, "name") ?? `Sheet${index + 1}`;
+            const relId = getAttr(sheetEl, "id");
+            const rel = relationships.find((r) => r.id === relId);
 
-        if (rel !== undefined && !rel.type.endsWith(REL_WORKSHEET_SUFFIX)) {
-          // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
-          // their place and name as an empty sheet tagged with its kind.
-          const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
-          if (kind !== undefined) {
-            worksheets.push(
-              new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] }),
-            );
-            continue;
-          }
-        }
+            if (rel !== undefined && !rel.type.endsWith(REL_WORKSHEET_SUFFIX)) {
+              // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
+              // their place and name as an empty sheet tagged with its kind.
+              const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
+              if (kind !== undefined)
+                return new Worksheet({
+                  attr: { data: { kind } },
+                  name,
+                  columns: [],
+                  rows: [],
+                  merges: [],
+                });
+            }
 
-        const target =
-          rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
-        if (target === undefined) {
-          return yield* new ParseError({
-            format: "xlsx",
-            reason: `Cannot resolve worksheet part for sheet "${name}" (relationship "${relId}")`,
-          });
-        }
+            const target =
+              rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
+            if (target === undefined) {
+              return yield* new ParseError({
+                format: "xlsx",
+                reason: `Cannot resolve worksheet part for sheet "${name}" (relationship "${relId}")`,
+              });
+            }
 
-        const worksheetRoot = yield* parsePart(pkg, target);
-        const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
-        if (Predicate.isTagged(grid, "TooLarge")) {
-          return yield* new ParseError({
-            format: "xlsx",
-            reason:
-              `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
-              `more than the ${maxCells}-cell limit (maxCells)`,
-          });
-        }
-        worksheets.push(
-          new Worksheet({
-            name,
-            columns: [],
-            rows: grid.rows.map((cells) => new SheetRow({ cells })),
-            merges: [],
+            const worksheetRoot = yield* parsePart(pkg, target);
+            const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
+            if (Predicate.isTagged(grid, "TooLarge")) {
+              return yield* new ParseError({
+                format: "xlsx",
+                reason:
+                  `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
+                  `more than the ${maxCells}-cell limit (maxCells)`,
+              });
+            }
+            return new Worksheet({
+              name,
+              columns: [],
+              rows: grid.rows.map((cells) => new SheetRow({ cells })),
+              merges: [],
+            });
           }),
-        );
-      }
+        { concurrency: 1 },
+      );
 
       return trustAs<XlsxReadFeature>(document(worksheets));
     });

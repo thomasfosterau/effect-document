@@ -87,7 +87,7 @@ describe("PPTX reader fixes (#81)", () => {
   /** A writer-made deck whose first slide's shape tree is replaced by `tree`. */
   const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => void) => {
     const out = run(makePptxWriter().write(deckOf(slide([]))));
-    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     files["ppt/slides/slide1.xml"] = strToU8(
       `<p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`,

@@ -20,6 +20,7 @@
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
+import * as Order from "effect/Order";
 import {
   type Block,
   BulletList,
@@ -37,6 +38,10 @@ import {
   Strong,
 } from "@thomasfosterau/effect-document";
 import type { PageLink, PageText, TextGlyph } from "./extract.ts";
+
+/** The C0 control characters other than tab and line feed, which a PDF's decoded text can carry. */
+// oxlint-disable-next-line eslint/no-control-regex -- matching control characters is the pattern's purpose
+const C0_CONTROLS = /[\u0000-\u0008\u000b-\u001f]/g;
 
 /** A run of identically styled text within a line. */
 interface Run {
@@ -162,7 +167,7 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
       lastText = "";
     }
     const l = line!;
-    let text = g.text.replace(/[\u0000-\u0008\u000b-\u001f]/g, "").replace(/[\t\n\r ]/g, " ");
+    let text = g.text.replace(C0_CONTROLS, "").replace(/[\t\n\r ]/g, " ");
     if (text === "") continue;
     const gap = g.x - lastEnd;
     if (
@@ -284,7 +289,7 @@ const linesToInlines = (
 
 const median = (xs: number[]): number | undefined => {
   if (Arr.isReadonlyArrayEmpty(xs)) return undefined;
-  const s = [...xs].sort((a, b) => a - b);
+  const s = Arr.sort(xs, Order.Number);
   return s[Math.floor(s.length / 2)];
 };
 
@@ -380,10 +385,17 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   const bySize = new Map<number, number>();
   const prose = lines.some((l) => !l.mono) ? lines.filter((l) => !l.mono) : lines;
   for (const l of prose) bySize.set(l.size, (bySize.get(l.size) ?? 0) + l.text.length);
-  const body = [...bySize].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0];
+  const body = Arr.sort(
+    Array.from(bySize),
+    Order.combine(
+      Order.mapInput(Order.flip(Order.Number), ([, chars]: readonly [number, number]) => chars),
+      Order.mapInput(Order.Number, ([size]: readonly [number, number]) => size),
+    ),
+  )[0]![0];
   const isHeading = (l: Line): boolean => l.size >= body * 1.12 && l.text.length <= 200 && !l.mono;
-  const headingSizes = [...new Set(lines.filter(isHeading).map((l) => l.size))].sort(
-    (a, b) => b - a,
+  const headingSizes = Arr.sort(
+    Arr.dedupe(lines.filter(isHeading).map((l) => l.size)),
+    Order.flip(Order.Number),
   );
   const levelOf = (size: number): number => Math.min(6, headingSizes.indexOf(size) + 1);
 
@@ -411,7 +423,10 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     if (a.page === b.page && a.size === body && b.size === body && d > 0 && d < body * 3)
       gaps.push({ d, wrapped: isFull(a) && !endsSentence(a) });
   }
-  const sorted = gaps.map((g) => g.d).sort((a, b) => a - b);
+  const sorted = Arr.sort(
+    gaps.map((g) => g.d),
+    Order.Number,
+  );
   const low = sorted[Math.floor((sorted.length - 1) / 10)];
   const doubleSpaced = gaps.filter((g) => g.wrapped).length * 2 > gaps.length;
   const leading =

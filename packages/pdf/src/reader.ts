@@ -25,6 +25,7 @@ import {
   type Reader,
   trustAs,
 } from "@thomasfosterau/effect-document";
+import { describeCause } from "./describe.ts";
 import { PdfFile } from "./cos/file.ts";
 import { isString, latin1ToBytes } from "./cos/objects.ts";
 import { decodeTextString } from "./text/encodings.ts";
@@ -65,7 +66,7 @@ export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
     catch: (cause) =>
       new ParseError({
         format: "pdf",
-        reason: cause instanceof Error ? cause.message : String(cause),
+        reason: describeCause(cause),
         cause,
       }),
   }).pipe(
@@ -98,7 +99,7 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
         catch: (cause) =>
           new ParseError({
             format: "pdf",
-            reason: cause instanceof Error ? cause.message : String(cause),
+            reason: describeCause(cause),
             cause,
           }),
       }),
