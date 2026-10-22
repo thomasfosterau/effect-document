@@ -25,7 +25,8 @@
     "examples/*.ts",
     "**/vite.config.ts",
     "vite.package.ts",
-    "scripts/check-dist-imports.mjs"
+    "scripts/check-dist-imports.mjs",
+    "scripts/fetch-corpora.mjs"
   ],
   "ignorePatterns": ["**/dist/**", "**/coverage/**"],
   "ignoreDependencies": [

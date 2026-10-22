@@ -44,6 +44,7 @@ Package-local invariants, terms and import boundaries live only in each package'
 - `vp check` — format + lint (Oxfmt + Oxlint with the Effect presets). `vp run check` — the type gate: every package's `src` under `tsconfig.json` and its tests under `tsconfig.test.json`, plus the root `tsconfig.test.json` (the integration suite and `examples/`). They are different commands.
 - `vp run -r test:unit` — every package's unit suite (node Vitest; nothing here needs a database or a credential).
 - `vp run test:integration` — the cross-format suite under `test/integration`.
+- `vp run corpora:fetch` — fetches the public corpora pinned in `corpora.json` into the git-ignored `.corpora/` (network; a corpus already at its pin is kept). `vp run test:corpus` then runs every reader over every corpus file (`test/corpus`): a defect or a hang fails it, and the read rates and each rejected file's reason go to `.corpora/report.json`. Without a fetch it skips. Corpora are fetched, never committed; a new one is an entry in `corpora.json` (repository, pinned commit, path globs, licence, whether it is vendorable).
 - `vp run -r build` — `vp pack` → every package's `dist/`.
 - `vp run check:dist` — the import guard: no built `dist/` imports `effect/unstable/*`. Run after the build.
 - `vp run examples` — runs every program under `examples/` against the built packages.
@@ -62,14 +63,15 @@ Before you report work as done, run the gates below in order and quote each comm
 3. `vp run check`
 4. `vp run -r test:unit`
 5. `vp run test:integration`
-6. `vp run -r build`
-7. `vp run check:dist`
-8. `vp run examples`
-9. `vp run check:pack` (network)
-10. `pnpm audit --audit-level high` (network)
-11. `vp run test:coverage`, then `fallow audit --format json --quiet --explain --gate-marker agent` (the fallow gate below; not a CI step). The PreToolUse fallow gate audits against `coverage/coverage-final.json` and never refreshes it, so run `test:coverage` first.
+6. `vp run corpora:fetch && vp run test:corpus` (network)
+7. `vp run -r build`
+8. `vp run check:dist`
+9. `vp run examples`
+10. `vp run check:pack` (network)
+11. `pnpm audit --audit-level high` (network)
+12. `vp run test:coverage`, then `fallow audit --format json --quiet --explain --gate-marker agent` (the fallow gate below; not a CI step). The PreToolUse fallow gate audits against `coverage/coverage-final.json` and never refreshes it, so run `test:coverage` first.
 
-Steps 2–10 are CI's required `ci` job, in its order ([ci.yml](.github/workflows/ci.yml)). `CONTRIBUTING.md` and the PR template link here rather than restating the list.
+Steps 2–11 are CI's required `ci` job, in its order ([ci.yml](.github/workflows/ci.yml)). `CONTRIBUTING.md` and the PR template link here rather than restating the list.
 
 ## Branches and pull requests
 
