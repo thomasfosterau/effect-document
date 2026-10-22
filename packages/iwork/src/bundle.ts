@@ -36,6 +36,7 @@ import {
 } from "./errors.ts";
 import type { DechunkOptions } from "./iwa.ts";
 
+/** An opened iWork document: its `.iwa` components by path. */
 export interface IworkBundle {
   /** Component path (e.g. "Index/Document.iwa") -> raw `.iwa` bytes. */
   readonly components: Record<string, Uint8Array>;
@@ -45,6 +46,7 @@ export interface IworkBundle {
   readonly readEntry: (path: string) => Effect.Effect<Uint8Array, IworkError>;
 }
 
+/** Zip-bomb limits for opening a bundle; any left out take the {@link DEFAULT_BUNDLE_LIMITS} value. */
 export interface BundleLimits {
   /** The most entries the package (and an inner `Index.zip`) may list. Defaults to 10,000. */
   readonly maxEntries?: number | undefined;
@@ -54,7 +56,9 @@ export interface BundleLimits {
   readonly maxTotalSize?: number | undefined;
 }
 
+/** Options for {@link openBundle} and {@link openBundleDirectory}. */
 export interface OpenBundleOptions {
+  /** Zip-bomb limits; see {@link BundleLimits}. */
   readonly limits?: BundleLimits | undefined;
 }
 
@@ -80,7 +84,8 @@ const isIndexZip = (name: string): boolean => name.toLowerCase().endsWith("index
 const isComponent = (name: string): boolean => name.endsWith(".iwa");
 
 /** `BundleLimits` with every limit filled in. */
-type ResolvedLimits = { readonly [K in keyof BundleLimits]-?: NonNullable<BundleLimits[K]> };
+/** {@link BundleLimits} with every limit filled in. */
+export type ResolvedLimits = { readonly [K in keyof BundleLimits]-?: NonNullable<BundleLimits[K]> };
 
 /** The size accounting shared by the outer package and an inner `Index.zip`. */
 interface Budget {

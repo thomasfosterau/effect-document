@@ -12,6 +12,7 @@ import type { IworkObject } from "./archive.ts";
 import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.ts";
 import { type IworkError, isIworkError, withLocation } from "./errors.ts";
 
+/** Options shared by the Pages, Numbers and Keynote readers. */
 export interface IworkReaderOptions {
   /**
    * Skip a component that fails to decode, logging a warning

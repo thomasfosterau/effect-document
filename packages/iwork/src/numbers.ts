@@ -33,6 +33,7 @@ import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } fro
 
 export type { IworkReaderOptions } from "./read.ts";
 
+/** The features the Numbers profile allows, as a list. */
 export const numbersFeatures = [
   "sheet.worksheet",
   "sheet.multiple",
@@ -44,6 +45,7 @@ export const numbersFeatures = [
 
 /** The Numbers (read) profile. */
 export const Numbers = defineProfile("numbers", numbersFeatures);
+/** The features the Numbers profile allows, as a type: the phantom of its documents. */
 export type NumbersFeature = FeaturesOf<typeof Numbers>;
 
 const SHEET_NAME_FIELD = 1; // TN.SheetArchive.name
@@ -121,5 +123,7 @@ export const format: Format<NumbersFeature> = {
   reader: makeNumbersReader(),
 };
 
+/** The Context tag for the Numbers reader, so a program can depend on a Numbers reader and have one provided. */
 export const NumbersReaderTag = makeReaderTag<NumbersFeature>("numbers");
+/** A Layer providing the default Numbers reader for {@link NumbersReaderTag}. */
 export const NumbersReaderLive = Layer.succeed(NumbersReaderTag, makeNumbersReader());

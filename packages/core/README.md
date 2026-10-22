@@ -232,6 +232,11 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `cellToText` | function | Collapse a single spreadsheet cell to plain text. |
 | `shapeToText` | function | Collapse a single slide shape to plain text. |
 | `blocksToText` | function | Collapse a sequence of blocks to plain text (one line per block). |
+| `NestedNode` | type | A node that counts as one level of nesting. |
+| `DEFAULT_MAX_NESTING_DEPTH` | const | The default maximum nesting depth readers accept. |
+| `nestedChildren` | function | The blocks, inlines and shapes directly inside a node. |
+| `blocksNestingDepth` | function | The deepest chain of nested blocks, inlines and shapes in `blocks`. |
+| `nestingDepth` | function | The nesting depth of a document's blocks; see `blocksNestingDepth`. |
 
 ### `@thomasfosterau/effect-document/profile`
 
@@ -283,12 +288,13 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Reader` | interface | Parses `Content` into a document of its format's profile, failing with a `ParseError`. |
 | `AnyReader` | type | A `Reader` for some (existentially-quantified) profile. |
 | `makeReaderTag` | function | Create a Context tag for a format's Reader service. |
+| `limitNestingDepth` | function | Fail with a `"LimitExceeded"` ParseError when a document nests deeper than `maxDepth` (default `DEFAULT_MAX_NESTING_DEPTH`); otherwise succeed with it unchanged. |
 | `Writer` | interface | Renders a document of its format's profile into `Content`, failing with a `WriteError`. |
 | `AnyWriter` | type | A `Writer` for some (existentially-quantified) profile. |
 | `makeWriterTag` | function | Create a Context tag for a format's Writer service. |
 | `Format` | interface | A format bundle for `convert`. |
-| `AnyFormat` | type | A `Format` for some (existentially-quantified) profile. |
-| `ConvertOptions` | interface | What to convert. |
+| `AnyFormat` | type | A `Format` for some (existentially-quantified) profiles. |
+| `ConvertOptions` | interface | Options for `convert`. |
 | `ConvertResult` | interface | The rendered target content and what was lost getting there. |
 | `ConvertError` | type | Every way `convert` can fail. |
 | `convert` | function | Convert content from one format to another. |

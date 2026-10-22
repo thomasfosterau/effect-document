@@ -60,6 +60,7 @@ export class IworkError extends Schema.TaggedError<IworkError>()("IworkError", {
   }
 }
 
+/** Whether a caught value is the codec's {@link IworkError}. */
 export const isIworkError = (u: unknown): u is IworkError => u instanceof IworkError;
 
 /** Fail at an offset (a shorthand for the codec's many checks). */

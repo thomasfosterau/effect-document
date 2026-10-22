@@ -32,6 +32,7 @@ const chunkBody = Parser.preceded(
 
 const chunks = Parser.compile(Parser.repeat(chunkBody));
 
+/** Options for {@link dechunk}: the limit on one `.iwa`'s decompressed size. */
 export interface DechunkOptions {
   /**
    * The most decompressed bytes one `.iwa` may produce, across all its chunks.

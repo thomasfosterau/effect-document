@@ -18,6 +18,7 @@ export * from "./writer.ts";
 /** The PPTX profile. */
 export const profile = Pptx;
 
+/** Options for the PPTX format bundle: its reader's and writer's options. */
 export interface PptxFormatOptions {
   readonly reader?: PptxReaderOptions | undefined;
   readonly writer?: PptxWriterOptions | undefined;

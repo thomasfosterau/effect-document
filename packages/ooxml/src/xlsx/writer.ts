@@ -202,6 +202,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
 // Writer
 // ============================================================================
 
+/** Options for the XLSX writer. */
 export interface XlsxWriterOptions {
   /** Zip compression level 0-9 (defaults to 6). */
   readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;

@@ -11,6 +11,7 @@
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
 
+/** The features the XLSX profile allows, as a list. */
 export const xlsxFeatures = [
   "sheet.worksheet",
   "sheet.multiple",
@@ -24,6 +25,7 @@ export const xlsxFeatures = [
 
 /** What the XLSX writer preserves. */
 export const Xlsx = defineProfile("xlsx", xlsxFeatures);
+/** The features the XLSX profile allows, as a type: the phantom of its documents. */
 export type XlsxFeature = FeaturesOf<typeof Xlsx>;
 
 /** What the XLSX reader produces. */
@@ -32,4 +34,5 @@ export const XlsxRead = defineProfile("xlsx-read", [
   "cell.date",
   "attr.keyValue",
 ] as const);
+/** The features of {@link XlsxRead}, what the XLSX reader produces, as a type. */
 export type XlsxReadFeature = FeaturesOf<typeof XlsxRead>;

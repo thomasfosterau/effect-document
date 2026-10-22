@@ -22,6 +22,7 @@ import { pipe } from "effect/Function";
 import { ParseError } from "@thomasfosterau/effect-document";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 
+/** How the scanner splits CSV text into rows: headers, row limits and the like (shared by the reader). */
 export interface CsvScanOptions {
   /**
    * Treat the first row as column headers. If `providedHeaders` is also set,

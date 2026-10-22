@@ -53,6 +53,7 @@ import {
 } from "../shared/index.ts";
 import { PptxRead, type PptxReadFeature } from "./profile.ts";
 
+/** Options for the PPTX reader: zip resource limits. */
 export interface PptxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
   readonly limits?: Partial<OpcLimits> | undefined;
@@ -258,5 +259,7 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
   return { format: "pptx", profile: PptxRead, read };
 };
 
+/** The Context tag for the PPTX reader, so a program can depend on a PPTX reader and have one provided. */
 export const PptxReaderTag = makeReaderTag<PptxReadFeature>("pptx");
+/** A Layer providing the default PPTX reader for {@link PptxReaderTag}. */
 export const PptxReaderLive = Layer.succeed(PptxReaderTag, makePptxReader());

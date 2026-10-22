@@ -15,6 +15,7 @@
 
 import { codecError, type IworkError } from "./errors.ts";
 
+/** Options for {@link decompressBlock}: the block size limit. */
 export interface DecompressOptions {
   /**
    * The largest uncompressed length a block may declare. A larger preamble

@@ -63,23 +63,28 @@ const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, 
 | `makeFormat` | function | Create a CSV Format bundle with custom reader/writer options. |
 | `format` | const | The CSV format bundle with default options, for use with `convert`. |
 | `tsvFormat` | const | The TSV (tab-separated values) format bundle. |
-| `CsvDialect` | interface | How a CSV variant spells its fields. |
-| `StandardDialect` | const | The standard dialect. |
-| `TsvDialect` | const | The tab-separated (TSV) dialect. |
-| `CsvScanOptions` | interface | How to scan CSV text into rows. |
+| `CsvDialect` | interface | CSV dialect configuration - format variations like separators and quoting. |
+| `StandardDialect` | const | Standard comma-separated values, written with LF line breaks |
+| `Rfc4180Dialect` | const | Comma-separated values written with the CRLF line breaks RFC 4180 specifies |
+| `TsvDialect` | const | Tab-separated values |
+| `CsvScanOptions` | interface | How the scanner splits CSV text into rows. |
 | `ScannedTable` | interface | The result of scanning CSV text. |
 | `scanCsv` | function | Scan CSV text into headers and raw string rows. |
 | `scanCsvStream` | function | Scan a stream of CSV text chunks into data rows, emitting each row as soon as it is complete. |
 | `CsvFeature` | type | The features the CSV profile allows, as a type. |
+| `CsvInferenceOptions` | interface | How raw strings become typed values. |
 | `CsvReaderOptions` | interface | Options for the CSV reader. |
-| `inferCell` | function | Infer a typed cell from a raw CSV string value. |
+| `inferCell` | function | Infer a typed cell from a raw CSV string value, on its own. |
 | `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
 | `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
 | `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |
 | `makeCsvReaderLayer` | function | Layer providing a CSV Reader with custom options. |
+| `CsvQuoting` | type | When to quote fields, after Python's `csv.QUOTE_*`. |
 | `CsvWriterOptions` | interface | Options for the CSV writer. |
-| `renderField` | function | Render a single field, quoting it if necessary. |
+| `formatCsvNumber` | function | Render a number as its shortest round-trip decimal, never in exponent form. |
+| `renderField` | function | Render a single field, quoting it if necessary (as the `minimal` mode does). |
 | `renderTable` | function | Render rows of string fields to CSV text (with trailing newline). |
+| `renderCsvStream` | function | Render a stream of worksheet rows to CSV text, one chunk per row (the BOM and header row, if any, come first). |
 | `makeCsvWriter` | function | Create a CSV Writer with the given options baked in. |
 | `CsvWriterTag` | const | Context tag for dependency-injection style usage. |
 | `CsvWriterLive` | const | Layer providing a CSV Writer with default options. |

@@ -39,8 +39,9 @@ Headings are written as bold, larger paragraphs (RTF has no semantic headings), 
 | `Rtf` | const | The RTF profile. |
 | `RtfFeature` | type | The features the RTF profile allows, as a type. |
 | `makeRtfReader` | function | Create an RTF Reader. |
-| `RtfReaderTag` | const | The Context tag for the RTF reader, so a program can depend on a RTF reader and have one provided. |
+| `RtfReaderTag` | const | The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. |
 | `RtfReaderLive` | const | A Layer providing the default RTF reader for `RtfReaderTag`. |
+| `RtfWriterOptions` | interface | Options for the RTF writer. |
 | `makeRtfWriter` | function | Create an RTF Writer. |
-| `RtfWriterTag` | const | The Context tag for the RTF writer, so a program can depend on a RTF writer and have one provided. |
+| `RtfWriterTag` | const | The Context tag for the RTF writer, so a program can depend on an RTF writer and have one provided. |
 | `RtfWriterLive` | const | A Layer providing the default RTF writer for `RtfWriterTag`. |

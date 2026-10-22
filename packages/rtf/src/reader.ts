@@ -746,5 +746,7 @@ export const makeRtfReader = (): Reader<RtfFeature> => {
   return { format: "rtf", profile: Rtf, read };
 };
 
+/** The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. */
 export const RtfReaderTag = makeReaderTag<RtfFeature>("rtf");
+/** A Layer providing the default RTF reader for {@link RtfReaderTag}. */
 export const RtfReaderLive = Layer.succeed(RtfReaderTag, makeRtfReader());

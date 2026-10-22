@@ -18,6 +18,7 @@ export * from "./writer.ts";
 /** The DOCX profile. */
 export const profile = Docx;
 
+/** Options for the DOCX format bundle: its reader's and writer's options. */
 export interface DocxFormatOptions {
   readonly reader?: DocxReaderOptions | undefined;
   readonly writer?: DocxWriterOptions | undefined;

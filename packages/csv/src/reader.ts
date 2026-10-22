@@ -31,6 +31,7 @@ import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.ts";
 
+/** The features the CSV profile allows, as a type: the phantom of its documents. */
 export type CsvFeature = FeaturesOf<typeof Csv>;
 
 /** How raw strings become typed values. The option names follow CSVW where it has one. */
@@ -63,6 +64,7 @@ export interface CsvInferenceOptions {
   readonly nullValues?: ReadonlyArray<string> | undefined;
 }
 
+/** Options for the CSV reader: the dialect, the scan options and type inference. */
 export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
   /** The CSV dialect to parse with (defaults to StandardDialect). */
   readonly dialect?: CsvDialect | undefined;

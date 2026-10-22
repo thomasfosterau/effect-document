@@ -36,6 +36,7 @@ import { storageParagraphs } from "./text.ts";
 
 export type { IworkReaderOptions } from "./read.ts";
 
+/** The features the Keynote profile allows, as a list. */
 export const keynoteFeatures = [
   "deck.slideShow",
   "shape.textBox",
@@ -49,6 +50,7 @@ export const keynoteFeatures = [
 
 /** The Keynote (read) profile. */
 export const Keynote = defineProfile("keynote", keynoteFeatures);
+/** The features the Keynote profile allows, as a type: the phantom of its documents. */
 export type KeynoteFeature = FeaturesOf<typeof Keynote>;
 
 /** `Index/Slide-NNNN.iwa`, or a suffixed `Slide-NNNN-2.iwa` (a separate component). */
@@ -92,5 +94,7 @@ export const format: Format<KeynoteFeature> = {
   reader: makeKeynoteReader(),
 };
 
+/** The Context tag for the Keynote reader, so a program can depend on a Keynote reader and have one provided. */
 export const KeynoteReaderTag = makeReaderTag<KeynoteFeature>("keynote");
+/** A Layer providing the default Keynote reader for {@link KeynoteReaderTag}. */
 export const KeynoteReaderLive = Layer.succeed(KeynoteReaderTag, makeKeynoteReader());

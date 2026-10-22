@@ -187,6 +187,7 @@ const presentationRelsXml = (slideCount: number): string =>
   ).join("") +
   `</Relationships>`;
 
+/** Options for the PPTX writer. */
 export interface PptxWriterOptions {
   readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
@@ -238,5 +239,7 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
   return { format: "pptx", profile: Pptx, write };
 };
 
+/** The Context tag for the PPTX writer, so a program can depend on a PPTX writer and have one provided. */
 export const PptxWriterTag = makeWriterTag<PptxFeature>("pptx");
+/** A Layer providing the default PPTX writer for {@link PptxWriterTag}. */
 export const PptxWriterLive = Layer.succeed(PptxWriterTag, makePptxWriter());

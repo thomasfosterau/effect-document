@@ -12,6 +12,7 @@
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
 
+/** The features the PPTX profile allows, as a list. */
 export const pptxFeatures = [
   "deck.slideShow",
   "shape.textBox",
@@ -33,9 +34,11 @@ export const pptxFeatures = [
 /** The PPTX (PresentationML) profile. */
 export const Pptx = defineProfile("pptx", pptxFeatures);
 
+/** The features the PPTX profile allows, as a type: the phantom of its documents. */
 export type PptxFeature = FeaturesOf<typeof Pptx>;
 
 /** What the PPTX reader produces: the PPTX profile plus title-placeholder headers. */
 export const PptxRead = defineProfile("pptx-read", [...pptxFeatures, "block.header"] as const);
 
+/** The features of {@link PptxRead}, what the PPTX reader produces, as a type. */
 export type PptxReadFeature = FeaturesOf<typeof PptxRead>;

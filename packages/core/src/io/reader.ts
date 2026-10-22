@@ -14,6 +14,7 @@ import type { Feature } from "../schema/feature.ts";
 import { ParseError } from "./errors.ts";
 import type { Content } from "./content.ts";
 
+/** Parses `Content` into a document of its format's profile, failing with a `ParseError`. */
 export interface Reader<F extends Feature> {
   /** The format this reader parses (e.g. "csv", "xlsx"). */
   readonly format: string;

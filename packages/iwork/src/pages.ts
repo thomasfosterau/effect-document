@@ -31,6 +31,7 @@ import { storageParagraphs } from "./text.ts";
 
 export type { IworkReaderOptions } from "./read.ts";
 
+/** The features the Pages profile allows, as a list. */
 export const pagesFeatures = [
   "block.para",
   "block.plain",
@@ -42,6 +43,7 @@ export const pagesFeatures = [
 
 /** The Pages (read) profile. */
 export const Pages = defineProfile("pages", pagesFeatures);
+/** The features the Pages profile allows, as a type: the phantom of its documents. */
 export type PagesFeature = FeaturesOf<typeof Pages>;
 
 /** Create a Pages Reader. A component that fails to decode fails the read unless `lenient`. */
@@ -79,5 +81,7 @@ export const format: Format<PagesFeature> = {
   reader: makePagesReader(),
 };
 
+/** The Context tag for the Pages reader, so a program can depend on a Pages reader and have one provided. */
 export const PagesReaderTag = makeReaderTag<PagesFeature>("pages");
+/** A Layer providing the default Pages reader for {@link PagesReaderTag}. */
 export const PagesReaderLive = Layer.succeed(PagesReaderTag, makePagesReader());

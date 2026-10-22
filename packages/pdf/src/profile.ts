@@ -11,6 +11,7 @@
 
 import { defineProfile, type FeaturesOf } from "@thomasfosterau/effect-document";
 
+/** The features the PDF profile allows, as a list. */
 export const pdfFeatures = [
   "block.plain",
   "block.para",
@@ -35,6 +36,7 @@ export const pdfFeatures = [
 /** The PDF profile. */
 export const Pdf = defineProfile("pdf", pdfFeatures);
 
+/** The features the PDF profile allows, as a type: the phantom of its documents. */
 export type PdfFeature = FeaturesOf<typeof Pdf>;
 
 /**
@@ -58,4 +60,5 @@ export const PdfWrite = defineProfile("pdf-write", [
   "inline.link",
 ] as const);
 
+/** The features of {@link PdfWrite}, what the PDF writer accepts, as a type. */
 export type PdfWriteFeature = FeaturesOf<typeof PdfWrite>;

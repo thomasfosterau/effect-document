@@ -63,6 +63,7 @@ import {
 } from "../shared/index.ts";
 import { Docx, type DocxFeature } from "./profile.ts";
 
+/** Options for the DOCX reader: zip resource limits and the nesting-depth limit. */
 export interface DocxReaderOptions {
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
   readonly limits?: Partial<OpcLimits> | undefined;
@@ -561,5 +562,7 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
   return { format: "docx", profile: Docx, read };
 };
 
+/** The Context tag for the DOCX reader, so a program can depend on a DOCX reader and have one provided. */
 export const DocxReaderTag = makeReaderTag<DocxFeature>("docx");
+/** A Layer providing the default DOCX reader for {@link DocxReaderTag}. */
 export const DocxReaderLive = Layer.succeed(DocxReaderTag, makeDocxReader());

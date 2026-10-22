@@ -153,5 +153,7 @@ export const makeRtfWriter = (options: RtfWriterOptions = {}): Writer<RtfFeature
   return { format: "rtf", profile: Rtf, write };
 };
 
+/** The Context tag for the RTF writer, so a program can depend on an RTF writer and have one provided. */
 export const RtfWriterTag = makeWriterTag<RtfFeature>("rtf");
+/** A Layer providing the default RTF writer for {@link RtfWriterTag}. */
 export const RtfWriterLive = Layer.succeed(RtfWriterTag, makeRtfWriter());

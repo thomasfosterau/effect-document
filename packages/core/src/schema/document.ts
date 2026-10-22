@@ -61,9 +61,13 @@ export type DocumentEncoded = Schema.Codec.Encoded<typeof Document>;
 // Constructors - inline
 // ============================================================================
 
+/** A `Str`: a run of text. */
 export const str = (text: string): Str => new Str({ text });
+/** An `Emph` (emphasis, usually italic) around `content`. */
 export const emph = (content: ReadonlyArray<Inline>): Emph => new Emph({ content });
+/** A `Strong` (strong emphasis, usually bold) around `content`. */
 export const strong = (content: ReadonlyArray<Inline>): Strong => new Strong({ content });
+/** A `Link` to `url` (with an optional `title`) around `content`. */
 export const link = (content: ReadonlyArray<Inline>, url: string, title?: string): Link =>
   new Link({ content, target: { url, title } });
 
@@ -71,15 +75,22 @@ export const link = (content: ReadonlyArray<Inline>, url: string, title?: string
 // Constructors - block
 // ============================================================================
 
+/** A `Para`: a paragraph of inline content. */
 export const para = (content: ReadonlyArray<Inline>): Para => new Para({ content });
+/** A `Plain` block: inline content with no paragraph semantics (as in a tight list item). */
 export const plain = (content: ReadonlyArray<Inline>): Plain => new Plain({ content });
+/** A `Plain` block holding a single `Str` of `text`. */
 export const plainText = (text: string): Plain => new Plain({ content: [new Str({ text })] });
+/** A `Header` of `level` 1–6 around `content`. */
 export const header = (level: number, content: ReadonlyArray<Inline>): Header =>
   new Header({ level, content });
+/** A `CodeBlock` of verbatim `text`, optionally tagged with its `language`. */
 export const codeBlock = (text: string, language?: string): CodeBlock =>
   new CodeBlock({ text, language });
+/** A `BulletList`; each item is a sequence of blocks. */
 export const bulletList = (items: ReadonlyArray<ReadonlyArray<Block>>): BulletList =>
   new BulletList({ items });
+/** An `OrderedList` with default numbering; each item is a sequence of blocks. */
 export const orderedList = (items: ReadonlyArray<ReadonlyArray<Block>>): OrderedList =>
   new OrderedList({ items });
 
@@ -145,9 +156,12 @@ export const worksheet = (
 // Constructors - presentation
 // ============================================================================
 
+/** A `TextBox` shape holding prose blocks. */
 export const textBox = (content: ReadonlyArray<Block>): TextBox => new TextBox({ content });
+/** A `Slide` of `shapes`, with optional speaker `notes`. */
 export const slide = (shapes: ReadonlyArray<Shape>, notes?: ReadonlyArray<Block>): Slide =>
   new Slide({ shapes, notes });
+/** A `SlideShow` block: the presentation as a sequence of slides. */
 export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow => new SlideShow({ slides });
 
 // ============================================================================

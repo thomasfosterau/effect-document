@@ -16,11 +16,16 @@ import * as Predicate from "effect/Predicate";
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
 import { codecError, type IworkError } from "./errors.ts";
 
+/** Protobuf wire type 0: a base-128 varint. */
 export const WIRE_VARINT = 0;
+/** Protobuf wire type 1: a fixed 64-bit value. */
 export const WIRE_I64 = 1;
+/** Protobuf wire type 2: a length-delimited byte string. */
 export const WIRE_LEN = 2;
+/** Protobuf wire type 5: a fixed 32-bit value. */
 export const WIRE_I32 = 5;
 
+/** One protobuf field record: its number, wire type, and value (numeric types) or bytes (length-delimited). */
 export interface Field {
   readonly field: number;
   readonly wire: number;

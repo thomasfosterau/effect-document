@@ -64,7 +64,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 
 | Export | Kind | Description |
 | --- | --- | --- |
-| `profile` | const | The Spreadsheet profile. |
+| `profile` | const | The XLSX (write) profile. |
 | `XlsxFormatOptions` | interface | Options for the XLSX format bundle. |
 | `makeFormat` | function | Create an XLSX Format bundle with custom reader/writer options. |
 | `format` | const | The XLSX format bundle with default options, for use with `convert`. |
@@ -88,18 +88,28 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `parseXml` | function | Parse an XML document and return its root element. |
 | `findChild` | function | Find the first direct child with the given local name |
 | `findChildren` | function | Find all direct children with the given local name |
-| `findAll` | function | Find all descendants with the given local name (depth-first) |
-| `getAttr` | function | Get an attribute value, matching with or without a namespace prefix |
+| `findAll` | function | Find all descendants with the given local name (depth-first, document order) |
+| `getAttr` | function | Get an attribute value, matching with or without a namespace prefix. |
+| `encodeXstring` | function | Encode a string as SpreadsheetML ST_Xstring. |
+| `escapeXstring` | function | Escape and ST_Xstring-encode text for a SpreadsheetML element. |
 | `SharedStrings` | class | Accumulates the shared strings table while rendering cells. |
 | `cellToSpreadsheetMl` | function | Render a cell as a SpreadsheetML `<c>` element body, or null for a blank cell (blank cells are omitted entirely). |
-| `collectText` | function | Concatenate all `<t>` descendants of an element (handles rich-text runs). |
+| `decodeXstring` | function | Decode SpreadsheetML's `_xHHHH_` escapes (ST_Xstring), which carry characters XML 1.0 can't (control characters, lone surrogates). |
+| `collectText` | function | Concatenate all `<t>` descendants of an element (handles rich-text runs), skipping phonetic guides (`<rPh>`), which annotate the base text rather than belong to it. |
 | `spreadsheetMlToCell` | function | Convert a parsed SpreadsheetML `<c>` element into a typed cell. |
-| `SpreadsheetFeature` | type | The features the XLSX profile allows, as a type. |
-| `XlsxReaderOptions` | interface | Options for the XLSX reader (none yet; reserved for forward compatibility). |
+| `xlsxFeatures` | const | The features the XLSX profile allows, as a list. |
+| `Xlsx` | const | What the XLSX writer preserves. |
+| `XlsxFeature` | type | The features the XLSX profile allows, as a type. |
+| `XlsxRead` | const | What the XLSX reader produces. |
+| `XlsxReadFeature` | type | The features of `XlsxRead`, what the XLSX reader produces, as a type. |
+| `SpreadsheetFeature` | type | The XLSX reader's features under their old name. |
+| `XlsxReaderOptions` | interface | Options for the XLSX reader. |
+| `DEFAULT_MAX_CELLS` | const | The default `XlsxReaderOptions.maxCells`. |
 | `makeXlsxReader` | function | Create an XLSX Reader with the given options baked in. |
 | `XlsxReaderTag` | const | Context tag for dependency-injection style usage. |
 | `XlsxReaderLive` | const | Layer providing an XLSX Reader with default options. |
 | `makeXlsxReaderLayer` | function | Layer providing an XLSX Reader with custom options. |
+| `sanitizeSheetNames` | function | Make sheet names Excel accepts, deterministically. |
 | `XlsxWriterOptions` | interface | Options for the XLSX writer. |
 | `makeXlsxWriter` | function | Create an XLSX Writer with the given options baked in. |
 | `XlsxWriterTag` | const | Context tag for dependency-injection style usage. |
@@ -117,7 +127,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `docxFeatures` | const | The features the DOCX profile allows, as a list. |
 | `Docx` | const | The DOCX (WordprocessingML) profile. |
 | `DocxFeature` | type | The features the DOCX profile allows, as a type. |
-| `DocxReaderOptions` | interface | Options for the DOCX reader (none yet; reserved for forward compatibility). |
+| `DocxReaderOptions` | interface | Options for the DOCX reader. |
 | `makeDocxReader` | function | Create a DOCX Reader. |
 | `DocxReaderTag` | const | The Context tag for the DOCX reader, so a program can depend on a DOCX reader and have one provided. |
 | `DocxReaderLive` | const | A Layer providing the default DOCX reader for `DocxReaderTag`. |
@@ -137,7 +147,9 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `pptxFeatures` | const | The features the PPTX profile allows, as a list. |
 | `Pptx` | const | The PPTX (PresentationML) profile. |
 | `PptxFeature` | type | The features the PPTX profile allows, as a type. |
-| `PptxReaderOptions` | interface | Options for the PPTX reader (none yet; reserved for forward compatibility). |
+| `PptxRead` | const | What the PPTX reader produces. |
+| `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
+| `PptxReaderOptions` | interface | Options for the PPTX reader. |
 | `makePptxReader` | function | Create a PPTX Reader. |
 | `PptxReaderTag` | const | The Context tag for the PPTX reader, so a program can depend on a PPTX reader and have one provided. |
 | `PptxReaderLive` | const | A Layer providing the default PPTX reader for `PptxReaderTag`. |

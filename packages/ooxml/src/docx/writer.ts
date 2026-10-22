@@ -338,6 +338,7 @@ const documentRelsXml = (rel: RelCollector): string =>
 // Writer
 // ============================================================================
 
+/** Options for the DOCX writer. */
 export interface DocxWriterOptions {
   readonly compressionLevel?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | undefined;
 }
@@ -370,5 +371,7 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
   return { format: "docx", profile: Docx, write };
 };
 
+/** The Context tag for the DOCX writer, so a program can depend on a DOCX writer and have one provided. */
 export const DocxWriterTag = makeWriterTag<DocxFeature>("docx");
+/** A Layer providing the default DOCX writer for {@link DocxWriterTag}. */
 export const DocxWriterLive = Layer.succeed(DocxWriterTag, makeDocxWriter());

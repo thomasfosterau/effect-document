@@ -21,6 +21,7 @@ export * from "./synthesize.ts";
 /** The CSV profile: a single worksheet of text/number/boolean/blank cells. */
 export const profile = Csv;
 
+/** Options for the CSV format bundle: its reader's and writer's options. */
 export interface CsvFormatOptions {
   readonly reader?: CsvReaderOptions | undefined;
   readonly writer?: CsvWriterOptions | undefined;

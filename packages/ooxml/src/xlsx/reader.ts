@@ -39,7 +39,11 @@ import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
-/** @deprecated The reader's features are now {@link XlsxReadFeature}. */
+/**
+ * The XLSX reader's features under their old name.
+ *
+ * @deprecated The reader's features are now {@link XlsxReadFeature}.
+ */
 export type SpreadsheetFeature = XlsxReadFeature;
 
 const REL_OFFICE_DOCUMENT_SUFFIX = "/officeDocument";
@@ -53,6 +57,7 @@ const NON_GRID_SHEET_KINDS: ReadonlyArray<readonly [suffix: string, kind: string
 ];
 const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 
+/** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
    * The most cells (rows × columns) a single worksheet's dense grid may hold.

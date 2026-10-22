@@ -41,6 +41,7 @@ type CsvFeature = FeaturesOf<typeof Csv>;
  */
 export type CsvQuoting = "minimal" | "all" | "nonNumeric" | "none";
 
+/** Options for the CSV writer. */
 export interface CsvWriterOptions {
   /** The CSV dialect to render with (defaults to StandardDialect). */
   readonly dialect?: CsvDialect | undefined;

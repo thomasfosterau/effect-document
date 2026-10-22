@@ -10,6 +10,7 @@ import type { Feature } from "../schema/feature.ts";
 import type { Reader } from "./reader.ts";
 import type { Writer } from "./writer.ts";
 
+/** A format bundle for `convert`: its id, its profile, and its reader and/or writer. */
 export interface Format<R extends Feature, W extends Feature = R> {
   /** Unique format identifier (e.g. "csv", "tsv", "xlsx"). */
   readonly id: string;

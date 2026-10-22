@@ -24,6 +24,7 @@ export * from "./writer.ts";
 /** The XLSX (write) profile: what survives a write -> read round trip. */
 export const profile = Xlsx;
 
+/** Options for the XLSX format bundle: its reader's and writer's options. */
 export interface XlsxFormatOptions {
   readonly reader?: XlsxReaderOptions | undefined;
   readonly writer?: XlsxWriterOptions | undefined;

@@ -30,6 +30,7 @@ import {
   readVarint,
 } from "./protobuf.ts";
 
+/** One archived message: its `MessageInfo.type` id and raw payload. */
 export interface IworkMessage {
   /** The reverse-engineered `MessageInfo.type` id. */
   readonly type: number;
@@ -37,6 +38,7 @@ export interface IworkMessage {
   readonly payload: Uint8Array;
 }
 
+/** One archived object: its document-unique identifier and the messages it is made of. */
 export interface IworkObject {
   /** The object's document-unique identifier (a `uint64`, kept exact). */
   readonly identifier: bigint;

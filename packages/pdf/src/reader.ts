@@ -81,6 +81,7 @@ export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
 export const readPages = (file: PdfFile): PageText[] =>
   file.pages().map((page) => extractPageText(file, page));
 
+/** Options for the PDF reader: the nesting-depth limit. */
 export interface PdfReaderOptions {
   /**
    * The deepest nesting (e.g. lists inside lists) the reader accepts before
@@ -107,5 +108,7 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
   return { format: "pdf", profile: Pdf, read };
 };
 
+/** The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. */
 export const PdfReaderTag = makeReaderTag<PdfFeature>("pdf");
+/** A Layer providing the default PDF reader for {@link PdfReaderTag}. */
 export const PdfReaderLive = Layer.succeed(PdfReaderTag, makePdfReader());

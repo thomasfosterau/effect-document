@@ -73,10 +73,13 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 | `pdfFeatures` | const | The features the PDF profile allows, as a list. |
 | `Pdf` | const | The PDF profile. |
 | `PdfFeature` | type | The features the PDF profile allows, as a type. |
+| `PdfWrite` | const | What the PDF writer preserves through `read(write(doc))` (#109). |
+| `PdfWriteFeature` | type | The features of `PdfWrite`, what the PDF writer accepts, as a type. |
 | `pdfBytes` | function | PDF bytes from content; text is taken one byte per character (Latin-1). |
 | `readMeta` | function | The document information dictionary as metadata. |
 | `openPdf` | function | Open a PDF, failing with a `ParseError` if it can't be read or is encrypted. |
 | `readPages` | function | The positioned text of every page. |
+| `PdfReaderOptions` | interface | Options for the PDF reader. |
 | `makePdfReader` | function | Create a PDF Reader. |
 | `PdfReaderTag` | const | The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. |
 | `PdfReaderLive` | const | A Layer providing the default PDF reader for `PdfReaderTag`. |
