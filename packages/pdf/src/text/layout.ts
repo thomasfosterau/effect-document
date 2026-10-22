@@ -335,20 +335,34 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   const headingSizes = [...new Set(lines.filter(isHeading).map((l) => l.size))].sort((a, b) => b - a);
   const levelOf = (size: number): number => Math.min(6, headingSizes.indexOf(size) + 1);
 
-  // the usual distance between consecutive body lines
-  const deltas: number[] = [];
+  // each page's right text edge, to tell a full line from a paragraph's last line
+  const rightEdge = new Map<number, number>();
+  for (const l of lines) if (l.size === body && !l.mono) rightEdge.set(l.page, Math.max(rightEdge.get(l.page) ?? 0, l.x1));
+  const isFull = (l: Line): boolean => l.x1 >= (rightEdge.get(l.page) ?? Number.POSITIVE_INFINITY) - body * 2;
+  /** Ends at a sentence boundary, as a paragraph's last line usually does. */
+  const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
+
+  // the usual distance between consecutive lines of one paragraph: the small
+  // end of the gaps between body lines (paragraph breaks are the larger ones).
+  // When every gap is large the page is either double-spaced or a run of
+  // one-line paragraphs; lines above the gaps that are full and stop
+  // mid-sentence (wrapped) mean the former, otherwise it's the latter, whose
+  // line spacing is then the typical 1.2.
+  const gaps: Array<{ readonly d: number; readonly wrapped: boolean }> = [];
   for (let i = 1; i < lines.length; i++) {
     const a = lines[i - 1]!;
     const b = lines[i]!;
     const d = a.y - b.y;
-    if (a.page === b.page && a.size === body && b.size === body && d > 0 && d < body * 3) deltas.push(d);
+    if (a.page === b.page && a.size === body && b.size === body && d > 0 && d < body * 3) gaps.push({ d, wrapped: isFull(a) && !endsSentence(a) });
   }
-  const leading = Math.min(median(deltas) ?? body * 1.2, body * 2);
+  const sorted = gaps.map((g) => g.d).sort((a, b) => a - b);
+  const low = sorted[Math.floor((sorted.length - 1) / 10)];
+  const doubleSpaced = gaps.filter((g) => g.wrapped).length * 2 > gaps.length;
+  const leading =
+    low === undefined ? body * 1.2
+    : low <= body * 1.6 || doubleSpaced ? Math.min(low, body * 2)
+    : body * 1.2;
   const breakGap = leading * 1.3 + 0.5;
-
-  // each page's right text edge, to tell a full line from a paragraph's last line
-  const rightEdge = new Map<number, number>();
-  for (const l of lines) if (l.size === body && !l.mono) rightEdge.set(l.page, Math.max(rightEdge.get(l.page) ?? 0, l.x1));
 
   const blocks: Block[] = [];
   let i = 0;
@@ -360,9 +374,8 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
   };
   /** A paragraph runs over a page break when its line there is full and unfinished. */
   const continuesOnNextPage = (a: Line, b: Line): boolean =>
-    a.size === body && b.size === body && !a.mono && !b.mono &&
-    a.x1 >= (rightEdge.get(a.page) ?? Number.POSITIVE_INFINITY) - body * 2 &&
-    !/[.!?:;]["'”’)]?$/.test(a.text) && markerOf(b) === undefined;
+    a.size === body && b.size === body && !a.mono && !b.mono && isFull(a) &&
+    !endsSentence(a) && markerOf(b) === undefined;
 
   while (i < lines.length) {
     const line = lines[i]!;
