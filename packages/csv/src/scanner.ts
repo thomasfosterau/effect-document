@@ -192,11 +192,14 @@ const makeRow = (
 const skipLines = (n: number): Parser.Parser<unknown> =>
   Parser.repeat(Parser.seq(Token.takeTill("\r\n"), endOfLine), n);
 
+/** A 0-based row and column in the source text. */
+interface TextPosition {
+  readonly row: number;
+  readonly column: number;
+}
+
 /** The 0-based row and column of `offset`, counting CRLF, LF and bare CR as line breaks. */
-const positionAt = (
-  text: string,
-  offset: number,
-): { readonly row: number; readonly column: number } => {
+const positionAt = (text: string, offset: number): TextPosition => {
   let row = 0;
   let lineStart = 0;
   for (let i = 0; i < offset; i++) {
@@ -226,6 +229,7 @@ const linesIn = (row: ReadonlyArray<string> | null): number => {
  * always starts at a row boundary.
  */
 const fromSyntaxError = (e: SyntaxError.ParseError, firstRow: number): ParseError => {
+  // SAFETY: every CSV grammar runs on string input, so its errors carry a string.
   const { row, column } = positionAt(e.input as string, e.offset);
   return new ParseError({
     format: "csv",
@@ -282,7 +286,9 @@ const tableParsers = new Map<string, TableParser>();
 const maxCachedParsers = 32;
 
 const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser => {
-  const key = JSON.stringify([
+  // NUL never appears in a dialect character or a comment marker, so joining
+  // on it keys every distinct option set apart.
+  const key = [
     dialect.separator,
     dialect.wrapper,
     dialect.doubleWrapper,
@@ -291,7 +297,7 @@ const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser 
     !!options.trimWhitespace,
     options.lineCommentMarker ?? "",
     !!options.quoteAnywhere,
-  ]);
+  ].join("\u0000");
   let parser = tableParsers.get(key);
   if (parser === undefined) {
     parser = Parser.compile(
@@ -415,8 +421,10 @@ export const scanCsvStream = <E, R>(
       }),
       Stream.mapError((e) =>
         SyntaxError.isParseError(e)
-          ? fromSyntaxError(e as SyntaxError.ParseError, nextRow)
-          : (e as E),
+          ? // SAFETY: a grammar failure from this stream's own string parser
+            fromSyntaxError(e as SyntaxError.ParseError, nextRow)
+          : // SAFETY: anything else is the input stream's own failure, `E`
+            (e as E),
       ),
       Stream.filter((r): r is Located => r.fields !== null),
       Stream.mapAccumEffect(

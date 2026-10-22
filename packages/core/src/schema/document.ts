@@ -4,7 +4,8 @@
  */
 
 import * as Match from "effect/Match";
-import { Schema } from "effect";
+import * as Predicate from "effect/Predicate";
+import * as Schema from "effect/Schema";
 import {
   Block,
   BulletList,
@@ -311,9 +312,8 @@ const expandBlock = (block: Block): TextPart[] => {
 const collapse = (parts: ReadonlyArray<TextPart>): string => {
   let out = "";
   const stack: TextPart[] = [...parts].reverse();
-  while (stack.length > 0) {
-    const part = stack.pop()!;
-    if (typeof part === "string") {
+  for (let part = stack.pop(); part !== undefined; part = stack.pop()) {
+    if (Predicate.isString(part)) {
       out += part;
       continue;
     }
@@ -335,8 +335,7 @@ export const inlinesToText = (inlines: ReadonlyArray<Inline>): string =>
   collapse(inlineParts(inlines));
 
 /** Collapse a single spreadsheet cell to plain text. */
-export const cellToText = (c: SheetCell): string =>
-  c._tag === "CellRichText" ? collapse([{ c }]) : (expandCell(c)[0] as string);
+export const cellToText = (c: SheetCell): string => collapse([{ c }]);
 
 /** Collapse a single slide shape to plain text. */
 export const shapeToText = (shape: Shape): string => collapse([{ s: shape }]);

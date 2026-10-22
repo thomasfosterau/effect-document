@@ -204,11 +204,12 @@ const renderRows = (
     const dialect = options.dialect ?? StandardDialect;
     const rows = options.headers ? [textFields(options.headers), ...body] : body;
     const width = options.padRows ? Math.max(0, ...rows.map((r) => r.length)) : 0;
-    let out = options.bom ? "﻿" : "";
-    for (let i = 0; i < rows.length; i++) {
-      out += (yield* renderRow(pad(rows[i]!, width), i, dialect, options)) + dialect.linebreak;
-    }
-    return out;
+    const lines = yield* Effect.forEach(
+      rows,
+      (row, i) => renderRow(pad(row, width), i, dialect, options),
+      { concurrency: 1 },
+    );
+    return (options.bom ? "﻿" : "") + lines.map((line) => line + dialect.linebreak).join("");
   });
 
 /** Render rows of string fields to CSV text (with trailing newline). */
@@ -223,6 +224,12 @@ export const renderTable = (
         : row.map((f) => renderField(f, dialect)).join(dialect.separator),
     )
     .join(dialect.linebreak) + (Arr.isReadonlyArrayNonEmpty(rows) ? dialect.linebreak : "");
+
+/** Where a streamed render is: the next row's index and the width rows are padded to. */
+interface RowState {
+  readonly index: number;
+  readonly width: number | null;
+}
 
 /**
  * Render a stream of worksheet rows to CSV text, one chunk per row (the BOM
@@ -239,7 +246,7 @@ export const renderCsvStream = <E, R>(
   const start = headers ? 1 : 0;
   const body = Stream.mapAccumEffect(
     rows,
-    () => ({ index: start, width: headers?.length ?? (null as number | null) }),
+    (): RowState => ({ index: start, width: headers?.length ?? null }),
     (state, row) => {
       const fields = cellFields(row.cells, options);
       const width = state.width ?? fields.length;

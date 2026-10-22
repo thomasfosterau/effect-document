@@ -16,6 +16,9 @@
  * 950) combine lead and trail bytes.
  */
 
+import * as Rec from "effect/Record";
+import * as Option from "effect/Option";
+import * as HashMap from "effect/HashMap";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
@@ -161,45 +164,47 @@ const DESTINATIONS = new Set([
 ]);
 
 /** Control words that stand for a single character. */
-const SPECIAL_CHARACTERS: Record<string, string> = {
-  lquote: "\u2018",
-  rquote: "\u2019",
-  ldblquote: "\u201c",
-  rdblquote: "\u201d",
-  endash: "\u2013",
-  emdash: "\u2014",
-  bullet: "\u2022",
-  enspace: "\u2002",
-  emspace: "\u2003",
-  qmspace: "\u2005",
-  zwj: "\u200d",
-  zwnj: "\u200c",
-  zwbo: "\u200b",
-  zwnbo: "\u2060",
-};
+const SPECIAL_CHARACTERS = HashMap.fromIterable<string, string>(
+  Rec.toEntries({
+    lquote: "\u2018",
+    rquote: "\u2019",
+    ldblquote: "\u201c",
+    rdblquote: "\u201d",
+    endash: "\u2013",
+    emdash: "\u2014",
+    bullet: "\u2022",
+    enspace: "\u2002",
+    emspace: "\u2003",
+    qmspace: "\u2005",
+    zwj: "\u200d",
+    zwnj: "\u200c",
+    zwbo: "\u200b",
+    zwnbo: "\u2060",
+  }),
+);
 
 // ============================================================================
 // Code pages
 // ============================================================================
 
 /** `\fcharsetN` -> Windows code page. Charsets 1 (default) and 2 (symbol) use the document's. */
-const CHARSET_CODE_PAGES: Record<number, number> = {
-  0: 1252,
-  77: 10000,
-  128: 932,
-  129: 949,
-  134: 936,
-  136: 950,
-  161: 1253,
-  162: 1254,
-  163: 1258,
-  177: 1255,
-  178: 1256,
-  186: 1257,
-  204: 1251,
-  222: 874,
-  238: 1250,
-};
+const CHARSET_CODE_PAGES = HashMap.make(
+  [0, 1252],
+  [77, 10000],
+  [128, 932],
+  [129, 949],
+  [134, 936],
+  [136, 950],
+  [161, 1253],
+  [162, 1254],
+  [163, 1258],
+  [177, 1255],
+  [178, 1256],
+  [186, 1257],
+  [204, 1251],
+  [222, 874],
+  [238, 1250],
+);
 
 /** A Windows code page's WHATWG encoding label, or `undefined` if unsupported. */
 const codePageLabel = (cp: number): string | undefined => {
@@ -237,15 +242,16 @@ const decoders = new Map<number, TextDecoder>();
 const decoderFor = (cp: number): TextDecoder => {
   let decoder = decoders.get(cp);
   if (decoder === undefined) {
-    // Bun types the label as a fixed union; any WHATWG label is accepted at runtime
+    // SAFETY: some TypeScript DOM libs type the label as a fixed union, but
+    // any WHATWG encoding label is accepted at runtime (and an unknown one
+    // throws, which falls back to cp1252 below)
     const label = (codePageLabel(cp) ?? "windows-1252") as ConstructorParameters<
       typeof TextDecoder
     >[0];
-    try {
-      decoder = new TextDecoder(label);
-    } catch {
-      decoder = new TextDecoder("windows-1252");
-    }
+    decoder = Result.getOrElse(
+      Result.try(() => new TextDecoder(label)),
+      () => new TextDecoder("windows-1252"),
+    );
     decoders.set(cp, decoder);
   }
   return decoder;
@@ -304,11 +310,15 @@ const controlWord = Parser.map(
   ([word, param]): RtfToken => ({ _tag: "Word", word, param }),
 );
 
+const BIN: RtfToken = { _tag: "Bin" };
+const OPEN: RtfToken = { _tag: "Open" };
+const CLOSE: RtfToken = { _tag: "Close" };
+
 /** `\binN` is followed by N raw bytes, which must not be lexed as RTF. */
 const controlWordOrBin = Parser.flatMap(controlWord, (token): Parser.Parser<RtfToken> => {
   if (!Predicate.isTagged(token, "Word") || token.word !== "bin") return Parser.succeed(token);
   const count = Math.max(0, Number(token.param || "0"));
-  return Parser.as(Parser.alt(Token.take(count), Token.rest), { _tag: "Bin" } as RtfToken);
+  return Parser.as(Parser.alt(Token.take(count), Token.rest), BIN);
 });
 
 /** `\'hh`: one byte, by its hex code. */
@@ -321,8 +331,8 @@ const hexEscape = Parser.map(Parser.preceded(Token.literal("'"), hexByte), (hex)
 const controlSymbol = Parser.map(Token.any, (symbol): RtfToken => ({ _tag: "Symbol", symbol }));
 
 const rtfToken: Parser.Parser<RtfToken | null> = Parser.alt(
-  Parser.as(Token.literal("{"), { _tag: "Open" } as RtfToken),
-  Parser.as(Token.literal("}"), { _tag: "Close" } as RtfToken),
+  Parser.as(Token.literal("{"), OPEN),
+  Parser.as(Token.literal("}"), CLOSE),
   Parser.preceded(
     Token.literal("\\"),
     Parser.alt(controlWordOrBin, hexEscape, controlSymbol, Parser.as(Parser.eof, null)),
@@ -500,125 +510,95 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
       ) {
         const entry = fontCodePages.get(fontDef) ?? {};
         if (word === "cpg") entry.cpg = n;
-        else if (CHARSET_CODE_PAGES[n] !== undefined) entry.charset = CHARSET_CODE_PAGES[n];
+        else {
+          const charset = HashMap.get(CHARSET_CODE_PAGES, n);
+          if (Option.isSome(charset)) entry.charset = charset.value;
+        }
         fontCodePages.set(fontDef, entry);
       }
       return 0;
     }
-    const special = SPECIAL_CHARACTERS[word];
-    if (special !== undefined) {
-      pushText(special);
+    const special = HashMap.get(SPECIAL_CHARACTERS, word);
+    if (Option.isSome(special)) {
+      pushText(special.value);
       return 0;
     }
-    switch (word) {
-      case "par":
-        if (!state.skip) flushPara();
-        break;
-      case "sect":
-      case "page":
-      case "column":
-        // no sections or pages in the profile: a paragraph break at least
-        if (!state.skip) flushPara();
-        break;
-      case "cell":
-      case "nestcell":
-        // no tables in the profile yet: cells are tab-separated, rows are paragraphs
-        if (visible()) {
-          flushBytes();
-          pendingCells++;
-        }
-        break;
-      case "row":
-      case "nestrow":
-        if (!state.skip) flushPara();
-        break;
-      case "pard":
-        paraStyle = 0;
-        paraOutline = undefined;
-        break; // char flags persist
-      case "sectd":
-        break; // no section properties are modelled
-      case "s":
-        paraStyle = n ?? 0;
-        break;
-      case "outlinelevel":
-        paraOutline = n ?? 0;
-        break;
-      case "plain":
-        Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
-        break;
-      case "line":
-        if (visible()) {
-          flushBytes();
-          emitCells();
-          flushText();
-          para.push(new LineBreak());
-        }
-        break;
-      case "tab":
-        pushText("\t");
-        break;
-      case "b":
-        state.bold = on;
-        break;
-      case "i":
-        state.italic = on;
-        break;
-      case "ul":
-        state.underline = on;
-        break;
-      case "ulnone":
-        state.underline = false;
-        break;
-      case "strike":
-        state.strike = on;
-        break;
-      case "v":
-        state.hidden = on;
-        break;
-      case "deleted":
-        state.deleted = on;
-        break;
-      case "f":
-        state.font = n;
-        break;
-      case "deff":
-        defaultFont = n;
-        break;
-      case "ansi":
-        documentCodePage = 1252;
-        break;
-      case "mac":
-        documentCodePage = 10000;
-        break;
-      case "pc":
-        documentCodePage = 437;
-        break;
-      case "pca":
-        documentCodePage = 850;
-        break;
-      case "ansicpg":
-        if (n !== undefined) documentCodePage = n;
-        break;
-      case "uc":
-        if (n !== undefined && n >= 0) state.uc = n;
-        break;
-      case "u": {
-        // a signed 16-bit UTF-16 code unit: negative values are N + 65536.
-        // Surrogate pairs (two `\u`s) combine in the string itself.
-        if (n === undefined) break;
-        if (!Number.isInteger(n) || n < -32768 || n > 65535)
-          fail(`\\u parameter out of range: ${param}`);
-        if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
-        return state.uc;
+    if (word === "par") {
+      if (!state.skip) flushPara();
+    } else if (word === "sect" || word === "page" || word === "column") {
+      // no sections or pages in the profile: a paragraph break at least
+      if (!state.skip) flushPara();
+    } else if (word === "cell" || word === "nestcell") {
+      // no tables in the profile yet: cells are tab-separated, rows are paragraphs
+      if (visible()) {
+        flushBytes();
+        pendingCells++;
       }
-      case "fonttbl":
-        state.skip = true;
-        state.fontTable = true;
-        break;
-      default:
-        if (DESTINATIONS.has(word)) state.skip = true;
-        break;
+    } else if (word === "row" || word === "nestrow") {
+      if (!state.skip) flushPara();
+    } else if (word === "pard") {
+      paraStyle = 0;
+      paraOutline = undefined; // char flags persist
+    } else if (word === "sectd") {
+      // no section properties are modelled
+    } else if (word === "s") {
+      paraStyle = n ?? 0;
+    } else if (word === "outlinelevel") {
+      paraOutline = n ?? 0;
+    } else if (word === "plain") {
+      Object.assign(state, plainFmt, { hidden: false, deleted: false, font: undefined });
+    } else if (word === "line") {
+      if (visible()) {
+        flushBytes();
+        emitCells();
+        flushText();
+        para.push(new LineBreak());
+      }
+    } else if (word === "tab") {
+      pushText("\t");
+    } else if (word === "b") {
+      state.bold = on;
+    } else if (word === "i") {
+      state.italic = on;
+    } else if (word === "ul") {
+      state.underline = on;
+    } else if (word === "ulnone") {
+      state.underline = false;
+    } else if (word === "strike") {
+      state.strike = on;
+    } else if (word === "v") {
+      state.hidden = on;
+    } else if (word === "deleted") {
+      state.deleted = on;
+    } else if (word === "f") {
+      state.font = n;
+    } else if (word === "deff") {
+      defaultFont = n;
+    } else if (word === "ansi") {
+      documentCodePage = 1252;
+    } else if (word === "mac") {
+      documentCodePage = 10000;
+    } else if (word === "pc") {
+      documentCodePage = 437;
+    } else if (word === "pca") {
+      documentCodePage = 850;
+    } else if (word === "ansicpg") {
+      if (n !== undefined) documentCodePage = n;
+    } else if (word === "uc") {
+      if (n !== undefined && n >= 0) state.uc = n;
+    } else if (word === "u") {
+      // a signed 16-bit UTF-16 code unit: negative values are N + 65536.
+      // Surrogate pairs (two `\u`s) combine in the string itself.
+      if (n === undefined) return 0;
+      if (!Number.isInteger(n) || n < -32768 || n > 65535)
+        fail(`\\u parameter out of range: ${param}`);
+      if (n !== 0) pushText(String.fromCharCode(n < 0 ? n + 65536 : n));
+      return state.uc;
+    } else if (word === "fonttbl") {
+      state.skip = true;
+      state.fontTable = true;
+    } else {
+      if (DESTINATIONS.has(word)) state.skip = true;
     }
     return 0;
   };

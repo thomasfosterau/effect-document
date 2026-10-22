@@ -6,12 +6,12 @@
  */
 
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import { convert, narrow } from "@thomasfosterau/effect-document";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  type AnyFormat,
+  type Format,
   type Block,
   BlockQuote,
   CellRichText,
@@ -199,13 +199,15 @@ const sampleFor = (feature: Feature, family: "prose" | "sheet" | "deck"): Docume
   return undefined;
 };
 
-export const FORMATS: ReadonlyArray<readonly [AnyFormat, "prose" | "sheet" | "deck"]> = [
-  [Csv.format as unknown as AnyFormat, "sheet"],
-  [Xlsx.format as unknown as AnyFormat, "sheet"],
-  [Docx.format as unknown as AnyFormat, "prose"],
-  [Pptx.format as unknown as AnyFormat, "deck"],
-  [Rtf.format as unknown as AnyFormat, "prose"],
-  [Pdf.format as unknown as AnyFormat, "prose"],
+// `Format` is contravariant in its writer, so a list of formats with different
+// profiles can only be typed with the profiles erased.
+export const FORMATS: ReadonlyArray<readonly [Format<any, any>, "prose" | "sheet" | "deck"]> = [
+  [Csv.format, "sheet"],
+  [Xlsx.format, "sheet"],
+  [Docx.format, "prose"],
+  [Pptx.format, "deck"],
+  [Rtf.format, "prose"],
+  [Pdf.format, "prose"],
 ];
 
 describe("write profiles round-trip (#109)", () => {
@@ -238,7 +240,7 @@ describe("convert reports what a writer can't preserve (#109)", () => {
     const out = Effect.runSync(
       Xlsx.makeXlsxWriter().write(trustAs(document([worksheet("S", [[cell.number(1)]])]))),
     );
-    if (!Predicate.isTagged(out, "Bytes")) throw new Error("expected bytes");
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
     files["xl/worksheets/sheet1.xml"] = strToU8(
       strFromU8(files["xl/worksheets/sheet1.xml"]!).replace(

@@ -19,7 +19,10 @@ import {
 import { Document } from "../schema/document.ts";
 import { type Feature, featureOfTag } from "../schema/feature.ts";
 
-const attrOf = (n: unknown): Attributes | undefined => (n as { readonly attr?: Attributes }).attr;
+const attrOf = (n: unknown): Attributes | undefined =>
+  // SAFETY: called only on document nodes, every one of which declares `attr`
+  // (when it has one) as the `attrField` schema, i.e. `Attributes | undefined`.
+  (n as { readonly attr?: Attributes | undefined }).attr;
 
 const addTag = (tag: string, acc: Set<Feature>): void => {
   const f = featureOfTag(tag);

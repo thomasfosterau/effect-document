@@ -10,7 +10,8 @@
  */
 
 import * as Match from "effect/Match";
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   type Block,
   type Content,
@@ -82,6 +83,7 @@ const renderInline = (n: RtfInline): string =>
 
 // a profile-conforming document only contains the profile's node types
 const renderInlines = (ns: ReadonlyArray<Inline>): string =>
+  // SAFETY: see above; `write` only receives `Doc<RtfFeature>`
   (ns as ReadonlyArray<RtfInline>).map(renderInline).join("");
 
 /** A heading's size, in half-points (`\fsN`). */
@@ -143,6 +145,7 @@ export const makeRtfWriter = (options: RtfWriterOptions = {}): Writer<RtfFeature
   const bodySize = Math.round((options.fontSize ?? 12) * 2);
   const write = (doc: Doc<RtfFeature>): Effect.Effect<Content, WriteError> =>
     Effect.sync(() => {
+      // SAFETY: a `Doc<RtfFeature>` holds only the RTF profile's block types
       const blocks = doc.blocks as ReadonlyArray<RtfBlock>;
       const body = blocks.map((b) => renderBlock(b, bodySize, eol)).join("");
       return text(`${renderHeader(options, bodySize, eol)}${body}}`);

@@ -598,7 +598,10 @@ export class Div extends Schema.TaggedClass<Div>()("Div", {
 
 // ---- prose table ----------------------------------------------------------
 
+/** A table column width as a fraction of the text width, or `null` for the default. */
 export const ColWidth = Schema.NullOr(Schema.Number);
+/** A table column width as a fraction of the text width, or `null` for the default. */
+export type ColWidth = typeof ColWidth.Type;
 /** A column specification: alignment and relative width. */
 export class ColSpec extends Schema.Class<ColSpec>("ColSpec")({
   align: Schema.optional(Schema.Literals(["left", "right", "center", "default"])),

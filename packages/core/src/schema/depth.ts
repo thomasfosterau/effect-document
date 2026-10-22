@@ -8,6 +8,7 @@
  * safe bounds.
  */
 
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import type { Block, Inline, Shape } from "./ast.ts";
@@ -24,62 +25,75 @@ export const DEFAULT_MAX_NESTING_DEPTH = 1000;
 
 /** The blocks, inlines and shapes directly inside a node. */
 export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
-  switch (n._tag) {
-    // ---- inlines
-    case "Emph":
-    case "Strong":
-    case "Underline":
-    case "Strikeout":
-    case "Superscript":
-    case "Subscript":
-    case "SmallCaps":
-    case "Quoted":
-    case "Link":
-    case "Span":
-      return n.content;
-    case "Cite":
+  return Match.value(n).pipe(
+    Match.tag(
+      "Emph",
+      "Strong",
+      "Underline",
+      "Strikeout",
+      "Superscript",
+      "Subscript",
+      "SmallCaps",
+      "Quoted",
+      "Link",
+      "Span",
+      (n) => {
+        return n.content;
+      },
+    ),
+    Match.tag("Cite", (n) => {
       return [...n.content, ...n.citations.flatMap((c) => [...c.prefix, ...c.suffix])];
-    case "Image":
+    }),
+    Match.tag("Image", (n) => {
       return n.alt;
-    case "Note":
+    }),
+    Match.tag("Note", (n) => {
       return n.content;
-    // ---- blocks
-    case "Plain":
-    case "Para":
-    case "Header":
+      // ---- blocks
+    }),
+    Match.tag("Plain", "Para", "Header", (n) => {
       return n.content;
-    case "LineBlock":
+    }),
+    Match.tag("LineBlock", (n) => {
       return n.lines.flat();
-    case "BlockQuote":
-    case "Div":
+    }),
+    Match.tag("BlockQuote", "Div", (n) => {
       return n.content;
-    case "Figure":
+    }),
+    Match.tag("Figure", (n) => {
       return [...n.caption, ...n.content];
-    case "OrderedList":
-    case "BulletList":
+    }),
+    Match.tag("OrderedList", "BulletList", (n) => {
       return n.items.flat();
-    case "DefinitionList":
+    }),
+    Match.tag("DefinitionList", (n) => {
       return n.items.flatMap((it) => [...it.term, ...it.definitions.flat()]);
-    case "Table":
+    }),
+    Match.tag("Table", (n) => {
       return [
         ...(n.caption ?? []),
         ...[...n.head, ...n.body, ...n.foot].flatMap((r) => r.cells.flatMap((c) => c.content)),
       ];
-    case "Worksheet":
+    }),
+    Match.tag("Worksheet", (n) => {
       return n.rows.flatMap((r) =>
         r.cells.flatMap((c) => (Predicate.isTagged(c, "CellRichText") ? c.runs : [])),
       );
-    case "SlideShow":
+    }),
+    Match.tag("SlideShow", (n) => {
       return n.slides.flatMap((s) => [...(s.notes ?? []), ...s.shapes]);
-    // ---- shapes
-    case "TextBox":
-    case "Placeholder":
+      // ---- shapes
+    }),
+    Match.tag("TextBox", "Placeholder", (n) => {
       return n.content;
-    case "TableShape":
+    }),
+    Match.tag("TableShape", (n) => {
       return [n.table];
-    default:
+    }),
+    Match.orElse(() => {
       return [];
-  }
+    }),
+  );
 };
 
 /**
