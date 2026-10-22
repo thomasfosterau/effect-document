@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Result, Stream, pipe } from "effect";
 import { cell, document, text, Worksheet, worksheet } from "@thomasfosterau/effect-document";
 import {
-  StandardDialect, TsvDialect, makeCsvReader, makeCsvWriter, scanCsv, scanCsvStream, synthesizeDocument,
+  type CsvReaderOptions, StandardDialect, TsvDialect, inferCell, makeCsvReader, makeCsvWriter, scanCsv,
+  scanCsvStream, synthesizeDocument,
 } from "../src/index.js";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -37,6 +38,53 @@ describe("CSV reader", () => {
     const reader = makeCsvReader();
     const doc = await run(reader.read(text("a,1\nb,2\n")));
     expect(reader.profile.is(doc)).toBe(true);
+  });
+
+  const cells = async (input: string, options?: CsvReaderOptions) =>
+    firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
+      r.cells.map((c) => ("value" in c ? c.value : null))
+    );
+
+  test("reads only plain decimals as numbers", async () => {
+    expect(inferCell("007")).toEqual(cell.text("007"));
+    const values = ["007", "02134", "0x1F", "0b11", "+1", " 12 ", "1.", ".5", "Infinity", "12345678901234567890",
+      "1234567890.12345", "0", "-12.5", "1e3", "1000000000000000000000", "0.000123"];
+    expect((await cells(values.join(",")))[0]).toEqual([
+      "007", "02134", "0x1F", "0b11", "+1", " 12 ", "1.", ".5", "Infinity", "12345678901234567890",
+      1234567890.12345, 0, -12.5, 1000, 1e21, 0.000123,
+    ]);
+  });
+
+  test("booleans are case-insensitive and configurable", async () => {
+    expect(await cells("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
+    expect(await cells("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([["TRUE", true]]);
+    expect(await cells("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([[true, false, "true"]]);
+    expect(await cells("true\n", { booleans: false })).toEqual([["true"]]);
+  });
+
+  test("decimalChar, groupChar and percent", async () => {
+    const options: CsvReaderOptions = { dialect: { ...TsvDialect }, decimalChar: ",", groupChar: ".", percent: true };
+    expect(await cells("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
+      [1234.56, 1234.5, 0.12, 0.07, "1.23,4", "12,34.5"],
+    ]);
+    expect(await cells('"1,234.56",12%\n', { groupChar: "," })).toEqual([[1234.56, "12%"]]);
+  });
+
+  test("nullValues become blank cells", async () => {
+    const doc = await run(makeCsvReader({ nullValues: ["", "NA", "NULL"] }).read(text("NA,NULL,,na\n")));
+    expect(firstWorksheet(doc).rows[0]!.cells.map((c) => c._tag)).toEqual(["CellBlank", "CellBlank", "CellBlank", "CellText"]);
+  });
+
+  test("column inference types a column by all its values", async () => {
+    const input = "1,true,a,1\n2,false,,x\n,TRUE,b,3\n";
+    expect(await cells(input, { inference: "column" })).toEqual([
+      [1, true, "a", "1"], [2, false, null, "x"], [null, true, "b", "3"],
+    ]);
+    expect(await cells(input)).toEqual([[1, true, "a", 1], [2, false, null, "x"], [null, true, "b", 3]]);
+    // the header row is excluded from inference
+    expect(await cells("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true })).toEqual([
+      ["id", "ok"], [1, true],
+    ]);
   });
 
   test("readStream yields rows", async () => {
