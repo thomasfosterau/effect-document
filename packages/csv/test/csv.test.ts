@@ -494,3 +494,56 @@ describe("synthesizeDocument", () => {
     expect(ws.rows).toHaveLength(6); // header + 5
   });
 });
+
+describe("validateHeaders (#87)", () => {
+  const scan = (text: string, options: Parameters<typeof scanCsv>[2]) =>
+    Effect.runSync(Effect.result(scanCsv(text, undefined, options)));
+  const stream = (text: string, options: Parameters<typeof scanCsvStream>[2]) =>
+    Effect.runPromise(
+      Effect.result(Stream.runCollect(scanCsvStream(Stream.make(text), undefined, options))),
+    );
+
+  test("is off by default: duplicate and empty names are kept", () => {
+    const r = scan(",a,a\n1,2,3\n", { treatFirstRowAsHeader: true });
+    expect(Result.isSuccess(r) && r.success.headers).toEqual(["", "a", "a"]);
+  });
+
+  test("rejects an empty or whitespace-only name with its column", () => {
+    const first = scan(",a,b\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
+    assert(Result.isFailure(first));
+    expect(first.failure.reason).toBe("Header 1 is empty");
+    expect(first.failure.position).toEqual({ row: 0, column: 0 });
+    const blank = scan("a, ,b\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
+    assert(Result.isFailure(blank));
+    expect(blank.failure.reason).toBe("Header 2 is empty");
+  });
+
+  test("rejects a repeated name, naming both columns", () => {
+    const r = scan("a,b,a\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
+    assert(Result.isFailure(r));
+    expect(r.failure.reason).toBe('Header "a" appears in columns 1 and 3');
+    expect(r.failure.position).toEqual({ row: 0, column: 2 });
+  });
+
+  test("checks providedHeaders too, and passes valid headers through", () => {
+    const bad = scan("1,2\n", { providedHeaders: ["x", "x"], validateHeaders: true });
+    assert(Result.isFailure(bad));
+    expect(bad.failure.position?.row).toBeUndefined();
+    const good = scan("a,b\n1,2\n", { treatFirstRowAsHeader: true, validateHeaders: true });
+    expect(Result.isSuccess(good) && good.success.headers).toEqual(["a", "b"]);
+  });
+
+  test("the stream scanner applies the same check", async () => {
+    const fromRow = await stream("a,a\n1,2\n", {
+      treatFirstRowAsHeader: true,
+      validateHeaders: true,
+    });
+    assert(Result.isFailure(fromRow));
+    expect(fromRow.failure.reason).toBe('Header "a" appears in columns 1 and 2');
+    const provided = await stream("1,2\n", { providedHeaders: ["", "y"], validateHeaders: true });
+    assert(Result.isFailure(provided));
+    expect(provided.failure.reason).toBe("Header 1 is empty");
+    const ok = await stream("a,b\n1,2\n", { treatFirstRowAsHeader: true, validateHeaders: true });
+    expect(Result.isSuccess(ok) && [...ok.success]).toEqual([["1", "2"]]);
+  });
+});

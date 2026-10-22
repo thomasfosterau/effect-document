@@ -16,6 +16,7 @@ import {
   Token,
 } from "@thomasfosterau/effect-parse";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
@@ -31,6 +32,13 @@ export interface CsvScanOptions {
   readonly treatFirstRowAsHeader?: boolean | undefined;
   /** Supply custom column headers. */
   readonly providedHeaders?: ReadonlyArray<string> | undefined;
+  /**
+   * Fail with a ParseError when the headers (from the first row or
+   * `providedHeaders`) contain an empty or whitespace-only name, or the same
+   * name twice. Off by default: such headers are common (pandas writes an
+   * unnamed index column) and are kept as they are.
+   */
+  readonly validateHeaders?: boolean | undefined;
   /**
    * Physical lines to skip before scanning. Lines end at CRLF, LF or a bare CR,
    * and are counted without regard to quoting, so the skipped lines need not be
@@ -259,6 +267,29 @@ const columnCountError = (row: number, actual: number, expected: number): ParseE
     position: { row },
   });
 
+/**
+ * Fail on the first empty (or whitespace-only) or repeated header name, at its
+ * column; `row` is the header row's source row, when the headers came from one.
+ */
+const checkHeaders = (
+  headers: ReadonlyArray<string>,
+  row: number | undefined,
+): Effect.Effect<void, ParseError> =>
+  Option.match(
+    Arr.findFirstWithIndex(headers, (name, i): Option.Option<string> => {
+      if (name.trim() === "") return Option.some(`Header ${i + 1} is empty`);
+      const first = headers.indexOf(name);
+      return first < i
+        ? Option.some(`Header "${name}" appears in columns ${first + 1} and ${i + 1}`)
+        : Option.none();
+    }),
+    {
+      onNone: () => Effect.void,
+      onSome: ([reason, column]) =>
+        Effect.fail(new ParseError({ format: "csv", reason, position: { row, column } })),
+    },
+  );
+
 const splitHeaders = (
   records: ReadonlyArray<Located>,
   options: CsvScanOptions,
@@ -267,6 +298,18 @@ const splitHeaders = (
   const dropFirst = !!options.treatFirstRowAsHeader;
   const headers = options.providedHeaders ?? (dropFirst ? records[0]!.fields : null);
   const data = dropFirst ? records.slice(1) : records;
+  const validated =
+    options.validateHeaders && headers !== null
+      ? checkHeaders(headers, options.providedHeaders ? undefined : records[0]?.row)
+      : Effect.void;
+  return Effect.flatMap(validated, () => splitRows(headers, data, options));
+};
+
+const splitRows = (
+  headers: ReadonlyArray<string> | null,
+  data: ReadonlyArray<Located>,
+  options: CsvScanOptions,
+): Effect.Effect<ScannedTable, ParseError> => {
   if (!options.allowVariableColumns) {
     const width = headers?.length ?? data[0]?.fields.length ?? 0;
     for (const { row, fields } of data) {
@@ -408,9 +451,11 @@ export const scanCsvStream = <E, R>(
   Stream.suspend(() => {
     const opts = defaults(options);
     const provided = opts.providedHeaders ?? null;
+    const validated =
+      opts.validateHeaders && provided !== null ? checkHeaders(provided, undefined) : Effect.void;
     // the source row the next scanned row starts on
     let nextRow = opts.skipRows ?? 0;
-    return pipe(
+    const rows = pipe(
       chunks,
       dropBom,
       dropLines(opts.skipRows ?? 0),
@@ -441,7 +486,10 @@ export const scanCsvStream = <E, R>(
           const index = state.index + 1;
           if (opts.treatFirstRowAsHeader && state.index === 0) {
             const headers = state.headers ?? fields;
-            return Effect.succeed([{ index, headers, width: headers.length }, []] as const);
+            const validated = opts.validateHeaders
+              ? checkHeaders(headers, state.headers ? undefined : row)
+              : Effect.void;
+            return Effect.as(validated, [{ index, headers, width: headers.length }, []] as const);
           }
           const width = state.width ?? fields.length;
           if (!opts.allowVariableColumns && fields.length !== width) {
@@ -451,4 +499,5 @@ export const scanCsvStream = <E, R>(
         },
       ),
     );
+    return Stream.concat(Stream.fromEffectDrain(validated), rows);
   });
