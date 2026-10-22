@@ -323,6 +323,15 @@ export default defineConfig({
         command: "vp test run --project validate",
         cache: false,
       },
+      // Opens our writers' output in independent tools (`test/interop`):
+      // LibreOffice converts every DOCX, XLSX, PPTX and RTF sample to PDF,
+      // qpdf and pdftotext check the PDF samples, pandoc reads the DOCX
+      // ones. A missing tool skips its tests unless INTEROP=1 (CI's optional
+      // `interop` job installs them all and sets it).
+      "test:interop": {
+        command: "vp test run --project interop",
+        cache: false,
+      },
       // Every package's unit suite plus the integration suite under one
       // Istanbul coverage map (`coverage/coverage-final.json`), which `fallow
       // audit` reads for exact per-function CRAP scores (`health.coverage` in
@@ -337,7 +346,8 @@ export default defineConfig({
       // through `exports` (→ `dist/`); every package's `build` is named
       // explicitly (cached, so a warm tree pays nothing).
       "test:coverage": {
-        command: "vp test run --coverage --project '!corpus' --project '!validate'",
+        command:
+          "vp test run --coverage --project '!corpus' --project '!validate' --project '!interop'",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -372,6 +382,16 @@ export default defineConfig({
           name: "validate",
           include: ["test/validate/**/*.test.ts"],
           testTimeout: 120_000,
+        },
+      },
+      // Interoperability (#134): our output opened by LibreOffice, qpdf,
+      // pdftotext and pandoc. Run by CI's optional `interop` job.
+      {
+        resolve: { alias: integrationAliases },
+        test: {
+          name: "interop",
+          include: ["test/interop/**/*.test.ts"],
+          testTimeout: 180_000,
         },
       },
       // Corpus smoke mode (#133): every reader over the corpora fetched into

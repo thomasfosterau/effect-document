@@ -15,7 +15,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Predicate from "effect/Predicate";
 import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -23,15 +22,9 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { unzipSync } from "fflate";
 import { describe, expect, test } from "vite-plus/test";
-import {
-  type Content,
-  type Doc,
-  type Feature,
-  trustAs,
-  type WriteError,
-} from "@thomasfosterau/effect-document";
+import type { Feature } from "@thomasfosterau/effect-document";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import { type Family, sampleFor } from "../samples.ts";
+import { type AnyWriter, type Family, writeSamples } from "../samples.ts";
 import { DCTERMS_XSD, DC_XSD, XML_XSD } from "./xsd-stubs.ts";
 
 /** The schema, under the ECMA-376 `ref/xsd` directory, for each root-element namespace. */
@@ -66,12 +59,6 @@ const KNOWN_DIVERGENCES: ReadonlyArray<{ readonly pattern: RegExp; readonly why:
     why: "xml:space on SpreadsheetML <t>",
   },
 ];
-
-/** What the check needs of a writer, with its profile erased (writers are contravariant in it). */
-interface AnyWriter {
-  readonly profile: { readonly features: ReadonlySet<Feature> };
-  readonly write: (doc: Doc<never>) => Effect.Effect<Content, WriteError>;
-}
 
 /** The writers checked, each with the family its feature samples are built for. */
 const WRITERS: ReadonlyArray<{
@@ -155,33 +142,20 @@ const xmlParts = (feature: Feature, bytes: Uint8Array): ReadonlyArray<Part> =>
  * root element's namespace; parts with no schema here are listed apart.
  */
 const partsOf = ({ writer, family }: (typeof WRITERS)[number]) =>
-  Effect.map(
-    Effect.forEach(
-      [...writer.profile.features],
-      (feature) => {
-        const doc = sampleFor(feature, family);
-        if (doc === undefined) return Effect.succeed([]);
-        return Effect.map(writer.write(trustAs(doc)), (content) =>
-          Predicate.isTagged(content, "Bytes") ? xmlParts(feature, content.bytes) : [],
-        );
-      },
-      { concurrency: 1 },
-    ),
-    (perFeature) => {
-      const parts = Arr.flatten(perFeature);
-      const unknown = Arr.filterMap(parts, (part) => {
-        const ns = rootNamespace(part.xml);
-        return Option.isSome(ns) && isNamespace(ns.value)
-          ? Result.failVoid
-          : Result.succeed(`${part.name} (${Option.getOrElse(ns, () => "no namespace")})`);
-      });
-      const byNamespace = Arr.groupBy(
-        Arr.filter(parts, (part) => Option.exists(rootNamespace(part.xml), isNamespace)),
-        (part) => Option.getOrElse(rootNamespace(part.xml), () => ""),
-      );
-      return { byNamespace, unknown };
-    },
-  );
+  Effect.map(writeSamples(writer, family), (samples) => {
+    const parts = samples.flatMap(({ feature, bytes }) => xmlParts(feature, bytes));
+    const unknown = Arr.filterMap(parts, (part) => {
+      const ns = rootNamespace(part.xml);
+      return Option.isSome(ns) && isNamespace(ns.value)
+        ? Result.failVoid
+        : Result.succeed(`${part.name} (${Option.getOrElse(ns, () => "no namespace")})`);
+    });
+    const byNamespace = Arr.groupBy(
+      Arr.filter(parts, (part) => Option.exists(rootNamespace(part.xml), isNamespace)),
+      (part) => Option.getOrElse(rootNamespace(part.xml), () => ""),
+    );
+    return { byNamespace, unknown };
+  });
 
 /** Validates parts against one namespace's schema; the errors left after the known divergences. */
 const validate = (ns: Namespace, parts: ReadonlyArray<Part>) =>
