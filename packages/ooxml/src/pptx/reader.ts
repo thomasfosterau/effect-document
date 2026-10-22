@@ -14,13 +14,24 @@ import {
   type Shape, Slide, SlideShow, Str, Strikeout, Strong, TextBox, trustAs, Underline,
 } from "@thomasfosterau/effect-document";
 import {
-  OpcReader, type XmlElement, findChild, findChildren, getAttr, parseXml,
+  type OpcLimits, OpcReader, type XmlElement, findChild, findChildren, getAttr, ooxmlParseError,
 } from "../shared/index.js";
 import { Pptx, type PptxFeature } from "./profile.js";
 
 export interface PptxReaderOptions {
-  readonly _?: never;
+  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
+  readonly limits?: Partial<OpcLimits>;
 }
+
+/** Main-part content types this reader accepts. */
+const MAIN_CONTENT_TYPES = [
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+  "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml",
+  "application/vnd.openxmlformats-officedocument.presentationml.slideshow.main+xml",
+  "application/vnd.ms-powerpoint.slideshow.macroEnabled.main+xml",
+  "application/vnd.openxmlformats-officedocument.presentationml.template.main+xml",
+  "application/vnd.ms-powerpoint.template.macroEnabled.main+xml",
+];
 
 interface Fmt {
   b: boolean;
@@ -123,15 +134,16 @@ const shapeOf = (sp: XmlElement): Shape => {
 };
 
 /** Create a PPTX Reader. */
-export const makePptxReader = (_options?: PptxReaderOptions): Reader<PptxFeature> => {
+export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxFeature> => {
   const read = (input: Content): Effect.Effect<Doc<PptxFeature>, ParseError> =>
     Effect.try({
       try: () => {
-        const pkg = new OpcReader(contentToBytes(input));
+        const pkg = new OpcReader(contentToBytes(input), options?.limits);
         const presPath = pkg.rootTarget("/officeDocument", "ppt/presentation.xml");
+        pkg.expectMainPart(presPath, "pptx", MAIN_CONTENT_TYPES);
         const presXml = pkg.text(presPath);
         if (presXml === null) throw new Error(`missing presentation part: ${presPath}`);
-        const pres = parseXml(presXml);
+        const pres = pkg.xml(presPath)!;
 
         const rels = new Map<string, string>();
         for (const r of pkg.rels(presPath)) rels.set(r.id, r.target);
@@ -147,7 +159,7 @@ export const makePptxReader = (_options?: PptxReaderOptions): Reader<PptxFeature
           if (target === undefined) continue;
           const slideXml = pkg.text(target);
           if (slideXml === null) continue;
-          const slideRoot = parseXml(slideXml);
+          const slideRoot = pkg.xml(target)!;
           const cSld = findChild(slideRoot, "cSld");
           const spTree = cSld === undefined ? undefined : findChild(cSld, "spTree");
           const shapes = spTree === undefined ? [] : findChildren(spTree, "sp").map(shapeOf);
@@ -157,7 +169,7 @@ export const makePptxReader = (_options?: PptxReaderOptions): Reader<PptxFeature
         return trustAs<PptxFeature>(document([new SlideShow({ slides })]));
       },
       catch: (cause) =>
-        new ParseError({ format: "pptx", reason: `Failed to parse pptx: ${String(cause)}`, cause }),
+        ooxmlParseError("pptx", cause),
     });
   return { format: "pptx", profile: Pptx, read };
 };

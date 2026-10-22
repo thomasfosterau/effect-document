@@ -15,6 +15,7 @@ import {
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 import { toA1 } from "./a1.js";
 import { SharedStrings, cellToSpreadsheetMl } from "./cellTypes.js";
+import { ZIP_MTIME } from "../shared/opc.js";
 import { escapeAttr, escapeXml } from "./xml.js";
 
 type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
@@ -169,7 +170,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<SpreadsheetF
           files[`xl/worksheets/sheet${i + 1}.xml`] = strToU8(xml);
         });
 
-        return bytes(zipSync(files, { level }));
+        return bytes(zipSync(files, { level, mtime: ZIP_MTIME }));
       },
       catch: (cause) =>
         new WriteError({

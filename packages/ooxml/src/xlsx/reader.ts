@@ -2,8 +2,9 @@
  * The XLSX Reader: .xlsx bytes -> a multi-worksheet document in the Spreadsheet
  * profile.
  *
- * Unzips the OOXML package with fflate, resolves the workbook and worksheet
- * parts through their relationship files, parses the SpreadsheetML, and builds
+ * Opens the OOXML package with the shared `OpcReader` (lazy, size-limited
+ * inflation), resolves the workbook and worksheet parts through their
+ * relationship files, parses the SpreadsheetML, and builds
  * a dense, typed cell grid per sheet.
  *
  * The grid is sized by the cells that hold a value; empty `<row>`s and
@@ -13,7 +14,6 @@
  */
 
 import { Effect, Layer } from "effect";
-import { strFromU8, unzipSync } from "fflate";
 import {
   cell, type Content, contentToBytes, type Doc, document, type FeaturesOf, makeReaderTag,
   ParseError, type Reader, type SheetCell, SheetRow, trustAs, Worksheet,
@@ -22,7 +22,8 @@ import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 import { parseA1, parseA1Range } from "./a1.js";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.js";
 import { translateFormula } from "./formula.js";
-import { findChild, findChildren, getAttr, parseXml, type XmlElement } from "./xml.js";
+import { type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.js";
+import { findChild, findChildren, getAttr, type XmlElement } from "./xml.js";
 
 export type SpreadsheetFeature = FeaturesOf<typeof Spreadsheet>;
 
@@ -44,7 +45,17 @@ export interface XlsxReaderOptions {
    * instead of exhausting memory. Defaults to {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number;
+  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
+  readonly limits?: Partial<OpcLimits>;
 }
+
+/** Main-part content types of spreadsheet packages (workbook, macro-enabled, template). */
+const WORKBOOK_CONTENT_TYPES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+  "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml",
+  "application/vnd.ms-excel.template.macroEnabled.main+xml",
+];
 
 /** The default {@link XlsxReaderOptions.maxCells}: five million cells. */
 export const DEFAULT_MAX_CELLS = 5_000_000;
@@ -53,51 +64,16 @@ export const DEFAULT_MAX_CELLS = 5_000_000;
 // OOXML package navigation
 // ============================================================================
 
-interface XlsxArchive {
-  readonly files: Record<string, Uint8Array>;
-}
-
-const readEntry = (archive: XlsxArchive, path: string): string | null => {
-  const normalized = path.startsWith("/") ? path.substring(1) : path;
-  const entry = archive.files[normalized];
-  return entry === undefined ? null : strFromU8(entry);
-};
-
-const parseEntry = (
-  archive: XlsxArchive,
-  path: string,
-  format: string
-): Effect.Effect<XmlElement, ParseError> =>
+/** A required part, parsed; failures keep the part name and XML position. */
+const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, ParseError> =>
   Effect.try({
     try: () => {
-      const content = readEntry(archive, path);
-      if (content === null) throw new Error(`Missing required package part: ${path}`);
-      return parseXml(content);
+      const root = pkg.xml(path);
+      if (root === null) throw new Error(`Missing required package part: ${path}`);
+      return root;
     },
-    catch: (cause) =>
-      new ParseError({ format, reason: `Failed to parse "${path}": ${String(cause)}`, cause }),
+    catch: (cause) => ooxmlParseError("xlsx", cause),
   });
-
-const resolveTarget = (baseDir: string, target: string): string => {
-  if (target.startsWith("/")) return target.substring(1);
-  const segments = [...baseDir.split("/").filter((s) => s !== ""), ...target.split("/")];
-  const resolved: string[] = [];
-  for (const segment of segments) {
-    if (segment === "..") resolved.pop();
-    else if (segment !== ".") resolved.push(segment);
-  }
-  return resolved.join("/");
-};
-
-const parseRelationships = (
-  relsRoot: XmlElement,
-  baseDir: string
-): ReadonlyArray<{ id: string; type: string; target: string }> =>
-  findChildren(relsRoot, "Relationship").map((rel) => ({
-    id: getAttr(rel, "Id") ?? "",
-    type: getAttr(rel, "Type") ?? "",
-    target: resolveTarget(baseDir, getAttr(rel, "Target") ?? ""),
-  }));
 
 // ============================================================================
 // Sheet parsing
@@ -225,26 +201,16 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetF
 
   const read = (input: Content): Effect.Effect<Doc<SpreadsheetFeature>, ParseError> =>
     Effect.gen(function* () {
-      const archive: XlsxArchive = yield* Effect.try({
-        try: () => ({ files: unzipSync(contentToBytes(input)) }),
-        catch: (cause) =>
-          new ParseError({
-            format: "xlsx",
-            reason: `Failed to unzip xlsx package: ${String(cause)}`,
-            cause,
-          }),
+      const { pkg, workbookPath, relationships } = yield* Effect.try({
+        try: () => {
+          const pkg = new OpcReader(contentToBytes(input), options?.limits);
+          if (pkg.text("_rels/.rels") === null) throw new Error("Missing required package part: _rels/.rels");
+          const workbookPath = pkg.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
+          pkg.expectMainPart(workbookPath, "xlsx", WORKBOOK_CONTENT_TYPES);
+          return { pkg, workbookPath, relationships: pkg.rels(workbookPath).filter((r) => !r.external) };
+        },
+        catch: (cause) => ooxmlParseError("xlsx", cause),
       });
-
-      const rootRels = yield* parseEntry(archive, "_rels/.rels", "xlsx");
-      const workbookPath =
-        parseRelationships(rootRels, "").find((rel) =>
-          rel.type.endsWith(REL_OFFICE_DOCUMENT_SUFFIX)
-        )?.target ?? "xl/workbook.xml";
-      const workbookDir = workbookPath.substring(0, workbookPath.lastIndexOf("/"));
-
-      const workbookRelsPath = `${workbookDir}/_rels/${workbookPath.substring(workbookPath.lastIndexOf("/") + 1)}.rels`;
-      const workbookRels = yield* parseEntry(archive, workbookRelsPath, "xlsx");
-      const relationships = parseRelationships(workbookRels, workbookDir);
 
       const sharedStringsRel = relationships.find((rel) =>
         rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX)
@@ -252,9 +218,9 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetF
       const sharedStrings: ReadonlyArray<string> =
         sharedStringsRel === undefined
           ? []
-          : parseSharedStrings(yield* parseEntry(archive, sharedStringsRel.target, "xlsx"));
+          : parseSharedStrings(yield* parsePart(pkg, sharedStringsRel.target));
 
-      const workbookRoot = yield* parseEntry(archive, workbookPath, "xlsx");
+      const workbookRoot = yield* parsePart(pkg, workbookPath);
       const sheetsEl = findChild(workbookRoot, "sheets");
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
 
@@ -289,7 +255,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<SpreadsheetF
           });
         }
 
-        const worksheetRoot = yield* parseEntry(archive, target, "xlsx");
+        const worksheetRoot = yield* parsePart(pkg, target);
         const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
         if (grid._tag === "TooLarge") {
           return yield* new ParseError({

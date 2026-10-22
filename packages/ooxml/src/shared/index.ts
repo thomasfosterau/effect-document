@@ -5,3 +5,4 @@
 
 export * from "./xml.js";
 export * from "./opc.js";
+export * from "./errors.js";
