@@ -14,6 +14,10 @@ import type { ParseError } from "@thomasfosterau/effect-parse";
 export type IworkErrorReason =
   /** The input is not a zip archive. */
   | "NotZip"
+  /** A zip, but not an iWork package: it has no `Index/*.iwa` components (e.g. a `.docx`). */
+  | "NotIwork"
+  /** An iWork '09 package (`index.apxl` / `index.xml`, XML rather than IWA), not yet supported. */
+  | "LegacyIwork09Unsupported"
   /** A password-protected document (a top-level `.iwph` marker). */
   | "Encrypted"
   /** A size, count or ratio limit was exceeded (a likely zip or Snappy bomb). */

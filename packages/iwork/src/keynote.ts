@@ -3,8 +3,9 @@
  *
  * Reads text from Apple Keynote (.key) presentations: each `Slide-*.iwa`
  * component becomes a slide, and its `TSWP.StorageArchive` text is extracted
- * into a text-box of paragraphs. Styling, exact title/body roles and true slide
- * order (vs. component order) are not yet reconstructed.
+ * into a text-box of paragraphs. Slides follow their component ids in numeric
+ * order; the true order (the show's slide tree) needs the object resolver.
+ * Styling and exact title/body roles are not yet reconstructed.
  */
 
 import { Effect, Layer } from "effect";
@@ -34,7 +35,8 @@ export const keynoteFeatures = [
 export const Keynote = defineProfile("keynote", keynoteFeatures);
 export type KeynoteFeature = FeaturesOf<typeof Keynote>;
 
-const SLIDE_COMPONENT = /\/Slide-\d+\.iwa$/;
+/** `Index/Slide-NNNN.iwa`, or a suffixed `Slide-NNNN-2.iwa` (a separate component). */
+const SLIDE_COMPONENT = /\/Slide-\d+(?:-\d+)?\.iwa$/;
 
 /** A storage's paragraphs, one `Para` each. */
 const storageBlocks = (payload: Uint8Array): Block[] =>
