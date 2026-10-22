@@ -101,13 +101,17 @@ export default defineConfig({
       // preset's `error`.
       // Remaining sites are listed in effect-document#155, which also says
       // why each rule could not reach zero in the migration PR.
-      // 181 sites, most in the PDF lexer / parser / text layout: indexed
-      // loops over bytes and glyphs in the decoders' hot paths.
+      // 254 sites in packages/*/src (pdf 142, ooxml 46, iwork 31, core 22,
+      // csv 7, rtf 6): indexed loops over bytes, glyphs and XML children in the
+      // decoders' hot paths, and the explicit-stack walks that keep deep
+      // documents off the call stack.
       "effect/imperative-loops": "warn",
-      // 180 sites: `buf[i]!`-style reads beside a bounds check the compiler
-      // cannot see (`noUncheckedIndexedAccess`).
+      // 191 sites in packages/*/src (pdf 107, ooxml 40, iwork 27, csv 8,
+      // rtf 6, core 3): `buf[i]!`-style reads beside a bounds check the
+      // compiler cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
-      // 42 sites: `PdfDict.entries` is a public `Map` in the `./cos` object
+      // 86 sites in packages/*/src (pdf 39, ooxml 27, iwork 12, rtf 4, core 2,
+      // csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
       // model and `Profile.features` / `collectFeatures` are public `Set`s
       // (a `HashMap` / `HashSet` would change that API), the rest are decoder
       // caches and identity-keyed cycle guards; plus the CSV compiled-parser

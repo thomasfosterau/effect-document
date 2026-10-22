@@ -207,17 +207,17 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
     /** One handler per content-stream operator; unknown operators are ignored. */
     const operators = HashMap.fromIterable<string, OperatorHandler>(
       Rec.toEntries({
-        q: (operands, n) => {
+        q: () => {
           stack.push({ ctm: gs.ctm, text: { ...gs.text } });
         },
-        Q: (operands, n) => {
+        Q: () => {
           gs = stack.pop() ?? gs;
         },
-        cm: (operands, n) => {
+        cm: (operands) => {
           const m = toMatrix(operands);
           if (m !== undefined) gs = { ...gs, ctm: mul(m, gs.ctm) };
         },
-        BT: (operands, n) => {
+        BT: () => {
           tm = IDENTITY;
           tlm = IDENTITY;
         },
@@ -248,21 +248,21 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           gs.text.leading = -n(1);
           nextLine(n(0), n(1));
         },
-        Tm: (operands, n) => {
+        Tm: (operands) => {
           const m = toMatrix(operands);
           if (m !== undefined) {
             tm = m;
             tlm = m;
           }
         },
-        "T*": (operands, n) => {
+        "T*": () => {
           nextLine(0, -gs.text.leading);
         },
-        Tj: (operands, n) => {
+        Tj: (operands) => {
           const s = operands[0];
           if (isString(s)) show(s.bytes);
         },
-        "'": (operands, n) => {
+        "'": (operands) => {
           nextLine(0, -gs.text.leading);
           const s = operands[0];
           if (isString(s)) show(s.bytes);
@@ -274,7 +274,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           const s = operands[2];
           if (isString(s)) show(s.bytes);
         },
-        TJ: (operands, n) => {
+        TJ: (operands) => {
           const a = operands[0];
           if (!isArray(a)) return;
           for (const item of a.items) {
@@ -285,7 +285,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             }
           }
         },
-        gs: (operands, n) => {
+        gs: (operands) => {
           const name = operands[0];
           const ext = isName(name)
             ? file.lookupDict(file.lookupDict(resources, "ExtGState"), name.name)
@@ -297,7 +297,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             if (Predicate.isNumber(size)) gs.text.size = size;
           }
         },
-        Do: (operands, n) => {
+        Do: (operands) => {
           const name = operands[0];
           if (!isName(name) || depth >= MAX_FORM_DEPTH) return;
           const xobj = file.lookup(file.lookupDict(resources, "XObject"), name.name);
@@ -324,10 +324,10 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           );
           forms.delete(xobj);
         },
-        BMC: (operands, n) => {
+        BMC: () => {
           marked.push({ start: glyphs.length });
         },
-        BDC: (operands, n) => {
+        BDC: (operands) => {
           let props = operands[1];
           if (isName(props))
             props = file.lookup(file.lookupDict(resources, "Properties"), props.name);
@@ -337,7 +337,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             actual: isString(actual) ? decodeTextString(actual.bytes) : undefined,
           });
         },
-        EMC: (operands, n) => {
+        EMC: () => {
           const m = marked.pop();
           if (m?.actual === undefined || m.start >= glyphs.length) return;
           // the replacement text goes on the first glyph; the rest are silenced
