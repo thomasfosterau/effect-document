@@ -16,12 +16,29 @@ import { escapeXml, findChild, type XmlElement } from "./xml.js";
 // Writing: SheetCell -> SpreadsheetML <c> fragment
 // ============================================================================
 
+/**
+ * Encode a string as SpreadsheetML ST_Xstring: characters XML 1.0 can't carry
+ * (C0 controls other than tab, LF and CR, lone surrogates, U+FFFE/U+FFFF)
+ * become `_xHHHH_`, and the underscore of a literal `_xHHHH_` is escaped as
+ * `_x005F_` so it survives decoding. The inverse of {@link decodeXstring}.
+ */
+export const encodeXstring = (s: string): string =>
+  s.replace(
+    /_(?=x[0-9A-Fa-f]{4}_)|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    (ch) => `_x${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}_`
+  );
+
+/** Escape and ST_Xstring-encode text for a SpreadsheetML element. */
+export const escapeXstring = (s: string): string => escapeXml(encodeXstring(s));
+
 /** Accumulates the shared strings table while rendering cells. */
 export class SharedStrings {
   private readonly indices = new Map<string, number>();
   private readonly entries: string[] = [];
+  private references = 0;
 
   intern(value: string): number {
+    this.references++;
     const existing = this.indices.get(value);
     if (existing !== undefined) return existing;
     const index = this.entries.length;
@@ -32,6 +49,11 @@ export class SharedStrings {
 
   get strings(): ReadonlyArray<string> {
     return this.entries;
+  }
+
+  /** The number of cells referring to the table (`sst@count`). */
+  get count(): number {
+    return this.references;
   }
 }
 
@@ -48,15 +70,21 @@ export const cellToSpreadsheetMl = (
     case "CellBlank":
       return null;
     case "CellNumber":
-      return { type: null, inner: `<v>${String(c.value)}</v>` };
+      // SpreadsheetML numbers are finite; NaN and ±Infinity become #NUM!.
+      return Number.isFinite(c.value)
+        ? { type: null, inner: `<v>${String(c.value)}</v>` }
+        : { type: "e", inner: "<v>#NUM!</v>" };
     case "CellBoolean":
       return { type: "b", inner: `<v>${c.value ? "1" : "0"}</v>` };
     case "CellError":
-      return { type: "e", inner: `<v>${escapeXml(c.value)}</v>` };
+      return { type: "e", inner: `<v>${escapeXstring(c.value)}</v>` };
     case "CellFormula":
+      // SpreadsheetML stores formulas without the leading "=".
       return {
         type: "str",
-        inner: `<f>${escapeXml(c.formula)}</f><v>${escapeXml(c.result ?? "")}</v>`,
+        inner:
+          `<f>${escapeXstring(c.formula.replace(/^=/, ""))}</f>` +
+          `<v>${escapeXstring(c.result ?? "")}</v>`,
       };
     case "CellText":
       return { type: "s", inner: `<v>${sharedStrings.intern(c.value)}</v>` };

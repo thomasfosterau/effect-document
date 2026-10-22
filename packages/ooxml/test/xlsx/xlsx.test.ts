@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { strToU8, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
-  bytes, cell, cellToText, type Doc, document, type FeaturesOf, trustAs, worksheet, Worksheet,
+  bytes, cell, cellToText, type SheetCell, type Doc, document, type FeaturesOf, trustAs, worksheet, Worksheet,
 } from "@thomasfosterau/effect-document";
-import { makeXlsxReader, makeXlsxWriter, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.js";
+import { makeXlsxReader, makeXlsxWriter, sanitizeSheetNames, type XlsxFeature, type XlsxReadFeature } from "../../src/xlsx/index.js";
 import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -256,5 +256,109 @@ describe("XLSX reader fixes (#60)", () => {
     const c = (await readSheets(xlsx))[0]!.rows[0]!.cells[0]!;
     expect(c._tag).toBe("CellDate");
     expect(c._tag === "CellDate" && c.value.toISOString()).toBe("2024-03-05T00:00:00.000Z");
+  });
+});
+
+describe("XLSX writer validity (#61)", () => {
+  const sheetDoc = (...sheets: Array<[string, SheetCell[][]]>) =>
+    trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
+  const parts = async (doc: Doc<SpreadsheetF>) => {
+    const out = await run(makeXlsxWriter().write(doc));
+    if (out._tag !== "Bytes") throw new Error("expected bytes");
+    const files = unzipSync(out.bytes);
+    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
+  };
+
+  test("NaN and ±Infinity are written as #NUM! errors", async () => {
+    const doc = sheetDoc(["S", [[cell.number(Number.NaN), cell.number(Infinity), cell.number(1)]]]);
+    const part = await parts(doc);
+    expect(part("xl/worksheets/sheet1.xml")).not.toContain("NaN");
+    const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))));
+    expect(back[0]!.rows[0]!.cells.map((c) => c._tag)).toEqual(["CellError", "CellError", "CellNumber"]);
+    expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: "#NUM!" });
+  });
+
+  test("characters invalid in XML are _xHHHH_-encoded and round-trip", async () => {
+    const tricky = "a\u0001b\u001Fc\td\ne_x0041_f\uD800g";
+    const doc = sheetDoc(["S", [[cell.text(tricky), cell.formula(`"\u0002"`, "\u0003")]]]);
+    const part = await parts(doc);
+    const sst = part("xl/sharedStrings.xml")!;
+    expect(sst).toContain("a_x0001_b_x001F_c\td\ne_x005F_x0041_f_xD800_g");
+    expect(/[\u0000-\u0008]/.test(sst + part("xl/worksheets/sheet1.xml"))).toBe(false);
+    const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))));
+    expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: tricky });
+    expect(back[0]!.rows[0]!.cells[1]).toMatchObject({ formula: `"\u0002"`, result: "\u0003" });
+  });
+
+  test("sheet names are sanitised deterministically", () => {
+    expect(
+      sanitizeSheetNames(["a[b]:c*?/\\d", "", "History", "data", "DATA", "x".repeat(40), "x".repeat(40), "'q'"])
+    ).toEqual([
+      "a_b__c____d", "Sheet2", "History_", "data", "DATA (2)",
+      "x".repeat(31), `${"x".repeat(27)} (2)`, "q",
+    ]);
+  });
+
+  test("written sheet names are the sanitised ones", async () => {
+    const back = worksheets(
+      await run(makeXlsxReader().read(await run(makeXlsxWriter().write(
+        sheetDoc(["A/B", [[cell.number(1)]]], ["a/b", [[cell.number(2)]]])
+      ))))
+    );
+    expect(back.map((w) => w.name)).toEqual(["A_B", "a_b (2)"]);
+  });
+
+  test("a leading = is stripped from formulas", async () => {
+    const part = await parts(sheetDoc(["S", [[cell.formula("=A1+1", "2")]]]));
+    expect(part("xl/worksheets/sheet1.xml")).toContain("<f>A1+1</f>");
+  });
+
+  test("fullCalcOnLoad is set only when a formula lacks a cached result", async () => {
+    expect((await parts(sheetDoc(["S", [[cell.formula("1+1", "2")]]])))("xl/workbook.xml")).not.toContain("calcPr");
+    expect((await parts(sheetDoc(["S", [[cell.formula("1+1")]]])))("xl/workbook.xml")).toContain(
+      `<calcPr fullCalcOnLoad="1"/>`
+    );
+  });
+
+  test("sst count is the reference count and uniqueCount the distinct count", async () => {
+    const part = await parts(sheetDoc(["S", [[cell.text("a"), cell.text("a"), cell.text("b")]]]));
+    expect(part("xl/sharedStrings.xml")).toContain(`count="3" uniqueCount="2"`);
+  });
+
+  test("docProps core.xml and app.xml are written and related", async () => {
+    const part = await parts(sheetDoc(["S", [[cell.number(1)]]]));
+    expect(part("docProps/core.xml")).toContain("coreProperties");
+    expect(part("docProps/app.xml")).toContain("<Application>");
+    expect(part("_rels/.rels")).toContain(`Target="docProps/core.xml"`);
+    expect(part("[Content_Types].xml")).toContain(`PartName="/docProps/app.xml"`);
+  });
+
+  test("random grids with edge-case values round-trip", async () => {
+    // A small seeded generator (no property-testing dependency).
+    let seed = 42;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    const pick = <A>(xs: ReadonlyArray<A>): A => xs[Math.floor(rand() * xs.length)]!;
+    const texts = ["", "plain", "_x0041_", "\u0000\u0007", "\uDC00", "<&>\"'", "東京", " lead"];
+    for (let round = 0; round < 25; round++) {
+      const rows = Array.from({ length: 1 + Math.floor(rand() * 5) }, () =>
+        Array.from({ length: 1 + Math.floor(rand() * 5) }, () =>
+          pick([
+            () => cell.text(pick(texts)),
+            () => cell.number(pick([0, -1.5, 1e300, 42])),
+            () => cell.boolean(rand() < 0.5),
+            () => cell.blank(),
+          ])()
+        )
+      );
+      const doc = sheetDoc([pick(["S", "a:b", "History", ""]), rows]);
+      const back = worksheets(await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))))[0]!;
+      const expected = rows.map((r) => r.map((c) => cellToText(c)));
+      const width = Math.max(...rows.map((r) => r.length));
+      // A sheet with no valued cell reads back empty, whatever its declared size.
+      const allBlank = rows.every((r) => r.every((c) => c._tag === "CellBlank"));
+      expect(back.rows.map((r) => r.cells.map((c) => cellToText(c)))).toEqual(
+        allBlank ? [] : expected.map((r) => [...r, ...Array(width - r.length).fill("")])
+      );
+    }
   });
 });

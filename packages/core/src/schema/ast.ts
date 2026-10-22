@@ -614,7 +614,11 @@ export class CellError extends Schema.TaggedClass<CellError>()("CellError", {
 export class CellBlank extends Schema.TaggedClass<CellBlank>()("CellBlank", {
   style: styleField,
 }) {}
-/** A formula cell: the expression plus an optional cached result string. */
+/**
+ * A formula cell: the expression plus an optional cached result string. The
+ * formula is stored without a leading `=` ("A1+1"); writers strip one if
+ * present.
+ */
 export class CellFormula extends Schema.TaggedClass<CellFormula>()("CellFormula", {
   formula: Schema.String,
   result: Schema.optional(Schema.String),
