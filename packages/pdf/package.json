@@ -1,6 +1,6 @@
 {
   "name": "@thomasfosterau/effect-pdf",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "PDF reader and writer for effect-document, with a low-level PDF object layer",
   "type": "module",
   "module": "src/index.ts",
@@ -46,7 +46,7 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
+    "@thomasfosterau/effect-document": "^0.2.0",
     "fflate": "^0.8.2"
   },
   "peerDependencies": {

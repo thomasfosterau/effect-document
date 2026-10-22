@@ -1,6 +1,6 @@
 {
   "name": "@thomasfosterau/effect-ooxml",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Office Open XML (xlsx, docx, pptx) readers and writers for effect-document",
   "type": "module",
   "module": "src/index.ts",
@@ -64,7 +64,7 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
+    "@thomasfosterau/effect-document": "^0.2.0",
     "@thomasfosterau/effect-parse": "^0.1.0",
     "fflate": "^0.8.2"
   },

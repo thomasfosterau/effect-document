@@ -1,6 +1,6 @@
 {
   "name": "@thomasfosterau/effect-iwork",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Experimental, read-only Apple iWork (Pages, Numbers, Keynote) readers for effect-document",
   "type": "module",
   "module": "src/index.ts",
@@ -67,7 +67,7 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
+    "@thomasfosterau/effect-document": "^0.2.0",
     "@thomasfosterau/effect-parse": "^0.1.0",
     "fflate": "^0.8.2"
   },

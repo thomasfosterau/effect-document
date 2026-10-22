@@ -1,6 +1,6 @@
 {
   "name": "@thomasfosterau/effect-rtf",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Rich Text Format reader and writer for effect-document",
   "type": "module",
   "module": "src/index.ts",
@@ -40,7 +40,7 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "license": "MIT",
   "dependencies": {
-    "@thomasfosterau/effect-document": "^0.1.0",
+    "@thomasfosterau/effect-document": "^0.2.0",
     "@thomasfosterau/effect-parse": "^0.1.0"
   },
   "peerDependencies": {
