@@ -9,13 +9,15 @@
 
 import { Effect, Layer } from "effect";
 import {
-  type Block, type Content, contentToBytes, defineProfile, type Doc, document, type FeaturesOf,
-  type Format, makeReaderTag, Para, ParseError, type Reader, Slide, SlideShow, Str, TextBox,
-  trustAs,
+  type Block, type Content, defineProfile, type Doc, document, type FeaturesOf, type Format,
+  makeReaderTag, Para, type ParseError, type Reader, Slide, SlideShow, Str, TextBox, trustAs,
 } from "@thomasfosterau/effect-document";
-import { componentPaths, decodeComponent, openBundle } from "./bundle.js";
+import { componentPaths } from "./bundle.js";
+import { eachComponent, type IworkReaderOptions, openInput } from "./read.js";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.js";
 import { storageParagraphs } from "./text.js";
+
+export type { IworkReaderOptions } from "./read.js";
 
 export const keynoteFeatures = [
   "deck.slideShow",
@@ -34,30 +36,24 @@ export type KeynoteFeature = FeaturesOf<typeof Keynote>;
 
 const SLIDE_COMPONENT = /\/Slide-\d+\.iwa$/;
 
-/** Create a Keynote Reader. */
-export const makeKeynoteReader = (): Reader<KeynoteFeature> => {
+/** A storage's paragraphs, one `Para` each. */
+const storageBlocks = (payload: Uint8Array): Block[] =>
+  storageParagraphs(payload).map((line) => new Para({ content: [new Str({ text: line })] }));
+
+/** Create a Keynote Reader. A component that fails to decode fails the read unless `lenient`. */
+export const makeKeynoteReader = (options?: IworkReaderOptions): Reader<KeynoteFeature> => {
   const read = (input: Content): Effect.Effect<Doc<KeynoteFeature>, ParseError> =>
-    Effect.try({
-      try: () => {
-        const bundle = openBundle(contentToBytes(input));
-        const slides: Slide[] = [];
-        for (const path of componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n))) {
-          const blocks: Block[] = [];
-          for (const obj of decodeComponent(bundle, path)) {
-            for (const msg of obj.messages) {
-              if (!TSWP_STORAGE_ARCHIVE.has(msg.type)) continue;
-              for (const line of storageParagraphs(msg.payload)) {
-                blocks.push(new Para({ content: [new Str({ text: line })] }));
-              }
-            }
-          }
-          slides.push(new Slide({ shapes: blocks.length > 0 ? [new TextBox({ content: blocks })] : [] }));
-        }
-        if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
-        return trustAs<KeynoteFeature>(document([new SlideShow({ slides })]));
-      },
-      catch: (cause) =>
-        new ParseError({ format: "keynote", reason: `Failed to read keynote: ${String(cause)}`, cause }),
+    Effect.gen(function* () {
+      const bundle = yield* openInput("keynote", input, options);
+      const paths = componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n));
+      const decoded = yield* eachComponent("keynote", bundle, paths, options, (obj) =>
+        obj.messages.flatMap((msg) => (TSWP_STORAGE_ARCHIVE.has(msg.type) ? storageBlocks(msg.payload) : []))
+      );
+      const slides = decoded.map(
+        ({ items }) => new Slide({ shapes: items.length > 0 ? [new TextBox({ content: items })] : [] })
+      );
+      if (slides.length === 0) slides.push(new Slide({ shapes: [] }));
+      return trustAs<KeynoteFeature>(document([new SlideShow({ slides })]));
     });
   return { format: "keynote", profile: Keynote, read };
 };
