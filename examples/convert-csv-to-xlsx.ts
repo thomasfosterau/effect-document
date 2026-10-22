@@ -40,7 +40,7 @@ const program = Effect.fn("convert-csv-to-xlsx")(function* () {
 
   // --- CSV -> XLSX (a free widening: CSV's profile is a subset of XLSX's) ---
   const { content: xlsxContent, loss: toXlsxLoss } = yield* convert({
-    from: Csv.format, // the first row is the header by default
+    from: Csv.format, // the header row is sniffed: text over numbers and booleans
     to: Xlsx.format,
     input: text(csvSource),
   });

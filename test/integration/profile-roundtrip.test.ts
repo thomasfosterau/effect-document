@@ -128,8 +128,8 @@ const BLOCK: Partial<Record<Feature, Block>> = {
 /** A sheet-level sample for each spreadsheet feature. */
 /**
  * A worksheet with a header row above `rows`, as real spreadsheets and CSV
- * files have: the CSV reader takes the first row as the header (#88), so a
- * sample's typed cells sit in the data rows.
+ * files have: the CSV reader sniffs a text first row over typed columns as the
+ * header (#88), so a sample's typed cells sit in the data rows.
  */
 const sheet = (name: string, rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
   worksheet(name, [(rows[0] ?? []).map((_, c) => cell.text(`h${c + 1}`)), ...rows]);

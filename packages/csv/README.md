@@ -18,7 +18,7 @@ import { contentToText, text } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
 
 const program = Effect.gen(function* () {
-  // a single worksheet: the first row is the header, and the age and admin
+  // a single worksheet: the header row is sniffed, and the age and admin
   // columns are inferred as number and boolean cells
   const doc = yield* Csv.makeCsvReader().read(text("name,age,admin\nalice,30,true\n"));
   const out = yield* Csv.makeCsvWriter().write(doc);
@@ -26,7 +26,7 @@ const program = Effect.gen(function* () {
 });
 ```
 
-By default the first row is the header (pass `treatFirstRowAsHeader: false` for a headerless file), and each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text.
+By default the reader sniffs the header row: the first row is the header when every value in it is text and some column below it is all numbers or booleans. Pass `treatFirstRowAsHeader: true` or `false` to decide instead (an all-text file needs `true` for its first row to be a header). Each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text.
 
 `Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
 
@@ -40,7 +40,7 @@ import * as Stream from "effect/Stream";
 import * as Csv from "@thomasfosterau/effect-csv";
 
 const chunks = Stream.make("id,na", "me\n1,a", "lice\n2,bob\n");
-const rows = Csv.scanCsvStream(chunks, Csv.StandardDialect); // the first row is the header
+const rows = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHeader: true });
 const all = Stream.runCollect(rows); // [["1", "alice"], ["2", "bob"]]
 ```
 

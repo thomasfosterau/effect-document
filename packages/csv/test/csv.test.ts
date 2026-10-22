@@ -184,7 +184,7 @@ describe("CSV reader", () => {
     ]);
   });
 
-  test("by default the first row is the header and each column is typed as a whole (#88)", async () => {
+  test("by default the header row is sniffed and each column is typed as a whole (#88)", async () => {
     const values = (options?: CsvReaderOptions) =>
       run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
         firstWorksheet(doc).rows.map((r) => r.cells.map((c) => ("value" in c ? c.value : null))),
@@ -206,6 +206,39 @@ describe("CSV reader", () => {
       [2, 8, 3],
     ]);
     expect((await values({ treatFirstRowAsHeader: false }))[1]).toEqual(["1", "007", "2.5"]);
+  });
+
+  test("header sniffing: a typed first row is data, an all-text file has no header (#88)", async () => {
+    const values = async (input: string, options?: CsvReaderOptions) =>
+      firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
+        r.cells.map((c) => ("value" in c ? c.value : null)),
+      );
+    // no text first row: headerless numbers
+    expect(await values("1,2\n3,4\n")).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+    // every column text: nothing tells a header apart, so the first row is data
+    expect(await values("name,city\nalice,paris\n")).toEqual([
+      ["name", "city"],
+      ["alice", "paris"],
+    ]);
+    // a blank in the first row: not a header, so the numbers make that column text
+    expect(await values("id,\n1,2\n")).toEqual([
+      ["id", null],
+      ["1", 2],
+    ]);
+    // one row: no data to compare against
+    expect(await values("a,b\n")).toEqual([["a", "b"]]);
+    // an explicit setting overrides the sniff either way
+    expect(await values("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
+      ["1", "2"],
+      [3, 4],
+    ]);
+    expect(await values("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
+      ["id", "n"],
+      ["1", "2"],
+    ]);
   });
 
   test("readStream yields rows", async () => {

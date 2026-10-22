@@ -7,6 +7,7 @@
  * normalizes the trailing newline, so text is not necessarily byte-identical).
  */
 
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -41,8 +42,8 @@ export interface CsvInferenceOptions {
    * in it is a number, and boolean only if every one is a boolean; otherwise
    * the whole column is text, so a stray code such as `007` keeps its column's
    * other values as written too. `cell`: each value is inferred on its own, so
-   * a column may mix types. With `treatFirstRowAsHeader: false` the first row
-   * counts as data, so a row of names makes every column text.
+   * a column may mix types. A header row is left out of inference (see
+   * `treatFirstRowAsHeader` on the reader options for how it is found).
    */
   readonly inference?: "column" | "cell" | undefined;
   /**
@@ -67,6 +68,17 @@ export interface CsvInferenceOptions {
 
 /** Options for the CSV reader: the dialect, the scan options and type inference. */
 export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
+  /**
+   * Whether the first row is the header. Unset (the default), the reader
+   * sniffs it, as Python's `csv.Sniffer.has_header` does: the first row is the
+   * header when there are at least two rows, every first-row value is
+   * non-empty text, and at least one column's other values all infer as
+   * numbers or booleans. `true` or `false` overrides the sniff, so a file
+   * whose columns are all text needs `true` for its header row to be one. The
+   * header row is read as text cells and left out of inference. (`readStream`
+   * does not infer types, so it does not sniff: unset means no header there.)
+   */
+  readonly treatFirstRowAsHeader?: boolean | undefined;
   /** The CSV dialect to parse with (defaults to StandardDialect). */
   readonly dialect?: CsvDialect | undefined;
   /**
@@ -151,6 +163,31 @@ const defaultClassifier = makeClassifier({});
 export const inferCell = (raw: string, options?: CsvInferenceOptions): SheetCell =>
   toCell(raw, (options === undefined ? defaultClassifier : makeClassifier(options))(raw));
 
+/**
+ * Whether the first row looks like a header: at least two rows, every
+ * first-row value non-empty text, and some column whose other values are all
+ * typed (numbers or booleans, blanks aside).
+ */
+const sniffHeader = (
+  rows: ReadonlyArray<ReadonlyArray<string>>,
+  classify: (raw: string) => Inferred,
+): boolean => {
+  const [first, ...rest] = rows;
+  if (first === undefined || !Arr.isReadonlyArrayNonEmpty(rest)) return false;
+  if (!first.every((raw) => raw.trim() !== "" && classify(raw) === undefined)) return false;
+  return first.some((_, c) => {
+    // a short row's missing value counts as blank
+    const values = Arr.filter(
+      rest.map((row) => {
+        const raw = row[c];
+        return raw === undefined ? null : classify(raw);
+      }),
+      (v) => v !== null,
+    );
+    return Arr.isReadonlyArrayNonEmpty(values) && values.every((v) => v !== undefined);
+  });
+};
+
 /** Type rows of raw values, by column or by cell. */
 const inferRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
@@ -188,9 +225,19 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const sheetName = options?.sheetName ?? "Sheet1";
   const classify = makeClassifier(options ?? {});
 
+  // unset with no provided headers: scan headerless, then sniff from the types
+  const sniff =
+    options?.treatFirstRowAsHeader === undefined && options?.providedHeaders === undefined;
+
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     pipe(
       scanCsv(contentToText(input), dialect, options),
+      Effect.map((scanned) => {
+        const [first, ...rest] = scanned.rows;
+        return sniff && first !== undefined && sniffHeader(scanned.rows, classify)
+          ? { headers: first, rows: rest }
+          : scanned;
+      }),
       Effect.map(({ headers, rows }) => {
         const body = inferTypes
           ? inferRows(rows, options ?? {}, classify)

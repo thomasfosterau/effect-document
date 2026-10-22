@@ -25,9 +25,10 @@ import { StandardDialect, type CsvDialect } from "./dialect.ts";
 /** How the scanner splits CSV text into rows: headers, row limits and the like (shared by the reader). */
 export interface CsvScanOptions {
   /**
-   * Treat the first row as column headers (the default, as pandas does); set
-   * it to false for a headerless file. If `providedHeaders` is also set, the
-   * first row is dropped and `providedHeaders` replace it.
+   * Treat the first row as column headers. If `providedHeaders` is also set,
+   * the first row is dropped and `providedHeaders` replace it. The scanners
+   * see only raw strings, so unset means no header row here; the CSV reader
+   * instead sniffs one from the inferred types (see `CsvReaderOptions`).
    */
   readonly treatFirstRowAsHeader?: boolean | undefined;
   /** Supply custom column headers. */
@@ -69,7 +70,7 @@ const defaults = (options?: CsvScanOptions): CsvScanOptions => ({
   allowVariableColumns: false,
   ...options,
   // an explicit `undefined` (an optional forwarded as is) still means the default
-  treatFirstRowAsHeader: options?.treatFirstRowAsHeader ?? true,
+  treatFirstRowAsHeader: options?.treatFirstRowAsHeader ?? false,
 });
 
 // ============================================================================
