@@ -261,3 +261,19 @@ describe("PDF nesting limit (#110)", () => {
     expect(error).toMatchObject({ _tag: "ParseError", format: "pdf", code: "LimitExceeded" });
   });
 });
+
+describe("PDF paragraph separation", () => {
+  test("one-line paragraphs stay separate paragraphs", () => {
+    for (const texts of [["First para.", "Second para."], ["Intro text.", "x", "Outro text."]]) {
+      const back = roundTrip(texts.map((t) => para([str(t)])));
+      expect(back.blocks.map((b) => b._tag)).toEqual(texts.map(() => "Para"));
+      expect(blocksToText(back.blocks)).toBe(texts.join("\n"));
+    }
+  });
+
+  test("a mix of one-line and wrapped paragraphs keeps every boundary", () => {
+    const texts = ["Short.", "Long ".repeat(40) + "end.", "Also short.", "Another ".repeat(30) + "end."];
+    const back = roundTrip(texts.map((t) => para([str(t)])));
+    expect(back.blocks).toHaveLength(4);
+  });
+});
