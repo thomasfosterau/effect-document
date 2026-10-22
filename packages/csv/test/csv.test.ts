@@ -408,6 +408,24 @@ describe("CSV writer", () => {
     expect(renderTable([["a"], [""]])).toBe('a\n""\n');
   });
 
+  test("writes NaN and the infinities as text, as pandas does (#89)", async () => {
+    expect([Number.NaN, Infinity, -Infinity].map(formatCsvNumber)).toEqual([
+      "NaN",
+      "Infinity",
+      "-Infinity",
+    ]);
+    const out = await written([
+      [cell.number(Number.NaN), cell.number(Infinity), cell.number(-Infinity)],
+    ]);
+    expect(out).toBe("NaN,Infinity,-Infinity\n");
+    // they read back as text: the strict number grammar never accepts them
+    expect(firstWorksheet(await run(makeCsvReader().read(text(out)))).rows[0]?.cells).toEqual([
+      cell.text("NaN"),
+      cell.text("Infinity"),
+      cell.text("-Infinity"),
+    ]);
+  });
+
   test("writes numbers as shortest round-trip decimals", async () => {
     expect([1e21, -1.5e-7, 0.1, 123.456, -0, 2 ** 70].map(formatCsvNumber)).toEqual([
       "1000000000000000000000",
