@@ -51,19 +51,18 @@ export interface CsvWriterOptions {
   /** Render number cells (defaults to {@link formatCsvNumber}). */
   readonly formatNumber?: ((value: number) => string) | undefined;
   /**
-   * Escape with this character instead of doubling the wrapper, as Python's
-   * `escapechar` with `doublequote=False` does. Inside a quoted field the
-   * wrapper and the escape character are each written after the escape
-   * character (`"say \"hi\""`), and in `minimal` mode a field holding the
-   * escape character is quoted. With `quoting: "none"`, the separator, the
-   * wrapper, the escape character and line breaks are escaped in place
-   * instead of failing. It must be one character other than the separator,
-   * the wrapper or a line break; anything else fails the write. Unset (the
-   * default), the wrapper is doubled as RFC 4180 specifies.
+   * Escape a wrapper inside a quoted field with this character instead of
+   * doubling it, as Python's `escapechar` with `doublequote=False` does:
+   * `"say \"hi\""`. Unset (the default), the wrapper is doubled as RFC 4180
+   * specifies.
    *
-   * The CSV reader reads the wrapper back with a dialect whose
-   * `doubleWrapper` is the escape character followed by the wrapper; it does
-   * not yet unescape the escape character itself.
+   * It fails closed: a field that holds the escape character itself fails
+   * the write, since readers disagree on what it means there, and
+   * `quoting: "none"` still fails on a field that needs quotes rather than
+   * escaping its separators or line breaks (which a reader without the
+   * escape character would split into new fields or rows). It must be one
+   * character other than the separator, the wrapper or a line break; anything
+   * else fails the write. The CSV reader has no escape-character option yet.
    */
   readonly escapeChar?: string | undefined;
   /**
@@ -145,21 +144,15 @@ const changesMeaning = (value: string, options: RowOptions): boolean =>
 const wrapField = (value: string, dialect: CsvDialect): string =>
   dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
 
-/** Prefix `escape` to every one of `chars` (non-empty strings) in `value`. */
-const escapeAll = (value: string, escape: string, chars: ReadonlyArray<string>): string =>
-  chars
-    .filter((c) => c !== "")
-    .reduce(
-      (acc, c) => acc.replaceAll(c, escape + c),
-      // escape the escape character first, so later prefixes aren't doubled
-      value.replaceAll(escape, escape + escape),
-    );
-
-/** Quote a field, escaping the wrapper with `escape` if set, else doubling it. */
+/**
+ * Quote a field, escaping the wrapper with `escape` if set, else doubling it.
+ * The field never holds `escape` itself (`renderRow` rejects that).
+ */
 const quoteField = (value: string, dialect: CsvDialect, escape: Option.Option<string>): string =>
   Option.match(escape, {
     onNone: () => wrapField(value, dialect),
-    onSome: (e) => dialect.wrapper + escapeAll(value, e, [dialect.wrapper]) + dialect.wrapper,
+    onSome: (e) =>
+      dialect.wrapper + value.replaceAll(dialect.wrapper, e + dialect.wrapper) + dialect.wrapper,
   });
 
 /** Why `escapeChar` can't be used with this dialect, if it can't. */
@@ -201,12 +194,14 @@ const renderRow = (
   for (const { value: raw, numeric } of fields) {
     const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
     const value = formula ? `'${raw}` : raw;
+    if (Option.exists(escapeChar, (e) => value.includes(e)))
+      return Effect.fail(
+        new WriteError({
+          format: "csv",
+          reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
+        }),
+      );
     if (quoting === "none") {
-      if (Option.isSome(escapeChar)) {
-        const special = [dialect.separator, dialect.wrapper, "\r", "\n"];
-        out.push(escapeAll(value, escapeChar.value, special));
-        continue;
-      }
       if (breaksSyntax(value, dialect))
         return Effect.fail(unquotable(index, "has a field that needs quotes"));
       out.push(value);
@@ -215,8 +210,7 @@ const renderRow = (
       (quoting === "nonNumeric" && !numeric) ||
       formula ||
       breaksSyntax(value, dialect) ||
-      changesMeaning(value, options) ||
-      Option.exists(escapeChar, (e) => value.includes(e))
+      changesMeaning(value, options)
     ) {
       out.push(quoteField(value, dialect, escapeChar));
     } else {
