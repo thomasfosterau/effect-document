@@ -645,6 +645,59 @@ describe("CSV writer", () => {
     );
   });
 
+  test("escapeChar escapes the wrapper instead of doubling it (#89)", async () => {
+    const row = [cell.text('say "hi"'), cell.text("C:\\tmp"), cell.text("plain"), cell.number(1)];
+    expect(await written([row], { escapeChar: "\\" })).toBe('"say \\"hi\\"","C:\\\\tmp",plain,1\n');
+    expect(await written([row], { escapeChar: "\\", quoting: "all" })).toBe(
+      '"say \\"hi\\"","C:\\\\tmp","plain","1"\n',
+    );
+    // a reader whose quote escape is `\"` reads the wrapper back
+    const out = await written([[cell.text('say "hi"'), cell.text("x")]], { escapeChar: "\\" });
+    const back = await run(
+      makeCsvReader({ dialect: { ...StandardDialect, doubleWrapper: '\\"' } }).read(text(out)),
+    );
+    expect(firstWorksheet(back).rows[0]?.cells).toEqual([cell.text('say "hi"'), cell.text("x")]);
+  });
+
+  test("escapeChar lets quoting none escape what would need quotes (#89)", async () => {
+    const row = [cell.text("a,b"), cell.text('c"d'), cell.text("e\nf"), cell.text("g\\h")];
+    expect(await written([row], { escapeChar: "\\", quoting: "none" })).toBe(
+      'a\\,b,c\\"d,e\\\nf,g\\\\h\n',
+    );
+    const r = await Effect.runPromise(
+      Effect.result(
+        makeCsvWriter({ escapeChar: "\\", quoting: "none" }).write(sheet([[cell.blank()]])),
+      ),
+    );
+    expect(Result.isFailure(r) && r.failure.reason).toBe(
+      "Row 0 is a single empty field and cannot be written without quoting",
+    );
+  });
+
+  test("escapeChar must be one character other than the separator or wrapper (#89)", async () => {
+    const results = await Effect.runPromise(
+      Effect.forEach(
+        ["", "\\\\", ",", '"', "\n"],
+        (escapeChar) =>
+          Effect.result(makeCsvWriter({ escapeChar }).write(sheet([[cell.text("a")]]))),
+        { concurrency: 1 },
+      ),
+    );
+    expect(results.map(Result.isFailure)).toEqual([true, true, true, true, true]);
+    const streamed = await Effect.runPromise(
+      Effect.result(
+        Stream.runCollect(
+          renderCsvStream(Stream.make(new SheetRow({ cells: [cell.text("a")] })), {
+            escapeChar: ",",
+          }),
+        ),
+      ),
+    );
+    expect(Result.isFailure(streamed) && streamed.failure.reason).toBe(
+      "escapeChar must differ from the separator, the wrapper and line breaks",
+    );
+  });
+
   test("line breaks come from the dialect", async () => {
     expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe(
       "a\r\nb\r\n",

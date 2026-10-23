@@ -13,6 +13,7 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import {
   cellToText,
@@ -48,7 +49,23 @@ export interface CsvWriterOptions {
   /** When to quote fields (defaults to `minimal`). */
   readonly quoting?: CsvQuoting | undefined;
   /** Render number cells (defaults to {@link formatCsvNumber}). */
-  readonly formatNumber?: (value: number) => string;
+  readonly formatNumber?: ((value: number) => string) | undefined;
+  /**
+   * Escape with this character instead of doubling the wrapper, as Python's
+   * `escapechar` with `doublequote=False` does. Inside a quoted field the
+   * wrapper and the escape character are each written after the escape
+   * character (`"say \"hi\""`), and in `minimal` mode a field holding the
+   * escape character is quoted. With `quoting: "none"`, the separator, the
+   * wrapper, the escape character and line breaks are escaped in place
+   * instead of failing. It must be one character other than the separator,
+   * the wrapper or a line break; anything else fails the write. Unset (the
+   * default), the wrapper is doubled as RFC 4180 specifies.
+   *
+   * The CSV reader reads the wrapper back with a dialect whose
+   * `doubleWrapper` is the escape character followed by the wrapper; it does
+   * not yet unescape the escape character itself.
+   */
+  readonly escapeChar?: string | undefined;
   /**
    * Quote fields that start with this marker, so a reader with the same
    * `lineCommentMarker` doesn't skip their row as a comment.
@@ -128,6 +145,34 @@ const changesMeaning = (value: string, options: RowOptions): boolean =>
 const wrapField = (value: string, dialect: CsvDialect): string =>
   dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
 
+/** Prefix `escape` to every one of `chars` (non-empty strings) in `value`. */
+const escapeAll = (value: string, escape: string, chars: ReadonlyArray<string>): string =>
+  chars
+    .filter((c) => c !== "")
+    .reduce(
+      (acc, c) => acc.replaceAll(c, escape + c),
+      // escape the escape character first, so later prefixes aren't doubled
+      value.replaceAll(escape, escape + escape),
+    );
+
+/** Quote a field, escaping the wrapper with `escape` if set, else doubling it. */
+const quoteField = (value: string, dialect: CsvDialect, escape: Option.Option<string>): string =>
+  Option.match(escape, {
+    onNone: () => wrapField(value, dialect),
+    onSome: (e) => dialect.wrapper + escapeAll(value, e, [dialect.wrapper]) + dialect.wrapper,
+  });
+
+/** Why `escapeChar` can't be used with this dialect, if it can't. */
+const badEscape = (escape: string, dialect: CsvDialect): Option.Option<string> =>
+  [...escape].length !== 1
+    ? Option.some("must be exactly one character")
+    : escape === dialect.separator ||
+        escape === dialect.wrapper ||
+        escape === "\n" ||
+        escape === "\r"
+      ? Option.some("must differ from the separator, the wrapper and line breaks")
+      : Option.none();
+
 /** Render a single field, quoting it if necessary (as the `minimal` mode does). */
 export const renderField = (value: string, dialect: CsvDialect): string =>
   breaksSyntax(value, dialect) || edgeSpace.test(value) ? wrapField(value, dialect) : value;
@@ -146,6 +191,7 @@ const renderRow = (
   options: RowOptions,
 ): Effect.Effect<string, WriteError> => {
   const quoting = options.quoting ?? "minimal";
+  const escapeChar = Option.fromNullishOr(options.escapeChar);
   // a lone empty field would be an empty line, which readers skip
   if (fields.length === 1 && fields[0]!.value === "") {
     if (quoting === "none") return Effect.fail(unquotable(index, "is a single empty field"));
@@ -153,20 +199,26 @@ const renderRow = (
   }
   const out: Array<string> = [];
   for (const { value: raw, numeric } of fields) {
-    const escape = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
-    const value = escape ? `'${raw}` : raw;
+    const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
+    const value = formula ? `'${raw}` : raw;
     if (quoting === "none") {
+      if (Option.isSome(escapeChar)) {
+        const special = [dialect.separator, dialect.wrapper, "\r", "\n"];
+        out.push(escapeAll(value, escapeChar.value, special));
+        continue;
+      }
       if (breaksSyntax(value, dialect))
         return Effect.fail(unquotable(index, "has a field that needs quotes"));
       out.push(value);
     } else if (
       quoting === "all" ||
       (quoting === "nonNumeric" && !numeric) ||
-      escape ||
+      formula ||
       breaksSyntax(value, dialect) ||
-      changesMeaning(value, options)
+      changesMeaning(value, options) ||
+      Option.exists(escapeChar, (e) => value.includes(e))
     ) {
-      out.push(wrapField(value, dialect));
+      out.push(quoteField(value, dialect, escapeChar));
     } else {
       out.push(value);
     }
@@ -197,6 +249,20 @@ const cellFields = (
   );
 };
 
+/** Fail when the options can't be used with the dialect. */
+const checkOptions = (
+  options: CsvWriterOptions,
+  dialect: CsvDialect,
+): Effect.Effect<void, WriteError> => {
+  const reason = Option.flatMap(Option.fromNullishOr(options.escapeChar), (e) =>
+    badEscape(e, dialect),
+  );
+  return Option.match(reason, {
+    onNone: () => Effect.void,
+    onSome: (r) => Effect.fail(new WriteError({ format: "csv", reason: `escapeChar ${r}` })),
+  });
+};
+
 /** Render rows of fields, with the header row, padding and BOM the options ask for. */
 const renderRows = (
   body: ReadonlyArray<ReadonlyArray<Field>>,
@@ -204,6 +270,7 @@ const renderRows = (
 ): Effect.Effect<string, WriteError> =>
   Effect.gen(function* () {
     const dialect = options.dialect ?? StandardDialect;
+    yield* checkOptions(options, dialect);
     const rows = options.headers ? [textFields(options.headers), ...body] : body;
     const width = options.padRows ? Math.max(0, ...rows.map((r) => r.length)) : 0;
     const lines = yield* Effect.forEach(
@@ -263,7 +330,9 @@ export const renderCsvStream = <E, R>(
         Stream.map((line) => line + dialect.linebreak),
       )
     : Stream.empty;
-  return Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);
+  const all = Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);
+  // invalid options fail the stream before its first chunk
+  return Stream.unwrap(Effect.as(checkOptions(options, dialect), all));
 };
 
 // ============================================================================
