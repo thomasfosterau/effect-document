@@ -45,7 +45,7 @@ import {
   Plain,
   type Profile,
   type SheetCell,
-  SheetRow,
+  sheetRow,
   Slide,
   SlideShow,
   SmallCaps,
@@ -423,7 +423,7 @@ const sheetOf = (
             new Worksheet({
               name,
               columns: [],
-              rows: rows.map((cellsOfRow) => new SheetRow({ cells: cellsOfRow })),
+              rows: rows.map((cellsOfRow, index) => sheetRow(index, cellsOfRow)),
               merges: [],
             }),
         ),
