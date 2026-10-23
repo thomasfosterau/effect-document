@@ -52,6 +52,29 @@ jobs:
         run: vp run -r test:unit
       - name: Integration tests (cross-format conversions)
         run: vp run test:integration
+      # Public corpora pinned in corpora.json (#133): fetched, never
+      # committed, and cached by their pins.
+      - name: Restore the corpus cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .corpora
+          key: corpora-v1-${{ hashFiles('corpora.json') }}
+      - name: Fetch the pinned corpora
+        run: vp run corpora:fetch
+      # Every reader over every corpus file: no defects, no hangs.
+      - name: Corpus smoke tests
+        run: vp run test:corpus
+      - name: Corpus read rates
+        if: always()
+        run: |
+          if [ -f .corpora/report.json ]; then
+            {
+              echo '### Corpus read rates'
+              echo '```json'
+              node -e 'console.log(JSON.stringify(require("./.corpora/report.json").formats, null, 2))'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Build
         run: vp run -r build
       - name: Dist import guard (no effect/unstable)

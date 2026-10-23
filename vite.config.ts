@@ -169,6 +169,8 @@ export default defineConfig({
           "effect/avoid-direct-json": "off",
           "effect/avoid-try-catch": "off",
           "effect/avoid-untagged-errors": "off",
+          // scripts/fetch-corpora.mjs likewise shells out to git and reads
+          // corpora.json with JSON.parse.
           // `...(process.env.X ? { x } : {})` is how a vitest option is left
           // unset under `exactOptionalPropertyTypes`.
           "effect/no-conditional-empty-object-spread": "off",
@@ -299,6 +301,20 @@ export default defineConfig({
         command: "vp test run --project integration",
         cache: false,
       },
+      // Fetches the public corpora pinned in `corpora.json` into the
+      // git-ignored `.corpora/` (shallow, sparse checkouts; a corpus already
+      // at its pin is kept). Needs the network.
+      "corpora:fetch": {
+        command: "node scripts/fetch-corpora.mjs",
+        cache: false,
+      },
+      // Runs every reader over every fetched corpus file (`test/corpus`),
+      // failing on a defect or a hang and reporting read rates per format;
+      // skipped when nothing has been fetched.
+      "test:corpus": {
+        command: "vp test run --project corpus",
+        cache: false,
+      },
       // Every package's unit suite plus the integration suite under one
       // Istanbul coverage map (`coverage/coverage-final.json`), which `fallow
       // audit` reads for exact per-function CRAP scores (`health.coverage` in
@@ -313,7 +329,7 @@ export default defineConfig({
       // through `exports` (→ `dist/`); every package's `build` is named
       // explicitly (cached, so a warm tree pays nothing).
       "test:coverage": {
-        command: "vp test run --coverage",
+        command: "vp test run --coverage --project '!corpus'",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -336,8 +352,18 @@ export default defineConfig({
         resolve: { alias: integrationAliases },
         test: {
           name: "integration",
-          include: ["test/**/*.test.ts"],
+          include: ["test/integration/**/*.test.ts"],
           testTimeout: 30_000,
+        },
+      },
+      // Corpus smoke mode (#133): every reader over the corpora fetched into
+      // `.corpora/` (`corpora:fetch`); skipped when none has been fetched.
+      {
+        resolve: { alias: integrationAliases },
+        test: {
+          name: "corpus",
+          include: ["test/corpus/**/*.test.ts"],
+          testTimeout: 60_000,
         },
       },
     ],

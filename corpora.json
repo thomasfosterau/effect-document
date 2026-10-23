@@ -1,0 +1,49 @@
+{
+  "$comment": "Public test corpora, fetched and pinned, never committed (#133). `vp run corpora:fetch` checks each one out at `commit` into the git-ignored .corpora/ cache, keeping only the files its `paths` globs match; `vp run test:corpus` runs every reader over them. `vendorable` records whether the licence would let files be copied into packages/*/test/fixtures (with an ATTRIBUTION entry); only small, permissively licensed files ever are.",
+  "corpora": [
+    {
+      "id": "csv-spectrum",
+      "repository": "https://github.com/maxogden/csv-spectrum",
+      "commit": "d30e80f8b99d2eecb3778f1d7b9ed1cb425502ec",
+      "paths": ["csvs/*.csv"],
+      "licence": "BSD-2-Clause",
+      "vendorable": true
+    },
+    {
+      "id": "apache-poi",
+      "repository": "https://github.com/apache/poi",
+      "commit": "064406bd5a2ac5b7e38f060882ffe4b48cc16615",
+      "paths": [
+        "test-data/spreadsheet/*.xlsx",
+        "test-data/document/*.docx",
+        "test-data/slideshow/*.pptx"
+      ],
+      "licence": "Apache-2.0",
+      "vendorable": true
+    },
+    {
+      "id": "python-docx",
+      "repository": "https://github.com/python-openxml/python-docx",
+      "commit": "e45454602b53e8e572b179ccf1c91093ec9f4ed7",
+      "paths": ["features/steps/test_files/*.docx", "tests/test_files/*.docx"],
+      "licence": "MIT",
+      "vendorable": true
+    },
+    {
+      "id": "numbers-parser",
+      "repository": "https://github.com/masaccio/numbers-parser",
+      "commit": "a6affe5599c8373f575192ac5777d0c6426da696",
+      "paths": ["tests/data/*.numbers"],
+      "licence": "MIT",
+      "vendorable": true
+    },
+    {
+      "id": "pdf.js",
+      "repository": "https://github.com/mozilla/pdf.js",
+      "commit": "9f1775cd63021d0d135433bce6d10227a54946d3",
+      "paths": ["test/pdfs/*.pdf"],
+      "licence": "Apache-2.0 (the repository); the test PDFs are gathered from many sources with their own terms",
+      "vendorable": false
+    }
+  ]
+}
