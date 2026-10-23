@@ -59,5 +59,9 @@ jobs:
       # Runs every program under examples/ against the built dist/.
       - name: Run the examples
         run: vp run examples
+      # Packs every package, lints the tarballs (publint, attw) and imports
+      # and type-checks them from a scratch consumer project.
+      - name: Packed-package smoke test
+        run: vp run check:pack
       - name: Audit
         run: pnpm audit --audit-level high

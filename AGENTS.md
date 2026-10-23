@@ -15,7 +15,7 @@ This repo publishes the `@thomasfosterau/effect-document` package family: an Eff
 
 `examples/` is a private workspace package (`vp run examples` runs it); `test/integration` holds the cross-format suite.
 
-A new package adds a row here and in the root `README.md`, its own `CLAUDE.md` and `README.md`, a `.fallowrc.json` zone and rule plus its entry points, a root `package.json` devDependency, its `options` import in the root `vite.config.ts` (the integration aliases) and its `#check` / `#build` edges there (`check`, `check:dist`, `examples`, `test:coverage`), and its directory in `scripts/check-dist-imports.mjs`.
+A new package adds a row here and in the root `README.md`, its own `CLAUDE.md` and `README.md`, a `.fallowrc.json` zone and rule plus its entry points, a root `package.json` devDependency, its `options` import in the root `vite.config.ts` (the integration aliases) and its `#check` / `#build` edges there (`check`, `check:dist`, `check:pack`, `examples`, `test:coverage`), and its directory in `scripts/check-dist-imports.mjs` and `scripts/check-pack.mjs`.
 
 ## Common pitfalls
 
@@ -47,6 +47,7 @@ Package-local invariants, terms and import boundaries live only in each package'
 - `vp run -r build` — `vp pack` → every package's `dist/`.
 - `vp run check:dist` — the import guard: no built `dist/` imports `effect/unstable/*`. Run after the build.
 - `vp run examples` — runs every program under `examples/` against the built packages.
+- `vp run check:pack` — the consumer smoke test: packs every package as `pnpm publish` would, lints the tarballs (publint, attw `esm-only`), installs them into a scratch project from npm, and imports and type-checks every entry (`nodenext`, `skipLibCheck: false`). Run after the build; needs the registry.
 - `vp run test:coverage` — every suite under one Istanbul map at `coverage/coverage-final.json`, which `fallow audit` reads for exact per-function CRAP scores. Without the map fallow scores every function as uncovered, and any function with cyclomatic complexity ≥ 5 fails the gate on its own.
 - `pnpm changeset` — add a changeset.
 
@@ -64,10 +65,11 @@ Before you report work as done, run the gates below in order and quote each comm
 6. `vp run -r build`
 7. `vp run check:dist`
 8. `vp run examples`
-9. `pnpm audit --audit-level high` (network)
-10. `vp run test:coverage`, then `fallow audit --format json --quiet --explain --gate-marker agent` (the fallow gate below; not a CI step). The PreToolUse fallow gate audits against `coverage/coverage-final.json` and never refreshes it, so run `test:coverage` first.
+9. `vp run check:pack` (network)
+10. `pnpm audit --audit-level high` (network)
+11. `vp run test:coverage`, then `fallow audit --format json --quiet --explain --gate-marker agent` (the fallow gate below; not a CI step). The PreToolUse fallow gate audits against `coverage/coverage-final.json` and never refreshes it, so run `test:coverage` first.
 
-Steps 2–9 are CI's required `ci` job, in its order ([ci.yml](.github/workflows/ci.yml)). `CONTRIBUTING.md` and the PR template link here rather than restating the list.
+Steps 2–10 are CI's required `ci` job, in its order ([ci.yml](.github/workflows/ci.yml)). `CONTRIBUTING.md` and the PR template link here rather than restating the list.
 
 ## Branches and pull requests
 
@@ -97,7 +99,7 @@ Read the installed package before writing Effect code: `node_modules/effect/CLAU
 
 - The SessionStart hook (`.claude/hooks/session-start.sh`) installs dependencies against the lockfile and puts `vp` (a re-exec shim that prefers the nearest worktree's `node_modules`), `fallow` and `tsx` on PATH for non-interactive shells. It hydrates no secrets; none are needed, and nothing here can publish.
 - A PreToolUse hook (`.claude/hooks/fallow-gate.sh`) blocks `git commit` / `git push` when `fallow audit --base origin/trunk` fails; it reads the coverage map on disk, so run `vp run test:coverage` first. A PostToolUse hook runs `vp fmt` on every source, JSON, CSS or Markdown file you write or edit.
-- Every gate in [Verification](#verification) runs in an agent session; `pnpm audit` needs the network.
+- Every gate in [Verification](#verification) runs in an agent session; `vp run check:pack` and `pnpm audit` need the network.
 
 ## Documentation surfaces
 

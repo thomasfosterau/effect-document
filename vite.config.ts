@@ -159,6 +159,16 @@ export default defineConfig({
           "effect/use-path-service": "off",
           "effect/avoid-native-fetch": "off",
           "effect/effect-promise-vs-trypromise": "off",
+          // The pack smoke test (scripts/check-pack.mjs) is bare-Node tooling
+          // too: it shells out to pnpm, npm, publint, attw and tsc, reads and
+          // writes package manifests as JSON, works in an `os.tmpdir()`
+          // scratch directory it removes in `finally`, and fails the task by
+          // throwing; no Effect runtime or service layer exists there.
+          "effect/use-command-executor-service": "off",
+          "effect/use-temp-file-scoped": "off",
+          "effect/avoid-direct-json": "off",
+          "effect/avoid-try-catch": "off",
+          "effect/avoid-untagged-errors": "off",
           // `...(process.env.X ? { x } : {})` is how a vitest option is left
           // unset under `exactOptionalPropertyTypes`.
           "effect/no-conditional-empty-object-spread": "off",
@@ -238,6 +248,22 @@ export default defineConfig({
       // `dist/`, hence the build edges.
       "check:dist": {
         command: "node scripts/check-dist-imports.mjs",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      // Consumer smoke test: packs every package as `pnpm publish` would,
+      // lints the tarballs (publint, attw), installs them into a scratch
+      // project from npm and imports and type-checks every entry. Reads
+      // `dist/`, hence the build edges; needs the registry.
+      "check:pack": {
+        command: "node scripts/check-pack.mjs",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",

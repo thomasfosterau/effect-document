@@ -37,6 +37,7 @@ vp test run test/pdf.test.ts             # one file (from inside the package)
 vp run test:integration                  # the cross-format suite
 vp run -r build                          # emit dist/
 vp run examples                          # run examples/ against dist/
+vp run check:pack                        # pack, lint and import the tarballs
 vp run test:coverage                     # one Istanbul map for fallow
 vp run fallow:audit                      # change-set review (not a CI gate)
 ```

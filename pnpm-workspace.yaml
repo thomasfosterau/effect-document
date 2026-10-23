@@ -43,6 +43,10 @@ catalog:
   # package imports it). Exact, in lockstep with `effect` below: its own peer
   # is `effect: ^<its version>`.
   "@effect/platform-node": 4.0.5
+  # Lint the packed tarballs (`vp run check:pack`): publint checks the
+  # manifest and `exports` against the files, and attw resolves every entry's
+  # types the way consumers' module resolution does.
+  "@arethetypeswrong/cli": ^0.18.5
   # 0.6.0 depends on `effect` 4.0.0 (exact) and runs on the workspace singleton
   # (the `effect` override below), so it needs no scoped override. Its
   # `vite.config.ts` load calls Effect APIs, so an `effect` bump re-runs
@@ -59,6 +63,7 @@ catalog:
   fallow: 3.34.1
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
   fflate: ^0.8.2
+  publint: ^0.3.25
   # Runs the examples under `examples/`.
   tsx: ^4.23.15
   # TypeScript 6/7 side-by-side: TS7 (the native Go compiler) ships no JS API
