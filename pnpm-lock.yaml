@@ -154,12 +154,18 @@ importers:
       '@thomasfosterau/effect-document':
         specifier: workspace:*
         version: link:../packages/core
+      '@thomasfosterau/effect-iwork':
+        specifier: workspace:*
+        version: link:../packages/iwork
       '@thomasfosterau/effect-ooxml':
         specifier: workspace:*
         version: link:../packages/ooxml
       effect:
         specifier: 4.0.5
         version: 4.0.5
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
 
   packages/core:
     devDependencies:

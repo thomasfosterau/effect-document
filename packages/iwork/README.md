@@ -39,6 +39,32 @@ Every reader takes `IworkReaderOptions`:
 - `limits` (`BundleLimits`): the most zip entries, the largest entry and the most total bytes the bundle may inflate (defaults in `DEFAULT_BUNDLE_LIMITS`), so a zip bomb fails with `LimitExceeded` instead of exhausting memory. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
 - `lenient`: skip a component that fails to decode, with a logged warning (`Effect.logWarning`), instead of failing the whole read.
 
+## Documents saved as a directory
+
+A `.key`, `.pages` or `.numbers` can be saved as a folder (a package directory) rather than a single zipped file. The readers take only `Content` bytes, so read a folder bundle in two steps: open it with the codec's `openBundleDirectory`, which reads just the `Index/*.iwa` components (or an inner `Index.zip`) through Effect's `FileSystem` service, under the same `limits` and with the same password-protection check as the readers; then pack those components into an in-memory zip and hand it to the reader. The readers use nothing but the components, so the repackaged zip reads exactly as the original document would.
+
+```ts
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as Effect from "effect/Effect";
+import { zipSync } from "fflate";
+import { blocksToText, bytes } from "@thomasfosterau/effect-document";
+import { type BundleLimits, openBundleDirectory } from "@thomasfosterau/effect-iwork/codec";
+import * as Keynote from "@thomasfosterau/effect-iwork/keynote";
+
+const limits: BundleLimits = { maxTotalSize: 64 * 1024 * 1024 };
+
+const program = Effect.gen(function* () {
+  // fails with an IworkError (NotIwork, Encrypted, LimitExceeded, Io, …)
+  const bundle = yield* openBundleDirectory("Talk.key", { limits });
+  // level 0: store the components, don't spend time compressing them again
+  const input = bytes(zipSync(bundle.components, { level: 0 }));
+  const doc = yield* Keynote.makeKeynoteReader({ limits }).read(input);
+  return blocksToText(doc.blocks);
+}).pipe(Effect.provide(NodeFileSystem.layer));
+```
+
+The same composition works with `makePagesReader` and `makeNumbersReader`, and with `convert` (pass the repackaged `input`). The program requires `FileSystem` (provided above by `@effect/platform-node`; any platform's layer will do), and `zipSync` comes from [`fflate`](https://www.npmjs.com/package/fflate): add it to your own dependencies (this package already depends on it, so a compatible version dedupes). A runnable version is [`examples/read-iwork-directory.ts`](https://github.com/thomasfosterau/effect-document/blob/trunk/examples/read-iwork-directory.ts).
+
 ## Errors
 
 Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whose `reason` is one of `NotZip`, `NotIwork` (a zip without `.iwa` components, such as a `.docx`), `LegacyIwork09Unsupported`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed` or `Io`, and which names the component, object and byte offset it happened at. The readers wrap it in a `ParseError` whose `reason` repeats that location and whose `cause` is the `IworkError`.
@@ -47,7 +73,7 @@ Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whos
 
 `@thomasfosterau/effect-iwork/codec` exposes the layers the readers use, for working with iWork files directly:
 
-- `openBundle` opens the ZIP bundle and its `.iwa` components, including older documents' nested `Index.zip`; `openBundleDirectory` opens a package saved as a directory (a `.key` folder) through the `FileSystem` service.
+- `openBundle` opens the ZIP bundle and its `.iwa` components, including older documents' nested `Index.zip`; `openBundleDirectory` opens a package saved as a directory (a `.key` folder) through the `FileSystem` service; see [Documents saved as a directory](#documents-saved-as-a-directory) for reading one with the readers.
 - `dechunk` / `chunk` handle IWA chunk framing.
 - `decompressBlock` / `compressBlock` are Apple's non-standard Snappy block format; the compressor writes literals only, which every Snappy decoder accepts.
 - The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors.
