@@ -316,8 +316,11 @@ const splitRows = (
 ): Effect.Effect<ScannedTable, ParseError> => {
   if (!options.allowVariableColumns) {
     const width = headers?.length ?? data[0]?.fields.length ?? 0;
-    for (const { row, fields } of data) {
-      if (fields.length !== width) return Effect.fail(columnCountError(row, fields.length, width));
+    // read `row` only on a mismatch: `scanCsv` computes it from the source text
+    for (const record of data) {
+      if (record.fields.length !== width) {
+        return Effect.fail(columnCountError(record.row, record.fields.length, width));
+      }
     }
   }
   return Effect.succeed({ headers, rows: data.map((r) => r.fields) });
@@ -411,7 +414,7 @@ export const scanCsv = (
   const records: Array<Located> = [];
   for (const [offset, fields] of result.success) {
     if (fields === null) continue;
-    // counted only when a column-count error reports it
+    // O(offset), so computed only when an error reports it (#177)
     records.push({
       fields,
       get row() {

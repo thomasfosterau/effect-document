@@ -377,6 +377,34 @@ describe("CSV scanner", () => {
     );
     expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4 });
   });
+
+  test("validating column counts stays linear in the input (#177)", () => {
+    const body = Arr.makeBy(2000, (i) => `${i},x${i},"q ${i}"`).join("\n");
+    const csv = `a,b,c\n${body}\nlast,row,here\n`;
+    // count every source position read, by the grammar or by a row-position
+    // lookup (a counter, not `vi.spyOn`: recording each call's arguments
+    // exhausts memory on the quadratic path)
+    const charCodeAt = String.prototype.charCodeAt;
+    let reads = 0;
+    String.prototype.charCodeAt = function (this: string, index: number): number {
+      reads++;
+      return charCodeAt.call(this, index);
+    };
+    const table = Effect.runSync(
+      pipe(
+        scanCsv(csv, undefined, { treatFirstRowAsHeader: true }),
+        Effect.ensuring(
+          Effect.sync(() => {
+            String.prototype.charCodeAt = charCodeAt;
+          }),
+        ),
+      ),
+    );
+    expect(table.rows).toHaveLength(2001);
+    // linear: a few reads per character (about two today); the quadratic row
+    // lookup this guards against made about a thousand
+    expect(reads).toBeLessThan(10 * csv.length);
+  });
 });
 
 describe("CSV stream scanner", () => {
