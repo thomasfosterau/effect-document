@@ -50,7 +50,7 @@ catalog:
   "@mpsuesser/oxlint-plugin-effect": ^0.6.0
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
-  "@thomasfosterau/effect-parse": ^0.1.0
+  "@thomasfosterau/effect-parse": ^0.2.0
   "@types/node": ^26.6.5
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.

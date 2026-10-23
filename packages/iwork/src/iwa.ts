@@ -7,7 +7,7 @@
  * yields the Protobuf object stream (objects may span chunk boundaries).
  */
 
-import { Binary, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Binary, Compiler, Parser, Token } from "@thomasfosterau/effect-parse";
 import * as Result from "effect/Result";
 import { fromParseError, rethrowing, shiftOffset, toIworkError } from "./errors.ts";
 import { compressBlock, DEFAULT_MAX_BLOCK_LENGTH, decompressBlock } from "./snappy.ts";
@@ -30,7 +30,7 @@ const chunkBody = Parser.preceded(
   Parser.cut(Binary.lengthTake(Binary.leU24)),
 ).pipe(Parser.context("IWA chunk"));
 
-const chunks = Parser.compile(Parser.repeat(chunkBody));
+const chunks = Compiler.jit(Parser.repeat(chunkBody));
 
 /** Options for {@link dechunk}: the limit on one `.iwa`'s decompressed size. */
 export interface DechunkOptions {
