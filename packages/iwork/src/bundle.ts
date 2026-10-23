@@ -46,13 +46,17 @@ export interface IworkBundle {
   readonly readEntry: (path: string) => Effect.Effect<Uint8Array, IworkError>;
 }
 
-/** Zip-bomb limits for opening a bundle; any left out take the {@link DEFAULT_BUNDLE_LIMITS} value. */
+/**
+ * Zip-bomb limits for opening a bundle; any left out (or `undefined`) take the
+ * {@link DEFAULT_BUNDLE_LIMITS} value. The names and defaults match OOXML's
+ * `OpcLimits`, so every zip-based format is configured the same way.
+ */
 export interface BundleLimits {
   /** The most entries the package (and an inner `Index.zip`) may list. Defaults to 10,000. */
   readonly maxEntries?: number | undefined;
   /** The largest uncompressed size of any one entry read. Defaults to 256 MiB. */
   readonly maxEntrySize?: number | undefined;
-  /** The most uncompressed bytes inflated for the components, in total. Defaults to 512 MiB. */
+  /** The most uncompressed bytes inflated for the parts read (the components), in total. Defaults to 512 MiB. */
   readonly maxTotalSize?: number | undefined;
 }
 
@@ -63,7 +67,7 @@ export interface OpenBundleOptions {
 }
 
 /** The default {@link BundleLimits}. */
-export const DEFAULT_BUNDLE_LIMITS: ResolvedLimits = {
+export const DEFAULT_BUNDLE_LIMITS: ResolvedBundleLimits = {
   maxEntries: 10_000,
   maxEntrySize: 256 * 1024 * 1024,
   maxTotalSize: 512 * 1024 * 1024,
@@ -83,13 +87,14 @@ const noComponents = (names: ReadonlyArray<string>): IworkError =>
 const isIndexZip = (name: string): boolean => name.toLowerCase().endsWith("index.zip");
 const isComponent = (name: string): boolean => name.endsWith(".iwa");
 
-/** `BundleLimits` with every limit filled in. */
 /** {@link BundleLimits} with every limit filled in. */
-export type ResolvedLimits = { readonly [K in keyof BundleLimits]-?: NonNullable<BundleLimits[K]> };
+export type ResolvedBundleLimits = {
+  readonly [K in keyof BundleLimits]-?: NonNullable<BundleLimits[K]>;
+};
 
 /** The size accounting shared by the outer package and an inner `Index.zip`. */
 interface Budget {
-  readonly limits: ResolvedLimits;
+  readonly limits: ResolvedBundleLimits;
   total: number;
 }
 
@@ -104,7 +109,7 @@ const charge = (budget: Budget, name: string, size: number): void => {
   }
   budget.total += size;
   if (budget.total > maxTotalSize) {
-    throw codecError("LimitExceeded", `the components exceed the ${maxTotalSize}-byte total limit`);
+    throw codecError("LimitExceeded", `the parts read exceed the ${maxTotalSize}-byte total limit`);
   }
 };
 
@@ -166,7 +171,7 @@ const innerComponents = (
   }
 };
 
-const resolveLimits = (options?: OpenBundleOptions): ResolvedLimits => {
+const resolveLimits = (options?: OpenBundleOptions): ResolvedBundleLimits => {
   // an explicitly `undefined` limit keeps its default
   const limits = options?.limits;
   return {
@@ -266,7 +271,7 @@ export const openBundleDirectory = (
       .pipe(Effect.mapError(io))).map((n) => n.replaceAll("\\", "/"));
     if (names.length > limits.maxEntries) {
       return yield* Effect.fail(
-        codecError("LimitExceeded", `more than ${limits.maxEntries} package entries`),
+        codecError("LimitExceeded", `more than ${limits.maxEntries} zip entries`),
       );
     }
     if (names.includes(ENCRYPTED_MARKER)) {

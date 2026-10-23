@@ -23,9 +23,18 @@ export interface IworkReaderOptions {
   readonly limits?: BundleLimits | undefined;
 }
 
-/** An `IworkError` as a reader's `ParseError`; the message names the component, object and offset. */
+/**
+ * An `IworkError` as a reader's `ParseError`; the message names the component,
+ * object and offset. A `LimitExceeded` error (a zip or Snappy bomb) keeps its
+ * class in `code`, as the OOXML readers' limit failures do.
+ */
 export const toParseError = (format: string, e: IworkError): ParseError =>
-  new ParseError({ format, reason: `Failed to read ${format}: ${e.message}`, cause: e });
+  new ParseError({
+    format,
+    reason: `Failed to read ${format}: ${e.reason}: ${e.message}`,
+    code: e.reason === "LimitExceeded" ? "LimitExceeded" : undefined,
+    cause: e,
+  });
 
 /** Open the input as an iWork bundle. */
 export const openInput = (

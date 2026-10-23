@@ -65,8 +65,8 @@ export interface XlsxReaderOptions {
    * instead of exhausting memory. Defaults to {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number | undefined;
-  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits> | undefined;
+  /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
+  readonly limits?: OpcLimits | undefined;
 }
 
 /** Main-part content types of spreadsheet packages (workbook, macro-enabled, template). */

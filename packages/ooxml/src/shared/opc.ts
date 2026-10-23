@@ -52,21 +52,36 @@ const fileOf = (path: string): string => {
   return slash === -1 ? path : path.substring(slash + 1);
 };
 
-/** Resource limits for reading a package, guarding against zip bombs. */
+/**
+ * Zip-bomb limits for reading a package; any left out (or `undefined`) take the
+ * {@link DEFAULT_OPC_LIMITS} value. The names and defaults match iWork's
+ * `BundleLimits`, so every zip-based format is configured the same way.
+ */
 export interface OpcLimits {
-  /** The most entries the zip may list. Default 10,000. */
-  readonly maxEntries: number;
-  /** The most bytes one part may inflate to. Default 100 MiB. */
-  readonly maxPartBytes: number;
-  /** The most bytes all inflated parts together may take. Default 500 MiB. */
-  readonly maxTotalBytes: number;
+  /** The most entries the zip may list. Defaults to 10,000. */
+  readonly maxEntries?: number | undefined;
+  /** The largest uncompressed size of any one part read. Defaults to 256 MiB. */
+  readonly maxEntrySize?: number | undefined;
+  /** The most uncompressed bytes inflated for the parts read, in total. Defaults to 512 MiB. */
+  readonly maxTotalSize?: number | undefined;
 }
 
-export const DEFAULT_OPC_LIMITS: OpcLimits = {
+/** {@link OpcLimits} with every limit filled in. */
+export type ResolvedOpcLimits = { readonly [K in keyof OpcLimits]-?: NonNullable<OpcLimits[K]> };
+
+/** The default {@link OpcLimits}. */
+export const DEFAULT_OPC_LIMITS: ResolvedOpcLimits = {
   maxEntries: 10_000,
-  maxPartBytes: 100 * 1024 * 1024,
-  maxTotalBytes: 500 * 1024 * 1024,
+  maxEntrySize: 256 * 1024 * 1024,
+  maxTotalSize: 512 * 1024 * 1024,
 };
+
+/** Fill in every limit left out, or explicitly `undefined`, with its default. */
+const resolveLimits = (limits: OpcLimits | undefined): ResolvedOpcLimits => ({
+  maxEntries: limits?.maxEntries ?? DEFAULT_OPC_LIMITS.maxEntries,
+  maxEntrySize: limits?.maxEntrySize ?? DEFAULT_OPC_LIMITS.maxEntrySize,
+  maxTotalSize: limits?.maxTotalSize ?? DEFAULT_OPC_LIMITS.maxTotalSize,
+});
 
 /** A package that breaks a resource limit or isn't the expected kind of package. */
 export class OpcError extends Error {
@@ -128,7 +143,7 @@ interface Entry {
 export class OpcReader {
   private readonly entries = new Map<string, Entry>();
   private readonly cache = new Map<string, Uint8Array>();
-  private readonly limits: OpcLimits;
+  private readonly limits: ResolvedOpcLimits;
   private inflated = 0;
   private contentTypes:
     | { defaults: Map<string, string>; overrides: Map<string, string> }
@@ -137,17 +152,14 @@ export class OpcReader {
 
   private readonly data: Uint8Array;
 
-  constructor(data: Uint8Array, limits?: Partial<OpcLimits>) {
+  constructor(data: Uint8Array, limits?: OpcLimits) {
     this.data = data;
-    this.limits = { ...DEFAULT_OPC_LIMITS, ...limits };
+    this.limits = resolveLimits(limits);
     // List the central directory without inflating anything.
     unzipSync(data, {
       filter: (file) => {
         if (this.entries.size >= this.limits.maxEntries) {
-          throw new OpcError(
-            "LimitExceeded",
-            `package has more than ${this.limits.maxEntries} entries`,
-          );
+          throw new OpcError("LimitExceeded", `more than ${this.limits.maxEntries} zip entries`);
         }
         this.entries.set(file.name.toLowerCase(), {
           name: file.name,
@@ -170,22 +182,24 @@ export class OpcReader {
     if (cached !== undefined) return cached;
     const entry = this.entries.get(key);
     if (entry === undefined) return null;
-    if (entry.originalSize > this.limits.maxPartBytes) {
+    // charge the declared size before inflating: fflate never inflates past it
+    const { maxEntrySize, maxTotalSize } = this.limits;
+    if (entry.originalSize > maxEntrySize) {
       throw new OpcError(
         "LimitExceeded",
-        `part ${entry.name} inflates to ${entry.originalSize} bytes, more than ${this.limits.maxPartBytes}`,
+        `${entry.name} is ${entry.originalSize} bytes uncompressed, over the ${maxEntrySize}-byte limit`,
       );
     }
-    if (this.inflated + entry.originalSize > this.limits.maxTotalBytes) {
+    if (this.inflated + entry.originalSize > maxTotalSize) {
       throw new OpcError(
         "LimitExceeded",
-        `package inflates to more than ${this.limits.maxTotalBytes} bytes`,
+        `the parts read exceed the ${maxTotalSize}-byte total limit`,
       );
     }
     const out =
       unzipSync(this.data, { filter: (file) => file.name === entry.name })[entry.name] ?? null;
     if (out === null) return null;
-    this.inflated += out.length;
+    this.inflated += entry.originalSize;
     this.cache.set(key, out);
     return out;
   }
