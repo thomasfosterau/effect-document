@@ -315,6 +315,14 @@ export default defineConfig({
         command: "vp test run --project corpus",
         cache: false,
       },
+      // Validates writer output with independent tools (`test/validate`):
+      // every OOXML part against the ECMA-376 schemas with xmllint. Needs
+      // `corpora:fetch` (the schemas) and xmllint; skipped locally without
+      // them, a failure under CI.
+      "test:validate": {
+        command: "vp test run --project validate",
+        cache: false,
+      },
       // Every package's unit suite plus the integration suite under one
       // Istanbul coverage map (`coverage/coverage-final.json`), which `fallow
       // audit` reads for exact per-function CRAP scores (`health.coverage` in
@@ -329,7 +337,7 @@ export default defineConfig({
       // through `exports` (→ `dist/`); every package's `build` is named
       // explicitly (cached, so a warm tree pays nothing).
       "test:coverage": {
-        command: "vp test run --coverage --project '!corpus'",
+        command: "vp test run --coverage --project '!corpus' --project '!validate'",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -354,6 +362,16 @@ export default defineConfig({
           name: "integration",
           include: ["test/integration/**/*.test.ts"],
           testTimeout: 30_000,
+        },
+      },
+      // Output validators (#134): writer output checked by independent
+      // tools (xmllint and the ECMA-376 schemas, fetched as a corpus).
+      {
+        resolve: { alias: integrationAliases },
+        test: {
+          name: "validate",
+          include: ["test/validate/**/*.test.ts"],
+          testTimeout: 120_000,
         },
       },
       // Corpus smoke mode (#133): every reader over the corpora fetched into

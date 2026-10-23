@@ -61,6 +61,12 @@ jobs:
           key: corpora-v1-${{ hashFiles('corpora.json') }}
       - name: Fetch the pinned corpora
         run: vp run corpora:fetch
+      # Writer output checked by independent tools (#134): every OOXML part
+      # against the ECMA-376 schemas (fetched above as a corpus).
+      - name: Validate writer output (xmllint, ECMA-376)
+        run: |
+          command -v xmllint || { sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxml2-utils; }
+          vp run test:validate
       # Every reader over every corpus file: no defects, no hangs.
       - name: Corpus smoke tests
         run: vp run test:corpus
