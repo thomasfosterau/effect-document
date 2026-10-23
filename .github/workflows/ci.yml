@@ -6,6 +6,15 @@ name: CI
 # Actions `needs:`. Copied in shape from the effect-web library: nothing here
 # needs a database, a stage or a credential, so every PR class runs the whole
 # gate.
+#
+# The `ci` job runs on the latest stable Node (`node-version: latest` in the
+# setup action). The packages' `engines.node` (`>=22`) is the consumer floor,
+# so the `node-floor` job reruns the runtime gates (unit and integration
+# tests) on Node 22, which `latest` alone never exercises: #164 (Node 22's
+# `TextDecoder("windows-1252")` decoding 0x80–0x9F as C1 controls) got
+# through that way (#181). It pins 22.18.0, the oldest Node 22 the toolchain
+# itself runs on (vite-plus's `engines.node` is `^22.18.0 || ^24.11.0 ||
+# >=26.0.0`), the same pin effect-ai-ext's `node-floor` job uses.
 
 on:
   pull_request:
@@ -94,6 +103,28 @@ jobs:
         run: vp run check:pack
       - name: Audit
         run: pnpm audit --audit-level high
+
+  node-floor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+      VITEST_MAX_WORKERS: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.18.0
+      - name: Node version
+        run: node --version
+      - name: Unit tests
+        run: vp run -r test:unit
+      - name: Integration tests (cross-format conversions)
+        run: vp run test:integration
 
   # Optional, not a required check (#134): our writers' output opened by
   # independent tools. LibreOffice converts every DOCX, XLSX, PPTX and RTF
