@@ -5,12 +5,18 @@
 # `vp` and the dev bins (tsc, tsx, fallow) land in node_modules/.bin,
 # which this adds to PATH so later steps invoke `vp …` directly.
 # Copied from the effect-web library's action (itself from effect-drizzle-ext
-# and the gardeneria application).
+# and the gardeneria application), with a `node-version` input (as in
+# effect-ai-ext's copy) so the `node-floor` job can reuse it (#181).
 #
 # Callers must run `actions/checkout` BEFORE this (a local composite action
 # needs the repo on disk first).
 name: Setup toolchain
 description: Set up Node.js and pnpm, restore the package cache, and install dependencies.
+inputs:
+  node-version:
+    description: The Node.js version to install (setup-node syntax).
+    required: false
+    default: latest
 runs:
   using: composite
   steps:
@@ -22,7 +28,7 @@ runs:
     - name: Setup Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: latest
+        node-version: ${{ inputs.node-version }}
         cache: pnpm
 
     # Retried: pnpm's linker can race itself when a package with a build
