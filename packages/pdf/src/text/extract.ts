@@ -7,7 +7,8 @@
  * glyph with its Unicode text, its position in (rotation-corrected) page
  * space, its advance and its effective font size. `/ActualText` replacements
  * in marked content are honoured. Link annotations come back too, so the
- * layout step can attach URLs to the text under them.
+ * layout step can attach URLs to the text under them, and so do the images
+ * the page paints, so the reader can find scanned pages and OCR them.
  */
 
 import * as Rec from "effect/Record";
@@ -58,12 +59,29 @@ export interface PageLink {
   readonly url: string;
 }
 
-/** A page's positioned text and links. */
+/**
+ * An image the page paints: an Image XObject drawn with `Do`, or an inline
+ * image (`BI … ID … EI`, whose dictionary keeps its abbreviated keys).
+ */
+export interface PageImage {
+  /**
+   * The matrix taking the image's unit square to the page: `[0, 0]` is the
+   * image's bottom-left corner and `[1, 1]` its top-right, in the same space
+   * as the glyphs.
+   */
+  readonly matrix: readonly [number, number, number, number, number, number];
+  /** The image's stream: its dictionary and its still-encoded data. */
+  readonly stream: PdfStream;
+}
+
+/** A page's positioned text, links and images. */
 export interface PageText {
   readonly width: number;
   readonly height: number;
   readonly glyphs: ReadonlyArray<TextGlyph>;
   readonly links: ReadonlyArray<PageLink>;
+  /** The images the page paints, in painting order; absent means none were recorded. */
+  readonly images?: ReadonlyArray<PageImage> | undefined;
 }
 
 type Matrix = readonly [number, number, number, number, number, number];
@@ -143,6 +161,7 @@ type OperatorHandler = (operands: ReadonlyArray<PdfObject>, n: (i: number) => nu
 export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
   const { matrix: base, width, height } = pageMatrix(page);
   const glyphs: TextGlyph[] = [];
+  const images: PageImage[] = [];
   const fonts = new Map<PdfObject | number, PdfFont>();
 
   const fontFor = (resources: PdfDict | undefined, name: string): PdfFont | undefined => {
@@ -301,12 +320,10 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           const name = operands[0];
           if (!isName(name) || depth >= MAX_FORM_DEPTH) return;
           const xobj = file.lookup(file.lookupDict(resources, "XObject"), name.name);
-          if (
-            !isStream(xobj) ||
-            file.lookupName(xobj.dict, "Subtype") !== "Form" ||
-            forms.has(xobj)
-          )
-            return;
+          if (!isStream(xobj)) return;
+          const subtype = file.lookupName(xobj.dict, "Subtype");
+          if (subtype === "Image") images.push({ matrix: gs.ctm, stream: xobj });
+          if (subtype !== "Form" || forms.has(xobj)) return;
           const parsed = Result.try(() => parseContentStream(file.decode(xobj).data));
           if (Result.isFailure(parsed)) return;
           const contents = parsed.success;
@@ -323,6 +340,10 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             forms,
           );
           forms.delete(xobj);
+        },
+        BI: (operands) => {
+          const image = operands[0];
+          if (isStream(image)) images.push({ matrix: gs.ctm, stream: image });
         },
         BMC: () => {
           marked.push({ start: glyphs.length });
@@ -359,7 +380,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
   };
 
   run(contentOf(file, page), page.resources, base, 0, new Set());
-  return { width, height, glyphs, links: linksOf(file, page, base) };
+  return { width, height, glyphs, links: linksOf(file, page, base), images };
 };
 
 /** A page's content operations (its `/Contents` streams, concatenated). */
