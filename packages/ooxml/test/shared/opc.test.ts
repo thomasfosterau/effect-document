@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import { strToU8, zipSync } from "fflate";
 import { bytes } from "@thomasfosterau/effect-document";
 import {
+  DEFAULT_OPC_LIMITS,
   decodePart,
   OpcError,
   OpcReader,
@@ -37,21 +38,21 @@ describe("OpcReader (#55)", () => {
 
   test("enforces entry-count, per-part and total limits", () => {
     const data = zip({ "a.xml": "x".repeat(100), "b.xml": "y".repeat(100), "c.xml": "z" });
-    expect(() => new OpcReader(data, { maxEntries: 2 })).toThrow(OpcError);
-    expect(() => new OpcReader(data, { maxPartBytes: 50 }).bytes("a.xml")).toThrow(
-      /inflates to 100 bytes/,
+    expect(() => new OpcReader(data, { maxEntries: 2 })).toThrow(/more than 2 zip entries/);
+    expect(() => new OpcReader(data, { maxEntrySize: 50 }).bytes("a.xml")).toThrow(
+      /a\.xml is 100 bytes uncompressed, over the 50-byte limit/,
     );
-    const pkg = new OpcReader(data, { maxTotalBytes: 150 });
+    const pkg = new OpcReader(data, { maxTotalSize: 150 });
     pkg.bytes("a.xml");
-    expect(() => pkg.bytes("b.xml")).toThrow(/more than 150 bytes/);
+    expect(() => pkg.bytes("b.xml")).toThrow(/exceed the 150-byte total limit/);
     expect(pkg.bytes("c.xml")).not.toBeNull();
   });
 
   test("a zip bomb part is refused before inflating", () => {
     const bomb = zipSync({ "x.xml": new Uint8Array(20 * 1024 * 1024) }, { level: 9 });
     expect(bomb.length).toBeLessThan(100 * 1024);
-    expect(() => new OpcReader(bomb, { maxPartBytes: 1024 * 1024 }).bytes("x.xml")).toThrow(
-      /inflates to/,
+    expect(() => new OpcReader(bomb, { maxEntrySize: 1024 * 1024 }).bytes("x.xml")).toThrow(
+      OpcError,
     );
   });
 
@@ -124,10 +125,20 @@ describe("readers (#55)", () => {
 
   test("reader limits apply and fail with a ParseError", () => {
     const error = Effect.runSync(
-      Effect.flip(makeDocxReader({ limits: { maxPartBytes: 10 } }).read(docx())),
+      Effect.flip(makeDocxReader({ limits: { maxEntrySize: 10 } }).read(docx())),
     );
     expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
     expect(error.reason).toContain("LimitExceeded");
+  });
+
+  test("a limit given as undefined keeps its default", () => {
+    const data = zip({ "a.xml": "x".repeat(100) });
+    expect(DEFAULT_OPC_LIMITS).toEqual({
+      maxEntries: 10_000,
+      maxEntrySize: 256 * 1024 * 1024,
+      maxTotalSize: 512 * 1024 * 1024,
+    });
+    expect(new OpcReader(data, { maxEntrySize: undefined }).text("a.xml")).toHaveLength(100);
   });
 
   test("malformed XML in a part carries its position", () => {

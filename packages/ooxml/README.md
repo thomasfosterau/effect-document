@@ -54,6 +54,8 @@ const program = Effect.gen(function* () {
 
 `trustAs` asserts a document's profile without checking it; use a profile's `validate` (or `narrow`) on documents you did not build yourself. Each namespace's `format` plugs into `convert`, and converting between them reports what the target cannot hold: DOCX → PPTX wraps loose prose into a single slide. A missing or malformed part fails with a `ParseError` whose `cause` says which.
 
+Every reader takes a `limits` option against zip bombs: `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed part read (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` keeps its default. Parts are inflated only when read, after their declared size is checked, so a zip bomb fails with a `ParseError` whose `code` is `"LimitExceeded"`. The names, defaults and messages are the same as the iWork readers' `limits`.
+
 The XLSX entry also exports its A1-notation helpers (`parseA1`, `parseA1Range`, `toA1`, `indexToCol`, `colToIndex`) and the SpreadsheetML cell codec.
 
 ## API reference

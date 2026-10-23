@@ -36,12 +36,12 @@ Each app has its own subpath (`/keynote`, `/pages`, `/numbers`); the root export
 
 Every reader takes `IworkReaderOptions`:
 
-- `limits` (`BundleLimits`): the most zip entries, the largest entry and the most total bytes the bundle may inflate (defaults in `DEFAULT_BUNDLE_LIMITS`), so a zip bomb fails with `LimitExceeded` instead of exhausting memory. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
+- `limits` (`BundleLimits`): `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed entry (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` takes its default (`DEFAULT_BUNDLE_LIMITS`). A zip bomb fails with `LimitExceeded` instead of exhausting memory, and the reader's `ParseError` has `code: "LimitExceeded"`. The names, defaults and messages are the same as the OOXML readers' `limits`. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
 - `lenient`: skip a component that fails to decode, with a logged warning (`Effect.logWarning`), instead of failing the whole read.
 
 ## Errors
 
-Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whose `reason` is one of `NotZip`, `NotIwork` (a zip without `.iwa` components, such as a `.docx`), `LegacyIwork09Unsupported`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed` or `Io`, and which names the component, object and byte offset it happened at. The readers wrap it in a `ParseError` whose `reason` repeats that location and whose `cause` is the `IworkError`.
+Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whose `reason` is one of `NotZip`, `NotIwork` (a zip without `.iwa` components, such as a `.docx`), `LegacyIwork09Unsupported`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed` or `Io`, and which names the component, object and byte offset it happened at. The readers wrap it in a `ParseError` whose `reason` repeats the `IworkError`'s reason and location, whose `cause` is the `IworkError`, and whose `code` is `"LimitExceeded"` when a limit was exceeded.
 
 ## The container codec
 
@@ -151,10 +151,10 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `decodeArchiveStream` | function | Decode a decompressed object stream into its archived objects. |
 | `decodeIwa` | function | Decode an `.iwa` file (dechunk + parse the object stream). |
 | `IworkBundle` | interface | An opened iWork document. |
-| `BundleLimits` | interface | Zip-bomb limits for opening a bundle; any left out take the `DEFAULT_BUNDLE_LIMITS` value. |
+| `BundleLimits` | interface | Zip-bomb limits for opening a bundle; any left out (or `undefined`) take the `DEFAULT_BUNDLE_LIMITS` value. |
 | `OpenBundleOptions` | interface | Options for `openBundle` and `openBundleDirectory`. |
 | `DEFAULT_BUNDLE_LIMITS` | const | The default `BundleLimits`. |
-| `ResolvedLimits` | type | `BundleLimits` with every limit filled in. |
+| `ResolvedBundleLimits` | type | `BundleLimits` with every limit filled in. |
 | `openBundle` | function | Open an iWork bundle, inflating only its `.iwa` components. |
 | `openBundleDirectory` | function | Open an iWork package saved as a directory (e.g. |
 | `compareComponentPaths` | function | Compare paths with their digit runs as numbers, so `Slide-8060.iwa` sorts before `Slide-10000.iwa` and `Slide-8060.iwa` before `Slide-8060-2.iwa`. |

@@ -9,7 +9,12 @@ import * as Result from "effect/Result";
 import { unzipSync, zipSync } from "fflate";
 import { bytes, type ParseError } from "@thomasfosterau/effect-document";
 import { decodeArchiveStream, decodeIwa } from "../src/archive.ts";
-import { type BundleLimits, openBundle, openBundleDirectory } from "../src/bundle.ts";
+import {
+  type BundleLimits,
+  DEFAULT_BUNDLE_LIMITS,
+  openBundle,
+  openBundleDirectory,
+} from "../src/bundle.ts";
 import { IworkError } from "../src/errors.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import {
@@ -262,6 +267,45 @@ describe("bundle: typed failures and inflation limits", () => {
     expect(Result.isFailure(r) && r.failure.reason).toBe("LimitExceeded");
   });
 
+  test("limit names, defaults and messages match OOXML's OpcLimits", () => {
+    expect(DEFAULT_BUNDLE_LIMITS).toEqual({
+      maxEntries: 10_000,
+      maxEntrySize: 256 * 1024 * 1024,
+      maxTotalSize: 512 * 1024 * 1024,
+    });
+    const zip = zipSync({ "Index/A.iwa": new Uint8Array(600), "Index/B.iwa": new Uint8Array(600) });
+    const detail = (limits: BundleLimits) => {
+      const r = openBundle(zip, { limits });
+      return Result.isFailure(r) ? r.failure.detail : "ok";
+    };
+    expect(detail({ maxEntries: 1 })).toBe("more than 1 zip entries");
+    expect(detail({ maxEntrySize: 500 })).toBe(
+      "Index/A.iwa is 600 bytes uncompressed, over the 500-byte limit",
+    );
+    expect(detail({ maxTotalSize: 1000 })).toBe("the parts read exceed the 1000-byte total limit");
+    // an explicitly undefined limit keeps its default
+    expect(detail({ maxEntrySize: undefined })).toBe("ok");
+  });
+
+  test("a reader's limit failure is a ParseError with code LimitExceeded", () => {
+    const r = Effect.runSync(
+      Effect.result(
+        Keynote.makeKeynoteReader({ limits: { maxEntrySize: 10 } }).read(
+          bytes(fixture("simple-oneslide.key")),
+        ),
+      ),
+    );
+    assert(Result.isFailure(r), "expected a failure");
+    expect(r.failure).toMatchObject({
+      _tag: "ParseError",
+      format: "keynote",
+      code: "LimitExceeded",
+    });
+    expect(r.failure.reason).toContain("LimitExceeded");
+    assert(r.failure.cause instanceof IworkError, "expected an IworkError cause");
+    expect(r.failure.cause.reason).toBe("LimitExceeded");
+  });
+
   test("an unzipped package directory opens through FileSystem", () => {
     const files: Record<string, Uint8Array> = unzipSync(fixture("simple-oneslide.key"), {
       filter: (f) => f.name.startsWith("Index/"),
@@ -307,7 +351,9 @@ describe("readers: component failures", () => {
     const r = Effect.runSync(Effect.result(Keynote.makeKeynoteReader().read(bytes(deck))));
     assert(Result.isFailure(r), "expected a failure");
     const e: ParseError = r.failure;
-    expect(e.reason).toMatch(/^Failed to read keynote: Index\/Slide-8060\.iwa, offset 4: /);
+    expect(e.reason).toMatch(
+      /^Failed to read keynote: Truncated: Index\/Slide-8060\.iwa, offset 4: /,
+    );
     expect((e.cause as IworkError).reason).toBe("Truncated");
   });
 

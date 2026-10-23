@@ -55,8 +55,8 @@ import { PptxRead, type PptxReadFeature } from "./profile.ts";
 
 /** Options for the PPTX reader: zip resource limits. */
 export interface PptxReaderOptions {
-  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits> | undefined;
+  /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
+  readonly limits?: OpcLimits | undefined;
 }
 
 /** Main-part content types this reader accepts. */

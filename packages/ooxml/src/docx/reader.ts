@@ -65,8 +65,8 @@ import { Docx, type DocxFeature } from "./profile.ts";
 
 /** Options for the DOCX reader: zip resource limits and the nesting-depth limit. */
 export interface DocxReaderOptions {
-  /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
-  readonly limits?: Partial<OpcLimits> | undefined;
+  /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
+  readonly limits?: OpcLimits | undefined;
   /**
    * The deepest nesting (e.g. tables inside tables) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
