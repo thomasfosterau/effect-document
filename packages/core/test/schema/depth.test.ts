@@ -1,8 +1,16 @@
 import { describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Predicate from "effect/Predicate";
 import {
   type Block,
   BlockQuote,
+  BulletList,
+  Cite,
+  Citation,
+  DefinitionItem,
+  DefinitionList,
+  Document,
   Emph,
   type Inline,
   blocksNestingDepth,
@@ -91,4 +99,61 @@ describe("deep nesting (#110)", () => {
     expect(() => narrow(doc, Profiles.Csv)).not.toThrow();
     expect(narrow(doc, Profiles.Markdown).loss.isLossless).toBe(true);
   });
+
+  /**
+   * One chain per kind of nesting, from the cheapest for Schema to recurse
+   * through to the dearest (a Table level is Table, TableRow and Cell).
+   */
+  const chains: ReadonlyArray<readonly [string, (b: Block) => Block]> = [
+    ["block quotes", (b) => new BlockQuote({ content: [b] })],
+    ["bullet lists", (b) => new BulletList({ items: [[b]] })],
+    ["tables", (b) => table({ rows: [[[b]]] })],
+    [
+      "definition lists",
+      (b) =>
+        new DefinitionList({
+          items: [new DefinitionItem({ term: [new Str({ text: "t" })], definitions: [[b]] })],
+        }),
+    ],
+    [
+      "citations",
+      (b) =>
+        para([
+          new Cite({
+            content: [],
+            citations: [
+              new Citation({
+                id: "c",
+                mode: "normal",
+                prefix: Predicate.isTagged(b, "Para") ? b.content : [],
+                suffix: [],
+              }),
+            ],
+          }),
+        ]),
+    ],
+  ];
+
+  /** A document as deep as `wrap` can make it without exceeding `depth`. */
+  const chain = (wrap: (b: Block) => Block, depth: number): Document => {
+    const base: Block = para([new Str({ text: "x" })]);
+    const start = blocksNestingDepth([base]);
+    const step = blocksNestingDepth([wrap(base)]) - start;
+    const levels = Math.floor((depth - start) / step);
+    return document([Array.from({ length: levels }).reduce<Block>((b) => wrap(b), base)]);
+  };
+
+  test.each(chains)(
+    "%s at the readers' default limit encode, decode, narrow and validate",
+    (_, wrap) => {
+      const doc = chain(wrap, DEFAULT_MAX_NESTING_DEPTH);
+      expect(nestingDepth(doc)).toBeGreaterThanOrEqual(DEFAULT_MAX_NESTING_DEPTH - 2);
+      expect(nestingDepth(doc)).toBeLessThanOrEqual(DEFAULT_MAX_NESTING_DEPTH);
+      const wire = Schema.fromJsonString(Document);
+      expect(Schema.decodeUnknownSync(wire)(Schema.encodeUnknownSync(wire)(doc))).toEqual(doc);
+      expect(() => narrow(doc, Profiles.Markdown)).not.toThrow();
+      expect(() => narrow(doc, Profiles.Csv)).not.toThrow();
+      expect(Profiles.Full.is(doc)).toBe(true);
+    },
+  );
 });

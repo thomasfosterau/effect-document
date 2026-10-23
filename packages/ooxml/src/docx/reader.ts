@@ -70,7 +70,7 @@ export interface DocxReaderOptions {
   /**
    * The deepest nesting (e.g. tables inside tables) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
-   * `DEFAULT_MAX_NESTING_DEPTH` (1000).
+   * `DEFAULT_MAX_NESTING_DEPTH` (128).
    */
   readonly maxDepth?: number | undefined;
 }

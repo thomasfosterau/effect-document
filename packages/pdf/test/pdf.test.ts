@@ -425,6 +425,15 @@ describe("PDF nesting limit (#110)", () => {
     const error = run(Effect.flip(makePdfReader({ maxDepth: 2 }).read(bytes(pdf))));
     expect(error).toMatchObject({ _tag: "ParseError", format: "pdf", code: "LimitExceeded" });
   });
+
+  test("deeply nested arrays in a content stream fail with a LimitExceeded ParseError", () => {
+    const pdf = onePage(
+      "BT /F1 12 Tf 72 700 Td (kept) Tj ET " + "[".repeat(20_000) + "]".repeat(20_000) + " TJ",
+      { Font: pdfDict({ F1: helvetica }) },
+    );
+    const error = run(Effect.flip(makePdfReader().read(bytes(pdf))));
+    expect(error).toMatchObject({ _tag: "ParseError", format: "pdf", code: "LimitExceeded" });
+  });
 });
 
 describe("PDF paragraph separation", () => {

@@ -32,6 +32,11 @@ export class PdfSyntaxError extends Schema.TaggedError<PdfSyntaxError>()("PdfSyn
   reason: Schema.String,
   /** The byte offset the error was found at. */
   offset: Schema.Number,
+  /**
+   * A machine-readable failure class. `"LimitExceeded"`: arrays and
+   * dictionaries nest deeper than {@link MAX_OBJECT_NESTING}.
+   */
+  code: Schema.optional(Schema.Literal("LimitExceeded")),
 }) {
   override get message(): string {
     return `${this.reason} (at byte ${this.offset})`;
@@ -359,9 +364,19 @@ export interface IndirectObject {
   readonly object: PdfObject;
 }
 
+/**
+ * How deeply arrays and dictionaries may nest in one object. Real PDFs nest a
+ * handful of levels; the parser descends recursively, so deeper input fails
+ * with a `"LimitExceeded"` {@link PdfSyntaxError} instead of overflowing the
+ * call stack.
+ */
+export const MAX_OBJECT_NESTING = 512;
+
 /** Reads PDF objects from a lexer. */
 export class Parser {
   private peeked: Token | undefined;
+  /** How many arrays and dictionaries enclose the current position. */
+  private depth = 0;
 
   readonly lexer: Lexer;
   private readonly resolveLength: LengthResolver | undefined;
@@ -414,14 +429,26 @@ export class Parser {
       }
       return { _tag: "Keyword", word: t.word };
     } else if (t.kind === "punct") {
-      if (t.char === "[") {
-        return this.array();
-      } else if (t.char === "<<") {
-        return this.dictOrStream();
+      if (t.char === "[" || t.char === "<<") {
+        return this.container(t.char);
       } else {
         return { _tag: "Keyword", word: t.char };
       }
     }
+  }
+
+  /** An array or a dictionary (or stream), one level deeper, after its opening token. */
+  private container(open: "[" | "<<"): PdfObject {
+    if (this.depth >= MAX_OBJECT_NESTING)
+      throw new PdfSyntaxError({
+        reason: `arrays and dictionaries nest more than ${MAX_OBJECT_NESTING} levels deep`,
+        offset: this.lexer.pos,
+        code: "LimitExceeded",
+      });
+    this.depth++;
+    const object = open === "[" ? this.array() : this.dictOrStream();
+    this.depth--;
+    return object;
   }
 
   /** Read one object, treating a keyword where an object belongs as an error. */
