@@ -502,8 +502,12 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
           const start = ctx.numbering.start(li.numId, li.ilvl);
           open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
         }
+        const heading = paragraphStyle(child)?.match(/^Heading([1-6])$/);
+        const content = paragraphInlines(child, ctx.rels);
         open[open.length - 1]!.items.push([
-          new Plain({ content: paragraphInlines(child, ctx.rels) }),
+          heading
+            ? new Header({ level: Number.parseInt(heading[1] ?? "1", 10), content })
+            : new Plain({ content }),
         ]);
       } else if (child.name === "tbl") {
         closeAll();

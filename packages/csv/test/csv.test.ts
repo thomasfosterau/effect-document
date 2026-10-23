@@ -350,6 +350,17 @@ describe("CSV scanner", () => {
     ).toEqual([["a", "b,c"]]);
   });
 
+  test("a TSV line of tabs is a row of empty fields, not a blank line (#109)", () => {
+    expect(
+      Effect.runSync(scanCsv("a\tb\n\t\nc\td\n", TsvDialect, { treatFirstRowAsHeader: false }))
+        .rows,
+    ).toEqual([
+      ["a", "b"],
+      ["", ""],
+      ["c", "d"],
+    ]);
+  });
+
   test("an unclosed quote fails with its line and column", () => {
     const r = Effect.runSync(Effect.result(scanCsv('a,b\nc,"d\ne\n')));
     expect(Result.isFailure(r)).toBe(true);

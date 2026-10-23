@@ -17,7 +17,8 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { type AttrPolicy } from "../schema/attributes.ts";
 import { Document, type DocumentEncoded } from "../schema/document.ts";
-import { type Feature } from "../schema/feature.ts";
+import type { Block, Inline, SheetCell, Shape } from "../schema/ast.ts";
+import { type Feature, featureOfTag, type TagsOf } from "../schema/feature.ts";
 import { ProfileViolation } from "../io/errors.ts";
 import { unsupportedFeatures } from "./collect.ts";
 
@@ -48,6 +49,36 @@ export type Doc<F extends Feature = Feature> = Document & DocBrand<F>;
 
 /** The feature set of a profile, as a phantom-bearing type. */
 export type FeaturesOf<P> = P extends Profile<infer F> ? F : never;
+
+/**
+ * The inline nodes a `Doc<F>` may contain. A writer that renders them through
+ * an exhaustive handler table (`Match.valueTags`, or a mapped type over
+ * `InlineOf<F>["_tag"]`) stops compiling when a feature joins its profile
+ * without a renderer, so a write profile can't claim more than its writer
+ * writes (#109).
+ */
+export type InlineOf<F extends Feature> = Extract<Inline, { readonly _tag: TagsOf<F> }>;
+/** The blocks a `Doc<F>` may contain (see {@link InlineOf}). */
+export type BlockOf<F extends Feature> = Extract<Block, { readonly _tag: TagsOf<F> }>;
+/** The spreadsheet cells a `Doc<F>` may contain (see {@link InlineOf}). */
+export type CellOf<F extends Feature> = Extract<SheetCell, { readonly _tag: TagsOf<F> }>;
+/** The slide shapes a `Doc<F>` may contain (see {@link InlineOf}). */
+export type ShapeOf<F extends Feature> = Extract<Shape, { readonly _tag: TagsOf<F> }>;
+
+/**
+ * Whether `node` is a kind of node `profile` allows: an inline, block, cell or
+ * shape whose feature is in it. It narrows `node` to the profile's members
+ * (`InlineOf<F>`, `BlockOf<F>`, …), for a writer that renders them
+ * exhaustively and treats anything else (a document it was handed through
+ * `trustAs`) on its own terms.
+ */
+export const isNodeIn = <F extends Feature, N extends { readonly _tag: string }>(
+  profile: Profile<F>,
+  node: N,
+): node is Extract<N, { readonly _tag: TagsOf<F> }> => {
+  const feature = featureOfTag(node._tag);
+  return feature !== undefined && profile.features.has(feature);
+};
 
 // ============================================================================
 // Profile

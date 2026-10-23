@@ -13,10 +13,12 @@ import * as Match from "effect/Match";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
-  type Block,
+  type BlockOf,
   type Content,
   type Doc,
   type Inline,
+  type InlineOf,
+  isNodeIn,
   makeWriterTag,
   text,
   type WriteError,
@@ -42,12 +44,11 @@ export interface RtfWriterOptions {
   readonly marginBottom?: number | undefined;
 }
 
-// The node types the profile allows: `"inline.softBreak"` -> `SoftBreak`. Branches
-// over these use the exhaustive `Match.valueTags`, so a feature added to the
-// profile but not to the writer is a compile error.
-type TagOf<F, Kind extends string> = F extends `${Kind}.${infer Name}` ? Capitalize<Name> : never;
-type RtfInline = Extract<Inline, { readonly _tag: TagOf<RtfFeature, "inline"> }>;
-type RtfBlock = Extract<Block, { readonly _tag: TagOf<RtfFeature, "block"> }>;
+// The node types the profile allows. Branches over these use the exhaustive
+// `Match.valueTags`, so a feature added to the profile but not to the writer
+// is a compile error (#109).
+type RtfInline = InlineOf<RtfFeature>;
+type RtfBlock = BlockOf<RtfFeature>;
 
 /** `\uN` takes a signed 16-bit UTF-16 code unit. */
 const unicodeEscape = (unit: number): string => `\\u${unit > 32767 ? unit - 65536 : unit}?`;
@@ -81,10 +82,10 @@ const renderInline = (n: RtfInline): string =>
     Strikeout: (m) => `{\\strike ${renderInlines(m.content)}}`,
   });
 
-// a profile-conforming document only contains the profile's node types
+// a profile-conforming document only contains the profile's node types; any
+// other (in a document handed over with `trustAs`) is dropped
 const renderInlines = (ns: ReadonlyArray<Inline>): string =>
-  // SAFETY: see above; `write` only receives `Doc<RtfFeature>`
-  (ns as ReadonlyArray<RtfInline>).map(renderInline).join("");
+  ns.map((n) => (isNodeIn(Rtf, n) ? renderInline(n) : "")).join("");
 
 /** A heading's size, in half-points (`\fsN`). */
 const headingSize = (level: number): number => Math.max(20, 36 - (level - 1) * 4);
@@ -145,9 +146,9 @@ export const makeRtfWriter = (options: RtfWriterOptions = {}): Writer<RtfFeature
   const bodySize = Math.round((options.fontSize ?? 12) * 2);
   const write = (doc: Doc<RtfFeature>): Effect.Effect<Content, WriteError> =>
     Effect.sync(() => {
-      // SAFETY: a `Doc<RtfFeature>` holds only the RTF profile's block types
-      const blocks = doc.blocks as ReadonlyArray<RtfBlock>;
-      const body = blocks.map((b) => renderBlock(b, bodySize, eol)).join("");
+      const body = doc.blocks
+        .map((b) => (isNodeIn(Rtf, b) ? renderBlock(b, bodySize, eol) : ""))
+        .join("");
       return text(`${renderHeader(options, bodySize, eol)}${body}}`);
     });
   return { format: "rtf", profile: Rtf, write };
