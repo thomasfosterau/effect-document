@@ -20,8 +20,15 @@ export type NestedNode = Block | Inline | Shape;
 /**
  * The default maximum nesting depth readers accept: far above any real
  * document, far below what the recursive walks can handle.
+ *
+ * The binding constraint is Schema encoding: Effect's Schema parser recurses
+ * several frames per schema level, and a `Table` level is three schema levels
+ * (`Table`, `TableRow`, `Cell`). On Node's default stack, encoding a document
+ * of nested tables overflows from about 240 levels in a fresh process, a
+ * `DefinitionList` chain from about 290 and a `BlockQuote` chain from about
+ * 630, so readers stop at 128.
  */
-export const DEFAULT_MAX_NESTING_DEPTH = 1000;
+export const DEFAULT_MAX_NESTING_DEPTH = 128;
 
 /** The blocks, inlines and shapes directly inside a node. */
 export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {

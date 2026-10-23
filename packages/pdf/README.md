@@ -66,7 +66,7 @@ file.lookupDict(file.catalog, "Pages");
 const saved = rewritePdf(file); // re-serialize (optionally with replaced objects)
 ```
 
-The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `offset`), `PdfFilterError` (with the `filter`) and `PdfEncryptedError`. The reader and writer turn those into a `ParseError` / `WriteError` in the error channel.
+The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `offset`, and `code: "LimitExceeded"` when arrays and dictionaries nest deeper than `MAX_OBJECT_NESTING`), `PdfFilterError` (with the `filter`) and `PdfEncryptedError`. The reader and writer turn those into a `ParseError` / `WriteError` in the error channel.
 
 ## API reference
 
@@ -158,6 +158,7 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 | `lastIndexOf` | function | Find a byte sequence at or before `from`, searching backwards. |
 | `ascii` | function | A string's character codes as a byte array. |
 | `IndirectObject` | interface | An indirect object (`num gen obj … endobj`). |
+| `MAX_OBJECT_NESTING` | const | How deeply arrays and dictionaries may nest in one object. |
 | `Parser` | class | Reads PDF objects from a lexer. |
 | `parseObject` | function | Parse a single object from bytes (e.g. |
 | `Operation` | interface | One content-stream operation. |

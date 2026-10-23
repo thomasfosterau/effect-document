@@ -1,6 +1,7 @@
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { blocksToText, bytes, document, para, str, trustAs } from "@thomasfosterau/effect-document";
 import { type PdfFeature, makePdfReader, makePdfWriter } from "../src/index.ts";
 import {
@@ -16,6 +17,8 @@ import {
   isStream,
   latin1ToBytes,
   parseContentStream,
+  MAX_OBJECT_NESTING,
+  PdfSyntaxError,
   parseObject,
   pdfArray,
   pdfDict,
@@ -388,5 +391,34 @@ describe("PdfFile", () => {
     const file = PdfFile.open(pdf.build({ root }));
     expect(file.repaired).toBe(false);
     expect(file.pages()[0]!.mediaBox).toEqual([0, 0, 612, 792]); // the default
+  });
+});
+
+describe("nesting limit (#110)", () => {
+  const nested = (open: string, close: string, n: number) =>
+    enc(open.repeat(n) + "1" + close.repeat(n));
+  const limitExceeded = { _tag: "PdfSyntaxError", code: "LimitExceeded" };
+
+  test("arrays and dictionaries up to MAX_OBJECT_NESTING parse", () => {
+    expect(() => parseObject(nested("[", "]", MAX_OBJECT_NESTING))).not.toThrow();
+    expect(() => parseObject(nested("<</A ", ">>", MAX_OBJECT_NESTING))).not.toThrow();
+  });
+
+  test.each([
+    ["arrays", nested("[", "]", 20_000)],
+    ["dictionaries", nested("<</A ", ">>", 20_000)],
+    ["arrays and dictionaries", nested("[<</A ", ">>]", 10_000)],
+    ["one level too many", nested("[", "]", MAX_OBJECT_NESTING + 1)],
+  ])("deeper %s fail with a LimitExceeded PdfSyntaxError", (_, input) => {
+    const result = Result.try(() => parseObject(input));
+    assert(Result.isFailure(result));
+    expect(result.failure).toBeInstanceOf(PdfSyntaxError);
+    expect(result.failure).toMatchObject(limitExceeded);
+  });
+
+  test("a content stream nested too deeply fails the same way", () => {
+    const result = Result.try(() => parseContentStream(enc("[".repeat(20_000) + " TJ")));
+    assert(Result.isFailure(result));
+    expect(result.failure).toMatchObject(limitExceeded);
   });
 });

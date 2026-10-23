@@ -31,6 +31,7 @@ import {
 } from "@thomasfosterau/effect-document";
 import { describeCause } from "./describe.ts";
 import { PdfFile } from "./cos/file.ts";
+import { PdfSyntaxError } from "./cos/parser.ts";
 import { isString, latin1ToBytes } from "./cos/objects.ts";
 import { decodeTextString } from "./text/encodings.ts";
 import { type PageText, extractPageText } from "./text/extract.ts";
@@ -64,6 +65,9 @@ export const readMeta = (file: PdfFile): Meta => {
   return meta;
 };
 
+/** `"LimitExceeded"` when the parser refused input nested too deeply. */
+const limitCode = (cause: unknown) => (cause instanceof PdfSyntaxError ? cause.code : undefined);
+
 /** Open a PDF, failing with a `ParseError` if it can't be read or is encrypted. */
 export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
   Effect.try({
@@ -72,6 +76,7 @@ export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
       new ParseError({
         format: "pdf",
         reason: describeCause(cause),
+        code: limitCode(cause),
         cause,
       }),
   }).pipe(
@@ -139,7 +144,7 @@ export interface PdfReaderOptions {
   /**
    * The deepest nesting (e.g. lists inside lists) the reader accepts before
    * failing with a `"LimitExceeded"` ParseError. Defaults to
-   * `DEFAULT_MAX_NESTING_DEPTH` (1000).
+   * `DEFAULT_MAX_NESTING_DEPTH` (128).
    */
   readonly maxDepth?: number | undefined;
   /**
@@ -184,6 +189,7 @@ const attempt = <A>(f: () => A): Effect.Effect<A, ParseError> =>
       new ParseError({
         format: "pdf",
         reason: describeCause(cause),
+        code: limitCode(cause),
         cause,
       }),
   });
