@@ -44,7 +44,7 @@ export type PdfFeature = FeaturesOf<typeof Pdf>;
  * quotes, rules, line breaks, underline and strikeout aren't recovered by the
  * layout reader, so those are narrowed away (with a loss report) on write.
  * Neither is inline code: a monospace run that fills a line (or a wrapped
- * line's start) reads back as a code block.
+ * line's start) reads back as a code block (#198).
  */
 export const PdfWrite = defineProfile("pdf-write", [
   "block.plain",

@@ -176,7 +176,7 @@ const CASES: ReadonlyArray<Case> = [
   {
     format: Docx.format,
     family: "prose",
-    // A list item's blocks after its first paragraph are written outside the list (TBD-DOCX-LIST).
+    // A list item's blocks after its first paragraph are written outside the list (#195).
     options: { listItems: "lead" },
     runs: 100,
   },
@@ -184,19 +184,19 @@ const CASES: ReadonlyArray<Case> = [
     format: Pptx.format,
     family: "deck",
     // A list item's later paragraphs read back as items of their own, and
-    // adjacent lists as one (TBD-PPTX-LIST).
+    // adjacent lists as one (#196).
     options: { listItems: "paragraph" },
     limits: [
-      { issue: "TBD-PPTX-LIST", erase: adjacentLists },
+      { issue: "#196", erase: adjacentLists },
       // A title placeholder's text reads back as level-1 headings.
-      { issue: "TBD-PPTX-TITLE", erase: titleHeadings },
+      { issue: "#196", erase: titleHeadings },
     ],
     runs: 100,
   },
   {
     format: Rtf.format,
     family: "prose",
-    limits: [{ issue: "TBD-HEADING-BOLD", erase: strongInHeadings }],
+    limits: [{ issue: "#197", erase: strongInHeadings }],
     runs: 100,
   },
   {
@@ -205,10 +205,10 @@ const CASES: ReadonlyArray<Case> = [
     // The reader infers structure from layout: headings by their size against
     // the body text, so there must be body text; lists by their markers, so
     // a line can't start with a word like "a."; and a list item is one
-    // paragraph (TBD-PDF-LAYOUT).
+    // paragraph (#198).
     options: { bodyContext: true, listItems: "paragraph", markerLikeWords: false },
     limits: [
-      { issue: "TBD-HEADING-BOLD", erase: strongInHeadings },
+      { issue: "#197", erase: strongInHeadings },
       ...[
         adjacentLists,
         // Breaks between blocks of one kind are inferred from line spacing,
@@ -219,7 +219,7 @@ const CASES: ReadonlyArray<Case> = [
         hyphenatedWords,
         // Heading levels are the rank of their sizes among the headings.
         rankedHeadings,
-      ].map((erase) => ({ issue: "TBD-PDF-LAYOUT", erase })),
+      ].map((erase) => ({ issue: "#198", erase })),
     ],
     runs: 50,
   },
