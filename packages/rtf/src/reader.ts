@@ -246,22 +246,53 @@ const codePageLabel = (cp: number): string | undefined => {
   return undefined;
 };
 
-const decoders = new Map<number, TextDecoder>();
+/** Decodes a run of bytes in one code page. */
+type Decode = (bytes: Uint8Array) => string;
+
+/**
+ * cp1252's 0x80–0x9F, per the WHATWG `windows-1252` index (the five bytes
+ * cp1252 leaves undefined, 0x81, 0x8D, 0x8F, 0x90 and 0x9D, map to the C1
+ * control of the same value). Every other byte is its Latin-1 code point.
+ */
+const CP1252_C1 =
+  "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f" +
+  "\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
+
+/**
+ * Decodes cp1252 by table rather than through `TextDecoder`: Node 22's
+ * `TextDecoder("windows-1252")` decodes 0x80–0x9F as Latin-1 C1 controls
+ * (`\u0093` for a left double quote) instead of the cp1252 characters, and the
+ * packages support Node 22.
+ */
+const decodeCp1252: Decode = (bytes) =>
+  Array.from(bytes, (byte) =>
+    byte >= 0x80 && byte <= 0x9f ? CP1252_C1.charAt(byte - 0x80) : String.fromCharCode(byte),
+  ).join("");
+
+const decoders = new Map<number, Decode>();
 
 /** A decoder for a code page; unsupported ones (437, 850, ...) decode as cp1252. */
-const decoderFor = (cp: number): TextDecoder => {
+const decoderFor = (cp: number): Decode => {
   let decoder = decoders.get(cp);
   if (decoder === undefined) {
-    // SAFETY: some TypeScript DOM libs type the label as a fixed union, but
-    // any WHATWG encoding label is accepted at runtime (and an unknown one
-    // throws, which falls back to cp1252 below)
-    const label = (codePageLabel(cp) ?? "windows-1252") as ConstructorParameters<
-      typeof TextDecoder
-    >[0];
-    decoder = Result.getOrElse(
-      Result.try(() => new TextDecoder(label)),
-      () => new TextDecoder("windows-1252"),
-    );
+    const label = codePageLabel(cp);
+    decoder =
+      label === undefined || label === "windows-1252"
+        ? decodeCp1252
+        : Result.getOrElse(
+            Result.map(
+              // SAFETY: some TypeScript DOM libs type the label as a fixed
+              // union, but any WHATWG encoding label is accepted at runtime
+              // (and an unknown one throws, which falls back to cp1252 below)
+              Result.try(
+                () => new TextDecoder(label as ConstructorParameters<typeof TextDecoder>[0]),
+              ),
+              (textDecoder): Decode =>
+                (bytes) =>
+                  textDecoder.decode(bytes),
+            ),
+            () => decodeCp1252,
+          );
     decoders.set(cp, decoder);
   }
   return decoder;
@@ -471,7 +502,7 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   };
   const flushBytes = (): void => {
     if (Arr.isReadonlyArrayEmpty(bytes)) return;
-    const decoded = decoderFor(codePage()).decode(Uint8Array.from(bytes));
+    const decoded = decoderFor(codePage())(Uint8Array.from(bytes));
     bytes = [];
     emit(decoded);
   };

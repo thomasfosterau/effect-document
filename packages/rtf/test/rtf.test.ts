@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
@@ -180,6 +181,19 @@ describe("RTF reader: character decoding", () => {
   test("\\'hh is decoded through the document code page", () => {
     expect(readText("{\\rtf1\\ansi\\ansicpg1252 \\'93q\\'94 \\'80\\par}")).toBe("“q” €");
     expect(readText("{\\rtf1\\ansi\\ansicpg1251 \\'c0\\'e1\\par}")).toBe("Аб");
+  });
+
+  test("cp1252's 0x80–0x9F decode as the WHATWG windows-1252 characters on every Node", () => {
+    // Node 22's TextDecoder("windows-1252") yields the C1 controls here (#164)
+    const escapes = Arr.makeBy(32, (i) => `\\'${(0x80 + i).toString(16)}`).join("");
+    expect(readText(`{\\rtf1\\ansi\\ansicpg1252 ${escapes}\\par}`)).toBe(
+      "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ",
+    );
+    expect(readText("{\\rtf1\\ansi\\ansicpg1252 \\'7e\\'a0\\'e9\\'ff\\par}")).toBe("~ éÿ");
+  });
+
+  test("an unsupported code page decodes as cp1252", () => {
+    expect(readText("{\\rtf1\\pc \\'93q\\'94\\par}")).toBe("“q”");
   });
 
   test("\\'hh is decoded through the active font's \\fcharset, and DBCS pairs combine", () => {
