@@ -118,7 +118,7 @@ const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   if (Arr.isReadonlyArrayNonEmpty(w.merges)) acc.add("sheet.merges");
   if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
   for (const col of w.columns) if (col.style !== undefined) acc.add("cell.style");
-  for (const row of w.rows) for (const c of row.cells) walkCell(c, acc, stack);
+  for (const row of w.rows) for (const c of row.cells) walkCell(c.cell, acc, stack);
 };
 
 const SHAPE_CHILDREN: Walk<Shape> = {

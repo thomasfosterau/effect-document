@@ -67,9 +67,13 @@ const program = Effect.fn("convert-csv-to-xlsx")(function* () {
   const doc = yield* Xlsx.makeXlsxReader().read(xlsxContent);
   const rows = doc.blocks.filter(isWorksheet).flatMap((ws) => ws.rows);
   yield* Console.log("\n=== Typed cells (numbers and booleans inferred) ===");
-  yield* Effect.forEach(rows, (row) => Console.log(Arr.map(row.cells, (c) => c._tag).join(", ")), {
-    concurrency: 1,
-  });
+  yield* Effect.forEach(
+    rows,
+    (row) => Console.log(Arr.map(row.cells, ({ cell }) => cell._tag).join(", ")),
+    {
+      concurrency: 1,
+    },
+  );
 });
 
 Effect.runPromise(program().pipe(Effect.provide(NodeServices.layer)));

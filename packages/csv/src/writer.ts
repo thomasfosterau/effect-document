@@ -19,6 +19,8 @@ import * as Stream from "effect/Stream";
 import {
   cellToText,
   type Content,
+  denseCells,
+  denseRows,
   type Doc,
   type FeaturesOf,
   makeWriterTag,
@@ -318,9 +320,12 @@ interface RowState {
 
 /**
  * Render a stream of worksheet rows to CSV text, one chunk per row (the BOM
- * and header row, if any, come first). Chunks concatenate to what `write`
- * produces for the same rows, except that `padRows` pads each row to the
- * header row, or to the first row without headers.
+ * and header row, if any, come first). Each row is written as its dense
+ * cells, gaps blank; rows go out in stream order, so a row's `index` is not
+ * read and no line is written for a row the stream skips. Chunks concatenate
+ * to what `write` produces for the same consecutive rows, except that
+ * `padRows` pads each row to the header row, or to the first row without
+ * headers.
  */
 export const renderCsvStream = <E, R>(
   rows: Stream.Stream<SheetRow, E, R>,
@@ -333,7 +338,7 @@ export const renderCsvStream = <E, R>(
     rows,
     (): RowState => ({ index: start, width: headers?.length ?? null }),
     (state, row) => {
-      const fields = cellFields(row.cells, options);
+      const fields = cellFields(denseCells(row), options);
       const width = state.width ?? fields.length;
       return Effect.map(
         renderRow(options.padRows ? pad(fields, width) : fields, state.index, dialect, options),
@@ -362,7 +367,12 @@ export const makeCsvWriter = (options?: CsvWriterOptions): Writer<CsvFeature> =>
   const write = (doc: Doc<CsvFeature>): Effect.Effect<Content, WriteError> =>
     Effect.suspend(() => {
       const ws = doc.blocks.find((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
-      const rows = ws === undefined ? [] : ws.rows.map((row) => cellFields(row.cells, opts));
+      // one line per row from the first to the last, each up to its own last
+      // cell; a row the sheet does not hold is an empty line
+      const rows =
+        ws === undefined
+          ? []
+          : denseRows(ws, { rectangular: false }).map((cells) => cellFields(cells, opts));
       return Effect.map(renderRows(rows, opts), text);
     });
 

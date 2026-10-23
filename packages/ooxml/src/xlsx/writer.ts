@@ -15,6 +15,7 @@ import {
   type Content,
   type Doc,
   makeWriterTag,
+  sheetExtent,
   type Worksheet,
   WriteError,
   type Writer,
@@ -173,23 +174,23 @@ const sharedStringsXml = (table: SharedStrings): string => {
 };
 
 const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
-  // Blank cells emit no <c>, so the full grid size (including trailing blank
-  // rows and columns) is declared in <dimension> for the reader to recover.
-  const maxCols = ws.rows.reduce((m, r) => Math.max(m, r.cells.length), 0);
+  // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
+  // at its own index, and blank cells emit no <c>. <dimension> declares the
+  // extent of the cells the sheet holds.
+  const extent = sheetExtent(ws);
   const dimension =
-    Arr.isReadonlyArrayEmpty(ws.rows) || maxCols === 0
+    extent.rows === 0 || extent.columns === 0
       ? ""
-      : `<dimension ref="A1:${toA1(maxCols - 1, ws.rows.length - 1)}"/>`;
+      : `<dimension ref="A1:${toA1(extent.columns - 1, extent.rows - 1)}"/>`;
   const rows = ws.rows
-    .map((row, rowIndex) => {
-      const cells: string[] = [];
-      for (let colIndex = 0; colIndex < row.cells.length; colIndex++) {
-        const rendered = cellToSpreadsheetMl(row.cells[colIndex]!, sharedStrings);
-        if (rendered === null) continue;
+    .map((row) => {
+      const cells = row.cells.flatMap(({ col, cell }) => {
+        const rendered = cellToSpreadsheetMl(cell, sharedStrings);
+        if (rendered === null) return [];
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
-        cells.push(`<c r="${toA1(colIndex, rowIndex)}"${typeAttr}>${rendered.inner}</c>`);
-      }
-      return `<row r="${rowIndex + 1}">${cells.join("")}</row>`;
+        return [`<c r="${toA1(col, row.index)}"${typeAttr}>${rendered.inner}</c>`];
+      });
+      return `<row r="${row.index + 1}">${cells.join("")}</row>`;
     })
     .join("");
   return (
@@ -225,7 +226,9 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
-            row.cells.some((c) => Predicate.isTagged(c, "CellFormula") && c.result === undefined),
+            row.cells.some(
+              ({ cell }) => Predicate.isTagged(cell, "CellFormula") && cell.result === undefined,
+            ),
           ),
         );
 

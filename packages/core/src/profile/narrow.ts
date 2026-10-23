@@ -49,6 +49,7 @@ import {
   RawInline,
   type SheetCell,
   type Shape,
+  IndexedCell,
   SheetColumn,
   SheetRow,
   Slide,
@@ -69,6 +70,7 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
+import { denseRows, sheetRow } from "../schema/sheet.ts";
 import { type Feature } from "../schema/feature.ts";
 import { type Doc, type Profile } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
@@ -413,17 +415,23 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     name: w.name,
     columns,
     rows: w.rows.map(
-      (r) => new SheetRow({ cells: r.cells.map((c) => narrowCell(c, ctx)), height: r.height }),
+      (r) =>
+        new SheetRow({
+          index: r.index,
+          cells: r.cells.map((c) => new IndexedCell({ col: c.col, cell: narrowCell(c.cell, ctx) })),
+          height: r.height,
+        }),
     ),
     merges,
   });
 };
 
 const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
-  const rows = w.rows.map(
+  // A prose table has no column positions, so it takes the dense view.
+  const rows = denseRows(w).map(
     (row) =>
       new TableRow({
-        cells: row.cells.map(
+        cells: row.map(
           (c) =>
             new TableCell({
               content: [new Plain({ content: [new Str({ text: cellToText(c) })] })],
@@ -443,7 +451,7 @@ const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
 const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
   const toCells = (row: TableRow): SheetCell[] =>
     row.cells.map((c) => new CellText({ value: blocksToText(c.content) }));
-  const rows = [...t.head, ...t.body, ...t.foot].map((r) => new SheetRow({ cells: toCells(r) }));
+  const rows = [...t.head, ...t.body, ...t.foot].map((r, index) => sheetRow(index, toCells(r)));
   ctx.rec.convert("block.table", "prose table converted to a worksheet");
   // Re-narrow: the produced Worksheet carries the table's attr and CellText
   // cells, which must themselves be checked against the target profile.

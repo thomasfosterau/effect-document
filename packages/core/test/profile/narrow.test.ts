@@ -8,10 +8,10 @@ import {
   para,
   str,
   strong,
+  sheetRow,
   worksheet,
   blocksToText,
   SheetColumn,
-  SheetRow,
   Worksheet,
 } from "../../src/schema/index.ts";
 import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.ts";
@@ -42,9 +42,9 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
 
     // the date became text, the formula became its cached result
     const firstRow = worksheets[0]!.rows[0]!.cells;
-    expect(firstRow[1]!._tag).toBe("CellText");
+    expect(firstRow[1]!.cell._tag).toBe("CellText");
     const secondRow = worksheets[0]!.rows[1]!.cells;
-    expect(secondRow[0]).toMatchObject({ _tag: "CellText", value: "cached" });
+    expect(secondRow[0]!.cell).toMatchObject({ _tag: "CellText", value: "cached" });
 
     // the loss report names exactly what changed
     const features = loss.entries.map((e) => e.feature);
@@ -127,7 +127,7 @@ describe("narrow: column-level styling", () => {
       new Worksheet({
         name: "S",
         columns: [new SheetColumn({ width: 10, style: { font: { bold: true } } })],
-        rows: [new SheetRow({ cells: [cell.text("a")] })],
+        rows: [sheetRow(0, [cell.text("a")])],
         merges: [],
       }),
     ]);

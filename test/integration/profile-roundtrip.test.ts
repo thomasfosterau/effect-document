@@ -28,8 +28,17 @@ import * as Pdf from "@thomasfosterau/effect-pdf";
 import * as Rtf from "@thomasfosterau/effect-rtf";
 import { type Family, sampleFor } from "../samples.ts";
 
-/** Features whose loss is a purely textual normalisation (same text, simpler nodes). */
-const TEXTUAL: ReadonlySet<Feature> = new Set(["inline.space", "inline.softBreak", "block.plain"]);
+/**
+ * Features whose loss is a purely textual normalisation (same text, simpler
+ * nodes). An unstyled blank cell is one: a sparse worksheet holds only the
+ * cells it has, so XLSX writes no `<c>` for it and reads back the gap (#185).
+ */
+const TEXTUAL: ReadonlySet<Feature> = new Set([
+  "inline.space",
+  "inline.softBreak",
+  "block.plain",
+  "cell.blank",
+]);
 
 /** Text with whitespace runs collapsed, for comparing textual normalisations. */
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();

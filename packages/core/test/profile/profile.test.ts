@@ -61,7 +61,13 @@ describe("profile conformance", () => {
     const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => ({
       meta: {},
       blocks: [
-        { _tag: "Worksheet", name: "S", columns: [], merges: [], rows: [{ cells: [cellJson] }] },
+        {
+          _tag: "Worksheet",
+          name: "S",
+          columns: [],
+          merges: [],
+          rows: [{ index: 0, cells: [{ col: 0, cell: cellJson }] }],
+        },
       ],
     });
     const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(
