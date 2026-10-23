@@ -12,8 +12,9 @@
  *   span, and block edges are trimmed;
  * - `Plain` reads as `Para` (no writer here distinguishes a tight paragraph);
  * - a table's head, body and foot are one list of rows;
- * - a worksheet loses trailing blank cells and rows (a sparse grid has no
- *   extent beyond its last value);
+ * - a worksheet is its dense grid, so a gap and a blank cell read alike, and
+ *   it loses trailing blank cells and rows (a sparse grid has no extent
+ *   beyond its last value);
  * - document metadata is ignored (the readers add their own).
  *
  * Anything else that differs is a loss: the format's write profile claims a
@@ -27,9 +28,18 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Str from "effect/String";
-import type { Block, Document, Inline, SheetCell, Shape } from "@thomasfosterau/effect-document";
+import {
+  type Block,
+  type Document,
+  type Inline,
+  type SheetCell,
+  type Shape,
+  type Worksheet,
+  denseRows,
+} from "@thomasfosterau/effect-document";
 
 // ============================================================================
 // The normal form
@@ -262,10 +272,10 @@ const normalizeBlock = (block: Block): NormalBlock =>
         row.cells.map((cell) => normalizeBlocks(cell.content)),
       ),
     })),
-    Match.tag("Worksheet", ({ name, rows }): NormalBlock => ({
+    Match.tag("Worksheet", (sheet): NormalBlock => ({
       _tag: "Sheet",
-      name,
-      rows: normalizeGrid(rows),
+      name: sheet.name,
+      rows: normalizeGrid(sheet),
     })),
     Match.tag("SlideShow", ({ slides }): NormalBlock => ({
       _tag: "Slides",
@@ -306,12 +316,17 @@ const normalizeCell = (cell: SheetCell): NormalCell =>
     Match.orElse((node) => ({ _tag: node._tag, value: "" })),
   );
 
-const normalizeGrid = (
-  rows: ReadonlyArray<{ readonly cells: ReadonlyArray<SheetCell> }>,
-): ReadonlyArray<ReadonlyArray<NormalCell>> =>
+/**
+ * A worksheet's dense grid, each row up to its own last cell. The arbitrary
+ * sheets are a few cells wide and tall, far inside the dense-view budget.
+ */
+const denseGrid = (sheet: Worksheet): ReadonlyArray<ReadonlyArray<SheetCell>> =>
+  Result.getOrElse(denseRows(sheet, { rectangular: false }), () => []);
+
+const normalizeGrid = (sheet: Worksheet): ReadonlyArray<ReadonlyArray<NormalCell>> =>
   dropRightWhile(
-    rows.map((row) =>
-      dropRightWhile(row.cells, Predicate.isTagged("CellBlank")).map(normalizeCell),
+    denseGrid(sheet).map((cells) =>
+      dropRightWhile(cells, Predicate.isTagged("CellBlank")).map(normalizeCell),
     ),
     Arr.isReadonlyArrayEmpty,
   );

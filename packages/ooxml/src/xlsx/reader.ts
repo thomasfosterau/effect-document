@@ -5,35 +5,37 @@
  * Opens the OOXML package with the shared `OpcReader` (lazy, size-limited
  * inflation), resolves the workbook and worksheet parts through their
  * relationship files, parses the SpreadsheetML, and builds
- * a dense, typed cell grid per sheet.
+ * a sparse, typed worksheet per sheet.
  *
- * The grid is sized by the cells that hold a value; empty `<row>`s and
- * style-only `<c>`s do not extend it, and `<dimension>` is honoured only as a
- * hint. `maxCells` is one budget for the whole workbook: a sheet whose extent
- * would exceed what is left of it fails with a ParseError rather than
- * allocating the grid, so many small sheets (or one sheet referenced many
- * times) cannot add up to an unbounded allocation.
+ * A worksheet holds only the cells that hold a value: empty `<row>`s and
+ * style-only `<c>`s are not kept, and `<dimension>` is not read (it is only a
+ * hint), so a sheet with one value at A1 and one at XFD1048576 holds two
+ * cells. `maxCells` is one budget for the whole workbook: a sheet holding
+ * more valued cells than the sheets before it left fails with a ParseError,
+ * so many sheets (or one sheet referenced many times) cannot add up to an
+ * unbounded allocation.
  */
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Order from "effect/Order";
 import {
-  cell,
   type Content,
   contentToBytes,
   type Doc,
   document,
   makeReaderTag,
   ParseError,
+  IndexedCell,
   type Reader,
   type SheetCell,
   SheetRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
-import { parseA1, parseA1Range } from "./a1.ts";
+import { parseA1 } from "./a1.ts";
 import { collectText, spreadsheetMlToCell } from "./cellTypes.ts";
 import { translateFormula } from "./formula.ts";
 import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
@@ -62,11 +64,11 @@ const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 /** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
-   * The most cells (rows × columns, summed over every worksheet) the
-   * workbook's dense grids may hold. A sheet whose populated extent is larger
-   * than what the sheets before it left fails the read with a ParseError
-   * instead of exhausting memory; a `<dimension>` hint that would exceed it is
-   * ignored. Defaults to {@link DEFAULT_MAX_CELLS}.
+   * The most valued cells (summed over every worksheet) the workbook may
+   * hold. A sheet holding more than what the sheets before it left fails the
+   * read with a ParseError instead of exhausting memory. Blank and style-only
+   * cells are not kept, so they do not count. Defaults to
+   * {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number | undefined;
   /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
@@ -107,32 +109,21 @@ const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, Pars
 const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
   findChildren(root, "si").map(collectText);
 
-type WorksheetGrid =
-  | { readonly _tag: "Grid"; readonly rows: ReadonlyArray<ReadonlyArray<SheetCell>> }
-  | { readonly _tag: "TooLarge"; readonly rows: number; readonly columns: number };
-
-/** The extent declared by `<dimension ref="A1:C3">`, as row and column counts. */
-const declaredExtent = (root: XmlElement): { rows: number; columns: number } | null => {
-  const ref = findChild(root, "dimension")?.attrs["ref"];
-  const range = ref === undefined ? null : parseA1Range(ref);
-  if (range === null) return null;
-  return {
-    rows: Math.max(range.start.row, range.end.row) + 1,
-    columns: Math.max(range.start.col, range.end.col) + 1,
-  };
-};
+type WorksheetRows =
+  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
+  | { readonly _tag: "TooLarge"; readonly cells: number };
 
 /**
- * A worksheet's dense grid, at most `maxCells` (the budget the workbook has
- * left) rows × columns.
+ * A worksheet's rows of valued cells, at most `maxCells` (the budget the
+ * workbook has left) cells.
  */
 const parseWorksheetRows = (
   root: XmlElement,
   sharedStrings: ReadonlyArray<string>,
   maxCells: number,
-): WorksheetGrid => {
+): WorksheetRows => {
   const sheetData = findChild(root, "sheetData");
-  if (sheetData === undefined) return { _tag: "Grid", rows: [] };
+  if (sheetData === undefined) return { _tag: "Rows", rows: [], cells: 0 };
 
   // Rows and cells without an `r` attribute follow the previous one.
   const positioned: Array<{ readonly el: XmlElement; readonly row: number; readonly col: number }> =
@@ -147,7 +138,7 @@ const parseWorksheetRows = (
       const parsed = ref === undefined ? null : parseA1(ref);
       colIndex = parsed === null ? colIndex + 1 : parsed.col;
       const row = parsed === null ? rowIndex : parsed.row;
-      if (Number.isSafeInteger(row) && row >= 0)
+      if (Number.isSafeInteger(row) && row >= 0 && Number.isSafeInteger(colIndex))
         positioned.push({ el: cellEl, row, col: colIndex });
     }
   }
@@ -163,9 +154,9 @@ const parseWorksheetRows = (
   }
 
   // Only cells holding a value are kept, so this map is bounded by the input.
+  // A later cell at the same position replaces an earlier one.
   const cellMap = new Map<number, Map<number, SheetCell>>();
-  let maxRow = -1;
-  let maxCol = -1;
+  let count = 0;
 
   for (const { el, row, col } of positioned) {
     const f = findChild(el, "f");
@@ -186,40 +177,25 @@ const parseWorksheetRows = (
       rowCells = new Map<number, SheetCell>();
       cellMap.set(row, rowCells);
     }
+    if (!rowCells.has(col)) count += 1;
+    if (count > maxCells) return { _tag: "TooLarge", cells: count };
     rowCells.set(col, value);
-
-    maxRow = Math.max(maxRow, row);
-    maxCol = Math.max(maxCol, col);
   }
 
-  if (maxRow < 0 || maxCol < 0) return { _tag: "Grid", rows: [] };
-  if ((maxRow + 1) * (maxCol + 1) > maxCells) {
-    return { _tag: "TooLarge", rows: maxRow + 1, columns: maxCol + 1 };
-  }
-
-  // <dimension> may widen the grid to keep trailing blank rows/columns (as the
-  // writer declares them), but it is only a hint: ignore it when it would
-  // exceed the cell limit.
-  let rowCount = maxRow + 1;
-  let colCount = maxCol + 1;
-  const declared = declaredExtent(root);
-  if (declared !== null) {
-    const rows = Math.max(rowCount, declared.rows);
-    const columns = Math.max(colCount, declared.columns);
-    if (rows * columns <= maxCells) {
-      rowCount = rows;
-      colCount = columns;
-    }
-  }
-
-  const rows: SheetCell[][] = [];
-  for (let r = 0; r < rowCount; r++) {
-    const rowCells = cellMap.get(r);
-    const row: SheetCell[] = [];
-    for (let c = 0; c < colCount; c++) row.push(rowCells?.get(c) ?? cell.blank());
-    rows.push(row);
-  }
-  return { _tag: "Grid", rows };
+  // Rows and cells may arrive in any order; the worksheet holds them ascending.
+  const byPosition = Order.mapInput(
+    Order.Number,
+    ([position]: readonly [number, unknown]) => position,
+  );
+  const ascending = <A>(entries: Iterable<readonly [number, A]>) => Arr.sort(entries, byPosition);
+  const rows = ascending(cellMap).map(
+    ([index, cells]) =>
+      new SheetRow({
+        index,
+        cells: ascending(cells).map(([col, cell]) => new IndexedCell({ col, cell })),
+      }),
+  );
+  return { _tag: "Rows", rows, cells: count };
 };
 
 // ============================================================================
@@ -301,23 +277,17 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
 
             const worksheetRoot = yield* parsePart(pkg, target);
             const remaining = maxCells - allocated;
-            const grid = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
-            if (Predicate.isTagged(grid, "TooLarge")) {
+            const parsed = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
+            if (Predicate.isTagged(parsed, "TooLarge")) {
               return yield* new ParseError({
                 format: "xlsx",
                 reason:
-                  `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
-                  `more than the ${remaining} cells left of the workbook's ` +
-                  `${maxCells}-cell limit (maxCells)`,
+                  `Worksheet "${name}" holds more than the ${remaining} cells left of the ` +
+                  `workbook's ${maxCells}-cell limit (maxCells)`,
               });
             }
-            allocated += grid.rows.length * (grid.rows[0]?.length ?? 0);
-            return new Worksheet({
-              name,
-              columns: [],
-              rows: grid.rows.map((cells) => new SheetRow({ cells })),
-              merges: [],
-            });
+            allocated += parsed.cells;
+            return new Worksheet({ name, columns: [], rows: parsed.rows, merges: [] });
           }),
         { concurrency: 1 },
       );

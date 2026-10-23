@@ -1,12 +1,15 @@
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   bytes,
   cell,
   cellToText,
+  denseRows,
   type SheetCell,
+  sheetExtent,
   type Doc,
   document,
   trustAs,
@@ -27,6 +30,13 @@ type SpreadsheetF = XlsxFeature;
 
 const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet[] =>
   doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet[];
+
+/** A worksheet's dense grid, for positional assertions. */
+const grid = (ws: Worksheet) => {
+  const rows = denseRows(ws);
+  assert(Result.isSuccess(rows), "the grid fits the default budget");
+  return rows.success;
+};
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -99,9 +109,9 @@ describe("XLSX round-trip", () => {
     const back = await run(makeXlsxReader().read(xlsx));
     const ws = worksheets(back)[0]!;
     expect(ws.name).toBe("People");
-    expect(ws.rows[0]!.cells[0]).toMatchObject({ _tag: "CellText", value: "alice" });
-    expect(ws.rows[0]!.cells[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
-    expect(ws.rows[0]!.cells[2]).toMatchObject({ _tag: "CellBoolean", value: true });
+    expect(grid(ws)[0]![0]).toMatchObject({ _tag: "CellText", value: "alice" });
+    expect(grid(ws)[0]![1]).toMatchObject({ _tag: "CellNumber", value: 30 });
+    expect(grid(ws)[0]![2]).toMatchObject({ _tag: "CellBoolean", value: true });
   });
 
   test("preserves multiple sheets", async () => {
@@ -118,39 +128,51 @@ describe("XLSX round-trip", () => {
     const xlsx = await run(makeXlsxWriter().write(doc));
     const back: Doc<XlsxReadFeature> = await run(makeXlsxReader().read(xlsx));
     expect(Spreadsheet.is(back)).toBe(true);
-    expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({ _tag: "CellError" });
+    expect(grid(worksheets(back)[0]!)[0]![0]).toMatchObject({ _tag: "CellError" });
   });
 
   test("round-trips a formula cell as CellFormula (not flattened text)", async () => {
     const doc = trustAs<SpreadsheetF>(document([worksheet("S", [[cell.formula("A1+1", "42")]])]));
     const xlsx = await run(makeXlsxWriter().write(doc));
     const back = await run(makeXlsxReader().read(xlsx));
-    expect(worksheets(back)[0]!.rows[0]!.cells[0]).toMatchObject({
+    expect(grid(worksheets(back)[0]!)[0]![0]).toMatchObject({
       _tag: "CellFormula",
       formula: "A1+1",
       result: "42",
     });
   });
 
-  test("preserves grid width when the trailing column is all-blank", async () => {
+  test("blank cells are neither written nor read back: the sheet is sparse", async () => {
     const doc = trustAs<SpreadsheetF>(
       document([
         worksheet("S", [
           [cell.text("a"), cell.text("b"), cell.blank()],
-          [cell.text("c"), cell.text("d"), cell.blank()],
+          [cell.blank(), cell.blank(), cell.blank()],
+          [cell.blank(), cell.text("d")],
         ]),
       ]),
     );
     const xlsx = await run(makeXlsxWriter().write(doc));
-    const back = await run(makeXlsxReader().read(xlsx));
-    expect(worksheets(back)[0]!.rows.map((r) => r.cells.length)).toEqual([3, 3]);
+    assert(Predicate.isTagged(xlsx, "Bytes"));
+    const sheet = strFromU8(unzipSync(xlsx.bytes)["xl/worksheets/sheet1.xml"]!);
+    expect(sheet).toContain(`<dimension ref="A1:C3"/>`);
+    expect(sheet.match(/<c /g)).toHaveLength(3);
+    const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
+    expect(ws.rows.map((r) => [r.index, r.cells.map((c) => c.col)])).toEqual([
+      [0, [0, 1]],
+      [2, [1]],
+    ]);
   });
 });
 
-describe("XLSX reader grid extent (#62)", () => {
-  const extent = (ws: Worksheet) => [ws.rows.length, ws.rows[0]?.cells.length ?? 0];
+describe("XLSX reader sparse worksheets (#62, #185)", () => {
+  const extent = (ws: Worksheet) => {
+    const { rows, columns } = sheetExtent(ws);
+    return [rows, columns];
+  };
+  const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + r.cells.length, 0);
 
-  test("empty rows and style-only cells do not extend the grid", async () => {
+  test("empty rows and style-only cells are not kept", async () => {
     const xlsx = packageWith(
       sheetXml(
         `<row r="1"><c r="A1"><v>1</v></c><c r="Z1" s="3"/></row>` +
@@ -160,84 +182,86 @@ describe("XLSX reader grid extent (#62)", () => {
     );
     const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
     expect(extent(ws)).toEqual([1, 1]);
+    expect(held(ws)).toBe(1);
   });
 
-  test("a valued cell far out fails with a ParseError instead of allocating", async () => {
-    const xlsx = packageWith(sheetXml(`<row r="1048576"><c r="XFD1048576"><v>1</v></c></row>`));
-    const error = await run(Effect.flip(makeXlsxReader().read(xlsx)));
+  test("a value at A1 and one far out hold two cells, not their extent", async () => {
+    const xlsx = packageWith(
+      sheetXml(
+        `<row r="1"><c r="A1"><v>1</v></c></row>` +
+          `<row r="1048576"><c r="XFD1048576"><v>2</v></c></row>`,
+      ),
+    );
+    const ws = worksheets(await run(makeXlsxReader({ maxCells: 2 }).read(xlsx)))[0]!;
+    expect(held(ws)).toBe(2);
+    expect(extent(ws)).toEqual([1_048_576, 16_384]);
+    expect(ws.rows.map((r) => [r.index, r.cells[0]!.col])).toEqual([
+      [0, 0],
+      [1_048_575, 16_383],
+    ]);
+  });
+
+  test("rows and cells out of document order read back ascending", async () => {
+    const xlsx = packageWith(
+      sheetXml(
+        `<row r="3"><c r="C3"><v>3</v></c><c r="A3"><v>1</v></c></row>` +
+          `<row r="1"><c r="B1"><v>2</v></c></row>`,
+      ),
+    );
+    const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
+    expect(ws.rows.map((r) => [r.index, r.cells.map((c) => c.col)])).toEqual([
+      [0, [1]],
+      [2, [0, 2]],
+    ]);
+  });
+
+  test("maxCells counts valued cells and is configurable", async () => {
+    const xlsx = packageWith(
+      sheetXml(
+        `<row r="10"><c r="A10"><v>1</v></c><c r="J10"><v>2</v></c><c r="Z10" s="1"/></row>`,
+      ),
+    );
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 1 }).read(xlsx)));
     expect(error._tag).toBe("ParseError");
     expect(error.reason).toContain("maxCells");
+    const ws = worksheets(await run(makeXlsxReader({ maxCells: 2 }).read(xlsx)))[0]!;
+    expect(held(ws)).toBe(2);
   });
 
-  test("maxCells is configurable", async () => {
-    const xlsx = packageWith(sheetXml(`<row r="10"><c r="J10"><v>1</v></c></row>`));
-    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 99 }).read(xlsx)));
-    expect(error._tag).toBe("ParseError");
-    const ws = worksheets(await run(makeXlsxReader({ maxCells: 100 }).read(xlsx)))[0]!;
-    expect(extent(ws)).toEqual([10, 10]);
-  });
-
-  test("<dimension> widens the grid but is ignored past the limit", async () => {
+  test("<dimension> is only a hint and is not read", async () => {
     const body = `<row r="1"><c r="A1"><v>1</v></c></row>`;
-    const small = packageWith(sheetXml(body, `<dimension ref="A1:C2"/>`));
-    expect(extent(worksheets(await run(makeXlsxReader().read(small)))[0]!)).toEqual([2, 3]);
-
-    const huge = packageWith(sheetXml(body, `<dimension ref="A1:XFD1048576"/>`));
-    expect(extent(worksheets(await run(makeXlsxReader().read(huge)))[0]!)).toEqual([1, 1]);
+    for (const ref of ["A1:C2", "A1:XFD1048576"]) {
+      const xlsx = packageWith(sheetXml(body, `<dimension ref="${ref}"/>`));
+      const ws = worksheets(await run(makeXlsxReader({ maxCells: 1 }).read(xlsx)))[0]!;
+      expect(extent(ws)).toEqual([1, 1]);
+    }
   });
 
   test("maxCells bounds the whole workbook, not each sheet", async () => {
-    // Each sheet is 10 × 5 = 50 cells, under the limit on its own; together they are not.
-    const sheet = sheetXml(`<row r="10"><c r="E10"><v>1</v></c></row>`);
+    // Each sheet holds two valued cells, under the limit on its own; together they are not.
+    const sheet = sheetXml(`<row r="10"><c r="A10"><v>1</v></c><c r="E10"><v>2</v></c></row>`);
     const xlsx = packageWith([
       { name: "A", xml: sheet },
       { name: "B", xml: sheet },
       { name: "C", xml: sheet },
     ]);
-    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 100 }).read(xlsx)));
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 5 }).read(xlsx)));
     expect(error._tag).toBe("ParseError");
     expect(error.reason).toContain('"C"');
     expect(error.reason).toContain("maxCells");
-    const read = worksheets(await run(makeXlsxReader({ maxCells: 150 }).read(xlsx)));
+    const read = worksheets(await run(makeXlsxReader({ maxCells: 6 }).read(xlsx)));
     expect(read.map(extent)).toEqual([
       [10, 5],
       [10, 5],
       [10, 5],
     ]);
-  });
-
-  test("<dimension> hints draw on the workbook budget", async () => {
-    // One valued cell per sheet, each hinting a 60-cell grid: the second hint no longer fits.
-    const sheet = sheetXml(`<row r="1"><c r="A1"><v>1</v></c></row>`, `<dimension ref="A1:F10"/>`);
-    const xlsx = packageWith([
-      { name: "A", xml: sheet },
-      { name: "B", xml: sheet },
-    ]);
-    const read = worksheets(await run(makeXlsxReader({ maxCells: 100 }).read(xlsx)));
-    expect(read.map(extent)).toEqual([
-      [10, 6],
-      [1, 1],
-    ]);
-  });
-
-  test("round-trips trailing blank rows and columns via <dimension>", async () => {
-    const doc = trustAs<SpreadsheetF>(
-      document([
-        worksheet("S", [
-          [cell.text("a"), cell.blank(), cell.blank()],
-          [cell.blank(), cell.blank(), cell.blank()],
-        ]),
-      ]),
-    );
-    const back = await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc))));
-    expect(extent(worksheets(back)[0]!)).toEqual([2, 3]);
   });
 });
 
 describe("XLSX reader fixes (#60)", () => {
   const readSheets = async (xlsx: ReturnType<typeof packageWith>) =>
     worksheets(await run(makeXlsxReader().read(xlsx)));
-  const grid = (ws: Worksheet) => ws.rows.map((r) => r.cells.map((c) => cellToText(c)));
+  const texts = (ws: Worksheet) => grid(ws).map((r) => r.map((c) => cellToText(c)));
 
   test("chartsheets, dialogsheets and macrosheets read as empty tagged sheets", async () => {
     const xlsx = packageWith([
@@ -268,7 +292,7 @@ describe("XLSX reader fixes (#60)", () => {
           `<row><c><v>3</v></c><c><v>4</v></c></row>`,
       ),
     );
-    expect(grid((await readSheets(xlsx))[0]!)).toEqual([
+    expect(texts((await readSheets(xlsx))[0]!)).toEqual([
       ["", "", "1", "2"],
       ["3", "4", "", ""],
     ]);
@@ -282,7 +306,7 @@ describe("XLSX reader fixes (#60)", () => {
           `<row r="2"><c r="C2"><f t="shared" si="0"/><v>3</v></c></row>`,
       ),
     );
-    const cells = (await readSheets(xlsx))[0]!.rows.map((r) => r.cells);
+    const cells = grid((await readSheets(xlsx))[0]!);
     expect(cells[0]![2]).toMatchObject({ formula: `A1+$B1+B$1+SUM(A:A)+LOG10(A1)+"A1"` });
     expect(cells[0]![3]).toMatchObject({
       formula: `B1+$B1+C$1+SUM(B:B)+LOG10(B1)+"A1"`,
@@ -296,7 +320,7 @@ describe("XLSX reader fixes (#60)", () => {
       sheetXml(`<row r="1"><c r="A1" t="s"><v>0</v></c></row>`),
       `<si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si>`,
     );
-    expect(grid((await readSheets(xlsx))[0]!)).toEqual([["東京"]]);
+    expect(texts((await readSheets(xlsx))[0]!)).toEqual([["東京"]]);
   });
 
   test("_xHHHH_ escapes are decoded", async () => {
@@ -307,14 +331,14 @@ describe("XLSX reader fixes (#60)", () => {
       ),
       `<si><t>line_x000D_break</t></si>`,
     );
-    expect(grid((await readSheets(xlsx))[0]!)).toEqual([["line\rbreak", "tab\there _x0041_"]]);
+    expect(texts((await readSheets(xlsx))[0]!)).toEqual([["line\rbreak", "tab\there _x0041_"]]);
   });
 
   test('t="d" cells read as dates', async () => {
     const xlsx = packageWith(
       sheetXml(`<row r="1"><c r="A1" t="d"><v>2024-03-05T00:00:00Z</v></c></row>`),
     );
-    const c = (await readSheets(xlsx))[0]!.rows[0]!.cells[0]!;
+    const c = grid((await readSheets(xlsx))[0]!)[0]![0]!;
     expect(c._tag).toBe("CellDate");
     expect(Predicate.isTagged(c, "CellDate") && c.value.toISOString()).toBe(
       "2024-03-05T00:00:00.000Z",
@@ -339,12 +363,8 @@ describe("XLSX writer validity (#61)", () => {
     const back = worksheets(
       await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
     );
-    expect(back[0]!.rows[0]!.cells.map((c) => c._tag)).toEqual([
-      "CellError",
-      "CellError",
-      "CellNumber",
-    ]);
-    expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: "#NUM!" });
+    expect(grid(back[0]!)[0]!.map((c) => c._tag)).toEqual(["CellError", "CellError", "CellNumber"]);
+    expect(grid(back[0]!)[0]![0]).toMatchObject({ value: "#NUM!" });
   });
 
   test("characters invalid in XML are _xHHHH_-encoded and round-trip", async () => {
@@ -358,8 +378,8 @@ describe("XLSX writer validity (#61)", () => {
     const back = worksheets(
       await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
     );
-    expect(back[0]!.rows[0]!.cells[0]).toMatchObject({ value: tricky });
-    expect(back[0]!.rows[0]!.cells[1]).toMatchObject({ formula: `"\u0002"`, result: "\u0003" });
+    expect(grid(back[0]!)[0]![0]).toMatchObject({ value: tricky });
+    expect(grid(back[0]!)[0]![1]).toMatchObject({ formula: `"\u0002"`, result: "\u0003" });
   });
 
   test("sheet names are sanitised deterministically", () => {
@@ -449,13 +469,22 @@ describe("XLSX writer validity (#61)", () => {
       const back = worksheets(
         await run(makeXlsxReader().read(await run(makeXlsxWriter().write(doc)))),
       )[0]!;
-      const expected = rows.map((r) => r.map((c) => cellToText(c)));
       const width = Math.max(...rows.map((r) => r.length));
-      // A sheet with no valued cell reads back empty, whatever its declared size.
-      const allBlank = rows.every((r) => r.every((c) => Predicate.isTagged(c, "CellBlank")));
-      expect(back.rows.map((r) => r.cells.map((c) => cellToText(c)))).toEqual(
-        allBlank ? [] : expected.map((r) => [...r, ...Array(width - r.length).fill("")]),
+      const expected = rows.map((r) =>
+        Array.from({ length: width }, (_, c) => (r[c] === undefined ? "" : cellToText(r[c]!))),
       );
+      // Blank cells are not written, so the sheet reads back as the valued cells alone.
+      expect(back.rows.every((r) => r.cells.every((c) => c.cell._tag !== "CellBlank"))).toBe(true);
+      const backGrid = grid(back);
+      const actual = expected.map((r, ri) =>
+        r.map((_, ci) => {
+          const c = backGrid[ri]?.[ci];
+          return c === undefined ? "" : cellToText(c);
+        }),
+      );
+      expect(actual).toEqual(expected);
+      const { rows: h, columns: w } = sheetExtent(back);
+      expect(h <= rows.length && w <= width).toBe(true);
     }
   });
 });

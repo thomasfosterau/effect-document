@@ -24,7 +24,7 @@ import {
   type ParseError,
   type Reader,
   type SheetCell,
-  SheetRow,
+  sheetRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -246,7 +246,7 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
         const ws = new Worksheet({
           name: sheetName,
           columns: [],
-          rows: grid.map((cells) => new SheetRow({ cells })),
+          rows: grid.map((cells, index) => sheetRow(index, cells)),
           merges: [],
         });
         return trustAs<CsvFeature>(document([ws]));

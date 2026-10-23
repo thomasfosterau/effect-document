@@ -27,7 +27,6 @@ import {
   Para,
   Plain,
   type SheetCell,
-  SheetRow,
   Slide,
   SlideShow,
   type Shape,
@@ -39,6 +38,7 @@ import {
   TextBox,
   Worksheet,
 } from "./ast.ts";
+import { sheetRow } from "./sheet.ts";
 
 // ============================================================================
 // Document
@@ -137,7 +137,11 @@ export const cell = {
   richText: (runs: ReadonlyArray<Inline>): CellRichText => new CellRichText({ runs }),
 } as const;
 
-/** A worksheet from optional header strings and a grid of cells. */
+/**
+ * A worksheet from optional header strings and a dense grid of cells: row `r`
+ * of the grid (after the header row, if any) becomes the row at index `r`,
+ * and every cell given is kept, blanks included (see `sheetRow`).
+ */
 export const worksheet = (
   name: string,
   rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
@@ -147,7 +151,7 @@ export const worksheet = (
   return new Worksheet({
     name,
     columns: [],
-    rows: allRows.map((cells) => new SheetRow({ cells })),
+    rows: allRows.map((cells, index) => sheetRow(index, cells)),
     merges: [],
   });
 };
@@ -300,11 +304,14 @@ const expandBlock = (block: Block): TextPart[] => {
         ),
         "\n",
       ),
+    // A worksheet's text is its cells, tab-separated within a row and one line
+    // per row it holds: gaps are not laid out, so the text stays proportional
+    // to the cells however far apart they are (#185).
     Worksheet: (n) =>
       joinParts(
         n.rows.map((row) =>
           joinParts(
-            row.cells.map((c) => [{ c }]),
+            row.cells.map(({ cell: c }) => [{ c }]),
             "\t",
           ),
         ),

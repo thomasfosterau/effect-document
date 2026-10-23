@@ -84,7 +84,7 @@ export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
     }),
     Match.tag("Worksheet", (n) => {
       return n.rows.flatMap((r) =>
-        r.cells.flatMap((c) => (Predicate.isTagged(c, "CellRichText") ? c.runs : [])),
+        r.cells.flatMap(({ cell: c }) => (Predicate.isTagged(c, "CellRichText") ? c.runs : [])),
       );
     }),
     Match.tag("SlideShow", (n) => {
