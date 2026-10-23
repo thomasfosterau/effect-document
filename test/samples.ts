@@ -5,6 +5,8 @@
  * (`validate/`, #134).
  */
 
+import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import {
   type Block,
   BlockQuote,
@@ -15,6 +17,8 @@ import {
   DefinitionList,
   Div,
   document,
+  type Content,
+  type Doc,
   type Document,
   type Feature,
   Figure,
@@ -57,9 +61,11 @@ import {
   table,
   TableShape,
   textBox,
+  trustAs,
   Underline,
   worksheet,
   Worksheet,
+  type WriteError,
 } from "@thomasfosterau/effect-document";
 
 const s = (text: string) => new Str({ text });
@@ -196,3 +202,43 @@ export const sampleFor = (feature: Feature, family: Family): Document | undefine
   const prose = proseSample(feature);
   return prose === undefined ? undefined : wrapProse(prose, family);
 };
+
+/** What a suite needs of a writer, with its profile erased (writers are contravariant in it). */
+export interface AnyWriter {
+  readonly profile: { readonly features: ReadonlySet<Feature> };
+  readonly write: (doc: Doc<never>) => Effect.Effect<Content, WriteError>;
+}
+
+/** A feature's sample document and the bytes a writer made of it. */
+export interface WrittenSample {
+  readonly feature: Feature;
+  readonly doc: Document;
+  readonly bytes: Uint8Array;
+}
+
+/** The writer's output, as bytes, for the sample of every feature it accepts, in feature order. */
+export const writeSamples = (
+  writer: AnyWriter,
+  family: Family,
+): Effect.Effect<ReadonlyArray<WrittenSample>, WriteError> =>
+  Effect.map(
+    Effect.forEach(
+      [...writer.profile.features],
+      (feature) => {
+        const doc = sampleFor(feature, family);
+        if (doc === undefined) return Effect.succeed([]);
+        return Effect.map(writer.write(trustAs(doc)), (content) => [
+          {
+            feature,
+            doc,
+            // text formats (RTF, CSV) are written as text; their files are its UTF-8
+            bytes: Predicate.isTagged(content, "Bytes")
+              ? content.bytes
+              : new TextEncoder().encode(content.text),
+          },
+        ]);
+      },
+      { concurrency: 1 },
+    ),
+    (written) => written.flat(),
+  );

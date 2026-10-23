@@ -18,7 +18,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/trunk' }}
 
-# No permissions by default; the single job grants only read access.
+# No permissions by default; each job grants only read access.
 permissions: {}
 
 jobs:
@@ -94,3 +94,43 @@ jobs:
         run: vp run check:pack
       - name: Audit
         run: pnpm audit --audit-level high
+
+  # Optional, not a required check (#134): our writers' output opened by
+  # independent tools. LibreOffice converts every DOCX, XLSX, PPTX and RTF
+  # feature sample to PDF, qpdf and pdftotext check the PDF samples, and
+  # pandoc reads the DOCX ones. INTEROP=1 makes a missing tool a failure.
+  interop:
+    runs-on: ubuntu-latest
+    # The first, uncached install of LibreOffice can be slow on the runners'
+    # apt mirror (a 20-minute limit ran out mid-download); later runs restore
+    # the packages from the cache below.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+      INTEROP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # The downloaded .deb files, keyed by this workflow (which names the
+      # packages), so a rerun installs without fetching ~150 MB again.
+      - name: Restore the apt package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: interop-apt-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            interop-apt-v1-${{ runner.os }}-
+      - name: Install LibreOffice, qpdf, poppler and pandoc
+        run: |
+          mkdir -p ~/apt-cache/partial
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" \
+            libreoffice-writer libreoffice-calc libreoffice-impress qpdf poppler-utils pandoc
+          # apt writes the cache as root; the cache action saves it as the runner user
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
+      - name: Interop tests
+        run: vp run test:interop
