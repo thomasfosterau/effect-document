@@ -81,7 +81,8 @@ export interface CsvWriterOptions {
 /**
  * Render a number as its shortest round-trip decimal, never in exponent form:
  * `1e21` renders as `1000000000000000000000`. `NaN` and the infinities render
- * as `String` does.
+ * as `String` does (`NaN`, `Infinity`, `-Infinity`), as pandas writes them;
+ * they read back as text.
  */
 export const formatCsvNumber = (value: number): string => {
   const s = String(value);
