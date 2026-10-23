@@ -19,13 +19,13 @@ import * as Stream from "effect/Stream";
 import {
   cellToText,
   type Content,
-  denseCells,
-  denseRows,
+  DEFAULT_MAX_DENSE_CELLS,
+  denseSize,
   type Doc,
   type FeaturesOf,
   makeWriterTag,
-  type SheetCell,
   type SheetRow,
+  sheetExtent,
   text,
   type Worksheet,
   WriteError,
@@ -91,7 +91,19 @@ export interface CsvWriterOptions {
    * stream to the header row, or to its first row without headers.
    */
   readonly padRows?: boolean | undefined;
+  /**
+   * The most fields (counting one per line) a worksheet may expand to. A
+   * worksheet is sparse and CSV is not: every gap between cells is written as
+   * an empty field and every row the sheet does not hold as an empty line, so
+   * one cell far out is a huge file. Past this the write fails with a
+   * WriteError before rendering anything; a streamed row fails past it on its
+   * own. Defaults to {@link DEFAULT_MAX_FIELDS}.
+   */
+  readonly maxFields?: number | undefined;
 }
+
+/** The default {@link CsvWriterOptions.maxFields}: core's dense-grid budget, five million. */
+export const DEFAULT_MAX_FIELDS = DEFAULT_MAX_DENSE_CELLS;
 
 // ============================================================================
 // Field rendering
@@ -255,15 +267,51 @@ const pad = (fields: ReadonlyArray<Field>, width: number): ReadonlyArray<Field> 
         ...Array.from({ length: width - fields.length }, () => ({ value: "", numeric: false })),
       ];
 
-const cellFields = (
-  cells: ReadonlyArray<SheetCell>,
-  options: CsvWriterOptions,
-): ReadonlyArray<Field> => {
+const EMPTY_FIELD: Field = { value: "", numeric: false };
+
+/**
+ * A sparse row's fields from column 0 to its last cell, each gap the shared
+ * empty field (no cell is allocated for it).
+ */
+const rowFields = (row: SheetRow, options: CsvWriterOptions): ReadonlyArray<Field> => {
   const format = options.formatNumber ?? formatCsvNumber;
-  return cells.map((c) =>
-    Predicate.isTagged(c, "CellNumber")
-      ? { value: format(c.value), numeric: true }
-      : { value: cellToText(c), numeric: false },
+  // The cells are in ascending column order, so one cursor walks them.
+  let next = 0;
+  return Array.from({ length: (row.cells.at(-1)?.col ?? -1) + 1 }, (_, col) => {
+    const entry = row.cells[next];
+    if (entry?.col !== col) return EMPTY_FIELD;
+    next += 1;
+    return Predicate.isTagged(entry.cell, "CellNumber")
+      ? { value: format(entry.cell.value), numeric: true }
+      : { value: cellToText(entry.cell), numeric: false };
+  });
+};
+
+const tooManyFields = (fields: number, max: number) =>
+  new WriteError({
+    format: "csv",
+    reason:
+      `the worksheet expands to ${fields} fields with its gaps written out, ` +
+      `more than the ${max}-field limit (maxFields)`,
+  });
+
+/** A worksheet's lines, one per row from 0 to its last, within the field budget. */
+const sheetFields = (
+  ws: Worksheet,
+  options: CsvWriterOptions,
+): Result.Result<ReadonlyArray<ReadonlyArray<Field>>, WriteError> => {
+  const max = options.maxFields ?? DEFAULT_MAX_FIELDS;
+  const fields = denseSize(ws, { rectangular: options.padRows ?? false });
+  if (fields > max) return Result.fail(tooManyFields(fields, max));
+  // The rows are in ascending index order, so one cursor walks them.
+  let next = 0;
+  return Result.succeed(
+    Array.from({ length: sheetExtent(ws).rows }, (_, index) => {
+      const row = ws.rows[next];
+      if (row?.index !== index) return [];
+      next += 1;
+      return rowFields(row, options);
+    }),
   );
 };
 
@@ -320,8 +368,8 @@ interface RowState {
 
 /**
  * Render a stream of worksheet rows to CSV text, one chunk per row (the BOM
- * and header row, if any, come first). Each row is written as its dense
- * cells, gaps blank; rows go out in stream order, so a row's `index` is not
+ * and header row, if any, come first). Each row is written from column 0 to
+ * its last cell, each gap an empty field (a row wider than `maxFields` fails); rows go out in stream order, so a row's `index` is not
  * read and no line is written for a row the stream skips. Chunks concatenate
  * to what `write` produces for the same consecutive rows, except that
  * `padRows` pads each row to the header row, or to the first row without
@@ -338,7 +386,10 @@ export const renderCsvStream = <E, R>(
     rows,
     (): RowState => ({ index: start, width: headers?.length ?? null }),
     (state, row) => {
-      const fields = cellFields(denseCells(row), options);
+      const max = options.maxFields ?? DEFAULT_MAX_FIELDS;
+      const rowWidth = (row.cells.at(-1)?.col ?? -1) + 1;
+      if (rowWidth > max) return Effect.fail(tooManyFields(rowWidth, max));
+      const fields = rowFields(row, options);
       const width = state.width ?? fields.length;
       return Effect.map(
         renderRow(options.padRows ? pad(fields, width) : fields, state.index, dialect, options),
@@ -369,11 +420,9 @@ export const makeCsvWriter = (options?: CsvWriterOptions): Writer<CsvFeature> =>
       const ws = doc.blocks.find((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
       // one line per row from the first to the last, each up to its own last
       // cell; a row the sheet does not hold is an empty line
-      const rows =
-        ws === undefined
-          ? []
-          : denseRows(ws, { rectangular: false }).map((cells) => cellFields(cells, opts));
-      return Effect.map(renderRows(rows, opts), text);
+      const rows = ws === undefined ? Result.succeed([]) : sheetFields(ws, opts);
+      if (Result.isFailure(rows)) return Effect.fail(rows.failure);
+      return Effect.map(renderRows(rows.success, opts), text);
     });
 
   return { format: "csv", profile: Csv, write };

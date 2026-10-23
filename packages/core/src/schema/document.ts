@@ -38,7 +38,7 @@ import {
   TextBox,
   Worksheet,
 } from "./ast.ts";
-import { denseRows, sheetRow } from "./sheet.ts";
+import { sheetRow } from "./sheet.ts";
 
 // ============================================================================
 // Document
@@ -304,11 +304,14 @@ const expandBlock = (block: Block): TextPart[] => {
         ),
         "\n",
       ),
+    // A worksheet's text is its cells, tab-separated within a row and one line
+    // per row it holds: gaps are not laid out, so the text stays proportional
+    // to the cells however far apart they are (#185).
     Worksheet: (n) =>
       joinParts(
-        denseRows(n, { rectangular: false }).map((row) =>
+        n.rows.map((row) =>
           joinParts(
-            row.map((c) => [{ c }]),
+            row.cells.map(({ cell: c }) => [{ c }]),
             "\t",
           ),
         ),

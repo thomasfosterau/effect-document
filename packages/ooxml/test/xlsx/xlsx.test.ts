@@ -1,6 +1,7 @@
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   bytes,
@@ -31,7 +32,11 @@ const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet
   doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet[];
 
 /** A worksheet's dense grid, for positional assertions. */
-const grid = (ws: Worksheet) => denseRows(ws);
+const grid = (ws: Worksheet) => {
+  const rows = denseRows(ws);
+  assert(Result.isSuccess(rows), "the grid fits the default budget");
+  return rows.success;
+};
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
@@ -470,7 +475,7 @@ describe("XLSX writer validity (#61)", () => {
       );
       // Blank cells are not written, so the sheet reads back as the valued cells alone.
       expect(back.rows.every((r) => r.cells.every((c) => c.cell._tag !== "CellBlank"))).toBe(true);
-      const backGrid = denseRows(back);
+      const backGrid = grid(back);
       const actual = expected.map((r, ri) =>
         r.map((_, ci) => {
           const c = backGrid[ri]?.[ci];

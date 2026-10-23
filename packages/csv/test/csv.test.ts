@@ -10,7 +10,6 @@ import {
   document,
   type ParseError,
   type SheetCell,
-  denseCells,
   IndexedCell,
   SheetRow,
   sheetRow,
@@ -37,6 +36,9 @@ import {
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
+/** A CSV row's cells: the reader writes every field, so they run from column 0 without gaps. */
+const cellsOf = (row: SheetRow) => row.cells.map((c) => c.cell);
+
 const firstWorksheet = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet =>
   doc.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
 
@@ -46,18 +48,18 @@ describe("CSV reader", () => {
       makeCsvReader({ treatFirstRowAsHeader: false }).read(text("alice,30,true\nbob,,false\n")),
     );
     const ws = firstWorksheet(doc);
-    expect(denseCells(ws.rows[0]!).map((c) => c._tag)).toEqual([
+    expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual([
       "CellText",
       "CellNumber",
       "CellBoolean",
     ]);
-    expect(denseCells(ws.rows[1]!)[1]!._tag).toBe("CellBlank");
+    expect(cellsOf(ws.rows[1]!)[1]!._tag).toBe("CellBlank");
   });
 
   test("inferTypes: false keeps every value as text", async () => {
     const doc = await run(makeCsvReader({ inferTypes: false }).read(text("1,true\n")));
     const ws = firstWorksheet(doc);
-    expect(denseCells(ws.rows[0]!).every((c) => Predicate.isTagged(c, "CellText"))).toBe(true);
+    expect(cellsOf(ws.rows[0]!).every((c) => Predicate.isTagged(c, "CellText"))).toBe(true);
   });
 
   test("header row is read as text cells", async () => {
@@ -65,8 +67,8 @@ describe("CSV reader", () => {
       makeCsvReader({ treatFirstRowAsHeader: true }).read(text("name,age\nalice,30\n")),
     );
     const ws = firstWorksheet(doc);
-    expect(denseCells(ws.rows[0]!).map((c) => c._tag)).toEqual(["CellText", "CellText"]);
-    expect(denseCells(ws.rows[1]!)[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
+    expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual(["CellText", "CellText"]);
+    expect(cellsOf(ws.rows[1]!)[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
   });
 
   test("produces a document conforming to the CSV profile", async () => {
@@ -83,7 +85,7 @@ describe("CSV reader", () => {
           text(input),
         ),
       ),
-    ).rows.map((r) => denseCells(r).map((c) => ("value" in c ? c.value : null)));
+    ).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null)));
 
   test("reads only plain decimals as numbers", async () => {
     expect(inferCell("007")).toEqual(cell.text("007"));
@@ -164,7 +166,7 @@ describe("CSV reader", () => {
         text("NA,NULL,,na\n"),
       ),
     );
-    expect(denseCells(firstWorksheet(doc).rows[0]!).map((c) => c._tag)).toEqual([
+    expect(cellsOf(firstWorksheet(doc).rows[0]!).map((c) => c._tag)).toEqual([
       "CellBlank",
       "CellBlank",
       "CellBlank",
@@ -196,9 +198,7 @@ describe("CSV reader", () => {
   test("by default the header row is sniffed and each column is typed as a whole (#88)", async () => {
     const values = (options?: CsvReaderOptions) =>
       run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
-        firstWorksheet(doc).rows.map((r) =>
-          denseCells(r).map((c) => ("value" in c ? c.value : null)),
-        ),
+        firstWorksheet(doc).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null))),
       );
     const expected = [
       ["id", "code", "n"],
@@ -222,7 +222,7 @@ describe("CSV reader", () => {
   test("header sniffing: a typed first row is data, an all-text file has no header (#88)", async () => {
     const values = async (input: string, options?: CsvReaderOptions) =>
       firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
-        denseCells(r).map((c) => ("value" in c ? c.value : null)),
+        cellsOf(r).map((c) => ("value" in c ? c.value : null)),
       );
     // no text first row: headerless numbers
     expect(await values("1,2\n3,4\n")).toEqual([
@@ -566,7 +566,7 @@ describe("CSV writer", () => {
     const doc = document([worksheet("Sheet1", [[cell.text('say "hi"\nthere'), cell.text("x")]])]);
     const out = await run(makeCsvWriter().write(doc as never));
     const back = await run(makeCsvReader().read(out));
-    expect(denseCells(firstWorksheet(back).rows[0]!)).toEqual([
+    expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual([
       cell.text('say "hi"\nthere'),
       cell.text("x"),
     ]);
@@ -588,6 +588,41 @@ describe("CSV writer", () => {
     const padded = await run(makeCsvWriter({ padRows: true }).write(document([ws]) as never));
     assert(Predicate.isTagged(padded, "Text"));
     expect(padded.text).toBe(",,c\n,,\n1,,\n");
+  });
+
+  test("a worksheet whose gaps expand past maxFields fails before rendering (#185)", async () => {
+    const far = new Worksheet({
+      name: "Far",
+      columns: [],
+      rows: [
+        new SheetRow({
+          index: 1_048_575,
+          cells: [new IndexedCell({ col: 16_383, cell: cell.text("z") })],
+        }),
+      ],
+      merges: [],
+    });
+    // ragged: a million empty lines and 16 384 fields fit the default budget
+    const error = await run(
+      Effect.flip(makeCsvWriter({ maxFields: 1_000_000 }).write(document([far]) as never)),
+    );
+    expect(error).toMatchObject({ _tag: "WriteError", format: "csv" });
+    expect(error.reason).toContain("maxFields");
+    // padded to a rectangle it is 17 billion fields, past the default
+    const padded = await run(
+      Effect.flip(makeCsvWriter({ padRows: true }).write(document([far]) as never)),
+    );
+    expect(padded.reason).toContain("maxFields");
+  });
+
+  test("a streamed row wider than maxFields fails the stream (#185)", async () => {
+    const wide = new SheetRow({
+      index: 0,
+      cells: [new IndexedCell({ col: 9_000_000_000, cell: cell.text("z") })],
+    });
+    const result = await run(Effect.result(Stream.runCollect(renderCsvStream(Stream.make(wide)))));
+    assert(Result.isFailure(result));
+    expect(result.failure).toMatchObject({ _tag: "WriteError" });
   });
 
   test("quotes fields containing the separator", async () => {
@@ -626,9 +661,9 @@ describe("CSV writer", () => {
     ]);
     expect(out).toBe("NaN,Infinity,-Infinity\n");
     // they read back as text: the strict number grammar never accepts them
-    expect(
-      firstWorksheet(await run(makeCsvReader().read(text(out)))).rows.map((r) => denseCells(r))[0],
-    ).toEqual([cell.text("NaN"), cell.text("Infinity"), cell.text("-Infinity")]);
+    expect(firstWorksheet(await run(makeCsvReader().read(text(out)))).rows.map(cellsOf)[0]).toEqual(
+      [cell.text("NaN"), cell.text("Infinity"), cell.text("-Infinity")],
+    );
   });
 
   test("writes numbers as shortest round-trip decimals", async () => {
@@ -697,7 +732,7 @@ describe("CSV writer", () => {
       }).read(text(out)),
     );
     expect(firstWorksheet(back).rows).toHaveLength(1);
-    expect(denseCells(firstWorksheet(back).rows[0]!)).toEqual(tricky);
+    expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual(tricky);
   });
 
   const failure = async (

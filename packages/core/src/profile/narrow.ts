@@ -14,6 +14,7 @@ import * as Rec from "effect/Record";
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
+import * as Result from "effect/Result";
 import * as Effect from "effect/Effect";
 import { type Attributes } from "../schema/attributes.ts";
 import {
@@ -427,8 +428,18 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
 };
 
 const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
-  // A prose table has no column positions, so it takes the dense view.
-  const rows = denseRows(w).map(
+  // A prose table has no column positions, so it takes the dense view; a
+  // sheet whose grid is over budget (one cell far out is billions of blanks)
+  // is dropped and reported rather than laid out.
+  const grid = denseRows(w);
+  if (Result.isFailure(grid)) {
+    ctx.rec.drop(
+      "sheet.worksheet",
+      `worksheet "${w.name}" dropped: ${grid.failure.message}, too large to lay out as a prose table`,
+    );
+    return [];
+  }
+  const rows = grid.success.map(
     (row) =>
       new TableRow({
         cells: row.map(

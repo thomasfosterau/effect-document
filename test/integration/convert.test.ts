@@ -1,6 +1,7 @@
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import {
   cell,
   contentToText,
@@ -32,7 +33,12 @@ describe("convert", () => {
     // sanity: the bytes are a real workbook we can read back
     const back = await run(makeXlsxReader().read(content));
     const ws = back.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
-    expect(denseRows(ws)[1]![1]).toMatchObject({ _tag: "CellNumber", value: 999.99 });
+    const grid = denseRows(ws);
+    assert(Result.isSuccess(grid));
+    expect(grid.success[1]![1]).toMatchObject({
+      _tag: "CellNumber",
+      value: 999.99,
+    });
   });
 
   test("XLSX -> CSV narrows, dropping nothing for representable data", async () => {

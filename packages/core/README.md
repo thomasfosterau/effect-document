@@ -48,7 +48,7 @@ const roundTrip = Effect.gen(function* () {
 });
 ```
 
-The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet is sparse: it holds indexed rows of column-indexed cells, and `denseRows` derives the grid), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
+The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet is sparse: it holds indexed rows of column-indexed cells, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
 
 ## Profiles
 
@@ -235,9 +235,11 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `blocksToText` | function | Collapse a sequence of blocks to plain text (one line per block). |
 | `SheetExtent` | interface | A worksheet's extent: one past its last row index and one past its last column. |
 | `sheetExtent` | function | The extent of a worksheet. |
-| `denseCells` | function | A row's cells as a dense array from column 0, gaps blank. |
-| `DenseRowsOptions` | interface | Options for `denseRows`. |
-| `denseRows` | function | The derived dense view of a worksheet: a grid of cells, gaps blank. |
+| `DEFAULT_MAX_DENSE_CELLS` | const | The default `DenseRowsOptions.maxCells`: five million cells. |
+| `DenseGridTooLarge` | class | A worksheet's dense grid would be larger than the budget it was asked for under. |
+| `DenseRowsOptions` | interface | Options for `denseRows` and `denseSize`. |
+| `denseSize` | function | The cells `denseRows` would allocate for a worksheet, plus one per row. |
+| `denseRows` | function | The derived dense view of a worksheet, built only within a cell budget. |
 | `sheetRow` | function | A sparse row from a dense array of cells. |
 | `NestedNode` | type | A node that counts as one level of nesting. |
 | `DEFAULT_MAX_NESTING_DEPTH` | const | The default maximum nesting depth readers accept. |
