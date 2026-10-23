@@ -39,7 +39,9 @@ const firstWorksheet = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Works
 
 describe("CSV reader", () => {
   test("infers number/boolean/blank cells", async () => {
-    const doc = await run(makeCsvReader().read(text("alice,30,true\nbob,,false\n")));
+    const doc = await run(
+      makeCsvReader({ treatFirstRowAsHeader: false }).read(text("alice,30,true\nbob,,false\n")),
+    );
     const ws = firstWorksheet(doc);
     expect(ws.rows[0]!.cells.map((c) => c._tag)).toEqual(["CellText", "CellNumber", "CellBoolean"]);
     expect(ws.rows[1]!.cells[1]!._tag).toBe("CellBlank");
@@ -66,10 +68,15 @@ describe("CSV reader", () => {
     expect(reader.profile.is(doc)).toBe(true);
   });
 
+  // value-by-value inference on headerless input, unless a test says otherwise
   const cells = async (input: string, options?: CsvReaderOptions) =>
-    firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
-      r.cells.map((c) => ("value" in c ? c.value : null)),
-    );
+    firstWorksheet(
+      await run(
+        makeCsvReader({ treatFirstRowAsHeader: false, inference: "cell", ...options }).read(
+          text(input),
+        ),
+      ),
+    ).rows.map((r) => r.cells.map((c) => ("value" in c ? c.value : null)));
 
   test("reads only plain decimals as numbers", async () => {
     expect(inferCell("007")).toEqual(cell.text("007"));
@@ -111,6 +118,17 @@ describe("CSV reader", () => {
     ]);
   });
 
+  test("keeps a value a number only when a double holds its digits (#88)", async () => {
+    const values = ["0.30000000000000004", "9007199254740992", "9007199254740993", "1e400", "7.10"];
+    expect((await cells(values.join(",")))[0]).toEqual([
+      0.30000000000000004,
+      9007199254740992,
+      "9007199254740993",
+      "1e400",
+      7.1,
+    ]);
+  });
+
   test("booleans are case-insensitive and configurable", async () => {
     expect(await cells("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
     expect(await cells("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([["TRUE", true]]);
@@ -135,7 +153,9 @@ describe("CSV reader", () => {
 
   test("nullValues become blank cells", async () => {
     const doc = await run(
-      makeCsvReader({ nullValues: ["", "NA", "NULL"] }).read(text("NA,NULL,,na\n")),
+      makeCsvReader({ nullValues: ["", "NA", "NULL"], treatFirstRowAsHeader: false }).read(
+        text("NA,NULL,,na\n"),
+      ),
     );
     expect(firstWorksheet(doc).rows[0]!.cells.map((c) => c._tag)).toEqual([
       "CellBlank",
@@ -152,7 +172,7 @@ describe("CSV reader", () => {
       [2, false, null, "x"],
       [null, true, "b", "3"],
     ]);
-    expect(await cells(input)).toEqual([
+    expect(await cells(input, { inference: "cell" })).toEqual([
       [1, true, "a", 1],
       [2, false, null, "x"],
       [null, true, "b", 3],
@@ -166,9 +186,69 @@ describe("CSV reader", () => {
     ]);
   });
 
+  test("by default the header row is sniffed and each column is typed as a whole (#88)", async () => {
+    const values = (options?: CsvReaderOptions) =>
+      run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
+        firstWorksheet(doc).rows.map((r) => r.cells.map((c) => ("value" in c ? c.value : null))),
+      );
+    const expected = [
+      ["id", "code", "n"],
+      // `007` keeps the whole code column text, so `8` stays as written too
+      [1, "007", 2.5],
+      [2, "8", 3],
+    ];
+    expect(await values()).toEqual(expected);
+    // an optional forwarded as `undefined` still means the default
+    expect(await values({ treatFirstRowAsHeader: undefined, inference: undefined })).toEqual(
+      expected,
+    );
+    expect(await values({ inference: "cell" })).toEqual([
+      ["id", "code", "n"],
+      [1, "007", 2.5],
+      [2, 8, 3],
+    ]);
+    expect((await values({ treatFirstRowAsHeader: false }))[1]).toEqual(["1", "007", "2.5"]);
+  });
+
+  test("header sniffing: a typed first row is data, an all-text file has no header (#88)", async () => {
+    const values = async (input: string, options?: CsvReaderOptions) =>
+      firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
+        r.cells.map((c) => ("value" in c ? c.value : null)),
+      );
+    // no text first row: headerless numbers
+    expect(await values("1,2\n3,4\n")).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+    // every column text: nothing tells a header apart, so the first row is data
+    expect(await values("name,city\nalice,paris\n")).toEqual([
+      ["name", "city"],
+      ["alice", "paris"],
+    ]);
+    // a blank in the first row: not a header, so the numbers make that column text
+    expect(await values("id,\n1,2\n")).toEqual([
+      ["id", null],
+      ["1", 2],
+    ]);
+    // one row: no data to compare against
+    expect(await values("a,b\n")).toEqual([["a", "b"]]);
+    // an explicit setting overrides the sniff either way
+    expect(await values("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
+      ["1", "2"],
+      [3, 4],
+    ]);
+    expect(await values("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
+      ["id", "n"],
+      ["1", "2"],
+    ]);
+  });
+
   test("readStream yields rows", async () => {
     const rows = await run(
-      pipe(makeCsvReader().readStream!(text("a,b\nc,d\n")), Stream.runCollect),
+      pipe(
+        makeCsvReader({ treatFirstRowAsHeader: false }).readStream!(text("a,b\nc,d\n")),
+        Stream.runCollect,
+      ),
     );
     expect([...rows]).toEqual([
       ["a", "b"],
@@ -178,8 +258,9 @@ describe("CSV reader", () => {
 });
 
 describe("CSV scanner", () => {
+  // the grammar under test, on headerless input unless a test says otherwise
   const rows = (input: string, options?: Parameters<typeof scanCsv>[2]) =>
-    Effect.runSync(scanCsv(input, undefined, options)).rows;
+    Effect.runSync(scanCsv(input, undefined, { treatFirstRowAsHeader: false, ...options })).rows;
 
   test("quoted fields may contain separators, doubled quotes and line breaks", () => {
     expect(rows('a,"b,""c""\nd"\ne,f')).toEqual([
@@ -202,12 +283,16 @@ describe("CSV scanner", () => {
 
   test("an empty wrapper turns quoting off", () => {
     const dialect = { ...StandardDialect, wrapper: "", doubleWrapper: "" };
-    expect(Effect.runSync(scanCsv('"a,b"\n', dialect)).rows).toEqual([['"a', 'b"']]);
+    expect(
+      Effect.runSync(scanCsv('"a,b"\n', dialect, { treatFirstRowAsHeader: false })).rows,
+    ).toEqual([['"a', 'b"']]);
   });
 
   test("multi-character separators are matched whole", () => {
     const dialect = { ...StandardDialect, separator: "||" };
-    expect(Effect.runSync(scanCsv("a|b||c\n|||\n", dialect)).rows).toEqual([
+    expect(
+      Effect.runSync(scanCsv("a|b||c\n|||\n", dialect, { treatFirstRowAsHeader: false })).rows,
+    ).toEqual([
       ["a|b", "c"],
       ["", "|"],
     ]);
@@ -223,7 +308,9 @@ describe("CSV scanner", () => {
   test("trimWhitespace keeps whitespace inside quotes", () => {
     expect(rows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
     expect(
-      Effect.runSync(scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true })).rows,
+      Effect.runSync(
+        scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true, treatFirstRowAsHeader: false }),
+      ).rows,
     ).toEqual([["", " a ", ""]]);
   });
 
@@ -258,7 +345,9 @@ describe("CSV scanner", () => {
   });
 
   test("uses the dialect separator", () => {
-    expect(Effect.runSync(scanCsv("a\tb,c\n", TsvDialect)).rows).toEqual([["a", "b,c"]]);
+    expect(
+      Effect.runSync(scanCsv("a\tb,c\n", TsvDialect, { treatFirstRowAsHeader: false })).rows,
+    ).toEqual([["a", "b,c"]]);
   });
 
   test("an unclosed quote fails with its line and column", () => {
@@ -294,7 +383,12 @@ describe("CSV stream scanner", () => {
   const collect = (chunks: ReadonlyArray<string>, options?: Parameters<typeof scanCsvStream>[2]) =>
     Effect.runPromise(
       Effect.result(
-        Stream.runCollect(scanCsvStream(Stream.fromIterable(chunks), undefined, options)),
+        Stream.runCollect(
+          scanCsvStream(Stream.fromIterable(chunks), undefined, {
+            treatFirstRowAsHeader: false,
+            ...options,
+          }),
+        ),
       ),
     );
 
@@ -310,7 +404,7 @@ describe("CSV stream scanner", () => {
     const first = await Effect.runPromise(
       pipe(
         Stream.concat(Stream.make("a,b\n"), Stream.never),
-        (s) => scanCsvStream(s),
+        (s) => scanCsvStream(s, undefined, { treatFirstRowAsHeader: false }),
         Stream.take(1),
         Stream.runCollect,
       ),

@@ -28,7 +28,9 @@ import { StandardDialect, type CsvDialect } from "./dialect.ts";
 export interface CsvScanOptions {
   /**
    * Treat the first row as column headers. If `providedHeaders` is also set,
-   * the first row is dropped and `providedHeaders` replace it.
+   * the first row is dropped and `providedHeaders` replace it. The scanners
+   * see only raw strings, so unset means no header row here; the CSV reader
+   * instead sniffs one from the inferred types (see `CsvReaderOptions`).
    */
   readonly treatFirstRowAsHeader?: boolean | undefined;
   /** Supply custom column headers. */
@@ -71,12 +73,13 @@ export interface ScannedTable {
 }
 
 const defaults = (options?: CsvScanOptions): CsvScanOptions => ({
-  treatFirstRowAsHeader: false,
   skipRows: 0,
   filterEmpty: true,
   trimWhitespace: false,
   allowVariableColumns: false,
   ...options,
+  // an explicit `undefined` (an optional forwarded as is) still means the default
+  treatFirstRowAsHeader: options?.treatFirstRowAsHeader ?? false,
 });
 
 // ============================================================================

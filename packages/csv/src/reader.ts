@@ -7,6 +7,7 @@
  * normalizes the trailing newline, so text is not necessarily byte-identical).
  */
 
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,11 +38,12 @@ export type CsvFeature = FeaturesOf<typeof Csv>;
 /** How raw strings become typed values. The option names follow CSVW where it has one. */
 export interface CsvInferenceOptions {
   /**
-   * `cell` (the default): each value is inferred on its own, so a column may
-   * mix types. `column`: a column is numeric only if every non-null value in it
-   * is a number, and boolean only if every one is a boolean; otherwise the
-   * whole column is text. Without `treatFirstRowAsHeader` the header row counts
-   * as data, so its names make every column text.
+   * `column` (the default): a column is numeric only if every non-null value
+   * in it is a number, and boolean only if every one is a boolean; otherwise
+   * the whole column is text, so a stray code such as `007` keeps its column's
+   * other values as written too. `cell`: each value is inferred on its own, so
+   * a column may mix types. A header row is left out of inference (see
+   * `treatFirstRowAsHeader` on the reader options for how it is found).
    */
   readonly inference?: "column" | "cell" | undefined;
   /**
@@ -66,6 +68,17 @@ export interface CsvInferenceOptions {
 
 /** Options for the CSV reader: the dialect, the scan options and type inference. */
 export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
+  /**
+   * Whether the first row is the header. Unset (the default), the reader
+   * sniffs it, as Python's `csv.Sniffer.has_header` does: the first row is the
+   * header when there are at least two rows, every first-row value is
+   * non-empty text, and at least one column's other values all infer as
+   * numbers or booleans. `true` or `false` overrides the sniff, so a file
+   * whose columns are all text needs `true` for its header row to be one. The
+   * header row is read as text cells and left out of inference. (`readStream`
+   * does not infer types, so it does not sniff: unset means no header there.)
+   */
+  readonly treatFirstRowAsHeader?: boolean | undefined;
   /** The CSV dialect to parse with (defaults to StandardDialect). */
   readonly dialect?: CsvDialect | undefined;
   /**
@@ -75,10 +88,10 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
    * true.
    *
    * Inference is convenient but lossy. Only plain decimals are read as numbers
-   * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`, with up to 15 significant digits),
+   * (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`) whose digits a double holds exactly,
    * so codes such as `007`, `0x1F`, `+1` and 20-digit IDs stay text. Numbers
    * still lose their written form: `1.10` reads as 1.1 and `1e3` as 1000.
-   * Without `treatFirstRowAsHeader`, a numeric header row is read as numbers.
+   * With `treatFirstRowAsHeader: false`, a numeric first row is read as numbers.
    */
   readonly inferTypes?: boolean | undefined;
   /** Name of the produced worksheet (defaults to "Sheet1"). */
@@ -95,10 +108,16 @@ type Inferred = number | boolean | null | undefined;
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Significant digits: from the first non-zero digit to the last. */
-const significantDigits = (digits: string): number =>
-  digits.replace(/^0+/, "").replace(/0+$/, "").length;
+const significantDigits = (digits: string): string => digits.replace(/^0+/, "").replace(/0+$/, "");
 
-const maxSignificantDigits = 15;
+/**
+ * Whether a double holds exactly the written digits: its shortest decimal
+ * form has the same significant digits. `0.30000000000000004` does; a 20-digit
+ * ID or 2^53 + 1 does not, and stays text rather than silently changing.
+ */
+const holdsDigits = (value: number, digits: string): boolean =>
+  significantDigits(Math.abs(value).toExponential().replace(/e.*$/, "").replace(".", "")) ===
+  significantDigits(digits);
 
 /** Build the value classifier for a set of inference options. */
 const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferred) => {
@@ -123,9 +142,9 @@ const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferre
     if (m === null) return undefined;
     const [, sign, grouped = "", frac = "", exp = "0", pct] = m;
     const int = groups === undefined ? grouped : grouped.replace(groups, "");
-    if (significantDigits(int + frac) > maxSignificantDigits) return undefined;
     // a percentage shifts the exponent, so `7%` parses exactly as 0.07
-    return Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
+    const value = Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
+    return holdsDigits(value, int + frac) ? value : undefined;
   };
 };
 
@@ -144,6 +163,31 @@ const defaultClassifier = makeClassifier({});
 export const inferCell = (raw: string, options?: CsvInferenceOptions): SheetCell =>
   toCell(raw, (options === undefined ? defaultClassifier : makeClassifier(options))(raw));
 
+/**
+ * Whether the first row looks like a header: at least two rows, every
+ * first-row value non-empty text, and some column whose other values are all
+ * typed (numbers or booleans, blanks aside).
+ */
+const sniffHeader = (
+  rows: ReadonlyArray<ReadonlyArray<string>>,
+  classify: (raw: string) => Inferred,
+): boolean => {
+  const [first, ...rest] = rows;
+  if (first === undefined || !Arr.isReadonlyArrayNonEmpty(rest)) return false;
+  if (!first.every((raw) => raw.trim() !== "" && classify(raw) === undefined)) return false;
+  return first.some((_, c) => {
+    // a short row's missing value counts as blank
+    const values = Arr.filter(
+      rest.map((row) => {
+        const raw = row[c];
+        return raw === undefined ? null : classify(raw);
+      }),
+      (v) => v !== null,
+    );
+    return Arr.isReadonlyArrayNonEmpty(values) && values.every((v) => v !== undefined);
+  });
+};
+
 /** Type rows of raw values, by column or by cell. */
 const inferRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
@@ -151,7 +195,7 @@ const inferRows = (
   classify: (raw: string) => Inferred,
 ): Array<Array<SheetCell>> => {
   const values = rows.map((row) => row.map(classify));
-  if (options.inference !== "column")
+  if (options.inference === "cell")
     return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
   // each column's type, from its non-null values (undefined while it has none)
   const columns: Array<"number" | "boolean" | "text" | undefined> = [];
@@ -181,9 +225,19 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const sheetName = options?.sheetName ?? "Sheet1";
   const classify = makeClassifier(options ?? {});
 
+  // unset with no provided headers: scan headerless, then sniff from the types
+  const sniff =
+    options?.treatFirstRowAsHeader === undefined && options?.providedHeaders === undefined;
+
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     pipe(
       scanCsv(contentToText(input), dialect, options),
+      Effect.map((scanned) => {
+        const [first, ...rest] = scanned.rows;
+        return sniff && first !== undefined && sniffHeader(scanned.rows, classify)
+          ? { headers: first, rows: rest }
+          : scanned;
+      }),
       Effect.map(({ headers, rows }) => {
         const body = inferTypes
           ? inferRows(rows, options ?? {}, classify)

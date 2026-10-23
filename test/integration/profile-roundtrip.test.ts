@@ -67,6 +67,7 @@ import {
   textBox,
   trustAs,
   Underline,
+  type SheetCell,
   worksheet,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -125,34 +126,42 @@ const BLOCK: Partial<Record<Feature, Block>> = {
 };
 
 /** A sheet-level sample for each spreadsheet feature. */
+/**
+ * A worksheet with a header row above `rows`, as real spreadsheets and CSV
+ * files have: the CSV reader sniffs a text first row over typed columns as the
+ * header (#88), so a sample's typed cells sit in the data rows.
+ */
+const sheet = (name: string, rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
+  worksheet(name, [(rows[0] ?? []).map((_, c) => cell.text(`h${c + 1}`)), ...rows]);
+
 const SHEET: Partial<Record<Feature, Block[]>> = {
-  "sheet.worksheet": [worksheet("S", [[cell.text("x")]])],
-  "sheet.multiple": [worksheet("A", [[cell.text("x")]]), worksheet("B", [[cell.text("y")]])],
+  "sheet.worksheet": [sheet("S", [[cell.text("x")]])],
+  "sheet.multiple": [sheet("A", [[cell.text("x")]]), sheet("B", [[cell.text("y")]])],
   "sheet.merges": [
     new Worksheet({
       name: "S",
       columns: [],
-      rows: worksheet("S", [[cell.text("x"), cell.blank()]]).rows,
-      merges: [new MergeRange({ fromRow: 0, fromCol: 0, toRow: 0, toCol: 1 })],
+      rows: sheet("S", [[cell.text("x"), cell.blank()]]).rows,
+      merges: [new MergeRange({ fromRow: 1, fromCol: 0, toRow: 1, toCol: 1 })],
     }),
   ],
   "sheet.columns": [
     new Worksheet({
       name: "S",
       columns: [new SheetColumn({ width: 20 })],
-      rows: worksheet("S", [[cell.text("x")]]).rows,
+      rows: sheet("S", [[cell.text("x")]]).rows,
       merges: [],
     }),
   ],
-  "cell.text": [worksheet("S", [[cell.text("x")]])],
-  "cell.number": [worksheet("S", [[cell.number(1.5)]])],
-  "cell.boolean": [worksheet("S", [[cell.boolean(true)]])],
-  "cell.date": [worksheet("S", [[cell.date(new Date("2024-01-02T00:00:00Z"))]])],
-  "cell.error": [worksheet("S", [[cell.error("#DIV/0!")]])],
-  "cell.blank": [worksheet("S", [[cell.text("x"), cell.blank(), cell.text("y")]])],
-  "cell.formula": [worksheet("S", [[cell.formula("1+1", "2")]])],
-  "cell.richText": [worksheet("S", [[new CellRichText({ runs: [strong([s("x")])] })]])],
-  "cell.style": [worksheet("S", [[new CellText({ value: "x", style: { font: { bold: true } } })]])],
+  "cell.text": [sheet("S", [[cell.text("x")]])],
+  "cell.number": [sheet("S", [[cell.number(1.5)]])],
+  "cell.boolean": [sheet("S", [[cell.boolean(true)]])],
+  "cell.date": [sheet("S", [[cell.date(new Date("2024-01-02T00:00:00Z"))]])],
+  "cell.error": [sheet("S", [[cell.error("#DIV/0!")]])],
+  "cell.blank": [sheet("S", [[cell.text("x"), cell.blank(), cell.text("y")]])],
+  "cell.formula": [sheet("S", [[cell.formula("1+1", "2")]])],
+  "cell.richText": [sheet("S", [[new CellRichText({ runs: [strong([s("x")])] })]])],
+  "cell.style": [sheet("S", [[new CellText({ value: "x", style: { font: { bold: true } } })]])],
 };
 
 /** A deck-level sample for each presentation feature. */
