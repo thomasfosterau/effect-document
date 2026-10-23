@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-pdf",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "PDF reader and writer for effect-document, with a low-level PDF object layer",
   "keywords": [
     "document",

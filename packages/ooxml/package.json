@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-ooxml",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Office Open XML (xlsx, docx, pptx) readers and writers for effect-document",
   "keywords": [
     "document",
