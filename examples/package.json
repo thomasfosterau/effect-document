@@ -10,7 +10,9 @@
     "@effect/platform-node": "catalog:",
     "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-document": "workspace:*",
+    "@thomasfosterau/effect-iwork": "workspace:*",
     "@thomasfosterau/effect-ooxml": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "fflate": "catalog:"
   }
 }
