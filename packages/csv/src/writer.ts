@@ -14,6 +14,7 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import {
   cellToText,
@@ -176,6 +177,48 @@ const unquotable = (row: number, reason: string): WriteError =>
     reason: `Row ${row} ${reason} and cannot be written without quoting`,
   });
 
+/** Whether a field must be quoted under a quoting mode other than `none`. */
+const needsQuotes = (
+  value: string,
+  numeric: boolean,
+  formula: boolean,
+  dialect: CsvDialect,
+  options: RowOptions,
+): boolean =>
+  options.quoting === "all" ||
+  (options.quoting === "nonNumeric" && !numeric) ||
+  formula ||
+  breaksSyntax(value, dialect) ||
+  changesMeaning(value, options);
+
+/** Render one field of row `index`, or the error that stops the row. */
+const renderOneField = (
+  { value: raw, numeric }: Field,
+  index: number,
+  dialect: CsvDialect,
+  options: RowOptions,
+  escapeChar: Option.Option<string>,
+): Result.Result<string, WriteError> => {
+  const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
+  const value = formula ? `'${raw}` : raw;
+  if (Option.exists(escapeChar, (e) => value.includes(e)))
+    return Result.fail(
+      new WriteError({
+        format: "csv",
+        reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
+      }),
+    );
+  if (options.quoting === "none")
+    return breaksSyntax(value, dialect)
+      ? Result.fail(unquotable(index, "has a field that needs quotes"))
+      : Result.succeed(value);
+  return Result.succeed(
+    needsQuotes(value, numeric, formula, dialect, options)
+      ? quoteField(value, dialect, escapeChar)
+      : value,
+  );
+};
+
 /** Render one row, without its line break. `index` numbers it in errors. */
 const renderRow = (
   fields: ReadonlyArray<Field>,
@@ -183,39 +226,18 @@ const renderRow = (
   dialect: CsvDialect,
   options: RowOptions,
 ): Effect.Effect<string, WriteError> => {
-  const quoting = options.quoting ?? "minimal";
   const escapeChar = Option.fromNullishOr(options.escapeChar);
   // a lone empty field would be an empty line, which readers skip
   if (fields.length === 1 && fields[0]!.value === "") {
-    if (quoting === "none") return Effect.fail(unquotable(index, "is a single empty field"));
+    if (options.quoting === "none")
+      return Effect.fail(unquotable(index, "is a single empty field"));
     return Effect.succeed(wrapField("", dialect));
   }
   const out: Array<string> = [];
-  for (const { value: raw, numeric } of fields) {
-    const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
-    const value = formula ? `'${raw}` : raw;
-    if (Option.exists(escapeChar, (e) => value.includes(e)))
-      return Effect.fail(
-        new WriteError({
-          format: "csv",
-          reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
-        }),
-      );
-    if (quoting === "none") {
-      if (breaksSyntax(value, dialect))
-        return Effect.fail(unquotable(index, "has a field that needs quotes"));
-      out.push(value);
-    } else if (
-      quoting === "all" ||
-      (quoting === "nonNumeric" && !numeric) ||
-      formula ||
-      breaksSyntax(value, dialect) ||
-      changesMeaning(value, options)
-    ) {
-      out.push(quoteField(value, dialect, escapeChar));
-    } else {
-      out.push(value);
-    }
+  for (const field of fields) {
+    const rendered = renderOneField(field, index, dialect, options, escapeChar);
+    if (Result.isFailure(rendered)) return Effect.fail(rendered.failure);
+    out.push(rendered.success);
   }
   return Effect.succeed(out.join(dialect.separator));
 };
