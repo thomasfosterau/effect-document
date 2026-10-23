@@ -5,6 +5,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   type Block,
   blocksToText,
+  BlockQuote,
   bulletList,
   bytes,
   DEFAULT_MAX_NESTING_DEPTH,
@@ -15,7 +16,9 @@ import {
   emph,
   type FeaturesOf,
   header,
+  HorizontalRule,
   type Inline,
+  LineBlock,
   link,
   orderedList,
   para,
@@ -77,6 +80,16 @@ describe("DOCX round-trip", () => {
         content: [expect.objectContaining({ text: "here" })],
       }),
     ]);
+  });
+
+  test("blocks outside the profile are written best-effort, as their text", () => {
+    const back = roundtrip([
+      new HorizontalRule(),
+      new BlockQuote({ content: [para([str("quoted")])] }),
+      new LineBlock({ lines: [[str("one")], [str("two")]] }),
+    ]);
+    expect(blocksToText(back.blocks)).toContain("quoted");
+    expect(blocksToText(back.blocks)).toContain("two");
   });
 
   test("adjacent bullet lists stay two lists (#109)", () => {

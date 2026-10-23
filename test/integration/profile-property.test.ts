@@ -19,7 +19,6 @@
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
-import * as Match from "effect/Match";
 import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
@@ -38,6 +37,7 @@ import {
   type NormalBlock,
   normalize,
   normalJson,
+  normalizeTokens,
   type Token,
 } from "../normalize.ts";
 
@@ -143,31 +143,16 @@ const adjacentParagraphs = (normal: Normal): Normal =>
     (b) => (Predicate.isTagged(b, "Code") ? { ...b, text: b.text.replace(/\n+/g, "\n") } : b),
   );
 
+/** Whether `token` is a word ending in a hyphen. */
+const endsWithHyphen = (token: Token | undefined): boolean =>
+  token !== undefined && Predicate.isTagged(token, "Word") && token.text.endsWith("-");
+
 /** No space after a word ending in "-", and the words either side joined if their marks match. */
 const hyphenatedWords = (normal: Normal): Normal =>
   mapTokens(normal, (tokens) =>
-    tokens.reduce<Array<Token>>((out, token) => {
-      const [before, last] = [out.at(-2), out.at(-1)];
-      if (
-        last !== undefined &&
-        Predicate.isTagged(last, "Space") &&
-        before !== undefined &&
-        Predicate.isTagged(before, "Word") &&
-        before.text.endsWith("-")
-      ) {
-        out.pop();
-      }
-      const prev = out.at(-1);
-      if (
-        Predicate.isTagged(token, "Word") &&
-        prev !== undefined &&
-        Predicate.isTagged(prev, "Word") &&
-        prev.marks === token.marks
-      ) {
-        out[out.length - 1] = { ...prev, text: prev.text + token.text };
-      } else out.push(token);
-      return out;
-    }, []),
+    normalizeTokens(
+      tokens.filter((t, i) => !(Predicate.isTagged(t, "Space") && endsWithHyphen(tokens[i - 1]))),
+    ),
   );
 
 /** Heading levels as the rank of their level among the document's headings. */
@@ -244,11 +229,19 @@ describe("every write-profile document round-trips (#109)", () => {
   CASES.forEach(({ format, family, options, runs, limits = [] }) => {
     const normal = (doc: Document): string =>
       normalJson(limits.reduce((n, l) => l.erase(n), normalize(doc)));
+    const roundTrip = (doc: Document) =>
+      Effect.flatMap(format.writer!.write(trustAs(doc)), (content) => format.reader!.read(content));
+    /** Both normal forms of a falsified check's shrunk document. */
+    const explain = async (
+      result: Arbitrary.CheckResult<Document, unknown>,
+    ): Promise<string | undefined> => {
+      if (!Predicate.isTagged(result, "Falsified")) return undefined;
+      const doc = result.shrunkInput;
+      const back = await Effect.runPromise(Effect.result(roundTrip(doc)));
+      const actual = Result.match(back, { onSuccess: normal, onFailure: String });
+      return `\nexpected ${normal(doc)}\nactual   ${actual}`;
+    };
     test(`${format.id}: read(write(doc)) normalises to doc`, async () => {
-      const writer = format.writer!;
-      const reader = format.reader!;
-      const roundTrip = (doc: Document) =>
-        Effect.flatMap(writer.write(trustAs(doc)), (content) => reader.read(content));
       const result = await Effect.runPromise(
         Arbitrary.checkEffect(
           arbitraryDocument(format.writeProfile, family, options),
@@ -256,24 +249,7 @@ describe("every write-profile document round-trips (#109)", () => {
           { runs, seed: 109, size: 10 },
         ),
       );
-      const shrunk = Match.value(result).pipe(
-        Match.tag("Falsified", (r) => r.shrunkInput),
-        Match.orElse(() => undefined),
-      );
-      const back =
-        shrunk === undefined
-          ? undefined
-          : await Effect.runPromise(Effect.result(roundTrip(shrunk)));
-      assert.strictEqual(
-        Arbitrary.formatCheckFailure(result),
-        undefined,
-        shrunk === undefined || back === undefined
-          ? undefined
-          : `\nexpected ${normal(shrunk)}\nactual   ${Result.match(back, {
-              onSuccess: normal,
-              onFailure: String,
-            })}`,
-      );
+      assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined, await explain(result));
     });
   });
 });

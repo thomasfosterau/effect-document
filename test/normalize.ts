@@ -24,6 +24,7 @@
 
 import * as Arr from "effect/Array";
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
@@ -153,49 +154,73 @@ const isBreak = Predicate.isTagged("Break");
 const isWord = Predicate.isTagged("Word");
 const isCode = Predicate.isTagged("Code");
 
-/** Append `token`: spaces collapse (and give way to line breaks), same-marked words merge. */
-const pushToken = (out: Array<Token>, token: Token): Array<Token> => {
-  const prev = out.at(-1);
-  if (isSpace(token)) {
-    // a space at the start, after a space or before a line break is layout
-    if (prev !== undefined && !isSpace(prev) && !isBreak(prev)) out.push(token);
-  } else if (isBreak(token) && prev !== undefined && isSpace(prev)) {
-    out[out.length - 1] = token;
-  } else if (isWord(token) && prev !== undefined && isWord(prev) && prev.marks === token.marks) {
-    out[out.length - 1] = { ...prev, text: prev.text + token.text };
-  } else out.push(token);
-  return out;
-};
+/** Append `token` to `out`, merging it into the last token with `join` where that gives one. */
+const pushJoined =
+  (join: (out: ReadonlyArray<Token>, token: Token) => Token | "drop" | undefined) =>
+  (out: Array<Token>, token: Token): Array<Token> => {
+    const joined = join(out, token);
+    if (joined === undefined) out.push(token);
+    else if (joined !== "drop") out[out.length - 1] = joined;
+    return out;
+  };
+
+/** Whether `token` is a space or line break: whitespace that ends a run of text. */
+const isGap = (token: Token | undefined): boolean =>
+  token === undefined || isSpace(token) || isBreak(token);
+
+type WordToken = Extract<Token, { readonly _tag: "Word" }>;
+
+/** `prev` and `word` as one word, when `prev` is a word with the same marks. */
+const joinWord = (prev: Token | undefined, word: WordToken): Token | undefined =>
+  Option.fromUndefinedOr(prev).pipe(
+    Option.filter((x): x is WordToken => isWord(x) && x.marks === word.marks),
+    Option.map((x) => ({ ...x, text: x.text + word.text })),
+    Option.getOrUndefined,
+  );
+
+/**
+ * Spaces collapse: one at the start, after a space or before a line break is
+ * layout. Same-marked words merge.
+ */
+const joinToken = (out: ReadonlyArray<Token>, token: Token): Token | "drop" | undefined =>
+  Match.valueTags(token, {
+    Space: () => (isGap(out.at(-1)) ? "drop" : undefined),
+    Break: (br) => (isSpace(out.at(-1)) ? br : undefined),
+    Word: (word) => joinWord(out.at(-1), word),
+    Code: () => undefined,
+  });
+
+type CodeToken = Extract<Token, { readonly _tag: "Code" }>;
+
+/** `a` and `token` as one code span, when both are code with the same marks. */
+const joinCode = (a: Token | undefined, token: Token): Option.Option<Token> =>
+  Option.fromUndefinedOr(a).pipe(
+    Option.filter((x): x is CodeToken => isCode(x) && isCode(token)),
+    Option.filter((x) => x.marks === (token as CodeToken).marks),
+    Option.map((x) => ({ ...x, text: `${x.text} ${(token as CodeToken).text}` })),
+  );
 
 /** Inline code, a space and inline code with the same marks: one code span. */
 const pushCode = (merged: Array<Token>, token: Token): Array<Token> => {
-  const [a, b] = [merged.at(-2), merged.at(-1)];
-  if (
-    isCode(token) &&
-    b !== undefined &&
-    isSpace(b) &&
-    a !== undefined &&
-    isCode(a) &&
-    a.marks === token.marks
-  ) {
-    merged.splice(-2, 2, { ...a, text: `${a.text} ${token.text}` });
-  } else merged.push(token);
+  const b = merged.at(-1);
+  const joined = b !== undefined && isSpace(b) ? joinCode(merged.at(-2), token) : Option.none();
+  if (Option.isSome(joined)) merged.splice(-2, 2, joined.value);
+  else merged.push(token);
   return merged;
 };
 
-/** Tokens in normal form: rebuilt with {@link pushToken}, trimmed, code spans merged. */
+/** Tokens in normal form: spaces collapsed, words merged, trimmed, code spans merged. */
 export const normalizeTokens = (tokens: ReadonlyArray<Token>): ReadonlyArray<Token> =>
-  dropRightWhile(tokens.reduce<Array<Token>>(pushToken, []), isSpace).reduce<Array<Token>>(
-    pushCode,
-    [],
-  );
+  dropRightWhile(tokens.reduce<Array<Token>>(pushJoined(joinToken), []), isSpace).reduce<
+    Array<Token>
+  >(pushCode, []);
 
 /** Inline content in normal form. */
-export const normalizeInlines = (inlines: ReadonlyArray<Inline>): ReadonlyArray<Token> =>
+const normalizeInlines = (inlines: ReadonlyArray<Inline>): ReadonlyArray<Token> =>
   normalizeTokens(tokensOf(inlines, ""));
 
 /** A block in normal form. */
-export const normalizeBlock = (block: Block): NormalBlock =>
+const normalizeBlock = (block: Block): NormalBlock =>
   Match.value(block).pipe(
     Match.tag("Para", "Plain", ({ content }): NormalBlock => ({
       _tag: "Para",
@@ -250,7 +275,7 @@ export const normalizeBlock = (block: Block): NormalBlock =>
   );
 
 /** Blocks in normal form. */
-export const normalizeBlocks = (blocks: ReadonlyArray<Block>): Normal => blocks.map(normalizeBlock);
+const normalizeBlocks = (blocks: ReadonlyArray<Block>): Normal => blocks.map(normalizeBlock);
 
 const normalizeShape = (shape: Shape): NormalShape =>
   Match.value(shape).pipe(

@@ -232,75 +232,77 @@ const lists_ = (ctx: Ctx, depth: number): ReadonlyArray<Arbitrary.Arbitrary<Bloc
   ];
 };
 
+/** A table of one to three rows of up to three paragraph cells. */
+const tableOf = (
+  text: () => Arbitrary.Arbitrary<ReadonlyArray<Inline>>,
+): Arbitrary.Arbitrary<Block> =>
+  Arbitrary.flatMap(int(1, 3), (cols) =>
+    Arbitrary.map(
+      Arbitrary.array(
+        Arbitrary.array(
+          Arbitrary.map(text(), (content) => new TableCell({ content: [new Para({ content })] })),
+          { minLength: cols, maxLength: cols },
+        ),
+        { minLength: 1, maxLength: 3 },
+      ),
+      (rows): Block =>
+        new Table({
+          colSpecs: [],
+          head: [],
+          body: rows.map((cells) => new TableRow({ cells })),
+          foot: [],
+        }),
+    ),
+  );
+
 /** A prose block of a feature the profile allows. */
 const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
-  const { has } = ctx;
   const text = (): Arbitrary.Arbitrary<ReadonlyArray<Inline>> => inlines(ctx, 2);
-  const options: Array<Arbitrary.Arbitrary<Block>> = [];
-  if (has("block.para")) options.push(Arbitrary.map(text(), (content) => new Para({ content })));
-  if (has("block.plain")) options.push(Arbitrary.map(text(), (content) => new Plain({ content })));
-  if (has("block.header")) {
-    options.push(
-      Arbitrary.map(
-        Arbitrary.all([int(1, 6), text()]),
-        ([level, content]) => new Header({ level, content }),
-      ),
-    );
-  }
-  if (has("block.codeBlock")) {
-    options.push(
-      Arbitrary.map(
-        Arbitrary.array(phrase(4), { minLength: 1, maxLength: 3 }),
-        (lines) => new CodeBlock({ text: lines.join("\n") }),
-      ),
-    );
-  }
-  if (has("block.horizontalRule")) options.push(Arbitrary.Constant(new HorizontalRule()));
-  if (has("block.lineBlock")) {
-    options.push(
-      Arbitrary.map(
-        Arbitrary.array(text(), { minLength: 1, maxLength: 3 }),
-        (lines) => new LineBlock({ lines }),
-      ),
-    );
-  }
-  if (has("block.table")) {
-    options.push(
-      Arbitrary.flatMap(int(1, 3), (cols) =>
+  const nested = (): Arbitrary.Arbitrary<ReadonlyArray<Block>> => blocks(ctx, depth - 1, 2);
+  // each block feature and its generator; the containers only above depth 0
+  const leaves: ReadonlyArray<readonly [Feature, () => Arbitrary.Arbitrary<Block>]> = [
+    ["block.para", () => Arbitrary.map(text(), (content): Block => new Para({ content }))],
+    ["block.plain", () => Arbitrary.map(text(), (content): Block => new Plain({ content }))],
+    [
+      "block.header",
+      () =>
         Arbitrary.map(
-          Arbitrary.array(
-            Arbitrary.array(
-              Arbitrary.map(
-                text(),
-                (content) => new TableCell({ content: [new Para({ content })] }),
-              ),
-              { minLength: cols, maxLength: cols },
-            ),
-            { minLength: 1, maxLength: 3 },
-          ),
-          (rows) =>
-            new Table({
-              colSpecs: [],
-              head: [],
-              body: rows.map((cells) => new TableRow({ cells })),
-              foot: [],
-            }),
+          Arbitrary.all([int(1, 6), text()]),
+          ([level, content]): Block => new Header({ level, content }),
         ),
-      ),
-    );
-  }
-  if (depth > 0) {
-    options.push(...lists_(ctx, depth));
-    if (has("block.blockQuote")) {
-      options.push(
-        Arbitrary.map(blocks(ctx, depth - 1, 2), (content) => new BlockQuote({ content })),
-      );
-    }
-    if (has("block.div")) {
-      options.push(Arbitrary.map(blocks(ctx, depth - 1, 2), (content) => new Div({ content })));
-    }
-  }
-  return oneOf(options);
+    ],
+    [
+      "block.codeBlock",
+      () =>
+        Arbitrary.map(
+          Arbitrary.array(phrase(4), { minLength: 1, maxLength: 3 }),
+          (lines): Block => new CodeBlock({ text: lines.join("\n") }),
+        ),
+    ],
+    ["block.horizontalRule", () => Arbitrary.Constant<Block>(new HorizontalRule())],
+    [
+      "block.lineBlock",
+      () =>
+        Arbitrary.map(
+          Arbitrary.array(text(), { minLength: 1, maxLength: 3 }),
+          (lines): Block => new LineBlock({ lines }),
+        ),
+    ],
+    ["block.table", () => tableOf(text)],
+  ];
+  const containers: ReadonlyArray<readonly [Feature, () => Arbitrary.Arbitrary<Block>]> = [
+    [
+      "block.blockQuote",
+      () => Arbitrary.map(nested(), (content): Block => new BlockQuote({ content })),
+    ],
+    ["block.div", () => Arbitrary.map(nested(), (content): Block => new Div({ content }))],
+  ];
+  const allowed = (table: ReadonlyArray<readonly [Feature, () => Arbitrary.Arbitrary<Block>]>) =>
+    table.filter(([feature]) => ctx.has(feature)).map(([, make]) => make());
+  return oneOf([
+    ...allowed(leaves),
+    ...(depth > 0 ? [...lists_(ctx, depth), ...allowed(containers)] : []),
+  ]);
 };
 
 // ============================================================================

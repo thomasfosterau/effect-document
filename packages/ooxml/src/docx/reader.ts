@@ -389,6 +389,15 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   );
 };
 
+/** A list paragraph as its item's lead block: a `Header` in a heading style, else a `Plain`. */
+const listItemBlock = (p: XmlElement, ctx: Ctx): Block => {
+  const heading = paragraphStyle(p)?.match(/^Heading([1-6])$/);
+  const content = paragraphInlines(p, ctx.rels);
+  return heading
+    ? new Header({ level: Number.parseInt(heading[1] ?? "1", 10), content })
+    : new Plain({ content });
+};
+
 /** Thrown when tables nest deeper than the reader's `maxDepth`. */
 class NestingLimit extends Error {}
 
@@ -502,13 +511,7 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
           const start = ctx.numbering.start(li.numId, li.ilvl);
           open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
         }
-        const heading = paragraphStyle(child)?.match(/^Heading([1-6])$/);
-        const content = paragraphInlines(child, ctx.rels);
-        open[open.length - 1]!.items.push([
-          heading
-            ? new Header({ level: Number.parseInt(heading[1] ?? "1", 10), content })
-            : new Plain({ content }),
-        ]);
+        open[open.length - 1]!.items.push([listItemBlock(child, ctx)]);
       } else if (child.name === "tbl") {
         closeAll();
         out.push(tableToBlock(child, ctx, depth));
