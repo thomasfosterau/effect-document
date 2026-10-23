@@ -645,6 +645,86 @@ describe("CSV writer", () => {
     );
   });
 
+  test("escapeChar escapes the wrapper instead of doubling it (#89)", async () => {
+    const row = [cell.text('say "hi"'), cell.text("plain"), cell.number(1)];
+    expect(await written([row], { escapeChar: "\\" })).toBe('"say \\"hi\\"",plain,1\n');
+    expect(await written([row], { escapeChar: "\\", quoting: "all" })).toBe(
+      '"say \\"hi\\"","plain","1"\n',
+    );
+    // a reader that takes `\"` for a wrapper reads every field back as written
+    const tricky = [cell.text('"'), cell.text('a"",b'), cell.text('x"\ny'), cell.text("z")];
+    const out = await written([tricky], { escapeChar: "\\" });
+    const back = await run(
+      makeCsvReader({
+        dialect: { ...StandardDialect, doubleWrapper: '\\"' },
+        inferTypes: false,
+      }).read(text(out)),
+    );
+    expect(firstWorksheet(back).rows).toHaveLength(1);
+    expect(firstWorksheet(back).rows[0]?.cells).toEqual(tricky);
+  });
+
+  const failure = async (
+    rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+    options: CsvWriterOptions,
+  ) => {
+    const r = await Effect.runPromise(Effect.result(makeCsvWriter(options).write(sheet(rows))));
+    return Result.isFailure(r) ? r.failure.reason : undefined;
+  };
+
+  test("escapeChar fails on a field holding the escape character (#89)", async () => {
+    // `x\` would close as `"x\"`, which an escape-aware reader leaves unclosed
+    const values = ["x\\", 'a\\"b', "C:\\tmp"];
+    const reasons = await Promise.all(
+      values.map((value) => failure([[cell.text(value)]], { escapeChar: "\\" })),
+    );
+    expect(reasons).toEqual(
+      values.map(
+        () =>
+          "Row 0 has a field holding the escape character, which cannot be written unambiguously",
+      ),
+    );
+  });
+
+  test("escapeChar does not let quoting none write separators or line breaks (#89)", async () => {
+    // escaped in place, `a\,=cmd()` would be a new `=cmd()` cell to a naive reader
+    const options: CsvWriterOptions = { escapeChar: "\\", quoting: "none", escapeFormulae: true };
+    const values = ["a,=cmd()", "a\n=cmd()", 'a"b'];
+    const reasons = await Promise.all(
+      values.map((value) => failure([[cell.text(value), cell.text("z")]], options)),
+    );
+    expect(reasons).toEqual(
+      values.map(() => "Row 0 has a field that needs quotes and cannot be written without quoting"),
+    );
+    expect(await failure([[cell.blank()]], options)).toBe(
+      "Row 0 is a single empty field and cannot be written without quoting",
+    );
+  });
+
+  test("escapeChar must be one character other than the separator or wrapper (#89)", async () => {
+    const results = await Effect.runPromise(
+      Effect.forEach(
+        ["", "\\\\", ",", '"', "\n"],
+        (escapeChar) =>
+          Effect.result(makeCsvWriter({ escapeChar }).write(sheet([[cell.text("a")]]))),
+        { concurrency: 1 },
+      ),
+    );
+    expect(results.map(Result.isFailure)).toEqual([true, true, true, true, true]);
+    const streamed = await Effect.runPromise(
+      Effect.result(
+        Stream.runCollect(
+          renderCsvStream(Stream.make(new SheetRow({ cells: [cell.text("a")] })), {
+            escapeChar: ",",
+          }),
+        ),
+      ),
+    );
+    expect(Result.isFailure(streamed) && streamed.failure.reason).toBe(
+      "escapeChar must differ from the separator, the wrapper and line breaks",
+    );
+  });
+
   test("line breaks come from the dialect", async () => {
     expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe(
       "a\r\nb\r\n",

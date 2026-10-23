@@ -13,6 +13,8 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import {
   cellToText,
@@ -48,7 +50,22 @@ export interface CsvWriterOptions {
   /** When to quote fields (defaults to `minimal`). */
   readonly quoting?: CsvQuoting | undefined;
   /** Render number cells (defaults to {@link formatCsvNumber}). */
-  readonly formatNumber?: (value: number) => string;
+  readonly formatNumber?: ((value: number) => string) | undefined;
+  /**
+   * Escape a wrapper inside a quoted field with this character instead of
+   * doubling it, as Python's `escapechar` with `doublequote=False` does:
+   * `"say \"hi\""`. Unset (the default), the wrapper is doubled as RFC 4180
+   * specifies.
+   *
+   * It fails closed: a field that holds the escape character itself fails
+   * the write, since readers disagree on what it means there, and
+   * `quoting: "none"` still fails on a field that needs quotes rather than
+   * escaping its separators or line breaks (which a reader without the
+   * escape character would split into new fields or rows). It must be one
+   * character other than the separator, the wrapper or a line break; anything
+   * else fails the write. The CSV reader has no escape-character option yet.
+   */
+  readonly escapeChar?: string | undefined;
   /**
    * Quote fields that start with this marker, so a reader with the same
    * `lineCommentMarker` doesn't skip their row as a comment.
@@ -128,6 +145,28 @@ const changesMeaning = (value: string, options: RowOptions): boolean =>
 const wrapField = (value: string, dialect: CsvDialect): string =>
   dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
 
+/**
+ * Quote a field, escaping the wrapper with `escape` if set, else doubling it.
+ * The field never holds `escape` itself (`renderRow` rejects that).
+ */
+const quoteField = (value: string, dialect: CsvDialect, escape: Option.Option<string>): string =>
+  Option.match(escape, {
+    onNone: () => wrapField(value, dialect),
+    onSome: (e) =>
+      dialect.wrapper + value.replaceAll(dialect.wrapper, e + dialect.wrapper) + dialect.wrapper,
+  });
+
+/** Why `escapeChar` can't be used with this dialect, if it can't. */
+const badEscape = (escape: string, dialect: CsvDialect): Option.Option<string> =>
+  [...escape].length !== 1
+    ? Option.some("must be exactly one character")
+    : escape === dialect.separator ||
+        escape === dialect.wrapper ||
+        escape === "\n" ||
+        escape === "\r"
+      ? Option.some("must differ from the separator, the wrapper and line breaks")
+      : Option.none();
+
 /** Render a single field, quoting it if necessary (as the `minimal` mode does). */
 export const renderField = (value: string, dialect: CsvDialect): string =>
   breaksSyntax(value, dialect) || edgeSpace.test(value) ? wrapField(value, dialect) : value;
@@ -138,6 +177,48 @@ const unquotable = (row: number, reason: string): WriteError =>
     reason: `Row ${row} ${reason} and cannot be written without quoting`,
   });
 
+/** Whether a field must be quoted under a quoting mode other than `none`. */
+const needsQuotes = (
+  value: string,
+  numeric: boolean,
+  formula: boolean,
+  dialect: CsvDialect,
+  options: RowOptions,
+): boolean =>
+  options.quoting === "all" ||
+  (options.quoting === "nonNumeric" && !numeric) ||
+  formula ||
+  breaksSyntax(value, dialect) ||
+  changesMeaning(value, options);
+
+/** Render one field of row `index`, or the error that stops the row. */
+const renderOneField = (
+  { value: raw, numeric }: Field,
+  index: number,
+  dialect: CsvDialect,
+  options: RowOptions,
+  escapeChar: Option.Option<string>,
+): Result.Result<string, WriteError> => {
+  const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
+  const value = formula ? `'${raw}` : raw;
+  if (Option.exists(escapeChar, (e) => value.includes(e)))
+    return Result.fail(
+      new WriteError({
+        format: "csv",
+        reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
+      }),
+    );
+  if (options.quoting === "none")
+    return breaksSyntax(value, dialect)
+      ? Result.fail(unquotable(index, "has a field that needs quotes"))
+      : Result.succeed(value);
+  return Result.succeed(
+    needsQuotes(value, numeric, formula, dialect, options)
+      ? quoteField(value, dialect, escapeChar)
+      : value,
+  );
+};
+
 /** Render one row, without its line break. `index` numbers it in errors. */
 const renderRow = (
   fields: ReadonlyArray<Field>,
@@ -145,31 +226,18 @@ const renderRow = (
   dialect: CsvDialect,
   options: RowOptions,
 ): Effect.Effect<string, WriteError> => {
-  const quoting = options.quoting ?? "minimal";
+  const escapeChar = Option.fromNullishOr(options.escapeChar);
   // a lone empty field would be an empty line, which readers skip
   if (fields.length === 1 && fields[0]!.value === "") {
-    if (quoting === "none") return Effect.fail(unquotable(index, "is a single empty field"));
+    if (options.quoting === "none")
+      return Effect.fail(unquotable(index, "is a single empty field"));
     return Effect.succeed(wrapField("", dialect));
   }
   const out: Array<string> = [];
-  for (const { value: raw, numeric } of fields) {
-    const escape = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
-    const value = escape ? `'${raw}` : raw;
-    if (quoting === "none") {
-      if (breaksSyntax(value, dialect))
-        return Effect.fail(unquotable(index, "has a field that needs quotes"));
-      out.push(value);
-    } else if (
-      quoting === "all" ||
-      (quoting === "nonNumeric" && !numeric) ||
-      escape ||
-      breaksSyntax(value, dialect) ||
-      changesMeaning(value, options)
-    ) {
-      out.push(wrapField(value, dialect));
-    } else {
-      out.push(value);
-    }
+  for (const field of fields) {
+    const rendered = renderOneField(field, index, dialect, options, escapeChar);
+    if (Result.isFailure(rendered)) return Effect.fail(rendered.failure);
+    out.push(rendered.success);
   }
   return Effect.succeed(out.join(dialect.separator));
 };
@@ -197,6 +265,20 @@ const cellFields = (
   );
 };
 
+/** Fail when the options can't be used with the dialect. */
+const checkOptions = (
+  options: CsvWriterOptions,
+  dialect: CsvDialect,
+): Effect.Effect<void, WriteError> => {
+  const reason = Option.flatMap(Option.fromNullishOr(options.escapeChar), (e) =>
+    badEscape(e, dialect),
+  );
+  return Option.match(reason, {
+    onNone: () => Effect.void,
+    onSome: (r) => Effect.fail(new WriteError({ format: "csv", reason: `escapeChar ${r}` })),
+  });
+};
+
 /** Render rows of fields, with the header row, padding and BOM the options ask for. */
 const renderRows = (
   body: ReadonlyArray<ReadonlyArray<Field>>,
@@ -204,6 +286,7 @@ const renderRows = (
 ): Effect.Effect<string, WriteError> =>
   Effect.gen(function* () {
     const dialect = options.dialect ?? StandardDialect;
+    yield* checkOptions(options, dialect);
     const rows = options.headers ? [textFields(options.headers), ...body] : body;
     const width = options.padRows ? Math.max(0, ...rows.map((r) => r.length)) : 0;
     const lines = yield* Effect.forEach(
@@ -263,7 +346,9 @@ export const renderCsvStream = <E, R>(
         Stream.map((line) => line + dialect.linebreak),
       )
     : Stream.empty;
-  return Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);
+  const all = Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);
+  // invalid options fail the stream before its first chunk
+  return Stream.unwrap(Effect.as(checkOptions(options, dialect), all));
 };
 
 // ============================================================================

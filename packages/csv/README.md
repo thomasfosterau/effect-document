@@ -30,6 +30,10 @@ By default the reader sniffs the header row: the first row is the header when ev
 
 `Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
 
+The writer quotes only the fields that need it (`quoting: "minimal"`); `quoting` also takes `"all"`, `"nonNumeric"` and `"none"`, after Python's `csv.QUOTE_*`. It doubles a wrapper inside a quoted field, as RFC 4180 specifies, or escapes it with `escapeChar` (`"\\"`, say) instead; a field holding the escape character itself fails the write, and the reader has no escape-character option yet. Rows end with the dialect's `linebreak`: LF in `StandardDialect`, CRLF in `Rfc4180Dialect`. Set `bom: true` for Excel to detect UTF-8, `headers` to write a header row first, and `padRows` to pad short rows into a rectangle. Numbers are written as shortest round-trip decimals with no exponent form (`formatNumber` overrides it). `renderCsvStream` renders a `Stream` of rows one chunk per row.
+
+**Formula injection.** Spreadsheet apps run a cell that starts with `=`, `+`, `-` or `@` as a formula when the file is opened, so a value such as `=HYPERLINK(...)` from untrusted input can act on whoever opens the file. Set `escapeFormulae: true` when writing such data for people to open: it prefixes `'` to text fields that start with one of those characters, a tab or a CR, and quotes them. It changes the values, so leave it off for files that programs read.
+
 ## Streaming
 
 `readStream` yields rows without building the document, and `scanCsvStream` scans text that arrives in chunks; a field, a quoted line break or a CRLF may span chunk boundaries:
