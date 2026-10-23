@@ -24,12 +24,16 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import {
   type Block,
+  type BlockOf,
   bytes,
   type Content,
   type Doc,
   type Inline,
+  type InlineOf,
+  isNodeIn,
   makeWriterTag,
   WriteError,
   type Writer,
@@ -134,37 +138,34 @@ interface Piece {
   readonly style: Style;
 }
 
-/** Flatten inlines into styled text pieces; `null` marks a hard line break. */
-const flatten = (
-  inlines: ReadonlyArray<Inline>,
-  style: Style,
-  out: Array<Piece | null> = [],
-): Array<Piece | null> => {
-  for (const n of inlines) {
-    if (Predicate.isTagged(n, "Str")) {
-      out.push({ text: n.text, style });
-    } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
-      out.push({ text: " ", style });
-    } else if (Predicate.isTagged(n, "LineBreak")) {
-      out.push(null);
-    } else if (Predicate.isTagged(n, "Emph")) {
-      flatten(n.content, { ...style, italic: true }, out);
-    } else if (Predicate.isTagged(n, "Strong")) {
-      flatten(n.content, { ...style, bold: true }, out);
-    } else if (Predicate.isTagged(n, "Underline")) {
-      flatten(n.content, { ...style, underline: true }, out);
-    } else if (Predicate.isTagged(n, "Strikeout")) {
-      flatten(n.content, { ...style, strike: true }, out);
-    } else if (Predicate.isTagged(n, "Code")) {
-      out.push({ text: n.text, style: { ...style, mono: true } });
-    } else if (Predicate.isTagged(n, "Link")) {
-      flatten(n.content, { ...style, url: n.target.url }, out);
-    } else {
-      // outside the PDF profile; narrowing removes these before we get here
-    }
-  }
+/** Styled text pieces; `null` marks a hard line break. */
+type Pieces = Array<Piece | null>;
+
+/** Flatten inlines into styled text pieces. */
+const flatten = (inlines: ReadonlyArray<Inline>, style: Style, out: Pieces = []): Pieces => {
+  // inlines outside the PDF profile (narrowing removes them first) are dropped
+  for (const n of inlines) if (isNodeIn(Pdf, n)) flattenInline(n, style, out);
   return out;
 };
+
+/**
+ * Flatten one inline of the PDF profile. The table is exhaustive over the
+ * profile's inlines, so a feature added to it without a rendering here is a
+ * compile error (#109).
+ */
+const flattenInline = (n: InlineOf<PdfFeature>, style: Style, out: Pieces): void =>
+  Match.valueTags(n, {
+    Str: (s) => void out.push({ text: s.text, style }),
+    Space: () => void out.push({ text: " ", style }),
+    SoftBreak: () => void out.push({ text: " ", style }),
+    LineBreak: () => void out.push(null),
+    Emph: (m) => void flatten(m.content, { ...style, italic: true }, out),
+    Strong: (m) => void flatten(m.content, { ...style, bold: true }, out),
+    Underline: (m) => void flatten(m.content, { ...style, underline: true }, out),
+    Strikeout: (m) => void flatten(m.content, { ...style, strike: true }, out),
+    Code: (c) => void out.push({ text: c.text, style: { ...style, mono: true } }),
+    Link: (l) => void flatten(l.content, { ...style, url: l.target.url }, out),
+  });
 
 /** A positioned run of text on a line. */
 interface Segment {
@@ -469,41 +470,59 @@ const layoutList = (
   if (!tight) ts.space(body * 0.65);
 };
 
-/** Lay out a sequence of blocks. */
+/** Lay out a sequence of blocks; blocks outside the PDF profile (narrowing removes them first) are skipped. */
 const layoutBlocks = (
   ts: Typesetter,
   blocks: ReadonlyArray<Block>,
   left: number,
   tight = false,
 ): void => {
+  blocks.forEach((b, i) => {
+    if (isNodeIn(Pdf, b)) layoutBlock(ts, b, left, tight, i === blocks.length - 1);
+  });
+};
+
+/**
+ * Lay out one block of the PDF profile; `last`: it ends its sequence.
+ * Exhaustive over the profile's blocks (#109).
+ */
+const layoutBlock = (
+  ts: Typesetter,
+  b: BlockOf<PdfFeature>,
+  left: number,
+  tight: boolean,
+  last: boolean,
+): void => {
   const body = ts.body;
   const textWidth = ts.width - 2 * ts.margin - left;
-  blocks.forEach((b, i) => {
-    if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain")) {
-      const lines = breakLines(flatten(b.content, PLAIN), body, textWidth);
-      ts.lines(lines, left, body, body * 1.35);
-      if (!tight || i < blocks.length - 1)
-        ts.space(Predicate.isTagged(b, "Para") ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
-    } else if (Predicate.isTagged(b, "Header")) {
-      const size = HEADING_SIZES[b.level - 1] ?? body;
+  const paragraph = (p: { readonly content: ReadonlyArray<Inline> }, isPara: boolean): void => {
+    const lines = breakLines(flatten(p.content, PLAIN), body, textWidth);
+    ts.lines(lines, left, body, body * 1.35);
+    if (!tight || !last) ts.space(isPara ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
+  };
+  Match.valueTags(b, {
+    Para: (p) => paragraph(p, true),
+    Plain: (p) => paragraph(p, false),
+    Header: (h) => {
+      const size = HEADING_SIZES[h.level - 1] ?? body;
       ts.space(size * 0.6);
-      const lines = breakLines(flatten(b.content, { ...PLAIN, bold: true }), size, textWidth);
+      const lines = breakLines(flatten(h.content, { ...PLAIN, bold: true }), size, textWidth);
       ts.lines(lines, left, size, size * 1.25);
       ts.space(size * 0.4);
-    } else if (Predicate.isTagged(b, "CodeBlock")) {
-      layoutCodeBlock(ts, b, left, textWidth);
-    } else if (Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")) {
-      layoutList(ts, b, left, textWidth, tight);
-    } else if (Predicate.isTagged(b, "BlockQuote")) {
+    },
+    CodeBlock: (c) => layoutCodeBlock(ts, c, left, textWidth),
+    BulletList: (l) => layoutList(ts, l, left, textWidth, tight),
+    OrderedList: (l) => layoutList(ts, l, left, textWidth, tight),
+    BlockQuote: (q) => {
       const start = ts.position;
-      layoutBlocks(ts, b.content, left + 24);
+      layoutBlocks(ts, q.content, left + 24);
       const end = ts.position;
       if (start.page === end.page) ts.bar(left + 8, start.y, end.y + body * 0.8);
-    } else if (Predicate.isTagged(b, "HorizontalRule")) {
+    },
+    HorizontalRule: () => {
       ts.rule(left);
       ts.space(body * 0.5);
-    }
-    // other blocks are outside the PDF profile; narrowing removes them first
+    },
   });
 };
 

@@ -90,8 +90,6 @@ const defaults = (options?: CsvScanOptions): CsvScanOptions => ({
 const lineEnding = Parser.alt(Token.literal("\r\n"), Token.literal("\n"), Token.literal("\r"));
 const endOfLine = Parser.alt(Parser.asVoid(lineEnding), Parser.eof);
 /** Horizontal whitespace, for blank and comment lines. */
-const blanks = Token.takeWhile(" \t\f\v");
-
 const concat = <E, R>(part: Parser.Parser<string, E, R>): Parser.Parser<string, E, R> =>
   Parser.fold(part, { init: () => "", f: (acc, s) => acc + s });
 
@@ -136,7 +134,7 @@ const makeQuoted = ({ wrapper, doubleWrapper }: CsvDialect): Parser.Parser<strin
   ).pipe(Parser.context("quoted field"));
 };
 
-/** Whitespace that may be trimmed before a quoted field. */
+/** Whitespace that may be trimmed before a quoted field (or fill a blank line). */
 const leadingSpace = (separator: string): Parser.Parser<string> =>
   Token.takeWhile([..." \t\f\v"].filter((c) => !separator.includes(c)).join(""));
 
@@ -183,6 +181,9 @@ const makeRow = (
     makeField(dialect, options),
     Token.literal(dialect.separator),
   );
+  // A blank line's whitespace leaves out the separator's own characters: a TSV
+  // line of tabs is a row of empty fields, not a blank line.
+  const blanks = leadingSpace(dialect.separator);
   const skipped: Array<Parser.Parser<null>> = [];
   if (options.filterEmpty) {
     skipped.push(Parser.as(Parser.terminated(blanks, Parser.peek(endOfLine)), null));

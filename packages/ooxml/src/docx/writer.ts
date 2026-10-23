@@ -4,24 +4,30 @@
  * Emits a minimal-but-valid WordprocessingML package: paragraphs and runs with
  * bold/italic/underline/strike/super/sub/small-caps, headings via paragraph
  * styles, hyperlinks (with relationships), bullet/ordered lists (via a small
- * numbering part: one numbering instance per ordered list, so each restarts at
+ * numbering part: one numbering instance per list, so each ordered list restarts at
  * its `start`; nested lists by `w:ilvl`), code blocks and tables. A styles
- * part defines the Heading1-6, Code and TableGrid styles it refers to.
+ * part defines the Heading1-6, Code, Hyperlink and TableGrid styles it refers to.
  */
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
-import * as HashMap from "effect/HashMap";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import {
   type Block,
+  type BlockOf,
   bytes,
   type Content,
   type Doc,
+  type Header,
   type Inline,
+  type InlineOf,
+  isNodeIn,
   type Link,
+  type Para,
+  type Plain,
   makeWriterTag,
   type Quoted,
   type Table,
@@ -52,8 +58,6 @@ const REL_HYPERLINK = NS_REL_DOC + "/hyperlink";
 const REL_NUMBERING = NS_REL_DOC + "/numbering";
 const REL_STYLES = NS_REL_DOC + "/styles";
 
-/** The shared bullet numbering instance; ordered lists each get their own. */
-const NUM_BULLET = 1;
 const ABSTRACT_BULLET = 0;
 const ABSTRACT_ORDERED = 1;
 /** WordprocessingML list levels run 0-8. */
@@ -64,6 +68,8 @@ const MAX_ILVL = 8;
 // ============================================================================
 
 interface Fmt {
+  /** Inside a hyperlink: the `Hyperlink` character style gives it its look. */
+  link?: boolean | undefined;
   b?: boolean | undefined;
   i?: boolean | undefined;
   u?: boolean | undefined;
@@ -72,10 +78,11 @@ interface Fmt {
   caps?: boolean | undefined;
 }
 
-/** Collects hyperlink relationships and ordered-list numbering while rendering. */
+/** Collects hyperlink relationships and list numbering while rendering. */
 class RelCollector {
   private readonly entries: Array<{ id: string; url: string }> = [];
-  private readonly ordered: number[] = [];
+  /** Each list's numbering instance, in numId order: a bullet list, or an ordered list's start. */
+  private readonly lists: Array<number | "bullet"> = [];
   addHyperlink(url: string): string {
     const id = `rIdH${this.entries.length + 1}`;
     this.entries.push({ id, url });
@@ -84,19 +91,25 @@ class RelCollector {
   get hyperlinks(): ReadonlyArray<{ id: string; url: string }> {
     return this.entries;
   }
-  /** A fresh numbering instance for one ordered list, starting at `start`. */
-  addOrderedList(start: number): number {
-    this.ordered.push(start);
-    return NUM_BULLET + this.ordered.length;
+  /**
+   * A fresh numbering instance for one list: a bullet list, or an ordered
+   * list starting at `start`. Every list gets its own, so adjacent lists of
+   * the same kind stay separate lists (#109) and each ordered list restarts.
+   */
+  addList(start: number | "bullet"): number {
+    this.lists.push(start);
+    return this.lists.length;
   }
-  /** The ordered-list instances as (numId, start). */
-  get orderedLists(): ReadonlyArray<{ numId: number; start: number }> {
-    return this.ordered.map((start, n) => ({ numId: NUM_BULLET + n + 1, start }));
+  /** The numbering instances as (numId, bullet or start). */
+  get numberings(): ReadonlyArray<{ numId: number; start: number | "bullet" }> {
+    return this.lists.map((start, n) => ({ numId: n + 1, start }));
   }
 }
 
 const rPr = (f: Fmt): string => {
   const parts: string[] = [];
+  // w:rStyle comes first in w:rPr (CT_RPr's sequence)
+  if (f.link) parts.push('<w:rStyle w:val="Hyperlink"/>');
   if (f.b) parts.push("<w:b/>");
   if (f.i) parts.push("<w:i/>");
   if (f.u) parts.push('<w:u w:val="single"/>');
@@ -126,17 +139,6 @@ const run = (text: string, f: Fmt): string => `<w:r>${rPr(f)}${runContent(text)}
 const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt, rel: RelCollector): string =>
   ns.map((n) => inlineToRuns(n, f, rel)).join("");
 
-/** The run formatting each mark inline adds to its content. */
-const MARKS = HashMap.make<ReadonlyArray<readonly [string, Fmt]>>(
-  ["Emph", { i: true }],
-  ["Strong", { b: true }],
-  ["Underline", { u: true }],
-  ["Strikeout", { strike: true }],
-  ["Superscript", { vert: "superscript" }],
-  ["Subscript", { vert: "subscript" }],
-  ["SmallCaps", { caps: true }],
-);
-
 const quotedRuns = (n: Quoted, f: Fmt, rel: RelCollector): string => {
   const [open, close] = n.quoteType === "single" ? ["\u2018", "\u2019"] : ["\u201C", "\u201D"];
   return run(open, f) + inlineRuns(n.content, f, rel) + run(close, f);
@@ -147,32 +149,68 @@ const hyperlinkRuns = (n: Link, f: Fmt, rel: RelCollector): string => {
   const target = n.target.url.startsWith("#")
     ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
     : `r:id="${rel.addHyperlink(n.target.url)}"`;
-  return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, u: true }, rel)}</w:hyperlink>`;
+  // The look comes from the Hyperlink style rather than a direct underline,
+  // so the reader doesn't mistake it for an `Underline` (#109).
+  return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, link: true }, rel)}</w:hyperlink>`;
 };
 
-const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string => {
-  if (Predicate.isTagged(n, "Str") || Predicate.isTagged(n, "Code")) return run(n.text, f);
-  if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) return run(" ", f);
-  if (Predicate.isTagged(n, "LineBreak")) return `<w:r>${rPr(f)}<w:br/></w:r>`;
-  if (Predicate.isTagged(n, "Quoted")) return quotedRuns(n, f, rel);
-  if (Predicate.isTagged(n, "Link")) return hyperlinkRuns(n, f, rel);
-  if (Predicate.isTagged(n, "Note") || !("content" in n)) return "";
-  // the marks; the profile has no other inline with content
-  const mark = HashMap.get(MARKS, n._tag);
-  return Option.isSome(mark) ? inlineRuns(n.content, { ...f, ...mark.value }, rel) : "";
-};
+/**
+ * An inline of the DOCX profile. The table is exhaustive over the profile's
+ * inlines, so a feature added to the profile without a rendering here is a
+ * compile error (#109).
+ */
+const docxInline = (n: InlineOf<DocxFeature>, f: Fmt, rel: RelCollector): string =>
+  Match.valueTags(n, {
+    Str: (s) => run(s.text, f),
+    Space: () => run(" ", f),
+    SoftBreak: () => run(" ", f),
+    LineBreak: () => `<w:r>${rPr(f)}<w:br/></w:r>`,
+    Emph: (m) => inlineRuns(m.content, { ...f, i: true }, rel),
+    Strong: (m) => inlineRuns(m.content, { ...f, b: true }, rel),
+    Underline: (m) => inlineRuns(m.content, { ...f, u: true }, rel),
+    Strikeout: (m) => inlineRuns(m.content, { ...f, strike: true }, rel),
+    Superscript: (m) => inlineRuns(m.content, { ...f, vert: "superscript" }, rel),
+    Subscript: (m) => inlineRuns(m.content, { ...f, vert: "subscript" }, rel),
+    SmallCaps: (m) => inlineRuns(m.content, { ...f, caps: true }, rel),
+    Link: (l) => hyperlinkRuns(l, f, rel),
+  });
+
+/**
+ * An inline outside the DOCX profile, in a document handed over with
+ * `trustAs`: inline code as a plain run and quotations in quotation marks
+ * (neither reads back as such); anything else is dropped.
+ */
+const otherInline = (n: Inline, f: Fmt, rel: RelCollector): string =>
+  Predicate.isTagged(n, "Code")
+    ? run(n.text, f)
+    : Predicate.isTagged(n, "Quoted")
+      ? quotedRuns(n, f, rel)
+      : "";
+
+const inlineToRuns = (n: Inline, f: Fmt, rel: RelCollector): string =>
+  isNodeIn(Docx, n) ? docxInline(n, f, rel) : otherInline(n, f, rel);
 
 // ============================================================================
 // Block rendering
 // ============================================================================
 
+/** A numbered list paragraph: an item's lead paragraph, or a heading in its `HeadingN` style. */
 const listParagraph = (
-  inlines: ReadonlyArray<Inline>,
+  lead: Option.Option<Para | Plain | Header>,
   numId: number,
   ilvl: number,
   rel: RelCollector,
-): string =>
-  `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(inlines, {}, rel)}</w:p>`;
+): string => {
+  const style = Option.match(
+    Option.filter(lead, (b): b is Header => Predicate.isTagged(b, "Header")),
+    {
+      onNone: () => "",
+      onSome: (h) => `<w:pStyle w:val="Heading${h.level}"/>`,
+    },
+  );
+  const content = Option.match(lead, { onNone: () => [], onSome: (p) => p.content });
+  return `<w:p><w:pPr>${style}<w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(content, {}, rel)}</w:p>`;
+};
 
 /**
  * Render a list. Each item's first paragraph carries the numbering; nested
@@ -188,14 +226,18 @@ const renderList = (
   items
     .map((item) => {
       const [first, ...rest] = item;
-      const lead =
-        first !== undefined &&
-        (Predicate.isTagged(first, "Para") ||
-          Predicate.isTagged(first, "Plain") ||
-          Predicate.isTagged(first, "Header"));
+      const lead = Option.filter(
+        Option.fromUndefinedOr(first),
+        (b): b is Para | Plain | Header =>
+          Predicate.isTagged(b, "Para") ||
+          Predicate.isTagged(b, "Plain") ||
+          Predicate.isTagged(b, "Header"),
+      );
       return (
-        listParagraph(lead ? first.content : [], numId, ilvl, rel) +
-        (lead ? rest : item).map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL))).join("")
+        listParagraph(lead, numId, ilvl, rel) +
+        (Option.isSome(lead) ? rest : item)
+          .map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL)))
+          .join("")
       );
     })
     .join("");
@@ -221,30 +263,43 @@ const renderTable = (t: Table, rel: RelCollector): string => {
   return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>${grid}${rows}</w:tbl>`;
 };
 
-/** `ilvl`: the list level a nested list here would take (0 outside lists). */
-const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
-  if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain")) {
-    return `<w:p>${inlineRuns(b.content, {}, rel)}</w:p>`;
-  } else if (Predicate.isTagged(b, "Header")) {
-    return `<w:p><w:pPr><w:pStyle w:val="Heading${b.level}"/></w:pPr>${inlineRuns(b.content, {}, rel)}</w:p>`;
-  } else if (Predicate.isTagged(b, "HorizontalRule")) {
+/**
+ * A block of the DOCX profile; `ilvl` is the list level a nested list here
+ * would take (0 outside lists). Exhaustive over the profile's blocks (#109).
+ */
+const docxBlock = (b: BlockOf<DocxFeature>, rel: RelCollector, ilvl: number): string =>
+  Match.valueTags(b, {
+    Para: (p) => `<w:p>${inlineRuns(p.content, {}, rel)}</w:p>`,
+    Plain: (p) => `<w:p>${inlineRuns(p.content, {}, rel)}</w:p>`,
+    Header: (h) =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading${h.level}"/></w:pPr>${inlineRuns(h.content, {}, rel)}</w:p>`,
+    BulletList: (l) => renderList(l.items, rel.addList("bullet"), ilvl, rel),
+    OrderedList: (l) => renderList(l.items, rel.addList(l.start ?? 1), ilvl, rel),
+    CodeBlock: (c) =>
+      `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(c.text)}</w:r></w:p>`,
+    Table: (t) => renderTable(t, rel),
+  });
+
+/**
+ * A block outside the DOCX profile, in a document handed over with
+ * `trustAs`: a rule as a bordered empty paragraph, block quotes and divs
+ * flattened into their content, a line block as one paragraph per line
+ * (none of which reads back as such); anything else is dropped.
+ */
+const otherBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
+  if (Predicate.isTagged(b, "HorizontalRule")) {
     return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
-  } else if (Predicate.isTagged(b, "BulletList")) {
-    return renderList(b.items, NUM_BULLET, ilvl, rel);
-  } else if (Predicate.isTagged(b, "OrderedList")) {
-    return renderList(b.items, rel.addOrderedList(b.start ?? 1), ilvl, rel);
   } else if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
     return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
   } else if (Predicate.isTagged(b, "LineBlock")) {
     return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
-  } else if (Predicate.isTagged(b, "CodeBlock")) {
-    return `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(b.text)}</w:r></w:p>`;
-  } else if (Predicate.isTagged(b, "Table")) {
-    return renderTable(b, rel);
-  } else {
-    return "";
   }
+  return "";
 };
+
+/** `ilvl`: the list level a nested list here would take (0 outside lists). */
+const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string =>
+  isNodeIn(Docx, b) ? docxBlock(b, rel, ilvl) : otherBlock(b, rel, ilvl);
 
 // ============================================================================
 // Package parts
@@ -273,12 +328,12 @@ const numberingXml = (rel: RelCollector): string =>
   `<w:abstractNum w:abstractNumId="${ABSTRACT_ORDERED}">` +
   levels((ilvl) => `<w:numFmt w:val="decimal"/><w:lvlText w:val="%${ilvl + 1}."/>`) +
   `</w:abstractNum>` +
-  `<w:num w:numId="${NUM_BULLET}"><w:abstractNumId w:val="${ABSTRACT_BULLET}"/></w:num>` +
-  rel.orderedLists
-    .map(
-      ({ numId, start }) =>
-        `<w:num w:numId="${numId}"><w:abstractNumId w:val="${ABSTRACT_ORDERED}"/>` +
-        `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num>`,
+  rel.numberings
+    .map(({ numId, start }) =>
+      start === "bullet"
+        ? `<w:num w:numId="${numId}"><w:abstractNumId w:val="${ABSTRACT_BULLET}"/></w:num>`
+        : `<w:num w:numId="${numId}"><w:abstractNumId w:val="${ABSTRACT_ORDERED}"/>` +
+          `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="${start}"/></w:lvlOverride></w:num>`,
     )
     .join("") +
   `</w:numbering>`;
@@ -296,6 +351,8 @@ const stylesXml = (): string =>
   [1, 2, 3, 4, 5, 6].map(headingStyle).join("") +
   `<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="Code"/><w:basedOn w:val="Normal"/>` +
   `<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="20"/></w:rPr></w:style>` +
+  `<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>` +
+  `<w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style>` +
   `<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/></w:style>` +
   `<w:style w:type="table" w:styleId="TableGrid"><w:name w:val="Table Grid"/><w:basedOn w:val="TableNormal"/>` +
   `<w:tblPr><w:tblBorders>` +

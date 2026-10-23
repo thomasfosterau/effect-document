@@ -150,6 +150,15 @@ export const TAG_FEATURE = {
   Placeholder: "shape.placeholder",
 } as const satisfies Record<string, Feature>;
 
+/**
+ * The node tags whose feature is one of `F`: the kinds of node a document of
+ * a profile with features `F` may contain. `TagsOf<"block.para" | "cell.text">`
+ * is `"Para" | "CellText"`.
+ */
+export type TagsOf<F extends Feature> = {
+  readonly [T in keyof typeof TAG_FEATURE]: (typeof TAG_FEATURE)[T] extends F ? T : never;
+}[keyof typeof TAG_FEATURE];
+
 /** Any document node whose tag {@link TAG_FEATURE} maps to a feature. */
 export type TaggedNode = { readonly _tag: keyof typeof TAG_FEATURE };
 

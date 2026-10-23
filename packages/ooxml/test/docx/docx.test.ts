@@ -5,6 +5,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
   type Block,
   blocksToText,
+  BlockQuote,
   bulletList,
   bytes,
   DEFAULT_MAX_NESTING_DEPTH,
@@ -15,7 +16,9 @@ import {
   emph,
   type FeaturesOf,
   header,
+  HorizontalRule,
   type Inline,
+  LineBlock,
   link,
   orderedList,
   para,
@@ -65,6 +68,41 @@ describe("DOCX round-trip", () => {
     assert(p?._tag === "Para");
     const lnk = p.content.find((i) => Predicate.isTagged(i, "Link"));
     expect(lnk).toMatchObject({ _tag: "Link", target: { url: "https://example.com" } });
+  });
+
+  test("a link reads back without an Underline: its look is the Hyperlink style (#109)", () => {
+    const back = roundtrip([para([link([str("here")], "https://example.com")])]);
+    const p = back.blocks[0];
+    assert(p?._tag === "Para");
+    expect(p.content).toEqual([
+      expect.objectContaining({
+        _tag: "Link",
+        content: [expect.objectContaining({ text: "here" })],
+      }),
+    ]);
+  });
+
+  test("blocks outside the profile are written best-effort, as their text", () => {
+    const back = roundtrip([
+      new HorizontalRule(),
+      new BlockQuote({ content: [para([str("quoted")])] }),
+      new LineBlock({ lines: [[str("one")], [str("two")]] }),
+    ]);
+    expect(blocksToText(back.blocks)).toContain("quoted");
+    expect(blocksToText(back.blocks)).toContain("two");
+  });
+
+  test("adjacent bullet lists stay two lists (#109)", () => {
+    const back = roundtrip([bulletList([[plainText("a")]]), bulletList([[plainText("b")]])]);
+    expect(back.blocks.map((b) => b._tag)).toEqual(["BulletList", "BulletList"]);
+  });
+
+  test("a heading that leads a list item keeps its level (#109)", () => {
+    const back = roundtrip([bulletList([[header(2, [str("h")])]])]);
+    expect(back.blocks[0]).toMatchObject({
+      _tag: "BulletList",
+      items: [[{ _tag: "Header", level: 2 }]],
+    });
   });
 
   test("preserves bullet and ordered lists", () => {
@@ -220,7 +258,7 @@ describe("DOCX correctness (#72)", () => {
     const numbering = parts([orderedList([[plainText("a")]]), orderedList([[plainText("b")]])])(
       "word/numbering.xml",
     )!;
-    expect(numbering.match(/<w:num w:numId=/g)).toHaveLength(3);
+    expect(numbering.match(/<w:num w:numId=/g)).toHaveLength(2);
     expect(numbering).toContain(`<w:startOverride w:val="1"/>`);
   });
 

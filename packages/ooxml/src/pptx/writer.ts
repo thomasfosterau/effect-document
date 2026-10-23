@@ -7,16 +7,20 @@
  * the result is a structurally valid deck.
  */
 
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   type Block,
+  type BlockOf,
   bytes,
   type Content,
   type Doc,
   type Inline,
+  type InlineOf,
+  isNodeIn,
   makeWriterTag,
   type Shape,
   Slide,
@@ -61,25 +65,25 @@ const aRun = (text: string, f: Fmt): string =>
 const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt): string =>
   ns.map((n) => inlineToRuns(n, f)).join("");
 
-const inlineToRuns = (n: Inline, f: Fmt): string => {
-  if (Predicate.isTagged(n, "Str")) {
-    return aRun(n.text, f);
-  } else if (Predicate.isTagged(n, "Space") || Predicate.isTagged(n, "SoftBreak")) {
-    return aRun(" ", f);
-  } else if (Predicate.isTagged(n, "LineBreak")) {
-    return "<a:br/>";
-  } else if (Predicate.isTagged(n, "Emph")) {
-    return inlineRuns(n.content, { ...f, i: true });
-  } else if (Predicate.isTagged(n, "Strong")) {
-    return inlineRuns(n.content, { ...f, b: true });
-  } else if (Predicate.isTagged(n, "Underline")) {
-    return inlineRuns(n.content, { ...f, u: true });
-  } else if (Predicate.isTagged(n, "Strikeout")) {
-    return inlineRuns(n.content, { ...f, strike: true });
-  } else {
-    return "";
-  }
-};
+/**
+ * An inline of the PPTX profile. The table is exhaustive over the profile's
+ * inlines, so a feature added to the profile without a rendering here is a
+ * compile error (#109).
+ */
+const pptxInline = (n: InlineOf<PptxFeature>, f: Fmt): string =>
+  Match.valueTags(n, {
+    Str: (s) => aRun(s.text, f),
+    Space: () => aRun(" ", f),
+    SoftBreak: () => aRun(" ", f),
+    LineBreak: () => "<a:br/>",
+    Emph: (m) => inlineRuns(m.content, { ...f, i: true }),
+    Strong: (m) => inlineRuns(m.content, { ...f, b: true }),
+    Underline: (m) => inlineRuns(m.content, { ...f, u: true }),
+    Strikeout: (m) => inlineRuns(m.content, { ...f, strike: true }),
+  });
+
+/** Inlines outside the profile (in a document handed over with `trustAs`) are dropped. */
+const inlineToRuns = (n: Inline, f: Fmt): string => (isNodeIn(Pptx, n) ? pptxInline(n, f) : "");
 
 const aPara = (bullet: string, runs: string, lvl = 0): string =>
   `<a:p><a:pPr${lvl > 0 ? ` lvl="${lvl}"` : ""}>${bullet}</a:pPr>${runs}</a:p>`;
@@ -104,27 +108,57 @@ const MAX_LVL = 8;
  * whose text the reader takes as headers, so headers there need no bold.
  */
 const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
-  if (Predicate.isTagged(b, "Para") || Predicate.isTagged(b, "Plain"))
-    return aPara("<a:buNone/>", inlineRuns(b.content, {}));
+  if (isNodeIn(Pptx, b)) return pptxBlock(b, lvl, inTitle);
+  // Outside the profile, in a document handed over with `trustAs`: a header
+  // is a bold paragraph (the reader takes only title-placeholder text as
+  // headers); anything else is dropped.
   if (Predicate.isTagged(b, "Header"))
     return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
-  if (Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")) {
-    const bullet = Predicate.isTagged(b, "BulletList") ? BULLET : AUTO_NUM;
-    return b.items
-      .map(
-        (it) =>
-          aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
-          it
-            .filter(
-              (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
-            )
-            .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
-            .join(""),
-      )
-      .join("");
-  }
   return "";
 };
+
+/** A list's items as paragraphs, nested lists one `lvl` deeper. */
+const listParas = (
+  items: ReadonlyArray<ReadonlyArray<Block>>,
+  bullet: string,
+  lvl: number,
+  inTitle: boolean,
+): string =>
+  items
+    .map(
+      (it) =>
+        aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
+        it
+          .filter(
+            (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
+          )
+          .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
+          .join(""),
+    )
+    .join("");
+
+/** A block of the PPTX profile; exhaustive over the profile's blocks (#109). */
+const pptxBlock = (b: BlockOf<PptxFeature>, lvl: number, inTitle: boolean): string =>
+  Match.valueTags(b, {
+    Para: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
+    Plain: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
+    BulletList: (l) => listParas(l.items, BULLET, lvl, inTitle),
+    OrderedList: (l) => listParas(l.items, AUTO_NUM, lvl, inTitle),
+    // a slide show isn't prose: its slides are written as slides
+    SlideShow: () => "",
+  });
+
+/**
+ * The text of a shape of the PPTX profile, exhaustive over the profile's
+ * shapes (#109). Pictures and tables, outside it, are written as empty shapes.
+ */
+const shapeContent = (shape: Shape): ReadonlyArray<Block> =>
+  isNodeIn(Pptx, shape)
+    ? Match.valueTags(shape, {
+        TextBox: (t) => t.content,
+        Placeholder: (p) => p.content,
+      })
+    : [];
 
 const shapeXml = (shape: Shape, idx: number): string => {
   const id = idx + 2; // id 1 is the group shape
@@ -134,11 +168,7 @@ const shapeXml = (shape: Shape, idx: number): string => {
     ? `<p:ph type="${escapeAttr(shape.placeholderType)}"${shape.idx !== undefined ? ` idx="${shape.idx}"` : ""}/>`
     : "";
   const txBox = Predicate.isTagged(shape, "TextBox") ? ' txBox="1"' : "";
-  const content = Predicate.isTagged(shape, "Picture")
-    ? []
-    : Predicate.isTagged(shape, "TableShape")
-      ? []
-      : shape.content;
+  const content = shapeContent(shape);
   const inTitle =
     isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
   const paras =

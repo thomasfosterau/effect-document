@@ -7,10 +7,14 @@
  */
 
 import {
+  type BlockOf,
+  type CellOf,
   type Doc,
   type Document,
   type FeaturesOf,
+  type InlineOf,
   Profiles,
+  type TagsOf,
 } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
 import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
@@ -56,3 +60,19 @@ declare const pdfWriter: NonNullable<typeof Pdf.format.writer>;
 export const rtfIntoDocx: Doc<FeaturesOf<typeof Docx.profile>> = rtfDoc;
 // @ts-expect-error a DOCX document may hold tables, which the PDF writer can't represent
 export const docxIntoPdf = pdfWriter.write(docxDoc);
+
+// (6) A profile's node types (#109): `TagsOf` maps features to the tags of
+// the nodes they name, and `BlockOf` / `InlineOf` / `CellOf` are the nodes a
+// document of the profile may hold, which writers render exhaustively.
+type CsvTags = TagsOf<CsvF>;
+export const csvTag: CsvTags = "CellNumber";
+// @ts-expect-error a date cell is not in the CSV profile
+export const notCsvTag: CsvTags = "CellDate";
+declare const csvCell: CellOf<CsvF>;
+export const csvCellTag: "CellText" | "CellNumber" | "CellBoolean" | "CellBlank" = csvCell._tag;
+declare const pdfInline: InlineOf<FeaturesOf<typeof Pdf.format.writeProfile>>;
+// @ts-expect-error inline code is not in the PDF write profile
+export const pdfCode: "Code" = pdfInline._tag;
+declare const docxBlock: BlockOf<FeaturesOf<typeof Docx>>;
+// @ts-expect-error a rule is not in the DOCX profile
+export const docxRule: "HorizontalRule" = docxBlock._tag;
