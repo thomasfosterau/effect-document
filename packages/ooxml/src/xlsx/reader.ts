@@ -9,8 +9,10 @@
  *
  * The grid is sized by the cells that hold a value; empty `<row>`s and
  * style-only `<c>`s do not extend it, and `<dimension>` is honoured only as a
- * hint. A sheet whose extent would exceed `maxCells` fails with a ParseError
- * rather than allocating the grid.
+ * hint. `maxCells` is one budget for the whole workbook: a sheet whose extent
+ * would exceed what is left of it fails with a ParseError rather than
+ * allocating the grid, so many small sheets (or one sheet referenced many
+ * times) cannot add up to an unbounded allocation.
  */
 
 import * as Predicate from "effect/Predicate";
@@ -60,9 +62,11 @@ const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 /** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
-   * The most cells (rows × columns) a single worksheet's dense grid may hold.
-   * A sheet whose populated extent is larger fails the read with a ParseError
-   * instead of exhausting memory. Defaults to {@link DEFAULT_MAX_CELLS}.
+   * The most cells (rows × columns, summed over every worksheet) the
+   * workbook's dense grids may hold. A sheet whose populated extent is larger
+   * than what the sheets before it left fails the read with a ParseError
+   * instead of exhausting memory; a `<dimension>` hint that would exceed it is
+   * ignored. Defaults to {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number | undefined;
   /** Zip resource limits (entry count, inflated bytes); see `OpcLimits`. */
@@ -118,6 +122,10 @@ const declaredExtent = (root: XmlElement): { rows: number; columns: number } | n
   };
 };
 
+/**
+ * A worksheet's dense grid, at most `maxCells` (the budget the workbook has
+ * left) rows × columns.
+ */
 const parseWorksheetRows = (
   root: XmlElement,
   sharedStrings: ReadonlyArray<string>,
@@ -256,6 +264,10 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
         return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
       }
 
+      // The cells every sheet read so far has allocated (sheets are read in
+      // order, one at a time), so maxCells bounds the workbook as a whole.
+      let allocated = 0;
+
       const worksheets = yield* Effect.forEach(
         sheetEntries,
         (sheetEl, index) =>
@@ -288,15 +300,18 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             }
 
             const worksheetRoot = yield* parsePart(pkg, target);
-            const grid = parseWorksheetRows(worksheetRoot, sharedStrings, maxCells);
+            const remaining = maxCells - allocated;
+            const grid = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
             if (Predicate.isTagged(grid, "TooLarge")) {
               return yield* new ParseError({
                 format: "xlsx",
                 reason:
                   `Worksheet "${name}" spans ${grid.rows} rows × ${grid.columns} columns, ` +
-                  `more than the ${maxCells}-cell limit (maxCells)`,
+                  `more than the ${remaining} cells left of the workbook's ` +
+                  `${maxCells}-cell limit (maxCells)`,
               });
             }
+            allocated += grid.rows.length * (grid.rows[0]?.length ?? 0);
             return new Worksheet({
               name,
               columns: [],

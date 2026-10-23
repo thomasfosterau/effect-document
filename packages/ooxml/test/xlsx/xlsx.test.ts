@@ -186,6 +186,40 @@ describe("XLSX reader grid extent (#62)", () => {
     expect(extent(worksheets(await run(makeXlsxReader().read(huge)))[0]!)).toEqual([1, 1]);
   });
 
+  test("maxCells bounds the whole workbook, not each sheet", async () => {
+    // Each sheet is 10 × 5 = 50 cells, under the limit on its own; together they are not.
+    const sheet = sheetXml(`<row r="10"><c r="E10"><v>1</v></c></row>`);
+    const xlsx = packageWith([
+      { name: "A", xml: sheet },
+      { name: "B", xml: sheet },
+      { name: "C", xml: sheet },
+    ]);
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 100 }).read(xlsx)));
+    expect(error._tag).toBe("ParseError");
+    expect(error.reason).toContain('"C"');
+    expect(error.reason).toContain("maxCells");
+    const read = worksheets(await run(makeXlsxReader({ maxCells: 150 }).read(xlsx)));
+    expect(read.map(extent)).toEqual([
+      [10, 5],
+      [10, 5],
+      [10, 5],
+    ]);
+  });
+
+  test("<dimension> hints draw on the workbook budget", async () => {
+    // One valued cell per sheet, each hinting a 60-cell grid: the second hint no longer fits.
+    const sheet = sheetXml(`<row r="1"><c r="A1"><v>1</v></c></row>`, `<dimension ref="A1:F10"/>`);
+    const xlsx = packageWith([
+      { name: "A", xml: sheet },
+      { name: "B", xml: sheet },
+    ]);
+    const read = worksheets(await run(makeXlsxReader({ maxCells: 100 }).read(xlsx)));
+    expect(read.map(extent)).toEqual([
+      [10, 6],
+      [1, 1],
+    ]);
+  });
+
   test("round-trips trailing blank rows and columns via <dimension>", async () => {
     const doc = trustAs<SpreadsheetF>(
       document([
