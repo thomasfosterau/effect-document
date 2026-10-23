@@ -5,7 +5,7 @@
  * ("A1" = { col: 0, row: 0 }).
  */
 
-import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Ascii, Compiler, Parser, Token } from "@thomasfosterau/effect-parse";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -56,20 +56,24 @@ const rowNumber = Parser.map(Ascii.digit1, (digits) => Number.parseInt(digits, 1
 );
 
 /** A plain A1 reference, as in a SpreadsheetML cell's `r` attribute: "B3". */
-export const a1Cell: Parser.Parser<CellRef> = Parser.compile(
+export const a1Cell: Parser.Parser<CellRef> = Compiler.jit(
   Parser.struct({ col: columnLetters, row: rowNumber }),
 );
 
 /** An A1 reference with optional `$` markers: "$B$3". */
-export const a1AbsoluteCell: Parser.Parser<AbsoluteCellRef> = Parser.map(
-  Parser.seq(dollar, columnLetters, dollar, rowNumber),
-  ([colAbsolute, col, rowAbsolute, row]) => ({ col, row, colAbsolute, rowAbsolute }),
+export const a1AbsoluteCell: Parser.Parser<AbsoluteCellRef> = Compiler.jit(
+  Parser.map(
+    Parser.seq(dollar, columnLetters, dollar, rowNumber),
+    ([colAbsolute, col, rowAbsolute, row]) => ({ col, row, colAbsolute, rowAbsolute }),
+  ),
 );
 
 /** An A1 range, "A1:B2", or a single cell. */
-export const a1Range: Parser.Parser<CellRange> = Parser.map(
-  Parser.seq(a1AbsoluteCell, Parser.opt(Parser.preceded(Token.literal(":"), a1AbsoluteCell))),
-  ([start, end]) => ({ start, end: Option.getOrElse(end, () => start) }),
+export const a1Range: Parser.Parser<CellRange> = Compiler.jit(
+  Parser.map(
+    Parser.seq(a1AbsoluteCell, Parser.opt(Parser.preceded(Token.literal(":"), a1AbsoluteCell))),
+    ([start, end]) => ({ start, end: Option.getOrElse(end, () => start) }),
+  ),
 );
 
 const parseOrNull = <A>(parser: Parser.Parser<A>, ref: string): A | null =>

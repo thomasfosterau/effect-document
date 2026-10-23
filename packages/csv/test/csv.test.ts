@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
@@ -7,6 +8,7 @@ import { pipe } from "effect/Function";
 import {
   cell,
   document,
+  type ParseError,
   type SheetCell,
   SheetRow,
   text,
@@ -355,6 +357,51 @@ describe("CSV stream scanner", () => {
       providedHeaders: ["x", "y"],
     });
     expect(Result.isSuccess(r) && [...r.success]).toEqual([["1", "2"]]);
+  });
+
+  const chunksOf = (source: string, size: number): ReadonlyArray<string> =>
+    Arr.makeBy(Math.ceil(source.length / size), (i) => source.slice(i * size, (i + 1) * size));
+  /** A scan's rows, or its failure's reason and position. */
+  const outcome = (
+    r: Result.Result<ReadonlyArray<ReadonlyArray<string>>, ParseError>,
+  ):
+    | { readonly rows: ReadonlyArray<ReadonlyArray<string>> }
+    | Pick<ParseError, "reason" | "position"> =>
+    Result.match(r, {
+      onSuccess: (rows) => ({ rows: [...rows] }),
+      onFailure: ({ reason, position }) => ({ reason, position }),
+    });
+  const scanWhole = (source: string, options: Parameters<typeof scanCsv>[2]) =>
+    run(Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows)));
+
+  test("the compiled row grammar agrees with the whole-text scan at every chunk size", async () => {
+    const source = ' a , "b ""q"" \r\nc" ,d\n# note\n\n e,"f",g \r1,"x\ny",3\n';
+    const optionSets = [
+      {},
+      { trimWhitespace: true, lineCommentMarker: "#" },
+      { filterEmpty: false, allowVariableColumns: true, quoteAnywhere: true },
+    ];
+    // sizes repeat: a later run reuses the memoized compiled parser
+    const sizes = [1, 2, 3, 7, source.length, 1, source.length];
+    const pairs = await Promise.all(
+      optionSets.flatMap((options) =>
+        sizes.map(async (size) => ({
+          whole: outcome(await scanWhole(source, options)),
+          streamed: outcome(await collect(chunksOf(source, size), options)),
+        })),
+      ),
+    );
+    expect(pairs.map((p) => p.streamed)).toEqual(pairs.map((p) => p.whole));
+  });
+
+  test("a syntax error matches the whole-text scan at every chunk size", async () => {
+    const source = 'a,b\nc,"d\ne,f\n';
+    const whole = outcome(await scanWhole(source, undefined));
+    expect(whole).toHaveProperty("reason", "Unclosed quoted field: expected a closing quote");
+    const streamed = await Promise.all(
+      [1, 2, 5, 64].map(async (size) => outcome(await collect(chunksOf(source, size)))),
+    );
+    expect(streamed).toEqual([whole, whole, whole, whole]);
   });
 
   test("ignores a leading byte order mark", async () => {

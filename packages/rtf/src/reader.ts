@@ -21,7 +21,7 @@ import * as Option from "effect/Option";
 import * as HashMap from "effect/HashMap";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
-import { Ascii, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Ascii, Compiler, Parser, Token } from "@thomasfosterau/effect-parse";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
@@ -352,7 +352,7 @@ const rtfToken: Parser.Parser<RtfToken | null> = Parser.alt(
 );
 
 /** RTF source as a flat token list. Every input lexes; there is no syntax error. */
-const rtfTokens = Parser.compile(Parser.repeat(rtfToken));
+const rtfTokens = Compiler.jit(Parser.repeat(rtfToken));
 
 // ============================================================================
 // Interpreter

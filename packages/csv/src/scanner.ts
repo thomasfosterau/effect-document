@@ -10,6 +10,7 @@
 
 import * as Arr from "effect/Array";
 import {
+  Compiler,
   ParseError as SyntaxError,
   ParserStream,
   Parser,
@@ -281,40 +282,72 @@ const splitHeaders = (
 // ============================================================================
 
 type TableParser = Parser.Parser<ReadonlyArray<readonly [number, ReadonlyArray<string> | null]>>;
+type RowParser = ReturnType<typeof makeRow>;
 
-/** Compiled whole-text grammars, keyed by everything that shapes them, least recently used first. */
-const tableParsers = new Map<string, TableParser>();
 const maxCachedParsers = 32;
 
-const tableParser = (dialect: CsvDialect, options: CsvScanOptions): TableParser => {
-  // NUL never appears in a dialect character or a comment marker, so joining
-  // on it keys every distinct option set apart.
-  const key = [
+/**
+ * Everything that shapes the row grammar, as a cache key. NUL never appears in
+ * a dialect character or a comment marker, so joining on it keys every
+ * distinct option set apart.
+ */
+const rowKey = (dialect: CsvDialect, options: CsvScanOptions): string =>
+  [
     dialect.separator,
     dialect.wrapper,
     dialect.doubleWrapper,
-    options.skipRows ?? 0,
     !!options.filterEmpty,
     !!options.trimWhitespace,
     options.lineCommentMarker ?? "",
     !!options.quoteAnywhere,
   ].join("\u0000");
-  let parser = tableParsers.get(key);
-  if (parser === undefined) {
-    parser = Parser.compile(
-      Parser.preceded(
-        skipLines(options.skipRows ?? 0),
-        Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options))),
-      ),
-    );
-    if (tableParsers.size >= maxCachedParsers)
-      tableParsers.delete(tableParsers.keys().next().value!);
-  } else {
-    tableParsers.delete(key);
-  }
-  tableParsers.set(key, parser);
-  return parser;
+
+/**
+ * Memoize a compiled grammar per `key`: the returned function builds it on a
+ * miss and keeps at most {@link maxCachedParsers}, dropping the least recently
+ * used.
+ */
+const memoized = <P>(
+  key: (dialect: CsvDialect, options: CsvScanOptions) => string,
+  build: (dialect: CsvDialect, options: CsvScanOptions) => P,
+): ((dialect: CsvDialect, options: CsvScanOptions) => P) => {
+  // least recently used first
+  const cache = new Map<string, P>();
+  return (dialect, options) => {
+    const k = key(dialect, options);
+    let parser = cache.get(k);
+    if (parser === undefined) {
+      parser = build(dialect, options);
+      if (cache.size >= maxCachedParsers) cache.delete(cache.keys().next().value!);
+    } else {
+      cache.delete(k);
+    }
+    cache.set(k, parser);
+    return parser;
+  };
 };
+
+/** The compiled whole-text grammar, memoized by everything that shapes it. */
+const tableParser: (dialect: CsvDialect, options: CsvScanOptions) => TableParser =
+  /*#__PURE__*/ memoized(
+    (dialect, options) => `${options.skipRows ?? 0}\u0000${rowKey(dialect, options)}`,
+    (dialect, options) =>
+      Compiler.jit(
+        Parser.preceded(
+          skipLines(options.skipRows ?? 0),
+          Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options))),
+        ),
+      ),
+  );
+
+/**
+ * The compiled streaming row grammar, memoized like {@link tableParser} but
+ * without `skipRows` (the stream drops skipped lines before parsing).
+ * `ParserStream.parseMany` runs a compiled parser compiled and re-runs a row
+ * that fails interpreted, so errors are the interpreter's.
+ */
+const rowParser: (dialect: CsvDialect, options: CsvScanOptions) => RowParser =
+  /*#__PURE__*/ memoized(rowKey, (dialect, options) => Compiler.jit(makeRow(dialect, options)));
 
 /**
  * Scan CSV text into headers and raw string rows. A leading byte order mark is
@@ -414,7 +447,7 @@ export const scanCsvStream = <E, R>(
       chunks,
       dropBom,
       dropLines(opts.skipRows ?? 0),
-      ParserStream.parseMany(makeRow(dialect, opts)),
+      ParserStream.parseMany(rowParser(dialect, opts)),
       Stream.map((fields) => {
         const row = nextRow;
         nextRow += linesIn(fields);

@@ -17,7 +17,7 @@
  */
 
 import * as Arr from "effect/Array";
-import { ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
+import { Compiler, ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
 import * as Result from "effect/Result";
 
 // ============================================================================
@@ -239,7 +239,7 @@ const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<
 );
 
 /** A whole XML document as tokens: an optional BOM, then tokens to the end. */
-const xmlTokens: Parser.Parser<ReadonlyArray<XmlToken>, string> = Parser.compile(
+const xmlTokens: Parser.Parser<ReadonlyArray<XmlToken>, string> = Compiler.jit(
   Parser.delimited(Parser.opt(Token.literal("﻿")), Parser.repeat(xmlToken), Parser.cut(Parser.eof)),
 );
 
