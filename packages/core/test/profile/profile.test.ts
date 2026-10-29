@@ -88,3 +88,23 @@ describe("defineProfile", () => {
     expect(p.features.has("block.para")).toBe(true);
   });
 });
+
+describe("structural rules (notWithin, #197)", () => {
+  const BoldHeadings = defineProfile(
+    "bold-headings",
+    ["block.para", "block.header", "inline.str", "inline.strong"],
+    { notWithin: [{ feature: "inline.strong", within: "block.header", reason: "bold" }] },
+  );
+
+  test("a document that breaks a rule doesn't conform, and validate names the feature", () => {
+    const doc = document([header(1, [strong([str("b")])])]);
+    expect(BoldHeadings.is(doc)).toBe(false);
+    const r = Effect.runSync(Effect.result(BoldHeadings.validate(doc)));
+    assert(Result.isFailure(r));
+    expect(r.failure.unsupported).toEqual(["inline.strong"]);
+  });
+
+  test("the feature outside the node conforms", () => {
+    expect(BoldHeadings.is(document([para([strong([str("b")])])]))).toBe(true);
+  });
+});

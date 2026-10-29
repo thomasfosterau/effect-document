@@ -20,7 +20,7 @@ import { Document, type DocumentEncoded } from "../schema/document.ts";
 import type { Block, Inline, SheetCell, Shape } from "../schema/ast.ts";
 import { type Feature, featureOfTag, type TagsOf } from "../schema/feature.ts";
 import { ProfileViolation } from "../io/errors.ts";
-import { unsupportedFeatures } from "./collect.ts";
+import { collectFeaturesWithin, unsupportedFeatures } from "./collect.ts";
 
 // ============================================================================
 // Phantom-typed document
@@ -84,12 +84,41 @@ export const isNodeIn = <F extends Feature, N extends { readonly _tag: string }>
 // Profile
 // ============================================================================
 
+/**
+ * A structural rule (#126): `feature` may not appear inside a `within` node,
+ * although the profile allows both on their own. For example, a format that
+ * sets headings in bold can't keep `Strong` inside a `Header` (#197). A
+ * document that breaks the rule doesn't conform, and `narrow` rewrites the
+ * inner node as if the profile lacked `feature` there, giving `reason` in the
+ * loss entry.
+ */
+export interface NotWithin {
+  /** The feature that is not allowed inside `within`. */
+  readonly feature: Feature;
+  /** The block feature (e.g. `"block.header"`) whose contents may not use `feature`. */
+  readonly within: Feature;
+  /** Why the format can't keep it, for the loss report. */
+  readonly reason: string;
+}
+
+/** Options for {@link defineProfile}: structural rules beyond the feature set. */
+export interface ProfileOptions {
+  /** Features the profile allows, but not inside certain nodes (see {@link NotWithin}). */
+  readonly notWithin?: ReadonlyArray<NotWithin> | undefined;
+}
+
 /** A named subset of the schema: the features it allows, its attribute policy, and the checks and schema derived from them. */
 export interface Profile<F extends Feature> {
   /** Unique profile identifier (e.g. "csv", "spreadsheet", "markdown"). */
   readonly id: string;
   /** The features a conforming document may use. */
   readonly features: ReadonlySet<Feature>;
+  /**
+   * Structural rules: features the profile allows on their own but not inside
+   * certain nodes (#126). The phantom `F` can't express them, so a `Doc<F>`
+   * built in code may break one; `validate` and `narrow` check them.
+   */
+  readonly notWithin: ReadonlyArray<NotWithin>;
   /** Which attribute facets are allowed (derived from `features`). */
   readonly attributes: AttrPolicy;
   /** Type guard: does this document conform to the profile? */
@@ -114,6 +143,7 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
  * Define a profile from its complete allow-set of features. The same array
  * drives both the runtime feature set and the phantom type `F`, so they cannot
  * drift apart. Attribute facets are derived from the `attr.*` features present.
+ * `options.notWithin` adds structural rules the feature set can't express.
  *
  * ```ts
  * const csvFeatures = ["sheet.worksheet", "cell.text", "cell.number"] as const;
@@ -123,14 +153,23 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
 export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   id: string,
   features: FS,
+  options?: ProfileOptions,
 ): Profile<FS[number]> => {
   const set: ReadonlySet<Feature> = new Set(features);
-  const conforms = (doc: Document): boolean =>
-    Arr.isReadonlyArrayEmpty(unsupportedFeatures(doc, set));
+  const notWithin = options?.notWithin ?? [];
+  /** The features a document uses outside the profile, or inside a node a rule keeps them out of. */
+  const violations = (doc: Document): Feature[] =>
+    Arr.dedupe([
+      ...unsupportedFeatures(doc, set),
+      ...notWithin
+        .filter((rule) => collectFeaturesWithin(doc, rule.within).has(rule.feature))
+        .map((rule) => rule.feature),
+    ]);
+  const conforms = (doc: Document): boolean => Arr.isReadonlyArrayEmpty(violations(doc));
   const is = (doc: Document): doc is Doc<FS[number]> => conforms(doc);
   const validate = (doc: Document): Effect.Effect<Doc<FS[number]>, ProfileViolation> =>
-    Arr.match(unsupportedFeatures(doc, set), {
-      // SAFETY: the document uses no feature outside the profile's allow-set.
+    Arr.match(violations(doc), {
+      // SAFETY: the document uses no feature outside the profile's allow-set, and breaks none of its rules.
       onEmpty: () => Effect.succeed(doc as Doc<FS[number]>),
       onNonEmpty: (unsupported) => Effect.fail(new ProfileViolation({ profile: id, unsupported })),
     });
@@ -142,7 +181,7 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
     }),
   );
 
-  return { id, features: set, attributes: attrPolicyOf(set), is, validate, schema };
+  return { id, features: set, notWithin, attributes: attrPolicyOf(set), is, validate, schema };
 };
 
 /**

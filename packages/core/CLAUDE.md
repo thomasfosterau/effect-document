@@ -18,4 +18,5 @@ Peer: `effect`. Imports nothing from this workspace and no format: `.fallowrc.js
 
 - **Feature** — one capability a document can use: a node kind (`block.header`, `cell.date`) or an attribute facet (`attr.style`).
 - **Profile** — a named feature set with its attribute policy, the type `Doc<F>` it brands, a runtime check (`is` / `validate`) and a `Schema`.
+- **Structural rule** (`notWithin`) — a feature a profile allows, but not inside a given node (RTF's `Strong` in a `Header`, #197). The phantom `F` can't express it, so only `is` / `validate` and `narrow` enforce it; `narrow` handles the inner node as if the profile lacked the feature there.
 - **Widen / narrow** — moving a document to a superset profile (free, by assignability) or a subset one (lossy, reported).

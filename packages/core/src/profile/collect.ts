@@ -193,6 +193,26 @@ const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
   dispatchTag(BLOCK_CHILDREN, b, acc, stack);
 };
 
+/** Record one node's own features into `acc` and push its children onto `stack`. */
+const walk = (work: Work, acc: Set<Feature>, stack: Stack): void => {
+  if (work.k === "block") {
+    walkBlock(work.n, acc, stack);
+  } else if (work.k === "inline") {
+    walkInline(work.n, acc, stack);
+  } else if (work.k === "shape") {
+    walkShape(work.n, acc, stack);
+  }
+};
+
+/** Walk everything on `stack`, recording features into `acc`; `visit` sees each node first. */
+const drain = (stack: Stack, acc: Set<Feature>, visit?: (work: Work) => void): void => {
+  while (Arr.isReadonlyArrayNonEmpty(stack)) {
+    const work = stack.pop()!;
+    visit?.(work);
+    walk(work, acc, stack);
+  }
+};
+
 /** The set of features a document uses. */
 export const collectFeatures = (doc: Document): Set<Feature> => {
   const acc = new Set<Feature>();
@@ -202,17 +222,27 @@ export const collectFeatures = (doc: Document): Set<Feature> => {
 
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
-  while (Arr.isReadonlyArrayNonEmpty(stack)) {
-    const work = stack.pop()!;
-    if (work.k === "block") {
-      walkBlock(work.n, acc, stack);
-    } else if (work.k === "inline") {
-      walkInline(work.n, acc, stack);
-    } else if (work.k === "shape") {
-      walkShape(work.n, acc, stack);
-    }
-  }
+  drain(stack, acc);
   return acc;
+};
+
+/**
+ * The features a document uses inside nodes of the feature `within` (their
+ * descendants, not the nodes themselves): what a profile's `notWithin` rules
+ * check (#197).
+ */
+export const collectFeaturesWithin = (doc: Document, within: Feature): Set<Feature> => {
+  const inside = new Set<Feature>();
+  const stack: Stack = [];
+  pushBlocks(doc.blocks, stack);
+  drain(stack, new Set(), (work) => {
+    if (featureOfTag(work.n._tag) !== within) return;
+    // the node's own features go nowhere; its descendants' are what's inside it
+    const sub: Stack = [];
+    walk(work, new Set(), sub);
+    drain(sub, inside);
+  });
+  return inside;
 };
 
 /** Features the document uses that are not in `allowed`. */

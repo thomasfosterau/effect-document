@@ -80,6 +80,18 @@ const checked = Profiles.Csv.validate(sheet); // Effect<Doc<CsvFeature>, Profile
 const Receipt = defineProfile("receipt", ["sheet.worksheet", "cell.text", "cell.number"]);
 ```
 
+A profile can also keep a feature it allows out of certain nodes, when the format can't tell the two apart there. RTF and PDF set headings in bold, so their profiles keep `Strong` out of headings: `is` and `validate` reject a document with `Strong` inside a `Header`, and `narrow` unwraps it with a loss entry giving the reason.
+
+```ts
+const BoldHeadings = defineProfile(
+  "bold-headings",
+  ["block.header", "inline.str", "inline.strong"],
+  {
+    notWithin: [{ feature: "inline.strong", within: "block.header", reason: "headings are bold" }],
+  },
+);
+```
+
 The built-in profiles are `Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation` and `Full` (on `Profiles`, or as named exports from `./profiles`); each format package adds its own (`Docx`, `Pptx`, `Rtf`, `Pdf`, …).
 
 ## Reading, writing and converting
@@ -256,9 +268,12 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Doc` | type | A `Document` statically restricted to the features `F`. |
 | `FeaturesOf` | type | The feature set of a profile, as a phantom-bearing type. |
 | `Profile` | interface | A named subset of the schema. |
-| `defineProfile` | function | Define a profile from its complete allow-set of features. |
+| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`). |
+| `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
+| `ProfileOptions` | interface | Options for `defineProfile`: structural rules beyond the feature set. |
 | `trustAs` | function | Assert (unsafely) that a document belongs to a profile, branding it without a runtime check. |
 | `collectFeatures` | function | The set of features a document uses. |
+| `collectFeaturesWithin` | function | The features a document uses inside nodes of a given feature. |
 | `unsupportedFeatures` | function | Features the document uses that are not in `allowed`. |
 | `LossEntry` | interface | One thing `narrow` could not keep. |
 | `LossReport` | interface | Everything a narrowing (or a conversion) dropped or down-converted. |

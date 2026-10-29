@@ -145,3 +145,48 @@ describe("narrow: spreadsheet -> prose", () => {
     expect(loss.entries.some((e) => e.feature === "sheet.worksheet")).toBe(true);
   });
 });
+
+describe("narrow: structural rules (notWithin, #197)", () => {
+  const BoldHeadings = defineProfile(
+    "bold-headings",
+    ["block.para", "block.header", "inline.str", "inline.space", "inline.strong"],
+    {
+      notWithin: [
+        { feature: "inline.strong", within: "block.header", reason: "headings are bold" },
+      ],
+    },
+  );
+
+  test("unwraps a feature inside the node a rule keeps it out of, giving the rule's reason", () => {
+    const doc = document([header(1, [str("a "), strong([str("b")])])]);
+    const { document: out, loss } = narrow(doc, BoldHeadings);
+    expect(out.blocks).toEqual([header(1, [str("a "), str("b")])]);
+    expect(loss.isLossless).toBe(false);
+    expect(loss.entries).toEqual([
+      {
+        feature: "inline.strong",
+        action: "converted",
+        detail: "Strong unwrapped to its text: headings are bold",
+      },
+    ]);
+    expect(BoldHeadings.is(out)).toBe(true);
+  });
+
+  test("keeps the feature outside that node", () => {
+    const doc = document([para([str("a "), strong([str("b")])])]);
+    const { loss } = narrow(doc, BoldHeadings);
+    expect(loss.isLossless).toBe(true);
+  });
+
+  test("a heading narrowed to a paragraph keeps its Strong", () => {
+    const NoHeadings = defineProfile(
+      "no-headings",
+      ["block.para", "inline.str", "inline.space", "inline.strong"],
+      {
+        notWithin: [{ feature: "inline.strong", within: "block.header", reason: "unused" }],
+      },
+    );
+    const { document: out } = narrow(document([header(1, [strong([str("b")])])]), NoHeadings);
+    expect(out.blocks).toEqual([para([strong([str("b")])])]);
+  });
+});

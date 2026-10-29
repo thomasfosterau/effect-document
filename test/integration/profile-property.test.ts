@@ -84,27 +84,6 @@ const adjacentLists = (normal: Normal): Normal =>
     ),
   );
 
-/** A heading's own look is bold, so a reader can't tell `Strong` inside it from the heading. */
-const strongInHeadings = (normal: Normal): Normal =>
-  mapBlocks(normal, (b) =>
-    Predicate.isTagged(b, "Header")
-      ? {
-          ...b,
-          text: b.text.map((t) =>
-            Predicate.isTagged(t, "Word") || Predicate.isTagged(t, "Code")
-              ? {
-                  ...t,
-                  marks: t.marks
-                    .split("|")
-                    .filter((m) => m !== "Strong")
-                    .join("|"),
-                }
-              : t,
-          ),
-        }
-      : b,
-  );
-
 /** In a title placeholder, headings and paragraphs are one: the placeholder is the slide's heading. */
 const titleHeadings = (normal: Normal): Normal =>
   mapBlocks(normal, (b) =>
@@ -190,7 +169,6 @@ const CASES: ReadonlyArray<Case> = [
   {
     format: Rtf.format,
     family: "prose",
-    limits: [{ issue: "#197", erase: strongInHeadings }],
     runs: 100,
   },
   {
@@ -202,19 +180,16 @@ const CASES: ReadonlyArray<Case> = [
     // paragraph (#198).
     options: { bodyContext: true, listItems: "paragraph", markerLikeWords: false },
     limits: [
-      { issue: "#197", erase: strongInHeadings },
-      ...[
-        adjacentLists,
-        // Breaks between blocks of one kind are inferred from line spacing,
-        // which a run of one-line paragraphs or code blocks doesn't show (and
-        // the gap between code blocks may read back as a blank line).
-        adjacentParagraphs,
-        // A line that ends in a hyphen is a word broken across lines.
-        hyphenatedWords,
-        // Heading levels are the rank of their sizes among the headings.
-        rankedHeadings,
-      ].map((erase) => ({ issue: "#198", erase })),
-    ],
+      adjacentLists,
+      // Breaks between blocks of one kind are inferred from line spacing,
+      // which a run of one-line paragraphs or code blocks doesn't show (and
+      // the gap between code blocks may read back as a blank line).
+      adjacentParagraphs,
+      // A line that ends in a hyphen is a word broken across lines.
+      hyphenatedWords,
+      // Heading levels are the rank of their sizes among the headings.
+      rankedHeadings,
+    ].map((erase) => ({ issue: "#198", erase })),
     runs: 50,
   },
 ];

@@ -22,8 +22,20 @@ export const rtfFeatures = [
   "inline.strikeout",
 ] as const;
 
-/** The RTF profile. */
-export const Rtf = defineProfile("rtf", rtfFeatures);
+/**
+ * The RTF profile. Headings are set in bold, so the reader takes bold in a
+ * heading as the heading's own look: `Strong` inside a `Header` doesn't
+ * round-trip, and `narrow` unwraps it with a loss entry (#197).
+ */
+export const Rtf = defineProfile("rtf", rtfFeatures, {
+  notWithin: [
+    {
+      feature: "inline.strong",
+      within: "block.header",
+      reason: "headings are bold in RTF, so bold inside one reads back as the heading's own look",
+    },
+  ],
+});
 
 /** The features the RTF profile allows, as a type: the phantom of its documents. */
 export type RtfFeature = FeaturesOf<typeof Rtf>;

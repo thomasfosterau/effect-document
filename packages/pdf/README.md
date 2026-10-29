@@ -52,7 +52,7 @@ const ReaderLive = Pdf.PdfOcrReaderLive.pipe(Layer.provide(Layer.succeed(Pdf.Ocr
 
 The engine is called once for each image a textless page paints, in painting order, and never for pages that have text. It gets the image as the PDF stores it. JPEG, JPEG 2000, CCITT fax and JBIG2 data arrive still encoded (`_tag: "Encoded"`, with the codec's `parameters` and any JBIG2 `globals`). Other images arrive as decoded gray, RGB or CMYK samples (`_tag: "Samples"`). Images in other colour spaces (indexed, separation, …) are skipped. The engine returns words with pixel boxes (origin at the top-left), which the reader places on the page and lays out like any other text. An `OcrError` fails the read with a `ParseError` naming the page.
 
-**Writing** typesets a document onto pages: word-wrapped paragraphs, headings, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links. It uses the standard 14 fonts (Helvetica, Courier) with WinAnsiEncoding, so nothing is embedded; characters outside WinAnsiEncoding are written as `?`.
+**Writing** typesets a document onto pages (headings are bold, so `PdfWrite` keeps `Strong` out of headings, and `convert` unwraps it there with a loss entry): word-wrapped paragraphs, headings, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links. It uses the standard 14 fonts (Helvetica, Courier) with WinAnsiEncoding, so nothing is embedded; characters outside WinAnsiEncoding are written as `?`.
 
 The object layer is on its own subpath, for working with PDF structure directly:
 
