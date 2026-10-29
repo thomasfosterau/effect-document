@@ -43,6 +43,7 @@ import {
   type OrderedList,
 } from "@thomasfosterau/effect-document";
 import {
+  type PdfDict,
   type PdfObject,
   type PdfRef,
   latin1ToBytes,
@@ -272,9 +273,42 @@ const breakLines = (
 // Pages
 // ============================================================================
 
+// ============================================================================
+// Structure (tagged PDF, #198)
+// ============================================================================
+
+/**
+ * A structure element being built: its standard structure type (`P`, `H2`,
+ * `L`, …), its attributes (`/A`) and its kids in reading order. The writer
+ * tags its output (#198) so a reader can take the structure from the tags
+ * rather than infer it from the layout.
+ */
+interface StructNode {
+  /** The element's number, in the order elements were opened (the root is 0). */
+  readonly id: number;
+  readonly type: string;
+  readonly attributes: PdfDict | undefined;
+  readonly kids: Array<StructKid>;
+}
+
+/** A structure element's kid: another element, a marked-content sequence on a page, or a link annotation. */
+type StructKid =
+  | { readonly _tag: "Node"; readonly node: StructNode }
+  | { readonly _tag: "Content"; readonly page: number; readonly mcid: number }
+  | { readonly _tag: "Annot"; readonly page: number; readonly link: number };
+
 interface PageOut {
+  /** The page's index, which is also its `/StructParents` key. */
+  readonly index: number;
   readonly ops: string[];
-  readonly links: Array<{ rect: [number, number, number, number]; url: string }>;
+  readonly links: Array<{
+    rect: [number, number, number, number];
+    url: string;
+    /** The `Link` structure element the annotation belongs to. */
+    owner: StructNode;
+  }>;
+  /** The structure element each marked-content id on the page belongs to, by id. */
+  readonly mcids: Array<StructNode>;
 }
 
 const num = (n: number): string => {
@@ -303,6 +337,14 @@ interface Position {
 class Typesetter {
   readonly pages: PageOut[] = [];
   readonly fonts = new Set<StandardFont>();
+  /** The structure tree's root element. */
+  readonly root: StructNode = { id: 0, type: "Document", attributes: undefined, kids: [] };
+  /** How many structure elements there are, the root included. */
+  elements = 1;
+  /** The open structure elements, outermost first. */
+  private readonly open: Array<StructNode> = [this.root];
+  /** The marked-content sequence open on the page, and the element it belongs to. */
+  private marked: StructNode | undefined;
   private page!: PageOut;
   private y = 0;
   private readonly top: number;
@@ -324,9 +366,54 @@ class Typesetter {
   }
 
   private newPage(): void {
-    this.page = { ops: [], links: [] };
+    this.endMarked();
+    this.page = { index: this.pages.length, ops: [], links: [], mcids: [] };
     this.pages.push(this.page);
     this.y = this.top;
+  }
+
+  private get current(): StructNode {
+    // the root is never popped
+    return this.open[this.open.length - 1] ?? this.root;
+  }
+
+  /** Open a structure element inside the current one; its content follows until {@link end}. */
+  begin(type: string, attributes?: PdfDict): void {
+    this.endMarked();
+    const node: StructNode = { id: this.elements++, type, attributes, kids: [] };
+    this.current.kids.push({ _tag: "Node", node });
+    this.open.push(node);
+  }
+
+  /** Close the innermost structure element. */
+  end(): void {
+    this.endMarked();
+    if (this.open.length > 1) this.open.pop();
+  }
+
+  /** Make sure the content that follows is marked as the current element's, on this page. */
+  private beginMarked(): void {
+    const owner = this.current;
+    if (this.marked === owner) return;
+    this.endMarked();
+    const mcid = this.page.mcids.length;
+    this.page.mcids.push(owner);
+    owner.kids.push({ _tag: "Content", page: this.page.index, mcid });
+    this.page.ops.push(`/${owner.type} <</MCID ${mcid}>> BDC`);
+    this.marked = owner;
+  }
+
+  /** End the open marked-content sequence, if any (at a page or element boundary). */
+  endMarked(): void {
+    if (this.marked === undefined) return;
+    this.page.ops.push("EMC");
+    this.marked = undefined;
+  }
+
+  /** Drawing that is decoration, not content (a rule, an underline, a quote bar): an artifact. */
+  private artifact(op: string): void {
+    this.endMarked();
+    this.page.ops.push("/Artifact BMC", op, "EMC");
   }
 
   /** Leave vertical space (not at the top of a page). */
@@ -339,22 +426,35 @@ class Typesetter {
     if (this.y - amount < this.bottom && this.y < this.top) this.newPage();
   }
 
-  /** Set laid-out lines at a left offset, with a line height. */
+  /**
+   * Set laid-out lines at a left offset, with a line height. A list item's
+   * `marker` is set beside the first line as its `Lbl` element, after which
+   * the elements `marker.body` names are opened (the item's `LBody`, and the
+   * paragraph inside it) for the lines to belong to.
+   */
   lines(
     lines: ReadonlyArray<LaidLine>,
     left: number,
     size: number,
     lineHeight: number,
-    marker?: { text: string; x: number },
+    marker?: { text: string; x: number; body: ReadonlyArray<string> },
   ): void {
     const ascent = size * 0.75;
     lines.forEach((line, i) => {
       this.need(lineHeight);
       const baseline = this.y - ascent - (lineHeight - size) / 2;
-      if (i === 0 && marker !== undefined)
+      if (i === 0 && marker !== undefined) {
+        this.begin("Lbl");
         this.text(marker.text, PLAIN, size, this.margin + marker.x, baseline);
-      for (const seg of line.segments)
+        this.end();
+        marker.body.forEach((type) => this.begin(type));
+      }
+      for (const seg of line.segments) {
+        const link = seg.style.url !== undefined;
+        if (link) this.begin("Link");
         this.text(seg.text, seg.style, size, this.margin + left + seg.x, baseline, seg.width);
+        if (link) this.end();
+      }
       this.y -= lineHeight;
     });
   }
@@ -370,25 +470,35 @@ class Typesetter {
     if (text === "") return;
     const font = fontOf(style);
     this.fonts.add(font);
+    this.beginMarked();
     const ops = this.page.ops;
     if (style.url !== undefined) ops.push("0 0 0.6 rg");
     ops.push(`BT /${fontKey(font)} ${num(size)} Tf ${num(x)} ${num(y)} Td ${pdfText(text)} Tj ET`);
     if (style.url !== undefined) ops.push("0 g");
     const w = width ?? measure(text, font, size);
+    if (style.url !== undefined) {
+      const owner = this.current;
+      owner.kids.push({ _tag: "Annot", page: this.page.index, link: this.page.links.length });
+      this.page.links.push({
+        rect: [x, y - size * 0.22, x + w, y + size * 0.8],
+        url: style.url,
+        owner,
+      });
+    }
     const rule = (dy: number): void => {
-      ops.push(`${num(size / 18)} w ${num(x)} ${num(y + dy)} m ${num(x + w)} ${num(y + dy)} l S`);
+      this.artifact(
+        `${num(size / 18)} w ${num(x)} ${num(y + dy)} m ${num(x + w)} ${num(y + dy)} l S`,
+      );
     };
     if (style.underline) rule(-size * 0.12);
     if (style.strike) rule(size * 0.3);
-    if (style.url !== undefined)
-      this.page.links.push({ rect: [x, y - size * 0.22, x + w, y + size * 0.8], url: style.url });
   }
 
   /** A horizontal rule across the text width. */
   rule(left: number): void {
     this.need(this.body);
     const y = this.y - this.body / 2;
-    this.page.ops.push(
+    this.artifact(
       `0.5 w ${num(this.margin + left)} ${num(y)} m ${num(this.width - this.margin)} ${num(y)} l S`,
     );
     this.y -= this.body;
@@ -396,7 +506,7 @@ class Typesetter {
 
   /** A vertical bar beside a block quote, from `fromY` to the current position. */
   bar(x: number, fromY: number, toY: number): void {
-    this.page.ops.push(`0.6 g ${num(this.margin + x)} ${num(toY)} 2 ${num(fromY - toY)} re f 0 g`);
+    this.artifact(`0.6 g ${num(this.margin + x)} ${num(toY)} 2 ${num(fromY - toY)} re f 0 g`);
   }
 
   get position(): Position {
@@ -436,7 +546,10 @@ const layoutCodeBlock = (ts: Typesetter, b: CodeBlock, left: number, textWidth: 
       if (Str.isEmpty(raw)) break;
     }
   }
+  // block-level code: a `Code` element placed as a block
+  ts.begin("Code", pdfDict({ O: pdfName("Layout"), Placement: pdfName("Block") }));
   ts.lines(out, left, size, size * 1.3);
+  ts.end();
   ts.space(body * 0.8);
 };
 
@@ -450,23 +563,39 @@ const layoutList = (
 ): void => {
   const body = ts.body;
   const indent = 18;
+  const ordered = Predicate.isTagged(b, "OrderedList");
+  // `L` > `LI` > `Lbl` (the marker) and `LBody` (the item's blocks)
+  ts.begin(
+    "L",
+    pdfDict({ O: pdfName("List"), ListNumbering: pdfName(ordered ? "Decimal" : "Disc") }),
+  );
   b.items.forEach((item, k) => {
-    const marker = Predicate.isTagged(b, "BulletList") ? "•" : `${(b.start ?? 1) + k}.`;
+    const marker = ordered ? `${(b.start ?? 1) + k}.` : "•";
+    ts.begin("LI");
     item.forEach((child, c) => {
       if (c === 0 && (Predicate.isTagged(child, "Plain") || Predicate.isTagged(child, "Para"))) {
         const lines = breakLines(flatten(child.content, PLAIN), body, textWidth - indent);
-        ts.lines(lines, left + indent, body, body * 1.35, { text: marker, x: left + 4 });
+        ts.lines(lines, left + indent, body, body * 1.35, {
+          text: marker,
+          x: left + 4,
+          body: ["LBody", "P"],
+        });
+        ts.end(); // P
         ts.space(body * 0.15);
       } else {
         if (c === 0)
           ts.lines([{ segments: [], width: 0 }], left + indent, body, body * 1.35, {
             text: marker,
             x: left + 4,
+            body: ["LBody"],
           });
         layoutBlocks(ts, [child], left + indent, true);
       }
     });
+    if (Arr.isReadonlyArrayNonEmpty(item)) ts.end(); // LBody
+    ts.end(); // LI
   });
+  ts.end(); // L
   if (!tight) ts.space(body * 0.65);
 };
 
@@ -497,7 +626,9 @@ const layoutBlock = (
   const textWidth = ts.width - 2 * ts.margin - left;
   const paragraph = (p: { readonly content: ReadonlyArray<Inline> }, isPara: boolean): void => {
     const lines = breakLines(flatten(p.content, PLAIN), body, textWidth);
+    ts.begin("P");
     ts.lines(lines, left, body, body * 1.35);
+    ts.end();
     if (!tight || !last) ts.space(isPara ? body * 0.8 : tight ? body * 0.3 : body * 0.8);
   };
   Match.valueTags(b, {
@@ -507,7 +638,9 @@ const layoutBlock = (
       const size = HEADING_SIZES[h.level - 1] ?? body;
       ts.space(size * 0.6);
       const lines = breakLines(flatten(h.content, { ...PLAIN, bold: true }), size, textWidth);
+      ts.begin(`H${h.level}`);
       ts.lines(lines, left, size, size * 1.25);
+      ts.end();
       ts.space(size * 0.4);
     },
     CodeBlock: (c) => layoutCodeBlock(ts, c, left, textWidth),
@@ -515,7 +648,9 @@ const layoutBlock = (
     OrderedList: (l) => layoutList(ts, l, left, textWidth, tight),
     BlockQuote: (q) => {
       const start = ts.position;
+      ts.begin("BlockQuote");
       layoutBlocks(ts, q.content, left + 24);
+      ts.end();
       const end = ts.position;
       if (start.page === end.page) ts.bar(left + 8, start.y, end.y + body * 0.8);
     },
@@ -538,6 +673,50 @@ const metaString = (meta: Meta, key: string): PdfObject | undefined => {
 /** The metadata as JSON text, a stable input to the file identifier. */
 const MetaJson = Schema.fromJsonString(Schema.Unknown);
 
+/**
+ * Write the structure elements under `root` (the `Document` element), each a
+ * `/StructElem` whose kids are elements, marked content (an MCID on the
+ * element's own page, or a marked-content reference on another) and link
+ * annotations (object references).
+ */
+const writeStructure = (
+  pdf: PdfBuilder,
+  root: StructNode,
+  treeRef: PdfRef,
+  structRef: (node: StructNode) => PdfRef,
+  pages: ReadonlyArray<PdfRef>,
+  annots: ReadonlyArray<ReadonlyArray<PdfRef>>,
+): void => {
+  // (recursive, as the layout is: the structure nests as deep as the document)
+  const write = (node: StructNode, parent: PdfRef): void => {
+    const ownPage = node.kids.flatMap((k) => (Predicate.isTagged(k, "Content") ? [k.page] : []))[0];
+    const kids = node.kids.map((kid): PdfObject =>
+      Match.valueTags(kid, {
+        Node: ({ node: child }) => structRef(child),
+        Content: ({ page, mcid }) =>
+          page === ownPage ? mcid : pdfDict({ Type: pdfName("MCR"), Pg: pages[page], MCID: mcid }),
+        Annot: ({ page, link }) =>
+          pdfDict({ Type: pdfName("OBJR"), Obj: annots[page]?.[link], Pg: pages[page] }),
+      }),
+    );
+    pdf.set(
+      structRef(node),
+      pdfDict({
+        Type: pdfName("StructElem"),
+        S: pdfName(node.type),
+        P: parent,
+        Pg: ownPage === undefined ? undefined : pages[ownPage],
+        K: pdfArray(kids),
+        A: node.attributes,
+      }),
+    );
+    node.kids.forEach((kid) => {
+      if (Predicate.isTagged(kid, "Node")) write(kid.node, structRef(node));
+    });
+  };
+  write(root, treeRef);
+};
+
 /** Render a PDF-profile document to PDF bytes. */
 export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}): Uint8Array => {
   const pageSize = options.pageSize;
@@ -547,6 +726,7 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
       : pageSize;
   const ts = new Typesetter(width, height, options.margin ?? 72, options.fontSize ?? 11);
   layoutBlocks(ts, doc.blocks, 0);
+  ts.endMarked();
 
   const pdf = new PdfBuilder();
   const catalogRef = pdf.alloc();
@@ -567,38 +747,75 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
     ProcSet: pdfArray([pdfName("PDF"), pdfName("Text")]),
   });
 
-  const kids: PdfRef[] = [];
-  for (const page of ts.pages) {
+  const treeRef = pdf.alloc();
+  // page i's marked content is ParentTree key i; the link annotations follow
+  const kids: PdfRef[] = ts.pages.map(() => pdf.alloc());
+  const structRefs = Array.from({ length: ts.elements }, () => pdf.alloc());
+  const structRef = (node: StructNode): PdfRef => structRefs[node.id] ?? treeRef;
+  const annotRefs: PdfRef[][] = [];
+  const linkParents: PdfObject[] = [];
+  Arr.zip(ts.pages, kids).forEach(([page, pageRef], i) => {
     const content = latin1ToBytes(page.ops.join("\n"));
     const contentRef = pdf.add(
       options.compress === false ? pdfStream(pdfDict(), content) : flateStream(content),
     );
-    const annots = page.links.map(({ rect, url }) =>
-      pdf.add(
+    const annots = page.links.map(({ rect, url, owner }) => {
+      linkParents.push(ts.pages.length + linkParents.length, structRef(owner));
+      return pdf.add(
         pdfDict({
           Type: pdfName("Annot"),
           Subtype: pdfName("Link"),
           Rect: pdfArray(rect.map((n) => Math.round(n * 100) / 100)),
           Border: pdfArray([0, 0, 0]),
           A: pdfDict({ Type: pdfName("Action"), S: pdfName("URI"), URI: pdfTextString(url) }),
+          StructParent: ts.pages.length + (linkParents.length / 2 - 1),
         }),
-      ),
+      );
+    });
+    annotRefs.push(annots);
+    pdf.set(
+      pageRef,
+      pdfDict({
+        Type: pdfName("Page"),
+        Parent: pagesRef,
+        MediaBox: pdfArray([0, 0, width, height]),
+        Resources: resources,
+        Contents: contentRef,
+        Annots: Arr.isReadonlyArrayNonEmpty(annots) ? pdfArray(annots) : undefined,
+        StructParents: i,
+        // the tab order follows the structure
+        Tabs: pdfName("S"),
+      }),
     );
-    kids.push(
-      pdf.add(
-        pdfDict({
-          Type: pdfName("Page"),
-          Parent: pagesRef,
-          MediaBox: pdfArray([0, 0, width, height]),
-          Resources: resources,
-          Contents: contentRef,
-          Annots: Arr.isReadonlyArrayNonEmpty(annots) ? pdfArray(annots) : undefined,
-        }),
-      ),
-    );
-  }
+  });
   pdf.set(pagesRef, pdfDict({ Type: pdfName("Pages"), Kids: pdfArray(kids), Count: kids.length }));
-  pdf.set(catalogRef, pdfDict({ Type: pdfName("Catalog"), Pages: pagesRef }));
+
+  writeStructure(pdf, ts.root, treeRef, structRef, kids, annotRefs);
+  const parentTree = pdfDict({
+    Nums: pdfArray([
+      ...ts.pages.flatMap((page, i) => [i, pdfArray(page.mcids.map(structRef))]),
+      ...linkParents,
+    ]),
+  });
+  pdf.set(
+    treeRef,
+    pdfDict({
+      Type: pdfName("StructTreeRoot"),
+      K: structRef(ts.root),
+      ParentTree: parentTree,
+      ParentTreeNextKey: ts.pages.length + linkParents.length / 2,
+    }),
+  );
+  pdf.set(
+    catalogRef,
+    pdfDict({
+      Type: pdfName("Catalog"),
+      Pages: pagesRef,
+      MarkInfo: pdfDict({ Marked: true }),
+      StructTreeRoot: treeRef,
+      Lang: metaString(doc.meta, "lang") ?? metaString(doc.meta, "language"),
+    }),
+  );
 
   const meta = doc.meta;
   const info = pdf.add(

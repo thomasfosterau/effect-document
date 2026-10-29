@@ -54,6 +54,8 @@ The engine is called once for each image a textless page paints, in painting ord
 
 **Writing** typesets a document onto pages (headings are bold, so `PdfWrite` keeps `Strong` out of headings, and `convert` unwraps it there with a loss entry): word-wrapped paragraphs, headings, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links. It uses the standard 14 fonts (Helvetica, Courier) with WinAnsiEncoding, so nothing is embedded; characters outside WinAnsiEncoding are written as `?`.
 
+The output is a tagged PDF: a structure tree (`/StructTreeRoot`) records each heading (`H1`–`H6`), paragraph (`P`), list (`L` / `LI` / `Lbl` / `LBody`, with its numbering), code block (`Code`), block quote and link, and marks the text each owns, so screen readers and other tools see the document's structure; rules, underlines and quote bars are marked as artifacts. A document's `lang` metadata becomes the catalog's `/Lang`.
+
 The object layer is on its own subpath, for working with PDF structure directly:
 
 ```ts
