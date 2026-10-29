@@ -85,6 +85,46 @@ export const readStructure = (
   let elements = 0;
   let broken = false;
 
+  /** Whether `kid` is met for the first time; a reference met again is a cycle, which breaks the tree. */
+  const firstVisit = (kid: PdfObject | undefined): boolean => {
+    if (!isRef(kid)) return true;
+    const key = `${kid.num} ${kid.gen}`;
+    if (MutableHashSet.has(seen, key)) {
+      broken = true;
+      return false;
+    }
+    MutableHashSet.add(seen, key);
+    return true;
+  };
+
+  /** A marked-content reference's content (none for content in a Form XObject's stream, `/Stm`). */
+  const markedRef = (d: PdfDict, ownPage: number | undefined): MarkedContent[] => {
+    const mcid = file.lookupNumber(d, "MCID");
+    const p = pageOf(d.entries.get("Pg")) ?? ownPage;
+    return mcid === undefined || p === undefined || d.entries.has("Stm")
+      ? []
+      : [{ _tag: "Content", page: p, mcid }];
+  };
+
+  /** One kid of an element on `ownPage`: content, a marked-content reference, or an element. */
+  const kidOf = (
+    kid: PdfObject | undefined,
+    ownPage: number | undefined,
+    depth: number,
+  ): Array<StructElement | MarkedContent> => {
+    if (Predicate.isNumber(kid))
+      return ownPage === undefined ? [] : [{ _tag: "Content", page: ownPage, mcid: kid }];
+    if (!firstVisit(kid)) return [];
+    const d = file.resolve(kid);
+    if (!isDict(d)) return [];
+    const type = file.lookupName(d, "Type");
+    if (type === "MCR") return markedRef(d, ownPage);
+    // an annotation (OBJR) adds nothing: links are placed by their rectangles
+    if (type === "OBJR" || file.lookupName(d, "S") === undefined) return [];
+    const child = element(d, ownPage, depth + 1);
+    return child === undefined ? [] : [child];
+  };
+
   const element = (
     elem: PdfDict,
     page: number | undefined,
@@ -98,34 +138,7 @@ export const readStructure = (
     const ownPage = pageOf(elem.entries.get("Pg")) ?? page;
     const k = file.resolve(elem.entries.get("K"));
     const raw = isArray(k) ? k.items : k === undefined ? [] : [elem.entries.get("K")];
-    const kids = raw.flatMap((kid): Array<StructElement | MarkedContent> => {
-      if (broken) return [];
-      if (Predicate.isNumber(kid))
-        return ownPage === undefined ? [] : [{ _tag: "Content", page: ownPage, mcid: kid }];
-      if (isRef(kid)) {
-        const key = `${kid.num} ${kid.gen}`;
-        if (MutableHashSet.has(seen, key)) {
-          broken = true;
-          return [];
-        }
-        MutableHashSet.add(seen, key);
-      }
-      const d = file.resolve(kid);
-      if (!isDict(d)) return [];
-      const type = file.lookupName(d, "Type");
-      if (type === "MCR") {
-        const mcid = file.lookupNumber(d, "MCID");
-        const p = pageOf(d.entries.get("Pg")) ?? ownPage;
-        // content in a Form XObject's stream (/Stm) is not tracked per page
-        return mcid === undefined || p === undefined || d.entries.has("Stm")
-          ? []
-          : [{ _tag: "Content", page: p, mcid }];
-      }
-      if (type === "OBJR") return []; // an annotation: links are placed by their rectangles
-      if (file.lookupName(d, "S") === undefined) return [];
-      const child = element(d, ownPage, depth + 1);
-      return child === undefined ? [] : [child];
-    });
+    const kids = raw.flatMap((kid) => (broken ? [] : kidOf(kid, ownPage, depth)));
     return {
       _tag: "Element",
       type: role(file.lookupName(elem, "S") ?? ""),

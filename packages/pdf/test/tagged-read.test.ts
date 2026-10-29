@@ -23,8 +23,11 @@ import {
   trustAs,
 } from "@thomasfosterau/effect-document";
 import { type PdfFeature, makePdfReader, makePdfWriter } from "../src/index.ts";
+import { readPages } from "../src/reader.ts";
+import { layoutBlocks } from "../src/text/layout.ts";
 import {
   PdfBuilder,
+  PdfFile,
   type PdfObject,
   latin1ToBytes,
   pdfArray,
@@ -259,5 +262,42 @@ describe("reading other generators' tags (#198)", () => {
     assert(list instanceof OrderedList);
     expect(list.items.length).toBe(2);
     expect(list.items[0]).toEqual([plainText("x")]);
+  });
+});
+
+describe("the layout reader still reads untagged output (#198)", () => {
+  /** The writer's output read from the layout alone, ignoring its tags. */
+  const layoutOnly = (blocks: ReadonlyArray<Block>): ReadonlyArray<Block> => {
+    const c = Effect.runSync(makePdfWriter().write(trustAs<PdfFeature>(document(blocks))));
+    assert(Predicate.isTagged(c, "Bytes"));
+    return layoutBlocks(readPages(PdfFile.open(c.bytes)));
+  };
+
+  test("a paragraph that runs over a page break is one paragraph", () => {
+    const words = Array.from({ length: 900 }, (_, i) => `word${i}`).join(" ");
+    const back = layoutOnly([para([str(words)])]);
+    expect(tags(back)).toEqual(["Para"]);
+  });
+
+  test("headings, lists and code are inferred from the layout", () => {
+    const body = para([str(Array.from({ length: 40 }, () => "Body text.").join(" "))]);
+    const back = layoutOnly([
+      header(1, [str("Title")]),
+      body,
+      bulletList([[plainText("a")], [plainText("b")]]),
+      body,
+      orderedList([[plainText("one")]]),
+      body,
+      codeBlock("x = 1\n  y = 2"),
+    ]);
+    expect(tags(back)).toEqual([
+      "Header",
+      "Para",
+      "BulletList",
+      "Para",
+      "OrderedList",
+      "Para",
+      "CodeBlock",
+    ]);
   });
 });
