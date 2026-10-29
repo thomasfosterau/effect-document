@@ -12,12 +12,10 @@
  */
 
 import * as Arr from "effect/Array";
-import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   type Block,
-  BulletList,
   type Content,
   contentToBytes,
   type Doc,
@@ -27,7 +25,6 @@ import {
   type Inline,
   LineBreak,
   makeReaderTag,
-  OrderedList,
   Para,
   ParseError,
   Placeholder,
@@ -51,6 +48,7 @@ import {
   findChild,
   findChildren,
   getAttr,
+  ListStack,
   ooxmlParseError,
 } from "../shared/index.ts";
 import { PptxRead, type PptxReadFeature } from "./profile.ts";
@@ -151,106 +149,33 @@ const paragraphLevel = (p: XmlElement): number => {
   return Number.isFinite(n) ? Math.min(Math.max(n, 0), 8) : 0;
 };
 
-interface OpenList {
-  readonly kind: "bullet" | "ordered";
-  readonly level: number;
-  /** Where an ordered list starts (1 unless its first item's `startAt` says). */
-  readonly start: number;
-  /** The left margin of the list's first item: an unbulleted paragraph there continues the last item (#196). */
-  readonly margin: number | undefined;
-  readonly items: Block[][];
-}
-
-/**
- * An item's blocks without an empty lead before other blocks: an item that
- * starts with a nested list still needs a bulleted paragraph, which the
- * writer leaves empty (#196).
- */
-const itemBlocks = (item: Block[]): Block[] => {
-  const [first, ...rest] = item;
-  return Predicate.isTagged(first, "Plain") &&
-    Arr.isReadonlyArrayEmpty(first.content) &&
-    Arr.isReadonlyArrayNonEmpty(rest)
-    ? rest
-    : item;
-};
-
-const listBlock = (l: OpenList): Block => {
-  const items = l.items.map(itemBlocks);
-  return l.kind === "ordered"
-    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items })
-    : new BulletList({ items });
-};
-
 const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
-  const out: Block[] = [];
-  // The open lists, outermost first; a deeper `lvl` nests inside the last item.
-  const open: OpenList[] = [];
-
-  const close = (): void => {
-    const list = open.pop()!;
-    const parent = open[open.length - 1];
-    if (parent === undefined) out.push(listBlock(list));
-    else if (Arr.isReadonlyArrayEmpty(parent.items)) parent.items.push([listBlock(list)]);
-    else parent.items[parent.items.length - 1]!.push(listBlock(list));
-  };
-
-  /**
-   * The item an unbulleted paragraph at `margin` continues: the last item of
-   * the innermost open list whose first item sits at that margin, after
-   * closing the lists nested in it (#196).
-   */
-  const continuedItem = (margin: number | undefined): Block[] | undefined => {
-    if (margin === undefined) return undefined;
-    const at = open.findLastIndex(
-      (l) => l.margin === margin && Arr.isReadonlyArrayNonEmpty(l.items),
-    );
-    const list = open[at];
-    if (list === undefined) return undefined;
-    open.slice(at + 1).forEach(close);
-    return list.items.at(-1);
-  };
-
-  const unbulleted = (p: XmlElement, inlines: Inline[]): void => {
-    const item = continuedItem(paragraphMargin(p));
-    if (item !== undefined) {
-      item.push(new Para({ content: inlines }));
-      return;
-    }
-    while (Arr.isReadonlyArrayNonEmpty(open)) close();
-    out.push(
-      asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
-    );
-  };
-
-  const bulleted = (p: XmlElement, inlines: Inline[], bullet: "bullet" | "ordered"): void => {
-    const level = paragraphLevel(p);
-    const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;
-    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
-    const top = open[open.length - 1];
-    // A different kind, or an ordered item that restarts its numbering, begins a new list.
-    if (top !== undefined && top.level === level && (top.kind !== bullet || startAt !== undefined))
-      close();
-    const current = open[open.length - 1];
-    if (current === undefined || current.level < level)
-      open.push({
-        kind: bullet,
-        level,
-        start: startAt ?? 1,
-        margin: paragraphMargin(p),
-        items: [],
-      });
-    open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
-  };
-
+  const lists = new ListStack();
   for (const p of findChildren(txBody, "p")) {
     const inlines = paragraphInlines(p);
     const bullet = paragraphBullet(p);
-    if (bullet === null) unbulleted(p, inlines);
-    else bulleted(p, inlines, bullet);
+    if (bullet === null)
+      // an unbulleted paragraph at an open list's margin continues its last item (#196)
+      lists.place(paragraphMargin(p), () => [
+        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+      ]);
+    else {
+      const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;
+      lists.item(
+        {
+          kind: bullet,
+          level: paragraphLevel(p),
+          key: "",
+          // an ordered item that restarts its numbering begins a new list (#196)
+          restart: startAt !== undefined,
+          start: startAt ?? 1,
+          indent: paragraphMargin(p),
+        },
+        new Plain({ content: inlines }),
+      );
+    }
   }
-  while (Arr.isReadonlyArrayNonEmpty(open)) close();
-  return out;
+  return lists.closeAll();
 };
 
 /** Placeholder types whose text is the slide's title. */

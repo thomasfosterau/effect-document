@@ -1,6 +1,6 @@
 # @thomasfosterau/effect-ooxml (packages/ooxml)
 
-Office Open XML: `src/xlsx` (SpreadsheetML; the core `Spreadsheet` profile), `src/docx` (WordprocessingML; its own `Docx` profile), `src/pptx` (PresentationML; its own `Pptx` profile), over `src/shared` (the effect-parse XML parser and writer helpers in `xml.ts`, the OPC package reader / ZIP writer in `opc.ts`, and the mapping of package failures to `ParseError` in `errors.ts`).
+Office Open XML: `src/xlsx` (SpreadsheetML; the core `Spreadsheet` profile), `src/docx` (WordprocessingML; its own `Docx` profile), `src/pptx` (PresentationML; its own `Pptx` profile), over `src/shared` (the effect-parse XML parser and writer helpers in `xml.ts`, the OPC package reader / ZIP writer in `opc.ts`, and the mapping of package failures to `ParseError` in `errors.ts`, and the grouping of list paragraphs into nested lists that the DOCX and PPTX readers share in `lists.ts`).
 
 ## Boundary
 
