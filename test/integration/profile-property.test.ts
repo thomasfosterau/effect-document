@@ -17,9 +17,7 @@
  */
 
 import * as Arbitrary from "effect/Arbitrary";
-import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
-import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import { assert, describe, test } from "vite-plus/test";
@@ -106,22 +104,6 @@ const titleHeadings = (normal: Normal): Normal =>
       : b,
   );
 
-/** Adjacent paragraphs, and adjacent code blocks, are one; blank lines in code are dropped. */
-const adjacentParagraphs = (normal: Normal): Normal =>
-  mapBlocks(
-    mapBlockLists(
-      normal,
-      mergeAdjacent<NormalBlock>((a, b) =>
-        Predicate.isTagged(a, "Para") && Predicate.isTagged(b, "Para")
-          ? { ...a, text: [...a.text, { _tag: "Space" }, ...b.text] }
-          : Predicate.isTagged(a, "Code") && Predicate.isTagged(b, "Code")
-            ? { ...a, text: `${a.text}\n${b.text}` }
-            : undefined,
-      ),
-    ),
-    (b) => (Predicate.isTagged(b, "Code") ? { ...b, text: b.text.replace(/\n+/g, "\n") } : b),
-  );
-
 /** Whether `token` is a word ending in a hyphen. */
 const endsWithHyphen = (token: Token | undefined): boolean =>
   token !== undefined && Predicate.isTagged(token, "Word") && token.text.endsWith("-");
@@ -133,19 +115,6 @@ const hyphenatedWords = (normal: Normal): Normal =>
       tokens.filter((t, i) => !(Predicate.isTagged(t, "Space") && endsWithHyphen(tokens[i - 1]))),
     ),
   );
-
-/** Heading levels as the rank of their level among the document's headings. */
-const rankedHeadings = (normal: Normal): Normal => {
-  const levels: Array<number> = [];
-  mapBlocks(normal, (b) => {
-    if (Predicate.isTagged(b, "Header")) levels.push(b.level);
-    return b;
-  });
-  const rank = Arr.sort(Arr.dedupe(levels), Order.Number);
-  return mapBlocks(normal, (b) =>
-    Predicate.isTagged(b, "Header") ? { ...b, level: rank.indexOf(b.level) + 1 } : b,
-  );
-};
 
 const CASES: ReadonlyArray<Case> = [
   // CSV carries a type per column, not per cell (#88).
@@ -174,22 +143,13 @@ const CASES: ReadonlyArray<Case> = [
   {
     format: Pdf.format,
     family: "prose",
-    // The reader infers structure from layout: headings by their size against
-    // the body text, so there must be body text; lists by their markers, so
-    // a line can't start with a word like "a."; and a list item is one
-    // paragraph (#198).
-    options: { bodyContext: true, listItems: "paragraph", markerLikeWords: false },
+    // The writer tags its output and the reader takes the structure from the
+    // tags (#198), so headings keep their levels, paragraphs and lists their
+    // breaks, and list items their paragraphs.
     limits: [
-      adjacentLists,
-      // Breaks between blocks of one kind are inferred from line spacing,
-      // which a run of one-line paragraphs or code blocks doesn't show (and
-      // the gap between code blocks may read back as a blank line).
-      adjacentParagraphs,
       // A line that ends in a hyphen is a word broken across lines.
-      hyphenatedWords,
-      // Heading levels are the rank of their sizes among the headings.
-      rankedHeadings,
-    ].map((erase) => ({ issue: "#198", erase })),
+      { issue: "#198", erase: hyphenatedWords },
+    ],
     runs: 50,
   },
 ];

@@ -2,9 +2,10 @@
  * The PDF Reader: .pdf bytes -> a prose document in the PDF profile.
  *
  * Opens the file (repairing a damaged cross-reference table if need be),
- * extracts each page's positioned text, and infers headings, paragraphs,
- * lists, code blocks and inline styling from the layout (see
- * `text/layout`). The document information dictionary becomes the metadata
+ * extracts each page's positioned text, and builds headings, paragraphs,
+ * lists, code blocks and quotes from the structure tree of a tagged PDF (see
+ * `text/structure`), or else infers them from the layout (see `text/layout`);
+ * inline styling always comes from the fonts. The document information dictionary becomes the metadata
  * (`title`, `author`, `subject`, `keywords`, `creator`, `producer`).
  *
  * Encrypted files are refused. A page that paints images but has no text
@@ -15,10 +16,12 @@
 
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
+  type Block,
   type Content,
   type Doc,
   document,
@@ -35,7 +38,8 @@ import { PdfSyntaxError } from "./cos/parser.ts";
 import { isString, latin1ToBytes } from "./cos/objects.ts";
 import { decodeTextString } from "./text/encodings.ts";
 import { type PageText, extractPageText } from "./text/extract.ts";
-import { layoutBlocks } from "./text/layout.ts";
+import { layoutBlocks, structureBlocks } from "./text/layout.ts";
+import { readStructure } from "./text/structure.ts";
 import { OcrEngine, type OcrEngineShape, ocrGlyphs, toOcrImage } from "./ocr.ts";
 import { Pdf, type PdfFeature } from "./profile.ts";
 
@@ -175,11 +179,29 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
         onEmpty: () => readMeta(file),
         onNonEmpty: (missing) => ({ ...readMeta(file), pagesWithoutText: missing }),
       });
-      const doc = yield* attempt(() => trustAs<PdfFeature>(document(layoutBlocks(pages), meta)));
+      const doc = yield* attempt(() =>
+        trustAs<PdfFeature>(document(readBlocks(file, pages), meta)),
+      );
       return yield* limitNestingDepth("pdf", doc, options?.maxDepth);
     });
   return { format: "pdf", profile: Pdf, read };
 };
+
+/**
+ * A document's blocks: from its structure tree when it is a tagged PDF whose
+ * tree owns its text (#198), else inferred from the layout.
+ */
+export const readBlocks = (file: PdfFile, pages: ReadonlyArray<PageText>): Block[] =>
+  // a tree the reader trips over is no worse than no tree: the layout still reads
+  Result.getOrUndefined(
+    Result.try(() => {
+      const tree = readStructure(
+        file,
+        file.pages().map((page) => page.ref),
+      );
+      return tree === undefined ? undefined : structureBlocks(pages, tree);
+    }),
+  ) ?? layoutBlocks(pages);
 
 /** Run a synchronous step of the reader, turning a throw into a `ParseError`. */
 const attempt = <A>(f: () => A): Effect.Effect<A, ParseError> =>

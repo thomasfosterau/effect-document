@@ -50,6 +50,13 @@ export interface TextGlyph {
   readonly monospace: boolean;
   /** Whether the text runs left to right along the page's x axis. */
   readonly upright: boolean;
+  /**
+   * The marked-content id (`/MCID`) of the innermost sequence the glyph is
+   * shown in, if any: what ties it to the structure tree of a tagged PDF.
+   */
+  readonly mcid?: number | undefined;
+  /** Whether the glyph is shown inside an `/Artifact` sequence (page furniture, not content). */
+  readonly artifact?: boolean | undefined;
 }
 
 /** A URI link annotation. */
@@ -85,6 +92,20 @@ export interface PageText {
 }
 
 type Matrix = readonly [number, number, number, number, number, number];
+
+/** Which marked content glyphs are shown in: the innermost MCID, and whether any enclosing sequence is an artifact. */
+interface Marking {
+  readonly mcid?: number | undefined;
+  readonly artifact?: boolean | undefined;
+}
+
+const NOT_MARKED: Marking = {};
+
+/** The marking inside a sequence tagged `tag` (with `mcid`, if it has one) opened within `outer`. */
+const enter = (outer: Marking, tag: PdfObject | undefined, mcid: number | undefined): Marking => ({
+  mcid: mcid ?? outer.mcid,
+  artifact: outer.artifact === true || isName(tag, "Artifact") ? true : undefined,
+});
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
@@ -182,6 +203,8 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
     initial: Matrix,
     depth: number,
     forms: Set<PdfStream>,
+    // the marked content a Form XObject is painted inside, which its glyphs belong to
+    outer: Marking = NOT_MARKED,
   ): void => {
     let gs: GState = {
       ctm: initial,
@@ -191,7 +214,9 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
     let tm: Matrix = IDENTITY;
     let tlm: Matrix = IDENTITY;
     // /ActualText replacement: the glyphs shown inside the marked span
-    const marked: Array<{ actual?: string | undefined; start: number }> = [];
+    const marked: Array<{ actual?: string | undefined; start: number; marking: Marking }> = [];
+    /** The MCID and artifact flag of the content being shown now. */
+    const marking = (): Marking => marked[marked.length - 1]?.marking ?? outer;
 
     const show = (bytes: Uint8Array): void => {
       const ts = gs.text;
@@ -212,6 +237,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           italic: font.italic,
           monospace: font.monospace,
           upright: Math.abs(ey - y) <= Math.abs(ex - x) * 0.05 + 1e-6 && ex >= x,
+          ...marking(),
         });
         const tx = (g.width * ts.size + ts.charSpace + (g.wordSpace ? ts.wordSpace : 0)) * ts.scale;
         tm = mul([1, 0, 0, 1, tx, 0], tm);
@@ -338,6 +364,7 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
             mul(m, gs.ctm),
             depth + 1,
             forms,
+            marking(),
           );
           forms.delete(xobj);
         },
@@ -345,17 +372,19 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
           const image = operands[0];
           if (isStream(image)) images.push({ matrix: gs.ctm, stream: image });
         },
-        BMC: () => {
-          marked.push({ start: glyphs.length });
+        BMC: (operands) => {
+          marked.push({ start: glyphs.length, marking: enter(marking(), operands[0], undefined) });
         },
         BDC: (operands) => {
           let props = operands[1];
           if (isName(props))
             props = file.lookup(file.lookupDict(resources, "Properties"), props.name);
           const actual = isDict(props) ? file.resolve(props.entries.get("ActualText")) : undefined;
+          const mcid = isDict(props) ? file.resolve(props.entries.get("MCID")) : undefined;
           marked.push({
             start: glyphs.length,
             actual: isString(actual) ? decodeTextString(actual.bytes) : undefined,
+            marking: enter(marking(), operands[0], Predicate.isNumber(mcid) ? mcid : undefined),
           });
         },
         EMC: () => {
