@@ -8,7 +8,7 @@ Peer: `effect`. Imports nothing from this workspace and no format: `.fallowrc.js
 
 ## Invariants
 
-- **The schema is the wire format.** Every node encodes to plain JSON and decodes back (`Schema.encode` / `decode` of `Document`); a node added without its `*Encoded` interface and a place in the `Inline` / `Block` / `SheetCell` / `Shape` unions breaks that round trip.
+- **The schema is the wire format.** Every node encodes to plain JSON and decodes back (`Schema.encode` / `decode` of `Document`); a node added without its `*Encoded` interface and a place in the `Inline` / `Block` / `SheetCell` / `Shape` unions breaks that round trip. The stack-safe codec (`encodeDocument` / `decodeDocument` in `schema/codec.ts`, #191) must agree with it: a new node also gets an entry in that file's kind tables, naming its recursive fields, or deep documents of it overflow again (`test/schema/codec.test.ts` has a chain per recursive field).
 - **Every node tag maps to exactly one feature** (`TAG_FEATURE` in `feature.ts`), and attribute facets are features too (`attr.id`, `attr.classes`, `attr.style`, `attr.keyValue`). A new node adds its tag there, to the right `ALL_*_FEATURES` group, to `narrow`'s handling and to `collectFeatures`.
 - **`Doc<F>` is a phantom brand; only `defineProfile`'s `validate` / `schema`, `narrow` and `trustAs` produce one.** `trustAs` is the unchecked escape hatch for code that built the document itself; readers use it for their own output, never for input they did not produce.
 - **`narrow` never drops silently.** Every node or facet it removes or down-converts is a `LossEntry` (`dropped` or `converted`, with a detail), in document order; `convert` returns the same report. A lossless narrowing reports `isLossless`.
