@@ -50,6 +50,7 @@ import {
   Slide,
   SlideShow,
   SmallCaps,
+  Span,
   SoftBreak,
   Space,
   Str,
@@ -148,6 +149,15 @@ const inlines = (
     segments.push(
       ...MARKS.filter(([feature]) => has(feature)).map(([, make]) => Arbitrary.map(nested(), make)),
     );
+    // a span with an id, where the profile allows one (a span without one says nothing)
+    if (has("inline.span") && has("attr.id.span")) {
+      segments.push(
+        Arbitrary.map(
+          Arbitrary.all([nested(), word]),
+          ([content, id]): Inline => new Span({ attr: { id: `s-${id}` }, content }),
+        ),
+      );
+    }
     if (has("inline.link") && !inLink) {
       segments.push(
         Arbitrary.map(

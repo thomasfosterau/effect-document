@@ -109,6 +109,42 @@ const endsWithHyphen = (token: Token | undefined): boolean =>
   token !== undefined && Predicate.isTagged(token, "Word") && token.text.endsWith("-");
 
 /** No space after a word ending in "-", and the words either side joined if their marks match. */
+/** The marks a token carries, as a list. */
+const marksOf = (t: Token): ReadonlyArray<string> =>
+  Predicate.isTagged(t, "Word") || Predicate.isTagged(t, "Code")
+    ? t.marks.split("|").filter((m) => m !== "")
+    : [];
+
+/**
+ * A heading without an id whose whole text is one span reads as the heading's
+ * id: a bookmark around a whole heading paragraph is its id (#184).
+ */
+const wholeSpanHeadings = (normal: Normal): Normal =>
+  mapBlocks(normal, (b) => {
+    if (!Predicate.isTagged(b, "Header") || b.id !== undefined) return b;
+    const marked = b.text.filter(
+      (t) => !Predicate.isTagged(t, "Space") && !Predicate.isTagged(t, "Break"),
+    );
+    const span = marksOf(marked[0] ?? { _tag: "Space" }).find((m) => m.startsWith("span:"));
+    if (span === undefined || !marked.every((t) => marksOf(t).includes(span))) return b;
+    return {
+      ...b,
+      id: span.slice("span:".length),
+      text: normalizeTokens(
+        b.text.map((t) =>
+          Predicate.isTagged(t, "Word") || Predicate.isTagged(t, "Code")
+            ? {
+                ...t,
+                marks: marksOf(t)
+                  .filter((m) => m !== span)
+                  .join("|"),
+              }
+            : t,
+        ),
+      ),
+    };
+  });
+
 const hyphenatedWords = (normal: Normal): Normal =>
   mapTokens(normal, (tokens) =>
     normalizeTokens(
@@ -121,7 +157,12 @@ const CASES: ReadonlyArray<Case> = [
   { format: Csv.format, family: "sheet", options: { columnTyped: true }, runs: 100 },
   { format: Csv.tsvFormat, family: "sheet", options: { columnTyped: true }, runs: 50 },
   { format: Xlsx.format, family: "sheet", runs: 100 },
-  { format: Docx.format, family: "prose", runs: 100 },
+  {
+    format: Docx.format,
+    family: "prose",
+    limits: [{ issue: "#184", erase: wholeSpanHeadings }],
+    runs: 100,
+  },
   {
     format: Pptx.format,
     family: "deck",
@@ -179,6 +220,7 @@ describe("every write-profile document round-trips (#109)", () => {
         ),
       );
       assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined, await explain(result));
-    });
+      // (generous: a hundred round trips through a format, slower still under coverage)
+    }, 120_000);
   });
 });

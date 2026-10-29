@@ -17,7 +17,7 @@ Import the three namespaces from the root, or one format from its subpath (`@tho
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
 | XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas. Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
-| DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with their bookmark as the heading's id), runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
+| DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 
 ## Usage

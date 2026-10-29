@@ -10,6 +10,7 @@
  *   adjacent words with the same marks merge, whitespace at the edge of
  *   inline code is a space beside it, code spans separated by a space are one
  *   span, and block edges are trimmed;
+ * - a `Span` is a mark only through its id (one without an id says nothing);
  * - `Plain` reads as `Para` (no writer here distinguishes a tight paragraph);
  * - a table's head, body and foot are one list of rows;
  * - a worksheet is its dense grid, so a gap and a blank cell read alike, and
@@ -156,8 +157,11 @@ const tokensOf = (inlines: ReadonlyArray<Inline>, marks: string): ReadonlyArray<
         "Superscript",
         "Subscript",
         "SmallCaps",
-        "Span",
         (node) => tokensOf(node.content, withMark(marks, node._tag)),
+      ),
+      // a span says something only through its id
+      Match.tag("Span", ({ content, attr }) =>
+        tokensOf(content, attr?.id === undefined ? marks : withMark(marks, `span:${attr.id}`)),
       ),
       Match.orElse((node): ReadonlyArray<Token> => [
         { _tag: "Word", text: `<${node._tag}>`, marks },
