@@ -26,6 +26,9 @@ import {
   str,
   strong,
   table,
+  Table,
+  TableCell,
+  TableRow,
   trustAs,
 } from "@thomasfosterau/effect-document";
 import { Docx, makeDocxReader, makeDocxWriter } from "../../src/docx/index.ts";
@@ -46,6 +49,15 @@ const findInline = (inlines: ReadonlyArray<Inline>, tag: string): Inline | undef
   }
   return undefined;
 };
+
+/** A one-cell table as the reader returns it (no column specs). */
+const cellTable = (text: string) =>
+  new Table({
+    colSpecs: [],
+    head: [],
+    body: [new TableRow({ cells: [new TableCell({ content: [para([str(text)])] })] })],
+    foot: [],
+  });
 
 describe("DOCX round-trip", () => {
   test("preserves a heading level", () => {
@@ -272,6 +284,49 @@ describe("DOCX correctness (#72)", () => {
     expect(blocksToText(back.blocks)).toContain("x = 1");
   });
 
+  test("an item's blocks after its first paragraph stay in the item (#195)", () => {
+    const lists = [
+      bulletList([[plainText("a"), para([str("a, continued")])], [plainText("b")]]),
+      orderedList([
+        [plainText("one"), codeBlock("x = 1"), cellTable("cell")],
+        [plainText("two"), header(2, [str("heading")])],
+      ]),
+    ];
+    expect(roundtrip(lists).blocks).toEqual(lists);
+  });
+
+  test("an item that starts with a code block, table or list keeps it (#195)", () => {
+    const list = bulletList([
+      [codeBlock("first")],
+      [cellTable("t"), para([str("after")])],
+      [bulletList([[plainText("inner")]]), para([str("outer again")])],
+    ]);
+    expect(roundtrip([list]).blocks).toEqual([list]);
+  });
+
+  test("a continuation after a nested list returns to its own item (#195)", () => {
+    const list = bulletList([
+      [
+        plainText("a"),
+        orderedList([[plainText("a1"), para([str("a1 more")])]]),
+        para([str("a more")]),
+      ],
+      [plainText("b")],
+    ]);
+    expect(roundtrip([list, para([str("after the list")])]).blocks).toEqual([
+      list,
+      para([str("after the list")]),
+    ]);
+  });
+
+  test("continuation blocks are indented to their item's level (#195)", () => {
+    const xml = parts([
+      bulletList([[plainText("a"), para([str("p")]), table({ rows: [[[para([str("t")])]]] })]]),
+    ])("word/document.xml");
+    expect(xml).toContain(`<w:p><w:pPr><w:ind w:left="720"/></w:pPr>`);
+    expect(xml).toContain(`<w:tblInd w:w="720" w:type="dxa"/>`);
+  });
+
   test("4. Quoted keeps its quotation marks", () => {
     const back = roundtrip([
       para([
@@ -330,6 +385,35 @@ describe("DOCX correctness (#72)", () => {
     const back = read(li("i", 0) + li("dot", 1), numbering);
     expect(back.blocks).toEqual([
       orderedList([[plainText("i"), bulletList([[plainText("dot")]])]]),
+    ]);
+  });
+
+  test("a paragraph indented to an open list's level continues its last item (#195)", () => {
+    const numbering =
+      `<w:abstractNum w:abstractNumId="3"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl>` +
+      `<w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:start="1080" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>` +
+      `<w:num w:numId="4"><w:abstractNumId w:val="3"/></w:num>`;
+    const li = (t: string, ilvl: number) =>
+      `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="4"/></w:numPr></w:pPr>${r(t)}</w:p>`;
+    const indented = (t: string, ind: string) =>
+      `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind ${ind}/></w:pPr>${r(t)}</w:p>`;
+    const back = read(
+      li("a", 0) +
+        li("a1", 1) +
+        indented("a1 more", `w:left="1080"`) +
+        indented("a more", `w:start="360"`) +
+        indented("not the list's", `w:left="2000"`),
+      numbering,
+    );
+    expect(back.blocks).toEqual([
+      bulletList([
+        [
+          plainText("a"),
+          bulletList([[plainText("a1"), para([str("a1 more")])]]),
+          para([str("a more")]),
+        ],
+      ]),
+      para([str("not the list's")]),
     ]);
   });
 

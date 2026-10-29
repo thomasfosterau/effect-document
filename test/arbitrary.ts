@@ -199,14 +199,6 @@ const listItem = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<ReadonlyArray<Bl
   const leads: Array<Arbitrary.Arbitrary<Block>> = [];
   if (has("block.para")) leads.push(Arbitrary.map(text, (content) => new Para({ content })));
   if (has("block.plain")) leads.push(Arbitrary.map(text, (content) => new Plain({ content })));
-  if (has("block.header") && shape === "lead") {
-    leads.push(
-      Arbitrary.map(
-        Arbitrary.all([int(1, 6), text]),
-        ([level, content]) => new Header({ level, content }),
-      ),
-    );
-  }
   const lists = depth > 0 ? lists_(ctx, depth) : [];
   return Arbitrary.map(
     Arbitrary.all([
@@ -364,11 +356,10 @@ const CELL_FEATURES: ReadonlyArray<Feature> = [
  */
 export interface ShapeOptions {
   /**
-   * What a list item holds: any blocks (`"blocks"`, the default); one
-   * paragraph or heading followed by any nested lists (`"lead"`); or one
+   * What a list item holds: any blocks (`"blocks"`, the default), or one
    * paragraph followed by any nested lists (`"paragraph"`).
    */
-  readonly listItems?: "blocks" | "lead" | "paragraph" | undefined;
+  readonly listItems?: "blocks" | "paragraph" | undefined;
   /**
    * Put body paragraphs around the generated prose, for readers that infer
    * structure from layout relative to the body text (PDF headings).

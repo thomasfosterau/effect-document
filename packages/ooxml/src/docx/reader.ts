@@ -3,7 +3,8 @@
  *
  * Parses `word/document.xml`: paragraphs (headings via `w:pStyle`, list items
  * via `w:numPr`, their kind and nesting from `word/numbering.xml` and
- * `w:ilvl`), runs (bold/italic/underline/strike/super/sub/small-caps, with
+ * `w:ilvl`, with a paragraph or table indented to an open list's level read
+ * as a continuation of its last item), runs (bold/italic/underline/strike/super/sub/small-caps, with
  * OOXML's explicit "off" toggle values), hyperlinks (external through the
  * document relationships, internal `w:anchor`s as `#anchor`), simple and
  * complex fields (a HYPERLINK field becomes a link), tables, and the content
@@ -17,6 +18,7 @@ import * as HashMap from "effect/HashMap";
 import * as HashSet from "effect/HashSet";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import {
   type Block,
   BulletList,
@@ -291,10 +293,12 @@ const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inl
 // Numbering
 // ============================================================================
 
-/** List kind and start number per (numId, ilvl), from `word/numbering.xml`. */
+/** List kind, start number and left indent per (numId, ilvl), from `word/numbering.xml`. */
 interface Numbering {
   readonly kind: (numId: string, ilvl: number) => "bullet" | "ordered";
   readonly start: (numId: string, ilvl: number) => number;
+  /** The level's left indent in twentieths of a point (720 per level when the part gives none). */
+  readonly indent: (numId: string, ilvl: number) => number;
 }
 
 const intAttr = (el: XmlElement | undefined, name: string): number | undefined => {
@@ -303,17 +307,30 @@ const intAttr = (el: XmlElement | undefined, name: string): number | undefined =
   return Number.isFinite(n) ? n : undefined;
 };
 
+/** An element's `w:ind` left indent (`w:left`, or `w:start` as Strict and newer Word write it). */
+const leftIndent = (pPr: XmlElement | undefined): number | undefined => {
+  const ind = pPr === undefined ? undefined : findChild(pPr, "ind");
+  return intAttr(ind, "left") ?? intAttr(ind, "start");
+};
+
+interface Level {
+  readonly fmt: string;
+  readonly start: number;
+  readonly indent: number | undefined;
+}
+
 const parseNumbering = (root: XmlElement | null): Numbering => {
-  const abstractFormats = new Map<string, Map<number, { fmt: string; start: number }>>();
+  const abstractFormats = new Map<string, Map<number, Level>>();
   const nums = new Map<string, { abstractId: string; starts: Map<number, number> }>();
   if (root !== null) {
     for (const abs of findChildren(root, "abstractNum")) {
-      const levels = new Map<number, { fmt: string; start: number }>();
+      const levels = new Map<number, Level>();
       for (const lvl of findChildren(abs, "lvl")) {
         const numFmt = findChild(lvl, "numFmt");
         levels.set(intAttr(lvl, "ilvl") ?? 0, {
           fmt: numFmt === undefined ? "" : (getAttr(numFmt, "val") ?? ""),
           start: intAttr(findChild(lvl, "start"), "val") ?? 1,
+          indent: leftIndent(findChild(lvl, "pPr")),
         });
       }
       abstractFormats.set(getAttr(abs, "abstractNumId") ?? "", levels);
@@ -335,6 +352,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
     abstractFormats.get(nums.get(numId)?.abstractId ?? "")?.get(ilvl);
   return {
     start: (numId, ilvl) => nums.get(numId)?.starts.get(ilvl) ?? level(numId, ilvl)?.start ?? 1,
+    indent: (numId, ilvl) => level(numId, ilvl)?.indent ?? 720 * (ilvl + 1),
     kind: (numId, ilvl) => {
       const fmt = level(numId, ilvl)?.fmt;
       if (fmt !== undefined) return fmt === "bullet" || fmt === "none" ? "bullet" : "ordered";
@@ -458,13 +476,41 @@ interface OpenList {
   readonly numId: string;
   readonly level: number;
   readonly start: number;
+  /** The left indent of the list's level: a paragraph or table indented to it continues the last item. */
+  readonly indent: number;
   readonly items: Block[][];
 }
 
-const listBlock = (l: OpenList): Block =>
-  l.kind === "ordered"
-    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items: l.items })
-    : new BulletList({ items: l.items });
+/**
+ * An item's blocks without an empty lead paragraph before other blocks: a
+ * numbered paragraph must exist for an item that starts with a code block,
+ * table or list, so the writer leaves it empty (#195).
+ */
+const itemBlocks = (item: Block[]): Block[] => {
+  const [first, ...rest] = item;
+  return first !== undefined &&
+    Predicate.isTagged(first, "Plain") &&
+    Arr.isReadonlyArrayEmpty(first.content) &&
+    Arr.isReadonlyArrayNonEmpty(rest)
+    ? rest
+    : item;
+};
+
+const listBlock = (l: OpenList): Block => {
+  const items = l.items.map(itemBlocks);
+  return l.kind === "ordered"
+    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items })
+    : new BulletList({ items });
+};
+
+/** A paragraph's own left indent (`w:pPr/w:ind`), if it sets one. */
+const paragraphIndent = (p: XmlElement): number | undefined => leftIndent(findChild(p, "pPr"));
+
+/** A table's left indent (`w:tblPr/w:tblInd`), if it sets one. */
+const tableIndent = (tbl: XmlElement): number | undefined => {
+  const tblPr = findChild(tbl, "tblPr");
+  return intAttr(tblPr === undefined ? undefined : findChild(tblPr, "tblInd"), "w");
+};
 
 /**
  * Convert an element's `w:p`/`w:tbl` children (and those of block-level
@@ -486,36 +532,61 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
   const closeAll = (): void => {
     while (Arr.isReadonlyArrayNonEmpty(open)) close();
   };
+  /**
+   * Whether a block indented by `indent` continues an open list's last item,
+   * as Word indents a list's continuation paragraphs to the item's level
+   * (#195): if so, close the lists nested deeper and return that item.
+   */
+  const continuedItem = (indent: number | undefined): Block[] | undefined => {
+    if (indent === undefined) return undefined;
+    const at = open.findLastIndex(
+      (l) => l.indent === indent && Arr.isReadonlyArrayNonEmpty(l.items),
+    );
+    const list = open[at];
+    if (list === undefined) return undefined;
+    open.slice(at + 1).forEach(close);
+    return list.items.at(-1);
+  };
+
+  /** A block outside any list item's numbering: an indented continuation of an open item, or a block after the lists. */
+  const place = (indent: number | undefined, blocks: () => Block[]): void => {
+    const item = continuedItem(indent);
+    if (item !== undefined) item.push(...blocks());
+    else {
+      closeAll();
+      out.push(...blocks());
+    }
+  };
+
+  /** A numbered paragraph: a new item of the list open at its level, opening or closing lists as its level needs. */
+  const listParagraph = (p: XmlElement, li: { numId: string; ilvl: number }): void => {
+    const kind = ctx.numbering.kind(li.numId, li.ilvl);
+    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
+    const top = open[open.length - 1];
+    // A different kind or numbering instance at the same level is a new list.
+    if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId))
+      close();
+    const current = open[open.length - 1];
+    if (current === undefined || current.level < li.ilvl) {
+      const start = ctx.numbering.start(li.numId, li.ilvl);
+      const indent = ctx.numbering.indent(li.numId, li.ilvl);
+      open.push({ kind, numId: li.numId, level: li.ilvl, start, indent, items: [] });
+    }
+    open[open.length - 1]!.items.push([listItemBlock(p, ctx)]);
+  };
+
+  const paragraph = (p: XmlElement): void => {
+    const li = listInfo(p);
+    if (li === null) place(paragraphIndent(p), () => paragraphToBlocks(p, ctx));
+    else listParagraph(p, li);
+  };
 
   const visit = (el: XmlElement): void => {
     for (const child of el.children) {
-      if (child.name === "p") {
-        const li = listInfo(child);
-        if (li === null) {
-          closeAll();
-          out.push(...paragraphToBlocks(child, ctx));
-          continue;
-        }
-        const kind = ctx.numbering.kind(li.numId, li.ilvl);
-        while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
-        const top = open[open.length - 1];
-        // A different kind or numbering instance at the same level is a new list.
-        if (
-          top !== undefined &&
-          top.level === li.ilvl &&
-          (top.kind !== kind || top.numId !== li.numId)
-        )
-          close();
-        const current = open[open.length - 1];
-        if (current === undefined || current.level < li.ilvl) {
-          const start = ctx.numbering.start(li.numId, li.ilvl);
-          open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
-        }
-        open[open.length - 1]!.items.push([listItemBlock(child, ctx)]);
-      } else if (child.name === "tbl") {
-        closeAll();
-        out.push(tableToBlock(child, ctx, depth));
-      } else if (child.name === "sdt") {
+      if (child.name === "p") paragraph(child);
+      else if (child.name === "tbl")
+        place(tableIndent(child), () => [tableToBlock(child, ctx, depth)]);
+      else if (child.name === "sdt") {
         const sdtContent = findChild(child, "sdtContent");
         if (sdtContent !== undefined) visit(sdtContent);
       } else if (child.name === "ins" || child.name === "moveTo" || child.name === "customXml") {

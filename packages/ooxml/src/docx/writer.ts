@@ -63,6 +63,23 @@ const ABSTRACT_ORDERED = 1;
 /** WordprocessingML list levels run 0-8. */
 const MAX_ILVL = 8;
 
+/**
+ * The left indent, in twentieths of a point, of list level `ilvl`: the
+ * numbering part indents each level by it, and an item's blocks after its
+ * first paragraph are indented to it, as Word indents a list's continuation
+ * paragraphs, so the reader can put them back in the item (#195).
+ */
+const levelIndent = (ilvl: number): number => 720 * (ilvl + 1);
+
+/** A paragraph's `w:ind`, or nothing outside a list item (`indent` 0). */
+const indXml = (indent: number): string => (indent > 0 ? `<w:ind w:left="${indent}"/>` : "");
+
+/** A paragraph's `w:pPr` from its style and indent, or nothing if it has neither. */
+const pPrXml = (style: string, indent: number): string =>
+  style === "" && indent === 0
+    ? ""
+    : `<w:pPr>${style === "" ? "" : `<w:pStyle w:val="${style}"/>`}${indXml(indent)}</w:pPr>`;
+
 // ============================================================================
 // Run rendering
 // ============================================================================
@@ -213,9 +230,10 @@ const listParagraph = (
 };
 
 /**
- * Render a list. Each item's first paragraph carries the numbering; nested
- * lists go one `w:ilvl` deeper, and any other blocks in the item follow as
- * ordinary blocks rather than being dropped.
+ * Render a list. Each item's first paragraph carries the numbering (an empty
+ * one when the item starts with another block); nested lists go one `w:ilvl`
+ * deeper, and the item's other blocks follow indented to its level, as
+ * Word's continuation paragraphs are, so they read back into the item (#195).
  */
 const renderList = (
   items: ReadonlyArray<ReadonlyArray<Block>>,
@@ -236,7 +254,7 @@ const renderList = (
       return (
         listParagraph(lead, numId, ilvl, rel) +
         (Option.isSome(lead) ? rest : item)
-          .map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL)))
+          .map((b) => renderBlock(b, rel, Math.min(ilvl + 1, MAX_ILVL), levelIndent(ilvl)))
           .join("")
       );
     })
@@ -252,7 +270,7 @@ const renderRow = (row: TableRow, isHeader: boolean, rel: RelCollector): string 
   return `<w:tr>${isHeader ? "<w:trPr><w:tblHeader/></w:trPr>" : ""}${cells}</w:tr>`;
 };
 
-const renderTable = (t: Table, rel: RelCollector): string => {
+const renderTable = (t: Table, rel: RelCollector, indent: number): string => {
   const cols = [...t.head, ...t.body, ...t.foot].reduce((m, r) => Math.max(m, r.cells.length), 0);
   const grid = `<w:tblGrid>${Array.from({ length: cols }, () => '<w:gridCol w:w="2400"/>').join("")}</w:tblGrid>`;
   const rows = [
@@ -260,24 +278,29 @@ const renderTable = (t: Table, rel: RelCollector): string => {
     ...t.body.map((r) => renderRow(r, false, rel)),
     ...t.foot.map((r) => renderRow(r, false, rel)),
   ].join("");
-  return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/></w:tblPr>${grid}${rows}</w:tbl>`;
+  return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/>${indent > 0 ? `<w:tblInd w:w="${indent}" w:type="dxa"/>` : ""}</w:tblPr>${grid}${rows}</w:tbl>`;
 };
 
 /**
  * A block of the DOCX profile; `ilvl` is the list level a nested list here
- * would take (0 outside lists). Exhaustive over the profile's blocks (#109).
+ * would take (0 outside lists) and `indent` the left indent of a list item's
+ * continuation block (0 outside lists). Exhaustive over the profile's blocks (#109).
  */
-const docxBlock = (b: BlockOf<DocxFeature>, rel: RelCollector, ilvl: number): string =>
+const docxBlock = (
+  b: BlockOf<DocxFeature>,
+  rel: RelCollector,
+  ilvl: number,
+  indent: number,
+): string =>
   Match.valueTags(b, {
-    Para: (p) => `<w:p>${inlineRuns(p.content, {}, rel)}</w:p>`,
-    Plain: (p) => `<w:p>${inlineRuns(p.content, {}, rel)}</w:p>`,
+    Para: (p) => `<w:p>${pPrXml("", indent)}${inlineRuns(p.content, {}, rel)}</w:p>`,
+    Plain: (p) => `<w:p>${pPrXml("", indent)}${inlineRuns(p.content, {}, rel)}</w:p>`,
     Header: (h) =>
-      `<w:p><w:pPr><w:pStyle w:val="Heading${h.level}"/></w:pPr>${inlineRuns(h.content, {}, rel)}</w:p>`,
+      `<w:p>${pPrXml(`Heading${h.level}`, indent)}${inlineRuns(h.content, {}, rel)}</w:p>`,
     BulletList: (l) => renderList(l.items, rel.addList("bullet"), ilvl, rel),
     OrderedList: (l) => renderList(l.items, rel.addList(l.start ?? 1), ilvl, rel),
-    CodeBlock: (c) =>
-      `<w:p><w:pPr><w:pStyle w:val="Code"/></w:pPr><w:r>${runContent(c.text)}</w:r></w:p>`,
-    Table: (t) => renderTable(t, rel),
+    CodeBlock: (c) => `<w:p>${pPrXml("Code", indent)}<w:r>${runContent(c.text)}</w:r></w:p>`,
+    Table: (t) => renderTable(t, rel, indent),
   });
 
 /**
@@ -286,20 +309,25 @@ const docxBlock = (b: BlockOf<DocxFeature>, rel: RelCollector, ilvl: number): st
  * flattened into their content, a line block as one paragraph per line
  * (none of which reads back as such); anything else is dropped.
  */
-const otherBlock = (b: Block, rel: RelCollector, ilvl: number): string => {
+const otherBlock = (b: Block, rel: RelCollector, ilvl: number, indent: number): string => {
   if (Predicate.isTagged(b, "HorizontalRule")) {
-    return '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr></w:pPr></w:p>';
+    return `<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="auto"/></w:pBdr>${indXml(indent)}</w:pPr></w:p>`;
   } else if (Predicate.isTagged(b, "BlockQuote") || Predicate.isTagged(b, "Div")) {
-    return b.content.map((x) => renderBlock(x, rel, ilvl)).join("");
+    return b.content.map((x) => renderBlock(x, rel, ilvl, indent)).join("");
   } else if (Predicate.isTagged(b, "LineBlock")) {
-    return b.lines.map((line) => `<w:p>${inlineRuns(line, {}, rel)}</w:p>`).join("");
+    return b.lines
+      .map((line) => `<w:p>${pPrXml("", indent)}${inlineRuns(line, {}, rel)}</w:p>`)
+      .join("");
   }
   return "";
 };
 
-/** `ilvl`: the list level a nested list here would take (0 outside lists). */
-const renderBlock = (b: Block, rel: RelCollector, ilvl: number): string =>
-  isNodeIn(Docx, b) ? docxBlock(b, rel, ilvl) : otherBlock(b, rel, ilvl);
+/**
+ * `ilvl`: the list level a nested list here would take (0 outside lists);
+ * `indent`: the left indent of a list item's continuation block (0 outside lists).
+ */
+const renderBlock = (b: Block, rel: RelCollector, ilvl: number, indent = 0): string =>
+  isNodeIn(Docx, b) ? docxBlock(b, rel, ilvl, indent) : otherBlock(b, rel, ilvl, indent);
 
 // ============================================================================
 // Package parts
@@ -316,7 +344,7 @@ const levels = (fmt: (ilvl: number) => string): string =>
     { length: MAX_ILVL + 1 },
     (_, ilvl) =>
       `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/>${fmt(ilvl)}` +
-      `<w:pPr><w:ind w:left="${720 * (ilvl + 1)}" w:hanging="360"/></w:pPr></w:lvl>`,
+      `<w:pPr><w:ind w:left="${levelIndent(ilvl)}" w:hanging="360"/></w:pPr></w:lvl>`,
   ).join("");
 
 const numberingXml = (rel: RelCollector): string =>
