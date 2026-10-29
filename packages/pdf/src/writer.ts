@@ -33,6 +33,7 @@ import {
   type Doc,
   type Inline,
   type InlineOf,
+  inlinesToText,
   isNodeIn,
   makeWriterTag,
   WriteError,
@@ -334,8 +335,23 @@ interface Position {
   readonly y: number;
 }
 
+/** Where a block starts: its page's index and the top of its first line. */
+interface Anchor {
+  readonly page: number;
+  readonly top: number;
+}
+
+/** A heading, for the document outline (#20): its level, its text and where it starts. */
+interface OutlineEntry {
+  readonly level: number;
+  readonly title: string;
+  readonly at: Anchor;
+}
+
 class Typesetter {
   readonly pages: PageOut[] = [];
+  /** The headings, in order, for the outline. */
+  readonly headings: OutlineEntry[] = [];
   readonly fonts = new Set<StandardFont>();
   /** The structure tree's root element. */
   readonly root: StructNode = { id: 0, type: "Document", attributes: undefined, kids: [] };
@@ -438,10 +454,12 @@ class Typesetter {
     size: number,
     lineHeight: number,
     marker?: { text: string; x: number; body: ReadonlyArray<string> },
-  ): void {
+  ): Anchor {
     const ascent = size * 0.75;
+    let anchor: Anchor = { page: this.page.index, top: this.y };
     lines.forEach((line, i) => {
       this.need(lineHeight);
+      if (i === 0) anchor = { page: this.page.index, top: this.y };
       const baseline = this.y - ascent - (lineHeight - size) / 2;
       if (i === 0 && marker !== undefined) {
         this.begin("Lbl");
@@ -457,6 +475,7 @@ class Typesetter {
       }
       this.y -= lineHeight;
     });
+    return anchor;
   }
 
   private text(
@@ -639,8 +658,10 @@ const layoutBlock = (
       ts.space(size * 0.6);
       const lines = breakLines(flatten(h.content, { ...PLAIN, bold: true }), size, textWidth);
       ts.begin(`H${h.level}`);
-      ts.lines(lines, left, size, size * 1.25);
+      const at = ts.lines(lines, left, size, size * 1.25);
       ts.end();
+      const title = inlinesToText(h.content).replace(/\s+/g, " ").trim();
+      if (title !== "") ts.headings.push({ level: h.level, title, at });
       ts.space(size * 0.4);
     },
     CodeBlock: (c) => layoutCodeBlock(ts, c, left, textWidth),
@@ -715,6 +736,91 @@ const writeStructure = (
     });
   };
   write(root, treeRef);
+};
+
+/** An outline item and the items nested under it (deeper headings that follow it). */
+interface OutlineNode {
+  readonly entry: OutlineEntry;
+  readonly children: OutlineNode[];
+}
+
+/** Nest headings by level: each one goes under the nearest earlier heading of a lower level. */
+const outlineTree = (headings: ReadonlyArray<OutlineEntry>): OutlineNode[] => {
+  const roots: OutlineNode[] = [];
+  const open: OutlineNode[] = [];
+  headings.forEach((entry) => {
+    const node: OutlineNode = { entry, children: [] };
+    const parentAt = open.findLastIndex((o) => o.entry.level < entry.level);
+    open.splice(parentAt + 1);
+    const parent = open[open.length - 1];
+    if (parent === undefined) roots.push(node);
+    else parent.children.push(node);
+    open.push(node);
+  });
+  return roots;
+};
+
+/** The number of items under a node, all open. */
+const descendants = (node: OutlineNode): number =>
+  node.children.reduce((n, child) => n + 1 + descendants(child), 0);
+
+/**
+ * Write the document outline (bookmarks) from the headings (#20): one item
+ * per heading, nested by level, each going to the top of its first line.
+ * `undefined` when there are no headings.
+ */
+const writeOutline = (
+  pdf: PdfBuilder,
+  headings: ReadonlyArray<OutlineEntry>,
+  pages: ReadonlyArray<PdfRef>,
+): PdfRef | undefined => {
+  const roots = outlineTree(headings);
+  if (Arr.isReadonlyArrayEmpty(roots)) return undefined;
+  const root = pdf.alloc();
+  const items = (nodes: ReadonlyArray<OutlineNode>, parent: PdfRef): readonly [PdfRef, PdfRef] => {
+    const refs = nodes.map(() => pdf.alloc());
+    nodes.forEach((node, i) => {
+      const ref = refs[i] ?? parent;
+      const [first, last] = Arr.isReadonlyArrayNonEmpty(node.children)
+        ? items(node.children, ref)
+        : [undefined, undefined];
+      const page = pages[node.entry.at.page];
+      pdf.set(
+        ref,
+        pdfDict({
+          Title: pdfTextString(node.entry.title),
+          Parent: parent,
+          Prev: refs[i - 1],
+          Next: refs[i + 1],
+          First: first,
+          Last: last,
+          Count: Arr.isReadonlyArrayNonEmpty(node.children) ? descendants(node) : undefined,
+          Dest:
+            page === undefined
+              ? undefined
+              : pdfArray([
+                  page,
+                  pdfName("XYZ"),
+                  null,
+                  Math.round(node.entry.at.top * 100) / 100,
+                  null,
+                ]),
+        }),
+      );
+    });
+    return [refs[0] ?? parent, refs[refs.length - 1] ?? parent];
+  };
+  const [first, last] = items(roots, root);
+  pdf.set(
+    root,
+    pdfDict({
+      Type: pdfName("Outlines"),
+      First: first,
+      Last: last,
+      Count: roots.reduce((n, node) => n + 1 + descendants(node), 0),
+    }),
+  );
+  return root;
 };
 
 /** Render a PDF-profile document to PDF bytes. */
@@ -812,6 +918,7 @@ export const renderPdf = (doc: Doc<PdfFeature>, options: PdfWriterOptions = {}):
       Type: pdfName("Catalog"),
       Pages: pagesRef,
       MarkInfo: pdfDict({ Marked: true }),
+      Outlines: writeOutline(pdf, ts.headings, kids),
       StructTreeRoot: treeRef,
       Lang: metaString(doc.meta, "lang") ?? metaString(doc.meta, "language"),
     }),
