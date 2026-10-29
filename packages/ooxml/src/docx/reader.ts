@@ -6,7 +6,8 @@
  * `w:ilvl`, with a paragraph or table indented to an open list's level read
  * as a continuation of its last item), runs (bold/italic/underline/strike/super/sub/small-caps, with
  * OOXML's explicit "off" toggle values), hyperlinks (external through the
- * document relationships, internal `w:anchor`s as `#anchor`), simple and
+ * document relationships, internal `w:anchor`s as `#anchor`, a heading's
+ * bookmark as its id), simple and
  * complex fields (a HYPERLINK field becomes a link), tables, and the content
  * of tracked insertions and content controls. Tracked deletions are dropped,
  * and a page break ends the paragraph.
@@ -370,7 +371,56 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
 interface Ctx {
   readonly rels: ReadonlyMap<string, string>;
   readonly numbering: Numbering;
+  /** The bookmarks the document's internal links go to (`w:anchor`, `HYPERLINK \l`). */
+  readonly anchors: HashSet.HashSet<string>;
 }
+
+/** Every element under `root`, root first (an explicit stack: bodies nest tables). */
+const elementsOf = (root: XmlElement): ReadonlyArray<XmlElement> => {
+  const stack: Array<XmlElement> = [root];
+  return Arr.unfold(undefined, () => {
+    const el = stack.pop();
+    if (el === undefined) return Option.none();
+    stack.push(...el.children);
+    return Option.some([el, undefined] as const);
+  });
+};
+
+/** The bookmarks internal links in `body` go to: hyperlink anchors and `HYPERLINK \l` fields. */
+const linkAnchors = (body: XmlElement): HashSet.HashSet<string> =>
+  HashSet.fromIterable(
+    elementsOf(body).flatMap((el): ReadonlyArray<string> => {
+      const anchor = el.name === "hyperlink" ? getAttr(el, "anchor") : undefined;
+      if (anchor !== undefined) return [anchor];
+      // a field's instruction may be split across runs: read a paragraph's whole
+      const instr =
+        el.name === "fldSimple"
+          ? (getAttr(el, "instr") ?? "")
+          : el.name === "p"
+            ? elementsOf(el)
+                .filter((x) => x.name === "instrText")
+                .map((x) => x.text)
+                .join("")
+            : "";
+      return Array.from(instr.matchAll(/HYPERLINK\b[^"]*?\\l\s+"([^"]*)"/gi), (m) => m[1] ?? "");
+    }),
+  );
+
+/**
+ * A heading paragraph's id: the name of its first bookmark (#184). Word's
+ * hidden bookmarks (`_GoBack`, `_Toc…`, any name starting with `_`) are
+ * skipped unless a link in the document goes to them.
+ */
+const bookmarkId = (p: XmlElement, ctx: Ctx): string | undefined =>
+  findChildren(p, "bookmarkStart")
+    .map((b) => getAttr(b, "name") ?? "")
+    .find((name) => name !== "" && (!name.startsWith("_") || HashSet.has(ctx.anchors, name)));
+
+/** A heading's attributes: its bookmark as its id, if it has one. */
+const headingAttr = (p: XmlElement, ctx: Ctx) => {
+  const id = bookmarkId(p, ctx);
+  return id === undefined ? undefined : { id };
+};
 
 const paragraphStyle = (p: XmlElement): string | undefined => {
   const pPr = findChild(p, "pPr");
@@ -402,7 +452,11 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   const heading = style?.match(/^Heading([1-6])$/);
   return segments.map((inlines, n) =>
     heading && n === 0
-      ? new Header({ level: Number.parseInt(heading[1]!, 10), content: inlines })
+      ? new Header({
+          level: Number.parseInt(heading[1]!, 10),
+          attr: headingAttr(p, ctx),
+          content: inlines,
+        })
       : new Para({ content: inlines }),
   );
 };
@@ -412,7 +466,11 @@ const listItemBlock = (p: XmlElement, ctx: Ctx): Block => {
   const heading = paragraphStyle(p)?.match(/^Heading([1-6])$/);
   const content = paragraphInlines(p, ctx.rels);
   return heading
-    ? new Header({ level: Number.parseInt(heading[1] ?? "1", 10), content })
+    ? new Header({
+        level: Number.parseInt(heading[1] ?? "1", 10),
+        attr: headingAttr(p, ctx),
+        content,
+      })
     : new Plain({ content });
 };
 
@@ -626,7 +684,11 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
         const blocks =
           body === undefined
             ? []
-            : bodyToBlocks(body, { rels, numbering }, { level: 1, max: maxDepth });
+            : bodyToBlocks(
+                body,
+                { rels, numbering, anchors: linkAnchors(body) },
+                { level: 1, max: maxDepth },
+              );
         return trustAs<DocxFeature>(document(blocks));
       },
       catch: (cause) =>

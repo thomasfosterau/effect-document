@@ -68,7 +68,13 @@ export interface NormalShape {
 /** A normalised block. */
 export type NormalBlock =
   | { readonly _tag: "Para"; readonly text: ReadonlyArray<Token> }
-  | { readonly _tag: "Header"; readonly level: number; readonly text: ReadonlyArray<Token> }
+  | {
+      readonly _tag: "Header";
+      readonly level: number;
+      readonly text: ReadonlyArray<Token>;
+      /** The heading's id, when it has one (#184). */
+      readonly id?: string | undefined;
+    }
   | { readonly _tag: "Code"; readonly text: string }
   | { readonly _tag: "Rule" }
   | { readonly _tag: "Lines"; readonly lines: ReadonlyArray<ReadonlyArray<Token>> }
@@ -236,10 +242,12 @@ const normalizeBlock = (block: Block): NormalBlock =>
       _tag: "Para",
       text: normalizeInlines(content),
     })),
-    Match.tag("Header", ({ level, content }): NormalBlock => ({
+    Match.tag("Header", ({ level, content, attr }): NormalBlock => ({
       _tag: "Header",
       level,
       text: normalizeInlines(content),
+      // (an absent id is left out of the normal form's JSON)
+      id: attr?.id,
     })),
     Match.tag("CodeBlock", ({ text }): NormalBlock => ({
       _tag: "Code",

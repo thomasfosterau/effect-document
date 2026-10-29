@@ -268,8 +268,14 @@ const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
       "block.header",
       () =>
         Arbitrary.map(
-          Arbitrary.all([int(1, 6), inlines(inside(ctx, "block.header"), 2)]),
-          ([level, content]): Block => new Header({ level, content }),
+          Arbitrary.all([int(1, 6), inlines(inside(ctx, "block.header"), 2), int(0, 9)]),
+          // an id on some headings, where the profile allows one (#184)
+          ([level, content, n]): Block =>
+            new Header({
+              level,
+              content,
+              attr: ctx.has("attr.id.header") && n % 2 === 0 ? { id: `h${n}` } : undefined,
+            }),
         ),
     ],
     [

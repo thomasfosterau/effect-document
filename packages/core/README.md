@@ -141,6 +141,12 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `SheetFeature` | type | Spreadsheet features (the `Worksheet` block and its typed cells). |
 | `DeckFeature` | type | Presentation features (the `SlideShow` block, its slides and shapes). |
 | `AttrFeature` | type | Cross-cutting attribute-facet features (which kinds of `Attributes` are allowed). |
+| `IdFeature` | type | Per-node id facets (`attr.id.header`, `attr.id.link`, …): an id allowed on one kind of node only. |
+| `ID_FEATURE` | const | Each node's id facet, keyed by its tag (`TableCell` and `Slide` for the untagged ones). |
+| `IdNode` | type | A node tag `ID_FEATURE` keys. |
+| `idFeatureOf` | function | The id facet of a node with the given tag. |
+| `WithIdFeatures` | type | A feature set with `attr.id` standing for every `IdFeature`, as `defineProfile` reads it. |
+| `withIdFeatures` | function | A feature list with `attr.id` expanded to every per-node id facet. |
 | `Feature` | type | Any capability the universal document schema can express. |
 | `TAG_FEATURE` | const | Maps a node's `_tag` to the feature it represents. |
 | `TaggedNode` | type | Any document node whose tag `TAG_FEATURE` maps to a feature. |
@@ -150,6 +156,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `ALL_SHEET_FEATURES` | const | Every spreadsheet feature (worksheets and cell types), for assembling profiles. |
 | `ALL_DECK_FEATURES` | const | Every presentation feature (slide shows and shapes), for assembling profiles. |
 | `ALL_ATTR_FEATURES` | const | Every attribute facet feature, for assembling profiles. |
+| `ALL_ID_FEATURES` | const | Every per-node id facet. |
 | `ALL_FEATURES` | const | Every feature in the schema - the maximal ("Full") profile's allow-set. |
 | `AttrValue` | const | A JSON-compatible value usable as a custom attribute. |
 | `HorizontalAlign` | const | Horizontal alignment of text in a paragraph or cell. |

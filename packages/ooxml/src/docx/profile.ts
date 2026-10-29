@@ -34,6 +34,8 @@ export const docxFeatures = [
   "inline.subscript",
   "inline.smallCaps",
   "inline.link",
+  // a heading's id, kept as a bookmark around it (#184); ids elsewhere are not kept
+  "attr.id.header",
 ] as const;
 
 /** The DOCX (WordprocessingML) profile. */

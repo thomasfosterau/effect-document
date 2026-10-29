@@ -121,6 +121,17 @@ class RelCollector {
   get numberings(): ReadonlyArray<{ numId: number; start: number | "bullet" }> {
     return this.lists.map((start, n) => ({ numId: n + 1, start }));
   }
+  private bookmarks = 0;
+  /**
+   * `inner` (a paragraph's runs) inside a bookmark named `name`, if there is
+   * one: how a heading's id is kept (#184), and what a `#name` link goes to.
+   * Each bookmark gets a fresh `w:id`.
+   */
+  bookmarked(name: string | undefined, inner: string): string {
+    if (name === undefined || name === "") return inner;
+    const id = this.bookmarks++;
+    return `<w:bookmarkStart w:id="${id}" w:name="${escapeAttr(name)}"/>${inner}<w:bookmarkEnd w:id="${id}"/>`;
+  }
 }
 
 const rPr = (f: Fmt): string => {
@@ -226,7 +237,11 @@ const listParagraph = (
     },
   );
   const content = Option.match(lead, { onNone: () => [], onSome: (p) => p.content });
-  return `<w:p><w:pPr>${style}<w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${inlineRuns(content, {}, rel)}</w:p>`;
+  const id = Option.match(lead, {
+    onNone: () => undefined,
+    onSome: (p) => (Predicate.isTagged(p, "Header") ? p.attr?.id : undefined),
+  });
+  return `<w:p><w:pPr>${style}<w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${rel.bookmarked(id, inlineRuns(content, {}, rel))}</w:p>`;
 };
 
 /**
@@ -296,7 +311,7 @@ const docxBlock = (
     Para: (p) => `<w:p>${pPrXml("", indent)}${inlineRuns(p.content, {}, rel)}</w:p>`,
     Plain: (p) => `<w:p>${pPrXml("", indent)}${inlineRuns(p.content, {}, rel)}</w:p>`,
     Header: (h) =>
-      `<w:p>${pPrXml(`Heading${h.level}`, indent)}${inlineRuns(h.content, {}, rel)}</w:p>`,
+      `<w:p>${pPrXml(`Heading${h.level}`, indent)}${rel.bookmarked(h.attr?.id, inlineRuns(h.content, {}, rel))}</w:p>`,
     BulletList: (l) => renderList(l.items, rel.addList("bullet"), ilvl, rel),
     OrderedList: (l) => renderList(l.items, rel.addList(l.start ?? 1), ilvl, rel),
     CodeBlock: (c) => `<w:p>${pPrXml("Code", indent)}<w:r>${runContent(c.text)}</w:r></w:p>`,

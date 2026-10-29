@@ -2,7 +2,11 @@ import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import {
   cell,
+  CodeBlock,
+  DefinitionItem,
+  DefinitionList,
   Header,
+  Link,
   document,
   header,
   para,
@@ -14,7 +18,13 @@ import {
   SheetColumn,
   Worksheet,
 } from "../../src/schema/index.ts";
-import { Profiles, defineProfile, narrow, widen } from "../../src/profile/index.ts";
+import {
+  Profiles,
+  collectFeatures,
+  defineProfile,
+  narrow,
+  widen,
+} from "../../src/profile/index.ts";
 
 describe("widen", () => {
   test("is an identity at runtime", () => {
@@ -188,5 +198,72 @@ describe("narrow: structural rules (notWithin, #197)", () => {
     );
     const { document: out } = narrow(document([header(1, [strong([str("b")])])]), NoHeadings);
     expect(out.blocks).toEqual([para([strong([str("b")])])]);
+  });
+});
+
+describe("per-node id facets (#184)", () => {
+  const HeadingIds = defineProfile("heading-ids", [
+    "block.para",
+    "block.header",
+    "inline.str",
+    "inline.link",
+    "attr.id.header",
+  ]);
+  const doc = document([
+    new Header({ level: 1, attr: { id: "top" }, content: [str("T")] }),
+    para([new Link({ attr: { id: "l" }, content: [str("x")], target: { url: "#top" } })]),
+  ]);
+
+  test("a document's ids are collected per node", () => {
+    const used = collectFeatures(doc);
+    expect(used.has("attr.id.header")).toBe(true);
+    expect(used.has("attr.id.link")).toBe(true);
+    expect(used.has("attr.id")).toBe(false);
+  });
+
+  test("narrow keeps an id only on the nodes the profile allows it on", () => {
+    const { document: out, loss } = narrow(doc, HeadingIds);
+    expect(HeadingIds.is(out)).toBe(true);
+    const [h, p] = out.blocks;
+    assert(Predicate.isTagged(h, "Header") && Predicate.isTagged(p, "Para"));
+    expect(h.attr?.id).toBe("top");
+    const link = p.content[0];
+    assert(Predicate.isTagged(link, "Link"));
+    expect(link.attr).toBe(undefined);
+    expect(loss.entries).toEqual([
+      {
+        feature: "attr.id.link",
+        action: "dropped",
+        detail: "format does not support ids on Link nodes",
+      },
+    ]);
+  });
+
+  test("attr.id stands for every per-node facet", () => {
+    const Ids = defineProfile("ids", [
+      "block.para",
+      "block.header",
+      "inline.str",
+      "inline.link",
+      "attr.id",
+    ]);
+    expect(Ids.features.has("attr.id.link")).toBe(true);
+    expect(Ids.is(doc)).toBe(true);
+    expect(narrow(doc, Ids).loss.isLossless).toBe(true);
+    expect(HeadingIds.is(doc)).toBe(false);
+  });
+
+  test("ids on code blocks and definition lists, and their contents, are narrowed too", () => {
+    const rich = document([
+      new CodeBlock({ attr: { id: "c" }, text: "x" }),
+      new DefinitionList({
+        attr: { id: "d" },
+        items: [
+          new DefinitionItem({ term: [strong([str("t")])], definitions: [[para([str("d")])]] }),
+        ],
+      }),
+    ]);
+    const { document: out } = narrow(rich, Profiles.Csv);
+    expect(Profiles.Csv.is(out)).toBe(true);
   });
 });
