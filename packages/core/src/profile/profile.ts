@@ -18,7 +18,13 @@ import * as Schema from "effect/Schema";
 import { type AttrPolicy } from "../schema/attributes.ts";
 import { Document, type DocumentEncoded } from "../schema/document.ts";
 import type { Block, Inline, SheetCell, Shape } from "../schema/ast.ts";
-import { type Feature, featureOfTag, type TagsOf } from "../schema/feature.ts";
+import {
+  type Feature,
+  featureOfTag,
+  type TagsOf,
+  type WithIdFeatures,
+  withIdFeatures,
+} from "../schema/feature.ts";
 import { ProfileViolation } from "../io/errors.ts";
 import { collectFeaturesWithin, unsupportedFeatures } from "./collect.ts";
 
@@ -143,7 +149,11 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
  * Define a profile from its complete allow-set of features. The same array
  * drives both the runtime feature set and the phantom type `F`, so they cannot
  * drift apart. Attribute facets are derived from the `attr.*` features present.
- * `options.notWithin` adds structural rules the feature set can't express.
+ * Listing `attr.id` allows ids on every node: it stands for every per-node id
+ * facet (`attr.id.header`, `attr.id.link`, …), in the runtime set and in the
+ * phantom type; listing only some of those facets allows ids on just those
+ * nodes (#184). `options.notWithin` adds structural rules the feature set
+ * can't express.
  *
  * ```ts
  * const csvFeatures = ["sheet.worksheet", "cell.text", "cell.number"] as const;
@@ -154,8 +164,9 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   id: string,
   features: FS,
   options?: ProfileOptions,
-): Profile<FS[number]> => {
-  const set: ReadonlySet<Feature> = new Set(features);
+): Profile<WithIdFeatures<FS[number]>> => {
+  type F = WithIdFeatures<FS[number]>;
+  const set: ReadonlySet<Feature> = new Set(withIdFeatures(features));
   const notWithin = options?.notWithin ?? [];
   /** The features a document uses outside the profile, or inside a node a rule keeps them out of. */
   const violations = (doc: Document): Feature[] =>
@@ -166,14 +177,14 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
         .map((rule) => rule.feature),
     ]);
   const conforms = (doc: Document): boolean => Arr.isReadonlyArrayEmpty(violations(doc));
-  const is = (doc: Document): doc is Doc<FS[number]> => conforms(doc);
-  const validate = (doc: Document): Effect.Effect<Doc<FS[number]>, ProfileViolation> =>
+  const is = (doc: Document): doc is Doc<F> => conforms(doc);
+  const validate = (doc: Document): Effect.Effect<Doc<F>, ProfileViolation> =>
     Arr.match(violations(doc), {
       // SAFETY: the document uses no feature outside the profile's allow-set, and breaks none of its rules.
-      onEmpty: () => Effect.succeed(doc as Doc<FS[number]>),
+      onEmpty: () => Effect.succeed(doc as Doc<F>),
       onNonEmpty: (unsupported) => Effect.fail(new ProfileViolation({ profile: id, unsupported })),
     });
-  const schema: Schema.Codec<Doc<FS[number]>, DocumentEncoded> = Document.pipe(
+  const schema: Schema.Codec<Doc<F>, DocumentEncoded> = Document.pipe(
     Schema.refine(is, {
       identifier: `${id}Document`,
       title: `${id} document`,

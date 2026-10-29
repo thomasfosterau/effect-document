@@ -32,12 +32,16 @@ import {
   Cite,
   Citation,
   Code,
+  CodeBlock,
+  DefinitionItem,
+  DefinitionList,
   Div,
   Emph,
   Figure,
   Header,
   Image,
   type Inline,
+  LineBlock,
   Link,
   Math,
   Note,
@@ -72,7 +76,7 @@ import {
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { denseRows, sheetRow } from "../schema/sheet.ts";
-import { type Feature } from "../schema/feature.ts";
+import { type Feature, ID_FEATURE, type IdNode } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
@@ -179,7 +183,12 @@ const keepFacet = <A>(
   return undefined;
 };
 
-const narrowAttr = (attr: Attributes | undefined, ctx: Ctx): Attributes | undefined => {
+/** A node's attributes narrowed to the target; `node` is its tag, for its id facet (#184). */
+const narrowAttr = (
+  attr: Attributes | undefined,
+  node: IdNode,
+  ctx: Ctx,
+): Attributes | undefined => {
   if (attr === undefined) return undefined;
   const classes =
     attr.classes !== undefined && Arr.isReadonlyArrayNonEmpty(attr.classes)
@@ -189,7 +198,12 @@ const narrowAttr = (attr: Attributes | undefined, ctx: Ctx): Attributes | undefi
     attr.data !== undefined && !Rec.isEmptyReadonlyRecord(attr.data) ? attr.data : undefined;
   // facets in a fixed order, so the loss report lists them id → classes → style → data
   const out: { -readonly [K in keyof Attributes]: Attributes[K] } = {};
-  const id = keepFacet(attr.id, "attr.id", "format does not support element ids", ctx);
+  const id = keepFacet(
+    attr.id,
+    ID_FEATURE[node],
+    `format does not support ids on ${node} nodes`,
+    ctx,
+  );
   if (id !== undefined) out.id = id;
   const keptClasses = keepFacet(classes, "attr.classes", "format does not support classes", ctx);
   if (keptClasses !== undefined) out.classes = keptClasses;
@@ -288,18 +302,19 @@ const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
   Span: wrapper(
     "inline.span",
     "Span unwrapped to its content",
-    (n, content, ctx) => new Span({ attr: narrowAttr(n.attr, ctx), content }),
+    (n, content, ctx) => new Span({ attr: narrowAttr(n.attr, "Span", ctx), content }),
   ),
   Link: wrapper(
     "inline.link",
     "Link reduced to its text",
-    (n, content, ctx) => new Link({ attr: narrowAttr(n.attr, ctx), content, target: n.target }),
+    (n, content, ctx) =>
+      new Link({ attr: narrowAttr(n.attr, "Link", ctx), content, target: n.target }),
   ),
   Image: (n, ctx) => {
     if (ctx.allowed.has("inline.image"))
       return [
         new Image({
-          attr: narrowAttr(n.attr, ctx),
+          attr: narrowAttr(n.attr, "Image", ctx),
           alt: narrowInlines(n.alt, ctx),
           target: n.target,
         }),
@@ -310,7 +325,7 @@ const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
   Code: textual(
     "inline.code",
     "Code reduced to text",
-    (n, ctx) => new Code({ attr: narrowAttr(n.attr, ctx), text: n.text }),
+    (n, ctx) => new Code({ attr: narrowAttr(n.attr, "Code", ctx), text: n.text }),
   ),
   Math: textual(
     "inline.math",
@@ -444,7 +459,7 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     });
   }
   return new Worksheet({
-    attr: narrowAttr(w.attr, ctx),
+    attr: narrowAttr(w.attr, "Worksheet", ctx),
     name: w.name,
     columns,
     rows: w.rows.map(
@@ -520,24 +535,31 @@ const SHAPE: TagHandlers<Shape, [Ctx], Shape[]> = {
     "shape.textBox",
     "text box dropped",
     (s, ctx) =>
-      new TextBox({ attr: narrowAttr(s.attr, ctx), content: narrowBlocks(s.content, ctx) }),
+      new TextBox({
+        attr: narrowAttr(s.attr, "TextBox", ctx),
+        content: narrowBlocks(s.content, ctx),
+      }),
   ),
   Picture: shape(
     "shape.picture",
     "picture dropped",
-    (s, ctx) => new Picture({ attr: narrowAttr(s.attr, ctx), src: s.src, alt: s.alt }),
+    (s, ctx) => new Picture({ attr: narrowAttr(s.attr, "Picture", ctx), src: s.src, alt: s.alt }),
   ),
   TableShape: shape(
     "shape.table",
     "table shape dropped",
-    (s, ctx) => new TableShape({ attr: narrowAttr(s.attr, ctx), table: narrowTable(s.table, ctx) }),
+    (s, ctx) =>
+      new TableShape({
+        attr: narrowAttr(s.attr, "TableShape", ctx),
+        table: narrowTable(s.table, ctx),
+      }),
   ),
   Placeholder: shape(
     "shape.placeholder",
     "placeholder dropped",
     (s, ctx) =>
       new Placeholder({
-        attr: narrowAttr(s.attr, ctx),
+        attr: narrowAttr(s.attr, "Placeholder", ctx),
         placeholderType: s.placeholderType,
         idx: s.idx,
         content: narrowBlocks(s.content, ctx),
@@ -555,13 +577,13 @@ const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
       notes = undefined;
     }
     return new Slide({
-      attr: narrowAttr(sl.attr, ctx),
+      attr: narrowAttr(sl.attr, "Slide", ctx),
       layout: sl.layout,
       shapes: sl.shapes.flatMap((sh) => narrowShape(sh, ctx)),
       notes: notes === undefined ? undefined : narrowBlocks(notes, ctx),
     });
   });
-  return new SlideShow({ attr: narrowAttr(d.attr, ctx), size: d.size, slides });
+  return new SlideShow({ attr: narrowAttr(d.attr, "SlideShow", ctx), size: d.size, slides });
 };
 
 // ---- prose table ----------------------------------------------------------
@@ -571,7 +593,7 @@ const narrowTableRow = (r: TableRow, ctx: Ctx): TableRow =>
     cells: r.cells.map(
       (c) =>
         new TableCell({
-          attr: narrowAttr(c.attr, ctx),
+          attr: narrowAttr(c.attr, "TableCell", ctx),
           align: c.align,
           rowSpan: c.rowSpan,
           colSpan: c.colSpan,
@@ -582,7 +604,7 @@ const narrowTableRow = (r: TableRow, ctx: Ctx): TableRow =>
 
 const narrowTable = (t: Table, ctx: Ctx): Table =>
   new Table({
-    attr: narrowAttr(t.attr, ctx),
+    attr: narrowAttr(t.attr, "Table", ctx),
     caption: t.caption === undefined ? undefined : narrowInlines(t.caption, ctx),
     colSpecs: t.colSpecs,
     head: t.head.map((r) => narrowTableRow(r, ctx)),
@@ -699,24 +721,24 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
   Header: (b, ctx) => [
     new Header({
       level: b.level,
-      attr: narrowAttr(b.attr, ctx),
+      attr: narrowAttr(b.attr, "Header", ctx),
       content: narrowInlines(b.content, ctx),
     }),
   ],
   BlockQuote: (b, ctx) => [new BlockQuote({ content: narrowBlocks(b.content, ctx) })],
   Div: (b, ctx) => [
-    new Div({ attr: narrowAttr(b.attr, ctx), content: narrowBlocks(b.content, ctx) }),
+    new Div({ attr: narrowAttr(b.attr, "Div", ctx), content: narrowBlocks(b.content, ctx) }),
   ],
   Figure: (b, ctx) => [
     new Figure({
-      attr: narrowAttr(b.attr, ctx),
+      attr: narrowAttr(b.attr, "Figure", ctx),
       caption: narrowBlocks(b.caption, ctx),
       content: narrowBlocks(b.content, ctx),
     }),
   ],
   OrderedList: (b, ctx) => [
     new OrderedList({
-      attr: narrowAttr(b.attr, ctx),
+      attr: narrowAttr(b.attr, "OrderedList", ctx),
       start: b.start,
       numberStyle: b.numberStyle,
       numberDelim: b.numberDelim,
@@ -725,17 +747,34 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
   ],
   BulletList: (b, ctx) => [
     new BulletList({
-      attr: narrowAttr(b.attr, ctx),
+      attr: narrowAttr(b.attr, "BulletList", ctx),
       items: b.items.map((it) => narrowBlocks(it, ctx)),
     }),
   ],
   Table: (b, ctx) => [narrowTable(b, ctx)],
   Worksheet: (b, ctx) => [narrowWorksheet(b, ctx)],
   SlideShow: (b, ctx) => [narrowSlideShow(b, ctx)],
+  DefinitionList: (b, ctx) => [
+    new DefinitionList({
+      attr: narrowAttr(b.attr, "DefinitionList", ctx),
+      items: b.items.map(
+        (item) =>
+          new DefinitionItem({
+            term: narrowInlines(item.term, ctx),
+            definitions: item.definitions.map((d) => narrowBlocks(d, ctx)),
+          }),
+      ),
+    }),
+  ],
+  LineBlock: (b, ctx) => [new LineBlock({ lines: b.lines.map((l) => narrowInlines(l, ctx)) })],
+  CodeBlock: (b, ctx) => [
+    new CodeBlock({
+      attr: narrowAttr(b.attr, "CodeBlock", ctx),
+      text: b.text,
+      language: b.language,
+    }),
+  ],
   // no inline content or attributes to narrow
-  DefinitionList: (b) => [b],
-  LineBlock: (b) => [b],
-  CodeBlock: (b) => [b],
   RawBlock: (b) => [b],
   HorizontalRule: (b) => [b],
 };

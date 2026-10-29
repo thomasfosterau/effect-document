@@ -76,3 +76,16 @@ export const pdfCode: "Code" = pdfInline._tag;
 declare const docxBlock: BlockOf<FeaturesOf<typeof Docx>>;
 // @ts-expect-error a rule is not in the DOCX profile
 export const docxRule: "HorizontalRule" = docxBlock._tag;
+
+// (7) Per-node id facets (#184): a profile listing `attr.id` allows every
+// node's id facet, so a document with heading ids widens into it; a profile
+// listing only the heading facet holds heading ids and no others.
+type HtmlF = FeaturesOf<typeof Profiles.Html>;
+export const htmlHeadingIds: HtmlF = "attr.id.header";
+export const htmlLinkIds: HtmlF = "attr.id.link";
+declare const headingIdDoc: Doc<"block.header" | "inline.str" | "attr.id.header">;
+export const headingIdsIntoHtml: Doc<HtmlF | "block.header"> = headingIdDoc;
+declare const linkIdDoc: Doc<"inline.link" | "inline.str" | "attr.id.link">;
+// @ts-expect-error ids on links are not in a profile that allows them on headings only
+export const linkIdsIntoHeadingIds: Doc<"inline.link" | "inline.str" | "attr.id.header"> =
+  linkIdDoc;

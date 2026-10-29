@@ -27,6 +27,7 @@ import {
   strong,
   table,
   Table,
+  Header,
   TableCell,
   TableRow,
   trustAs,
@@ -453,6 +454,38 @@ describe("DOCX correctness (#72)", () => {
     expect(inlinesOf(back.blocks[0])[0]).toMatchObject({ target: { url: "#intro" } });
     const again = roundtrip([para([link([str("x")], "#intro")])]);
     expect(inlinesOf(again.blocks[0])[0]).toMatchObject({ target: { url: "#intro" } });
+  });
+
+  test("13b. a heading's bookmark is its id, and round-trips with a link to it (#184)", () => {
+    const h = (name: string, text: string) =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:bookmarkStart w:id="0" w:name="${name}"/>${r(text)}<w:bookmarkEnd w:id="0"/></w:p>`;
+    const back = read(
+      [
+        h("intro", "Intro"),
+        // Word's hidden bookmarks: a table of contents' one is kept only when a link goes to it
+        h("_Toc123", "Listed"),
+        h("_Toc456", "Unlisted"),
+        h("_GoBack", "Edited"),
+        `<w:p><w:hyperlink w:anchor="_Toc123">${r("see")}</w:hyperlink></w:p>`,
+      ].join(""),
+    );
+    const ids = back.blocks.flatMap((b) => (Predicate.isTagged(b, "Header") ? [b.attr?.id] : []));
+    expect(ids).toEqual(["intro", "_Toc123", undefined, undefined]);
+    const again = roundtrip([
+      new Header({ level: 2, attr: { id: "sec" }, content: [str("Section")] }),
+      para([link([str("go")], "#sec")]),
+    ]);
+    const [heading, p] = again.blocks;
+    assert(Predicate.isTagged(heading, "Header"));
+    expect(heading.attr).toEqual({ id: "sec" });
+    expect(inlinesOf(p)[0]).toMatchObject({ target: { url: "#sec" } });
+  });
+
+  test("13c. a bookmark on a paragraph that is not a heading is not kept (#184)", () => {
+    const back = read(
+      `<w:p><w:bookmarkStart w:id="0" w:name="here"/>${r("Text")}<w:bookmarkEnd w:id="0"/></w:p>`,
+    );
+    expect(back.blocks).toEqual([para([str("Text")])]);
   });
 
   test("14. a page break splits the paragraph", () => {
