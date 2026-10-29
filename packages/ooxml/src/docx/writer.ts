@@ -201,6 +201,8 @@ const docxInline = (n: InlineOf<DocxFeature>, f: Fmt, rel: RelCollector): string
     Subscript: (m) => inlineRuns(m.content, { ...f, vert: "subscript" }, rel),
     SmallCaps: (m) => inlineRuns(m.content, { ...f, caps: true }, rel),
     Link: (l) => hyperlinkRuns(l, f, rel),
+    // a span is its content; its id, a bookmark around it (#184)
+    Span: (sp) => rel.bookmarked(sp.attr?.id, inlineRuns(sp.content, f, rel)),
   });
 
 /**

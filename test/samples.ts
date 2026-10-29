@@ -94,7 +94,8 @@ const INLINE: Partial<Record<Feature, Inline>> = {
   "inline.link": new Link({ content: [s("x")], target: { url: "https://example.com/" } }),
   "inline.image": new Image({ alt: [s("x")], target: { url: "x.png" } }),
   "inline.note": new Note({ content: [para([s("x")])] }),
-  "inline.span": new Span({ content: [s("x")] }),
+  // a span says something through its id (#184)
+  "inline.span": new Span({ attr: { id: "x" }, content: [s("x")] }),
 };
 
 /** A block sample for each block feature. */

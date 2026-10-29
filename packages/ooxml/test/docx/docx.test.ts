@@ -28,6 +28,7 @@ import {
   table,
   Table,
   Header,
+  Span,
   TableCell,
   TableRow,
   trustAs,
@@ -481,11 +482,59 @@ describe("DOCX correctness (#72)", () => {
     expect(inlinesOf(p)[0]).toMatchObject({ target: { url: "#sec" } });
   });
 
-  test("13c. a bookmark on a paragraph that is not a heading is not kept (#184)", () => {
+  test("13c. other bookmarked text is a span with the bookmark as its id (#184)", () => {
+    const bm = (id: number, name: string, inner: string) =>
+      `<w:bookmarkStart w:id="${id}" w:name="${name}"/>${inner}<w:bookmarkEnd w:id="${id}"/>`;
     const back = read(
-      `<w:p><w:bookmarkStart w:id="0" w:name="here"/>${r("Text")}<w:bookmarkEnd w:id="0"/></w:p>`,
+      [
+        `<w:p>${r("See ")}${bm(1, "here", r("this"))}${r(".")}</w:p>`,
+        // an empty bookmark (a place to link to) is an empty span
+        `<w:p>${bm(2, "spot", "")}${r("Text")}</w:p>`,
+        // a bookmark that runs into the next paragraph covers the rest of this one
+        `<w:p>${r("a ")}<w:bookmarkStart w:id="3" w:name="long"/>${r("b")}</w:p>`,
+        `<w:p>${r("c")}<w:bookmarkEnd w:id="3"/></w:p>`,
+        // a heading's first bookmark is its id; another one is a span in it
+        `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>${bm(4, "h", r("Head ") + bm(5, "word", r("word")))}</w:p>`,
+        // a hidden bookmark no link goes to stays hidden
+        `<w:p>${bm(6, "_GoBack", r("x"))}</w:p>`,
+        // a bookmark on part of a heading is a span in it, not the heading's id
+        `<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr>${r("Intro ")}${bm(7, "part", r("part"))}</w:p>`,
+      ].join(""),
     );
-    expect(back.blocks).toEqual([para([str("Text")])]);
+    expect(back.blocks).toEqual([
+      para([str("See "), new Span({ attr: { id: "here" }, content: [str("this")] }), str(".")]),
+      para([new Span({ attr: { id: "spot" }, content: [] }), str("Text")]),
+      para([str("a "), new Span({ attr: { id: "long" }, content: [str("b")] })]),
+      para([str("c")]),
+      new Header({
+        level: 2,
+        attr: { id: "h" },
+        content: [str("Head "), new Span({ attr: { id: "word" }, content: [str("word")] })],
+      }),
+      para([str("x")]),
+      new Header({
+        level: 3,
+        content: [str("Intro "), new Span({ attr: { id: "part" }, content: [str("part")] })],
+      }),
+    ]);
+  });
+
+  test("13d. overlapping bookmarks keep the outer one (#184)", () => {
+    const back = read(
+      `<w:p><w:bookmarkStart w:id="1" w:name="a"/>${r("one ")}<w:bookmarkStart w:id="2" w:name="b"/>${r("two")}<w:bookmarkEnd w:id="1"/>${r(" three")}<w:bookmarkEnd w:id="2"/></w:p>`,
+    );
+    expect(back.blocks).toEqual([
+      para([new Span({ attr: { id: "a" }, content: [str("one "), str("two")] }), str(" three")]),
+    ]);
+  });
+
+  test("13e. a span's id round-trips as a bookmark a link can go to (#184)", () => {
+    const blocks = [
+      para([str("Go "), link([str("there")], "#t"), str(".")]),
+      para([str("It is "), new Span({ attr: { id: "t" }, content: [strong([str("here")])] })]),
+    ];
+    const back = roundtrip(blocks);
+    expect(back.blocks).toEqual(blocks);
   });
 
   test("14. a page break splits the paragraph", () => {

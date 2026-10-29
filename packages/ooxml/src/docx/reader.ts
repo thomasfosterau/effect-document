@@ -6,8 +6,9 @@
  * `w:ilvl`, with a paragraph or table indented to an open list's level read
  * as a continuation of its last item), runs (bold/italic/underline/strike/super/sub/small-caps, with
  * OOXML's explicit "off" toggle values), hyperlinks (external through the
- * document relationships, internal `w:anchor`s as `#anchor`, a heading's
- * bookmark as its id), simple and
+ * document relationships, internal `w:anchor`s as `#anchor`; a bookmark
+ * around a whole heading as its id, and other bookmarked text as a `Span`
+ * with the bookmark as its id), simple and
  * complex fields (a HYPERLINK field becomes a link), tables, and the content
  * of tracked insertions and content controls. Tracked deletions are dropped,
  * and a page break ends the paragraph.
@@ -43,6 +44,7 @@ import {
   Plain,
   type Reader,
   SmallCaps,
+  Span,
   Str,
   Strikeout,
   Strong,
@@ -158,6 +160,12 @@ const hyperlinkField = (instr: string): string | null => {
   return url === null ? null : url[1]!;
 };
 
+/** Which bookmarks (by name) become spans carrying their name as an id (#184). */
+type BookmarkFilter = (name: string) => boolean;
+
+/** No bookmark becomes a span (code, whose text has no inlines to wrap). */
+const NO_BOOKMARKS: BookmarkFilter = () => false;
+
 /** Run children that stand for a fixed character. */
 const RUN_TEXT = HashMap.make(["tab", "\t"], ["noBreakHyphen", "\u2011"], ["softHyphen", "\u00ad"]);
 
@@ -172,11 +180,19 @@ const TRANSPARENT_WRAPPERS = HashSet.make("ins", "moveTo", "smartTag", "customXm
 class InlineCollector {
   readonly out: Piece[] = [];
   private readonly fields: Field[] = [];
+  /** The bookmarks open in the paragraph: their `w:id`, name, and where their content starts in `out`. */
+  private readonly bookmarks: Array<{
+    readonly wid: string;
+    readonly name: string;
+    readonly at: number;
+  }> = [];
 
   private readonly rels: ReadonlyMap<string, string>;
+  private readonly keep: BookmarkFilter;
 
-  constructor(rels: ReadonlyMap<string, string>) {
+  constructor(rels: ReadonlyMap<string, string>, keep: BookmarkFilter = NO_BOOKMARKS) {
     this.rels = rels;
+    this.keep = keep;
   }
 
   push(piece: Piece): void {
@@ -192,10 +208,44 @@ class InlineCollector {
     else for (const x of field.result) this.push(x);
   }
 
-  /** Close any field left open at the end of the paragraph. */
+  /** Close any field left open at the end of the paragraph, and any bookmark (it ends in a later one). */
   finish(): Piece[] {
     while (Arr.isReadonlyArrayNonEmpty(this.fields)) this.emitField(this.fields.pop()!);
+    this.bookmarks
+      .slice()
+      .reverse()
+      .forEach((b) => this.closeBookmark(b.wid));
     return this.out;
+  }
+
+  /** A kept bookmark opens a span (outside fields, whose pieces go elsewhere). */
+  private bookmarkStart(el: XmlElement): void {
+    const name = getAttr(el, "name") ?? "";
+    const wid = getAttr(el, "id");
+    if (wid === undefined || !this.keep(name) || Arr.isReadonlyArrayNonEmpty(this.fields)) return;
+    this.bookmarks.push({ wid, name, at: this.out.length });
+  }
+
+  /**
+   * Close bookmark `wid`: its content becomes a `Span` with the bookmark's name
+   * as its id (#184). A bookmark that started inside it and is still open
+   * overlaps it, so it is dropped; content with a page break isn't wrapped.
+   */
+  private closeBookmark(wid: string | undefined): void {
+    const k = this.bookmarks.findLastIndex((b) => b.wid === wid);
+    const bookmark = this.bookmarks[k];
+    if (bookmark === undefined) return;
+    this.bookmarks.splice(k);
+    const content = this.out.slice(bookmark.at);
+    if (content.some((x) => x === PAGE_BREAK)) return;
+    this.out.splice(
+      bookmark.at,
+      content.length,
+      new Span({
+        attr: { id: bookmark.name },
+        content: content.filter((x): x is Inline => x !== PAGE_BREAK),
+      }),
+    );
   }
 
   run(r: XmlElement): void {
@@ -243,12 +293,14 @@ class InlineCollector {
       if (sdtContent !== undefined) this.content(sdtContent);
     } else if (child.name === "hyperlink") this.hyperlink(child);
     else if (child.name === "fldSimple") this.fldSimple(child);
-    // w:del, w:moveFrom (deleted text), w:pPr, bookmarks, proofing marks: skipped.
+    else if (child.name === "bookmarkStart") this.bookmarkStart(child);
+    else if (child.name === "bookmarkEnd") this.closeBookmark(getAttr(child, "id"));
+    // w:del, w:moveFrom (deleted text), w:pPr, proofing marks: skipped.
   }
 
   /** The inlines inside `el`, collected on their own (fields do not cross it). */
   private inner(el: XmlElement): Piece[] {
-    const inner = new InlineCollector(this.rels);
+    const inner = new InlineCollector(this.rels, this.keep);
     inner.content(el);
     return inner.finish();
   }
@@ -275,8 +327,12 @@ class InlineCollector {
 }
 
 /** A paragraph's inlines, split into segments at page breaks. */
-const paragraphSegments = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[][] => {
-  const collector = new InlineCollector(rels);
+const paragraphSegments = (
+  p: XmlElement,
+  rels: ReadonlyMap<string, string>,
+  keep: BookmarkFilter,
+): Inline[][] => {
+  const collector = new InlineCollector(rels, keep);
   collector.content(p);
   const segments: Inline[][] = [[]];
   for (const piece of collector.finish()) {
@@ -287,8 +343,11 @@ const paragraphSegments = (p: XmlElement, rels: ReadonlyMap<string, string>): In
   return Arr.isReadonlyArrayNonEmpty(nonEmpty) ? nonEmpty : [[]];
 };
 
-const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inline[] =>
-  paragraphSegments(p, rels).flat();
+const paragraphInlines = (
+  p: XmlElement,
+  rels: ReadonlyMap<string, string>,
+  keep: BookmarkFilter,
+): Inline[] => paragraphSegments(p, rels, keep).flat();
 
 // ============================================================================
 // Numbering
@@ -411,15 +470,59 @@ const linkAnchors = (body: XmlElement): HashSet.HashSet<string> =>
  * hidden bookmarks (`_GoBack`, `_Toc…`, any name starting with `_`) are
  * skipped unless a link in the document goes to them.
  */
-const bookmarkId = (p: XmlElement, ctx: Ctx): string | undefined =>
-  findChildren(p, "bookmarkStart")
-    .map((b) => getAttr(b, "name") ?? "")
-    .find((name) => name !== "" && (!name.startsWith("_") || HashSet.has(ctx.anchors, name)));
+const bookmarkId = (p: XmlElement, ctx: Ctx): string | undefined => {
+  const kids = p.children;
+  const isContent = (el: XmlElement): boolean => PARAGRAPH_CONTENT.includes(el.name);
+  const first = kids.findIndex(isContent);
+  const last = kids.findLastIndex(isContent);
+  // a heading's id bookmark encloses the whole paragraph: it starts before the
+  // first content and ends after the last (or in a later paragraph); one that
+  // covers only part of the heading is a span in it
+  return kids
+    .flatMap((el, i): ReadonlyArray<string> => {
+      if (el.name !== "bookmarkStart" || (first >= 0 && i > first)) return [];
+      const wid = getAttr(el, "id");
+      const end = kids.findIndex((e) => e.name === "bookmarkEnd" && getAttr(e, "id") === wid);
+      return end >= 0 && end < last ? [] : [getAttr(el, "name") ?? ""];
+    })
+    .find(keptBookmark(ctx));
+};
 
-/** A heading's attributes: its bookmark as its id, if it has one. */
-const headingAttr = (p: XmlElement, ctx: Ctx) => {
-  const id = bookmarkId(p, ctx);
-  return id === undefined ? undefined : { id };
+/** A paragraph's children that hold its text (the rest are properties, bookmarks, proofing marks). */
+const PARAGRAPH_CONTENT: ReadonlyArray<string> = [
+  "r",
+  "hyperlink",
+  "fldSimple",
+  "ins",
+  "moveTo",
+  "smartTag",
+  "customXml",
+  "sdt",
+];
+
+/** Whether a bookmark is kept as an id: named, and not hidden unless a link goes to it. */
+const keptBookmark =
+  (ctx: Ctx): BookmarkFilter =>
+  (name) =>
+    name !== "" && (!name.startsWith("_") || HashSet.has(ctx.anchors, name));
+
+/** A paragraph's id, and which of its bookmarks become spans. */
+interface ParagraphBookmarks {
+  readonly attr: { readonly id: string } | undefined;
+  readonly spans: BookmarkFilter;
+}
+
+/**
+ * A paragraph's id (a heading's first kept bookmark) and the bookmarks in it
+ * that become spans: the other kept ones (#184).
+ */
+const paragraphBookmarks = (p: XmlElement, ctx: Ctx, heading: boolean): ParagraphBookmarks => {
+  const id = heading ? bookmarkId(p, ctx) : undefined;
+  const kept = keptBookmark(ctx);
+  return {
+    attr: id === undefined ? undefined : { id },
+    spans: (name) => kept(name) && name !== id,
+  };
 };
 
 const paragraphStyle = (p: XmlElement): string | undefined => {
@@ -445,18 +548,15 @@ const listInfo = (p: XmlElement): { numId: string; ilvl: number } | null => {
 
 const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
   const style = paragraphStyle(p);
-  const segments = paragraphSegments(p, ctx.rels);
+  const heading = style?.match(/^Heading([1-6])$/);
+  const { attr, spans } = paragraphBookmarks(p, ctx, heading !== null && heading !== undefined);
+  const segments = paragraphSegments(p, ctx.rels, style === "Code" ? NO_BOOKMARKS : spans);
   if (style === "Code") {
     return [new CodeBlock({ text: inlinesToText(segments.flat()) })];
   }
-  const heading = style?.match(/^Heading([1-6])$/);
   return segments.map((inlines, n) =>
     heading && n === 0
-      ? new Header({
-          level: Number.parseInt(heading[1]!, 10),
-          attr: headingAttr(p, ctx),
-          content: inlines,
-        })
+      ? new Header({ level: Number.parseInt(heading[1]!, 10), attr, content: inlines })
       : new Para({ content: inlines }),
   );
 };
@@ -464,13 +564,10 @@ const paragraphToBlocks = (p: XmlElement, ctx: Ctx): Block[] => {
 /** A list paragraph as its item's lead block: a `Header` in a heading style, else a `Plain`. */
 const listItemBlock = (p: XmlElement, ctx: Ctx): Block => {
   const heading = paragraphStyle(p)?.match(/^Heading([1-6])$/);
-  const content = paragraphInlines(p, ctx.rels);
+  const { attr, spans } = paragraphBookmarks(p, ctx, heading !== null && heading !== undefined);
+  const content = paragraphInlines(p, ctx.rels, spans);
   return heading
-    ? new Header({
-        level: Number.parseInt(heading[1] ?? "1", 10),
-        attr: headingAttr(p, ctx),
-        content,
-      })
+    ? new Header({ level: Number.parseInt(heading[1] ?? "1", 10), attr, content })
     : new Plain({ content });
 };
 
