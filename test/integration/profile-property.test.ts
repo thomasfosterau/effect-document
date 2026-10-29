@@ -70,18 +70,6 @@ const mergeAdjacent =
       return out;
     }, []);
 
-/** Adjacent lists of the same kind are one list: the format has no container to end a list. */
-const adjacentLists = (normal: Normal): Normal =>
-  mapBlockLists(
-    normal,
-    mergeAdjacent<NormalBlock>((a, b) =>
-      (Predicate.isTagged(a, "Bullets") && Predicate.isTagged(b, "Bullets")) ||
-      (Predicate.isTagged(a, "Ordered") && Predicate.isTagged(b, "Ordered"))
-        ? { ...a, items: [...a.items, ...b.items] }
-        : undefined,
-    ),
-  );
-
 /** Adjacent bullet lists are one list: the format has no container to end one, and no numbering to restart. */
 const adjacentBulletLists = (normal: Normal): Normal =>
   mapBlockLists(
