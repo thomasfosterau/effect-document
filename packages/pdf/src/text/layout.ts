@@ -20,9 +20,12 @@
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
+import * as HashSet from "effect/HashSet";
 import * as Order from "effect/Order";
+import * as Rec from "effect/Record";
 import {
   type Block,
+  BlockQuote,
   BulletList,
   Code,
   CodeBlock,
@@ -38,6 +41,7 @@ import {
   Strong,
 } from "@thomasfosterau/effect-document";
 import type { PageLink, PageText, TextGlyph } from "./extract.ts";
+import type { MarkedContent, StructElement } from "./structure.ts";
 
 /** The C0 control characters other than tab and line feed, which a PDF's decoded text can carry. */
 // oxlint-disable-next-line eslint/no-control-regex -- matching control characters is the pattern's purpose
@@ -300,7 +304,7 @@ interface Marker {
   readonly length: number;
 }
 
-const markerOf = (line: Line): Marker | undefined => {
+const markerOf = (line: { readonly text: string }): Marker | undefined => {
   const b = BULLET_RE.exec(line.text);
   if (b !== null) return { ordered: false, length: b[0].length };
   const o = ORDERED_RE.exec(line.text);
@@ -374,6 +378,31 @@ const buildList = (items: ReadonlyArray<Item>, size: number): Block[] => {
     );
   }
   return out;
+};
+
+/** A code block's text from its lines: indentation from where each line's ink starts, blank lines from the gaps. */
+const codeText = (group: ReadonlyArray<Line>): string => {
+  const first = group[0];
+  if (first === undefined) return "";
+  const left = Math.min(...group.map((l) => l.x0));
+  const step = Math.abs(
+    median(
+      group
+        .slice(1)
+        .map((l, k) => group[k]!.y - l.y)
+        .filter((d) => d > 0),
+    ) ?? first.size * 1.2,
+  );
+  const text: string[] = [];
+  group.forEach((l, k) => {
+    if (k > 0) {
+      const blank = Math.round((group[k - 1]!.y - l.y) / step) - 1;
+      for (let b = 0; b < blank && b < 20; b++) text.push("");
+    }
+    const indent = Math.max(0, Math.round((l.x0 - left) / l.charWidth));
+    text.push(" ".repeat(indent) + l.text);
+  });
+  return text.join("\n");
 };
 
 /** Infer prose blocks from the text of a document's pages. */
@@ -487,25 +516,7 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
         gapBefore(i) <= leading * 3
       )
         group.push(lines[i++]!);
-      const left = Math.min(...group.map((l) => l.x0));
-      const step = Math.abs(
-        median(
-          group
-            .slice(1)
-            .map((l, k) => group[k]!.y - l.y)
-            .filter((d) => d > 0),
-        ) ?? line.size * 1.2,
-      );
-      const text: string[] = [];
-      group.forEach((l, k) => {
-        if (k > 0) {
-          const blank = Math.round((group[k - 1]!.y - l.y) / step) - 1;
-          for (let b = 0; b < blank && b < 20; b++) text.push("");
-        }
-        const indent = Math.max(0, Math.round((l.x0 - left) / l.charWidth));
-        text.push(" ".repeat(indent) + l.text);
-      });
-      blocks.push(new CodeBlock({ text: text.join("\n") }));
+      blocks.push(new CodeBlock({ text: codeText(group) }));
       continue;
     }
 
@@ -559,4 +570,208 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
     blocks.push(new Para({ content: linesToInlines(group) }));
   }
   return blocks;
+};
+
+// ============================================================================
+// Tagged PDF: blocks from the structure tree (#198)
+// ============================================================================
+
+/** Structure types whose content runs inline, within the paragraph around them. */
+const INLINE_TYPES: ReadonlyArray<string> = [
+  "Span",
+  "Link",
+  "Quote",
+  "Code",
+  "Reference",
+  "BibEntry",
+  "Note",
+  "Annot",
+  "Ruby",
+  "Warichu",
+  "Em",
+  "Strong",
+  "Sub",
+  "Formula",
+];
+
+/** `/ListNumbering` values of an ordered list, and of a bulleted one. */
+const ORDERED_NUMBERING: ReadonlyArray<string> = [
+  "Decimal",
+  "UpperRoman",
+  "LowerRoman",
+  "UpperAlpha",
+  "LowerAlpha",
+];
+const BULLET_NUMBERING: ReadonlyArray<string> = ["Disc", "Circle", "Square"];
+
+/** The share of a document's visible text the tree must own for the reader to trust it. */
+const TREE_COVERAGE = 0.98;
+
+type StructNode = StructElement | MarkedContent;
+
+const isElement = (n: StructNode): n is StructElement => Predicate.isTagged(n, "Element");
+
+const contentKey = (page: number, mcid: number): string => `${page}:${mcid}`;
+
+/** The marked content under a node, in reading order. */
+const contentOf = (node: StructNode): MarkedContent[] =>
+  isElement(node) ? node.kids.flatMap(contentOf) : [node];
+
+/**
+ * Blocks from a tagged PDF's structure tree: headings at their tagged level,
+ * paragraphs, lists (ordered or not by their `/ListNumbering`), block code
+ * and block quotes, each made of the text its marked content shows (styled
+ * and linked as the layout reader does). `undefined` when the tree owns too
+ * little of the visible text to trust (an inconsistent or partial tree), so
+ * the caller falls back to {@link layoutBlocks}.
+ */
+export const structureBlocks = (
+  pages: ReadonlyArray<PageText>,
+  root: StructElement,
+): Block[] | undefined => {
+  // each page's glyphs by MCID, in content order
+  const marked = pages.flatMap((page, p) =>
+    page.glyphs.flatMap((g) =>
+      g.mcid === undefined || g.artifact === true ? [] : [[contentKey(p, g.mcid), g] as const],
+    ),
+  );
+  const byContent = Rec.map(
+    Arr.groupBy(marked, ([key]) => key),
+    (entries) => entries.map(([, g]) => g),
+  );
+  const owned = HashSet.fromIterable(contentOf(root).map((c) => contentKey(c.page, c.mcid)));
+  const visible = pages.flatMap((page, p) =>
+    page.glyphs
+      .filter((g) => g.artifact !== true && g.upright && g.text.trim() !== "")
+      .map((g) => [p, g] as const),
+  );
+  const covered = visible.filter(
+    ([p, g]) => g.mcid !== undefined && HashSet.has(owned, contentKey(p, g.mcid)),
+  );
+  if (Arr.isReadonlyArrayEmpty(visible) || covered.length < visible.length * TREE_COVERAGE)
+    return undefined;
+
+  /** The lines the marked content shows: its glyphs, laid out page by page. */
+  const linesOf = (content: ReadonlyArray<MarkedContent>): Line[] =>
+    // consecutive content on one page is laid out together, so a line made of
+    // several sequences (a paragraph's text and a link in it) stays one line
+    (Arr.isReadonlyArrayNonEmpty(content)
+      ? Arr.groupWith(content, (a, b) => a.page === b.page)
+      : []
+    ).flatMap((run) => {
+      const page = run[0].page;
+      const pageText = pages[page];
+      const glyphs = run.flatMap((c) => byContent[contentKey(c.page, c.mcid)] ?? []);
+      return pageText === undefined ? [] : buildLines({ ...pageText, glyphs }, page);
+    });
+
+  /** The blocks of a container: inline content between its block elements becomes paragraphs. */
+  const blocksOf = (elem: StructElement): Block[] => {
+    const out: Block[] = [];
+    let pending: MarkedContent[] = [];
+    const flush = (): void => {
+      const lines = linesOf(pending);
+      if (Arr.isReadonlyArrayNonEmpty(lines))
+        out.push(new Para({ content: linesToInlines(lines) }));
+      pending = [];
+    };
+    elem.kids.forEach((kid) => {
+      if (!isElement(kid)) pending.push(kid);
+      else if (INLINE_TYPES.includes(kid.type) && kid.placement !== "Block")
+        pending.push(...contentOf(kid));
+      else {
+        flush();
+        out.push(...blockOf(kid));
+      }
+    });
+    flush();
+    return out;
+  };
+
+  const heading = (elem: StructElement, level: number): Block[] => {
+    const lines = linesOf(contentOf(elem));
+    if (Arr.isReadonlyArrayEmpty(lines)) return [];
+    // a heading is set bold throughout as its look, not as emphasis
+    const allBold = lines.every((l) => l.runs.every((r) => r.bold));
+    const content = linesToInlines(
+      allBold
+        ? lines.map((l) => ({ ...l, runs: l.runs.map((r) => ({ ...r, bold: false })) }))
+        : lines,
+    );
+    return [new Header({ level, content })];
+  };
+
+  const list = (elem: StructElement): Block[] => {
+    const items: Block[][] = [];
+    const labels: string[] = [];
+    elem.kids.forEach((kid) => {
+      if (!isElement(kid)) return;
+      if (kid.type === "LI") {
+        const label = kid.kids.find((k) => isElement(k) && k.type === "Lbl");
+        labels.push(
+          label === undefined
+            ? ""
+            : linesOf(contentOf(label))
+                .map((l) => l.text)
+                .join(" "),
+        );
+        const body = blocksOf({ ...kid, kids: kid.kids.filter((k) => k !== label) });
+        // an item's first paragraph is a tight one, as the layout reader reads it
+        const [first, ...rest] = body;
+        items.push(
+          first !== undefined && Predicate.isTagged(first, "Para")
+            ? [new Plain({ content: first.content }), ...rest]
+            : body,
+        );
+      } else {
+        // a nested list (or other block) beside the items belongs to the item before it
+        const blocks = blockOf(kid);
+        const last = items[items.length - 1];
+        if (last === undefined) items.push(blocks);
+        else last.push(...blocks);
+      }
+    });
+    if (Arr.isReadonlyArrayEmpty(items)) return [];
+    const numbering = elem.listNumbering;
+    const firstLabel = labels[0] ?? "";
+    const marker = markerOf({ text: `${firstLabel} x` });
+    const ordered =
+      numbering !== undefined && ORDERED_NUMBERING.includes(numbering)
+        ? true
+        : numbering !== undefined && BULLET_NUMBERING.includes(numbering)
+          ? false
+          : marker?.ordered === true;
+    if (!ordered) return [new BulletList({ items })];
+    const start = /\d+/.exec(firstLabel);
+    return [
+      new OrderedList({
+        start: start === null ? 1 : Number(start[0]),
+        numberStyle: "decimal",
+        numberDelim: "period",
+        items,
+      }),
+    ];
+  };
+
+  const blockOf = (elem: StructElement): Block[] => {
+    const h = /^H([1-6])?$/.exec(elem.type);
+    if (h !== null) return heading(elem, h[1] === undefined ? 1 : Number(h[1]));
+    // a custom "Heading 1" type is a heading, even when the role map makes it a
+    // plain `P` (as LibreOffice's does)
+    const named = /^heading\s*([1-6])$/i.exec(elem.ownType);
+    if (named !== null) return heading(elem, Number(named[1]));
+    if (elem.type === "L") return list(elem);
+    if (elem.type === "Code") {
+      const lines = linesOf(contentOf(elem));
+      return Arr.isReadonlyArrayEmpty(lines) ? [] : [new CodeBlock({ text: codeText(lines) })];
+    }
+    if (elem.type === "BlockQuote") {
+      const content = blocksOf(elem);
+      return Arr.isReadonlyArrayEmpty(content) ? [] : [new BlockQuote({ content })];
+    }
+    // P, and the grouping elements (Document, Part, Sect, Div, Art, tables, …)
+    return blocksOf(elem);
+  };
+
+  return blocksOf(root);
 };
