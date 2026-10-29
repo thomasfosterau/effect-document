@@ -42,6 +42,7 @@ import {
 } from "@thomasfosterau/effect-document";
 import type { PageLink, PageText, TextGlyph } from "./extract.ts";
 import type { MarkedContent, StructElement } from "./structure.ts";
+import { type OutlineItem, outlineTitle } from "./outline.ts";
 
 /** The C0 control characters other than tab and line feed, which a PDF's decoded text can carry. */
 // oxlint-disable-next-line eslint/no-control-regex -- matching control characters is the pattern's purpose
@@ -405,8 +406,15 @@ const codeText = (group: ReadonlyArray<Line>): string => {
   return text.join("\n");
 };
 
-/** Infer prose blocks from the text of a document's pages. */
-export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
+/**
+ * Infer prose blocks from the text of a document's pages. A heading whose
+ * text is an `outline` item's title takes its level from the item's depth
+ * (#20); the rest are ranked by size.
+ */
+export const layoutBlocks = (
+  pages: ReadonlyArray<PageText>,
+  outline: ReadonlyArray<OutlineItem> = [],
+): Block[] => {
   const lines = pages.flatMap((p, i) => buildLines(p, i));
   if (Arr.isReadonlyArrayEmpty(lines)) return [];
 
@@ -502,7 +510,10 @@ export const layoutBlocks = (pages: ReadonlyArray<PageText>): Block[] => {
       const unbolded = allBold
         ? group.map((l) => ({ ...l, runs: l.runs.map((r) => ({ ...r, bold: false })) }))
         : group;
-      blocks.push(new Header({ level: levelOf(line.size), content: linesToInlines(unbolded) }));
+      const title = outlineTitle(group.map((l) => l.text).join(" "));
+      const item = outline.find((o) => o.title === title);
+      const level = item === undefined ? levelOf(line.size) : Math.min(6, item.depth);
+      blocks.push(new Header({ level, content: linesToInlines(unbolded) }));
       continue;
     }
 

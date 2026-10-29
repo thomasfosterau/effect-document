@@ -40,6 +40,7 @@ import { decodeTextString } from "./text/encodings.ts";
 import { type PageText, extractPageText } from "./text/extract.ts";
 import { layoutBlocks, structureBlocks } from "./text/layout.ts";
 import { readStructure } from "./text/structure.ts";
+import { readOutline } from "./text/outline.ts";
 import { OcrEngine, type OcrEngineShape, ocrGlyphs, toOcrImage } from "./ocr.ts";
 import { Pdf, type PdfFeature } from "./profile.ts";
 
@@ -201,7 +202,14 @@ export const readBlocks = (file: PdfFile, pages: ReadonlyArray<PageText>): Block
       );
       return tree === undefined ? undefined : structureBlocks(pages, tree);
     }),
-  ) ?? layoutBlocks(pages);
+  ) ??
+  layoutBlocks(
+    pages,
+    Result.getOrElse(
+      Result.try(() => readOutline(file)),
+      () => [],
+    ),
+  );
 
 /** Run a synchronous step of the reader, turning a throw into a `ParseError`. */
 const attempt = <A>(f: () => A): Effect.Effect<A, ParseError> =>
