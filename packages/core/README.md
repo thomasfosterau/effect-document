@@ -48,6 +48,17 @@ const roundTrip = Effect.gen(function* () {
 });
 ```
 
+Effect's Schema parser recurses once per level of a document, so a document a few hundred levels deep overflows the call stack when encoded or decoded with `Schema`. `encodeDocument` and `decodeDocument` (and their `Result` forms, `encodeDocumentResult` / `decodeDocumentResult`) produce the same JSON and the same documents, and fail with the same `SchemaError`s, at any depth:
+
+```ts
+import { decodeDocument, encodeDocument } from "@thomasfosterau/effect-document";
+
+const deepRoundTrip = Effect.gen(function* () {
+  const json = yield* encodeDocument(report); // fails with a SchemaError
+  return yield* decodeDocument(json);
+});
+```
+
 The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet is sparse: it holds indexed rows of column-indexed cells, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
 
 ## Profiles
@@ -258,6 +269,10 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `nestedChildren` | function | The blocks, inlines and shapes directly inside a node. |
 | `blocksNestingDepth` | function | The deepest chain of nested blocks, inlines and shapes in `blocks`. |
 | `nestingDepth` | function | The nesting depth of a document's blocks; see `blocksNestingDepth`. |
+| `encodeDocument` | function | Encode a document to its JSON form as `Schema.encodeEffect(Document)` does, at any nesting depth. |
+| `decodeDocument` | function | Decode a document from its JSON form as `Schema.decodeUnknownEffect(Document)` does, at any nesting depth. |
+| `encodeDocumentResult` | function | `encodeDocument` as a synchronous `Result`. |
+| `decodeDocumentResult` | function | `decodeDocument` as a synchronous `Result`. |
 
 ### `@thomasfosterau/effect-document/profile`
 

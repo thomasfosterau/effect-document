@@ -26,7 +26,8 @@ export type NestedNode = Block | Inline | Shape;
  * (`Table`, `TableRow`, `Cell`). On Node's default stack, encoding a document
  * of nested tables overflows from about 240 levels in a fresh process, a
  * `DefinitionList` chain from about 290 and a `BlockQuote` chain from about
- * 630, so readers stop at 128.
+ * 630, so readers stop at 128. `encodeDocument` / `decodeDocument` handle any
+ * depth (#191), but `narrow` and the writers still recurse.
  */
 export const DEFAULT_MAX_NESTING_DEPTH = 128;
 
