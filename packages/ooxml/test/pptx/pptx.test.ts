@@ -99,6 +99,16 @@ describe("PPTX round-trip", () => {
     expect(shapeBack(blocks)).toEqual(blocks);
   });
 
+  test("an item's later paragraph in a title placeholder stays a paragraph (#196)", () => {
+    const content = [bulletList([[plainText("a"), para([str("a, continued")])]])];
+    const ss = firstSlideShow(
+      readBack([slide([new Placeholder({ placeholderType: "title", content })])]).blocks,
+    );
+    const shape = ss?.slides[0]?.shapes[0];
+    assert(shape !== undefined && Predicate.isTagged(shape, "Placeholder"));
+    expect(shape.content).toEqual(content);
+  });
+
   test("an item that starts with a nested list keeps it (#196)", () => {
     const blocks = [bulletList([[bulletList([[plainText("inner")]])], [plainText("b")]])];
     expect(shapeBack(blocks)).toEqual(blocks);

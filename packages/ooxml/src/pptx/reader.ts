@@ -156,8 +156,11 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     const bullet = paragraphBullet(p);
     if (bullet === null)
       // an unbulleted paragraph at an open list's margin continues its last item (#196)
-      lists.place(paragraphMargin(p), () => [
-        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+      // (in a title placeholder, a paragraph outside the lists is a heading)
+      lists.place(paragraphMargin(p), (continued) => [
+        asHeaders && !continued
+          ? new Header({ level: 1, content: inlines })
+          : new Para({ content: inlines }),
       ]);
     else {
       const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;

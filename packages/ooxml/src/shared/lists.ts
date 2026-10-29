@@ -93,14 +93,15 @@ export class ListStack {
 
   /**
    * Blocks that are not an item's first paragraph: a continuation of the open
-   * item they are indented to, or else blocks after the lists.
+   * item they are indented to, or else blocks after the lists. `blocks` is
+   * told which (`continued`), for a format that reads the two differently.
    */
-  place(indent: number | undefined, blocks: () => Block[]): void {
+  place(indent: number | undefined, blocks: (continued: boolean) => Block[]): void {
     const item = this.continuedItem(indent);
-    if (item !== undefined) item.push(...blocks());
+    if (item !== undefined) item.push(...blocks(true));
     else {
       this.closeAll();
-      this.out.push(...blocks());
+      this.out.push(...blocks(false));
     }
   }
 
