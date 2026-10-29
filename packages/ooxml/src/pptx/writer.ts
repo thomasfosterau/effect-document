@@ -18,10 +18,13 @@ import {
   bytes,
   type Content,
   type Doc,
+  type Header,
   type Inline,
   type InlineOf,
   isNodeIn,
   makeWriterTag,
+  type Para,
+  type Plain,
   type Shape,
   Slide,
   TextBox,
@@ -85,20 +88,32 @@ const pptxInline = (n: InlineOf<PptxFeature>, f: Fmt): string =>
 /** Inlines outside the profile (in a document handed over with `trustAs`) are dropped. */
 const inlineToRuns = (n: Inline, f: Fmt): string => (isNodeIn(Pptx, n) ? pptxInline(n, f) : "");
 
-const aPara = (bullet: string, runs: string, lvl = 0): string =>
-  `<a:p><a:pPr${lvl > 0 ? ` lvl="${lvl}"` : ""}>${bullet}</a:pPr>${runs}</a:p>`;
+/** A paragraph: its bullet element, runs, level and any further `a:pPr` attributes (`marL`, `indent`). */
+const aPara = (bullet: string, runs: string, lvl = 0, attrs = ""): string =>
+  `<a:p><a:pPr${lvl > 0 ? ` lvl="${lvl}"` : ""}${attrs}>${bullet}</a:pPr>${runs}</a:p>`;
 
-const itemInlines = (blocks: ReadonlyArray<Block>): Inline[] =>
-  blocks.flatMap((b) =>
-    Predicate.isTagged(b, "Para") ||
+/** The hanging indent of a list paragraph, in EMU (a quarter inch is PowerPoint's default). */
+const HANGING = 342900;
+
+/**
+ * The left margin of list level `lvl`, in EMU. An item's paragraph hangs its
+ * bullet in it, and the item's later paragraphs are written at the same
+ * margin without a bullet, as PowerPoint writes them, so the reader can tell
+ * them from paragraphs after the list (#196).
+ */
+const levelMargin = (lvl: number): number => HANGING * (lvl + 1);
+
+/** An item's first block, when it is a paragraph: its bulleted paragraph. */
+const isLead = (b: Block | undefined): b is Para | Plain | Header =>
+  b !== undefined &&
+  (Predicate.isTagged(b, "Para") ||
     Predicate.isTagged(b, "Plain") ||
-    Predicate.isTagged(b, "Header")
-      ? [...b.content]
-      : [],
-  );
+    Predicate.isTagged(b, "Header"));
 
 const BULLET = '<a:buChar char="&#8226;"/>';
-const AUTO_NUM = '<a:buAutoNum type="arabicPeriod"/>';
+/** An auto-numbered paragraph; the first item of each list says where it starts. */
+const autoNum = (startAt: number | undefined): string =>
+  `<a:buAutoNum type="arabicPeriod"${startAt === undefined ? "" : ` startAt="${startAt}"`}/>`;
 /** DrawingML paragraph levels run 0-8. */
 const MAX_LVL = 8;
 
@@ -117,24 +132,43 @@ const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
   return "";
 };
 
-/** A list's items as paragraphs, nested lists one `lvl` deeper. */
+/**
+ * An item's block after its bulleted paragraph: a nested list one `lvl`
+ * deeper, or a paragraph at the item's margin without a bullet (#196).
+ */
+const itemBlock = (b: Block, lvl: number, inTitle: boolean): string =>
+  Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")
+    ? blockToParas(b, Math.min(lvl + 1, MAX_LVL), inTitle)
+    : isLead(b)
+      ? aPara(
+          "<a:buNone/>",
+          inlineRuns(b.content, {}),
+          lvl,
+          ` marL="${levelMargin(lvl)}" indent="0"`,
+        )
+      : "";
+
+/**
+ * A list's items as paragraphs: each item's first paragraph bulleted (empty
+ * when the item starts with a list), its other blocks after it. `bullet`
+ * gives an item's bullet element from its index.
+ */
 const listParas = (
   items: ReadonlyArray<ReadonlyArray<Block>>,
-  bullet: string,
+  bullet: (index: number) => string,
   lvl: number,
   inTitle: boolean,
 ): string =>
   items
-    .map(
-      (it) =>
-        aPara(bullet, inlineRuns(itemInlines(it), {}), lvl) +
-        it
-          .filter(
-            (x) => Predicate.isTagged(x, "BulletList") || Predicate.isTagged(x, "OrderedList"),
-          )
-          .map((x) => blockToParas(x, Math.min(lvl + 1, MAX_LVL), inTitle))
-          .join(""),
-    )
+    .map((it, index) => {
+      const [first, ...rest] = it;
+      const lead = isLead(first) ? first.content : [];
+      const attrs = ` marL="${levelMargin(lvl)}" indent="-${HANGING}"`;
+      return (
+        aPara(bullet(index), inlineRuns(lead, {}), lvl, attrs) +
+        (isLead(first) ? rest : it).map((x) => itemBlock(x, lvl, inTitle)).join("")
+      );
+    })
     .join("");
 
 /** A block of the PPTX profile; exhaustive over the profile's blocks (#109). */
@@ -142,8 +176,11 @@ const pptxBlock = (b: BlockOf<PptxFeature>, lvl: number, inTitle: boolean): stri
   Match.valueTags(b, {
     Para: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
     Plain: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
-    BulletList: (l) => listParas(l.items, BULLET, lvl, inTitle),
-    OrderedList: (l) => listParas(l.items, AUTO_NUM, lvl, inTitle),
+    BulletList: (l) => listParas(l.items, () => BULLET, lvl, inTitle),
+    // The first item's `startAt` starts a new list, so adjacent ordered lists
+    // stay separate (#196), and carries the list's start.
+    OrderedList: (l) =>
+      listParas(l.items, (i) => autoNum(i === 0 ? (l.start ?? 1) : undefined), lvl, inTitle),
     // a slide show isn't prose: its slides are written as slides
     SlideShow: () => "",
   });

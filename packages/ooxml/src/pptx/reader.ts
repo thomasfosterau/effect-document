@@ -5,12 +5,14 @@
  * shape tree: every `<p:sp>` (including those inside `<p:grpSp>` groups, which
  * are flattened in document order) becomes a TextBox (or a Placeholder, if it
  * carries a `<p:ph>`), whose text body is read back into paragraphs/lists with
- * bold/italic/underline/strike runs. Paragraph `lvl` nests bullet lists, and
+ * bold/italic/underline/strike runs. Paragraph `lvl` nests bullet lists, an
+ * unbulleted paragraph at an open list's `marL` continues its last item, and
  * the paragraphs of title placeholders become level-1 headers. A slide whose
  * relationship or part is missing fails the read, as in XLSX.
  */
 
 import * as Arr from "effect/Array";
+import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
@@ -125,6 +127,22 @@ const paragraphBullet = (p: XmlElement): Bullet => {
   return null;
 };
 
+/** An integer attribute of the paragraph's `a:pPr`, if it has a valid one. */
+const pPrInt = (pPr: XmlElement | undefined, name: string): number | undefined => {
+  const v = pPr === undefined ? undefined : getAttr(pPr, name);
+  const n = v === undefined ? Number.NaN : Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** The paragraph's left margin, `a:pPr@marL` in EMU, if it sets one. */
+const paragraphMargin = (p: XmlElement): number | undefined => pPrInt(findChild(p, "pPr"), "marL");
+
+/** Where an auto-numbered paragraph's numbering (re)starts, `a:buAutoNum@startAt`, if it says. */
+const paragraphStartAt = (p: XmlElement): number | undefined => {
+  const pPr = findChild(p, "pPr");
+  return pPrInt(pPr === undefined ? undefined : findChild(pPr, "buAutoNum"), "startAt");
+};
+
 /** The paragraph's indent level, `a:pPr@lvl` (0-8). */
 const paragraphLevel = (p: XmlElement): number => {
   const pPr = findChild(p, "pPr");
@@ -136,11 +154,33 @@ const paragraphLevel = (p: XmlElement): number => {
 interface OpenList {
   readonly kind: "bullet" | "ordered";
   readonly level: number;
+  /** Where an ordered list starts (1 unless its first item's `startAt` says). */
+  readonly start: number;
+  /** The left margin of the list's first item: an unbulleted paragraph there continues the last item (#196). */
+  readonly margin: number | undefined;
   readonly items: Block[][];
 }
 
-const listBlock = (l: OpenList): Block =>
-  l.kind === "ordered" ? new OrderedList({ items: l.items }) : new BulletList({ items: l.items });
+/**
+ * An item's blocks without an empty lead before other blocks: an item that
+ * starts with a nested list still needs a bulleted paragraph, which the
+ * writer leaves empty (#196).
+ */
+const itemBlocks = (item: Block[]): Block[] => {
+  const [first, ...rest] = item;
+  return Predicate.isTagged(first, "Plain") &&
+    Arr.isReadonlyArrayEmpty(first.content) &&
+    Arr.isReadonlyArrayNonEmpty(rest)
+    ? rest
+    : item;
+};
+
+const listBlock = (l: OpenList): Block => {
+  const items = l.items.map(itemBlocks);
+  return l.kind === "ordered"
+    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items })
+    : new BulletList({ items });
+};
 
 const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
   const out: Block[] = [];
@@ -155,24 +195,59 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
     else parent.items[parent.items.length - 1]!.push(listBlock(list));
   };
 
+  /**
+   * The item an unbulleted paragraph at `margin` continues: the last item of
+   * the innermost open list whose first item sits at that margin, after
+   * closing the lists nested in it (#196).
+   */
+  const continuedItem = (margin: number | undefined): Block[] | undefined => {
+    if (margin === undefined) return undefined;
+    const at = open.findLastIndex(
+      (l) => l.margin === margin && Arr.isReadonlyArrayNonEmpty(l.items),
+    );
+    const list = open[at];
+    if (list === undefined) return undefined;
+    open.slice(at + 1).forEach(close);
+    return list.items.at(-1);
+  };
+
+  const unbulleted = (p: XmlElement, inlines: Inline[]): void => {
+    const item = continuedItem(paragraphMargin(p));
+    if (item !== undefined) {
+      item.push(new Para({ content: inlines }));
+      return;
+    }
+    while (Arr.isReadonlyArrayNonEmpty(open)) close();
+    out.push(
+      asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+    );
+  };
+
+  const bulleted = (p: XmlElement, inlines: Inline[], bullet: "bullet" | "ordered"): void => {
+    const level = paragraphLevel(p);
+    const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;
+    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
+    const top = open[open.length - 1];
+    // A different kind, or an ordered item that restarts its numbering, begins a new list.
+    if (top !== undefined && top.level === level && (top.kind !== bullet || startAt !== undefined))
+      close();
+    const current = open[open.length - 1];
+    if (current === undefined || current.level < level)
+      open.push({
+        kind: bullet,
+        level,
+        start: startAt ?? 1,
+        margin: paragraphMargin(p),
+        items: [],
+      });
+    open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
+  };
+
   for (const p of findChildren(txBody, "p")) {
     const inlines = paragraphInlines(p);
     const bullet = paragraphBullet(p);
-    if (bullet === null) {
-      while (Arr.isReadonlyArrayNonEmpty(open)) close();
-      out.push(
-        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
-      );
-      continue;
-    }
-    const level = paragraphLevel(p);
-    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
-    const top = open[open.length - 1];
-    if (top !== undefined && top.level === level && top.kind !== bullet) close();
-    const current = open[open.length - 1];
-    if (current === undefined || current.level < level)
-      open.push({ kind: bullet, level, items: [] });
-    open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
+    if (bullet === null) unbulleted(p, inlines);
+    else bulleted(p, inlines, bullet);
   }
   while (Arr.isReadonlyArrayNonEmpty(open)) close();
   return out;

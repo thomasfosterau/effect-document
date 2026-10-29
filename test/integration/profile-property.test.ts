@@ -82,6 +82,17 @@ const adjacentLists = (normal: Normal): Normal =>
     ),
   );
 
+/** Adjacent bullet lists are one list: the format has no container to end one, and no numbering to restart. */
+const adjacentBulletLists = (normal: Normal): Normal =>
+  mapBlockLists(
+    normal,
+    mergeAdjacent<NormalBlock>((a, b) =>
+      Predicate.isTagged(a, "Bullets") && Predicate.isTagged(b, "Bullets")
+        ? { ...a, items: [...a.items, ...b.items] }
+        : undefined,
+    ),
+  );
+
 /** In a title placeholder, headings and paragraphs are one: the placeholder is the slide's heading. */
 const titleHeadings = (normal: Normal): Normal =>
   mapBlocks(normal, (b) =>
@@ -125,11 +136,9 @@ const CASES: ReadonlyArray<Case> = [
   {
     format: Pptx.format,
     family: "deck",
-    // A list item's later paragraphs read back as items of their own, and
-    // adjacent lists as one (#196).
-    options: { listItems: "paragraph" },
     limits: [
-      { issue: "#196", erase: adjacentLists },
+      // DrawingML has no list container: adjacent bullet lists read back as one.
+      { issue: "#196", erase: adjacentBulletLists },
       // A title placeholder's text reads back as level-1 headings.
       { issue: "#196", erase: titleHeadings },
     ],

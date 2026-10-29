@@ -8,6 +8,7 @@ import {
   bytes,
   document,
   header,
+  OrderedList,
   orderedList,
   Placeholder,
   type FeaturesOf,
@@ -73,6 +74,42 @@ describe("PPTX round-trip", () => {
   test("output conforms to the PPTX profile", () => {
     const back = readBack([slide([textBox([para([str("hello")])])])]);
     expect(Pptx.is(back)).toBe(true);
+  });
+
+  /** The blocks of the first shape on the first slide of a deck read back from `blocks`. */
+  const shapeBack = (blocks: Parameters<typeof textBox>[0]) => {
+    const ss = firstSlideShow(readBack([slide([textBox(blocks)])]).blocks);
+    const shape = ss?.slides[0]?.shapes[0];
+    assert(shape !== undefined && Predicate.isTagged(shape, "TextBox"), "expected a text box");
+    return shape.content;
+  };
+
+  test("a list item's later paragraphs stay in the item (#196)", () => {
+    const blocks = [
+      bulletList([
+        [plainText("a"), para([str("a, continued")])],
+        [
+          plainText("b"),
+          orderedList([[plainText("b1"), para([str("b1 more")])]]),
+          para([str("b more")]),
+        ],
+      ]),
+      para([str("after the list")]),
+    ];
+    expect(shapeBack(blocks)).toEqual(blocks);
+  });
+
+  test("an item that starts with a nested list keeps it (#196)", () => {
+    const blocks = [bulletList([[bulletList([[plainText("inner")]])], [plainText("b")]])];
+    expect(shapeBack(blocks)).toEqual(blocks);
+  });
+
+  test("adjacent ordered lists stay two lists, and keep their start (#196)", () => {
+    const blocks = [
+      orderedList([[plainText("a")], [plainText("b")]]),
+      new OrderedList({ start: 4, items: [[plainText("c")]] }),
+    ];
+    expect(shapeBack(blocks)).toEqual(blocks);
   });
 });
 
