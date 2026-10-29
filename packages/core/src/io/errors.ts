@@ -42,7 +42,7 @@ export class WriteError extends Schema.TaggedError<WriteError>()("WriteError", {
 export class ProfileViolation extends Schema.TaggedError<ProfileViolation>()("ProfileViolation", {
   /** The profile the document failed to satisfy. */
   profile: Schema.String,
-  /** The features the document used that the profile does not allow. */
+  /** The features the document used that the profile does not allow (there, or where one of its `notWithin` rules keeps them out). */
   unsupported: Schema.Array(Schema.Literals(ALL_FEATURES)),
 }) {
   override get message(): string {

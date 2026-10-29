@@ -43,6 +43,7 @@ import {
   Para,
   Placeholder,
   Plain,
+  type NotWithin,
   type Profile,
   type SheetCell,
   sheetRow,
@@ -180,7 +181,15 @@ const inlines = (
 interface Ctx {
   readonly has: (f: Feature) => boolean;
   readonly options: ShapeOptions;
+  /** The profile's structural rules: features it keeps out of certain nodes (#197). */
+  readonly rules: ReadonlyArray<NotWithin>;
 }
+
+/** The context for the contents of a `within` node: without the features a rule keeps out of it. */
+const inside = (ctx: Ctx, within: Feature): Ctx => {
+  const excluded = new Set(ctx.rules.filter((r) => r.within === within).map((r) => r.feature));
+  return { ...ctx, has: (f) => ctx.has(f) && !excluded.has(f) };
+};
 
 /** The blocks a quote or div (or, by default, a list item) may hold at `depth`. */
 const blocks = (
@@ -259,7 +268,7 @@ const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
       "block.header",
       () =>
         Arbitrary.map(
-          Arbitrary.all([int(1, 6), text()]),
+          Arbitrary.all([int(1, 6), inlines(inside(ctx, "block.header"), 2)]),
           ([level, content]): Block => new Header({ level, content }),
         ),
     ],
@@ -471,7 +480,7 @@ export const arbitraryDocument = (
   options: ShapeOptions = {},
 ): Arbitrary.Arbitrary<Document> => {
   const has = (f: Feature): boolean => profile.features.has(f);
-  const ctx: Ctx = { has, options };
+  const ctx: Ctx = { has, options, rules: profile.notWithin };
   const doc = (blocksOf: ReadonlyArray<Block>) => new Document({ meta: {}, blocks: blocksOf });
   // enough body text to outweigh any generated run of headings or code
   const body = (text: string): ReadonlyArray<Block> =>

@@ -73,7 +73,7 @@ import {
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { denseRows, sheetRow } from "../schema/sheet.ts";
 import { type Feature } from "../schema/feature.ts";
-import { type Doc, type Profile } from "./profile.ts";
+import { type Doc, type NotWithin, type Profile } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
 // ============================================================================
@@ -121,19 +121,51 @@ export const widen = <To extends Feature, From extends To = To>(doc: Doc<From>):
 // ============================================================================
 
 class Recorder {
-  readonly entries: LossEntry[] = [];
+  readonly entries: LossEntry[];
+  /** Why features are lost here, beyond the generic detail: the reasons of the rules in force. */
+  private readonly reasons: ReadonlyMap<Feature, string>;
+  constructor(entries: LossEntry[] = [], reasons: ReadonlyMap<Feature, string> = new Map()) {
+    this.entries = entries;
+    this.reasons = reasons;
+  }
+  private detail(feature: Feature, detail: string): string {
+    const reason = this.reasons.get(feature);
+    return reason === undefined ? detail : `${detail}: ${reason}`;
+  }
   drop(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "dropped", detail });
+    this.entries.push({ feature, action: "dropped", detail: this.detail(feature, detail) });
   }
   convert(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "converted", detail });
+    this.entries.push({ feature, action: "converted", detail: this.detail(feature, detail) });
+  }
+  /** A recorder sharing these entries that adds `reasons` to the details of their features. */
+  within(reasons: ReadonlyMap<Feature, string>): Recorder {
+    return new Recorder(this.entries, new Map([...this.reasons, ...reasons]));
   }
 }
 
 interface Ctx {
   readonly allowed: ReadonlySet<Feature>;
   readonly rec: Recorder;
+  /** The target profile's structural rules (#126). */
+  readonly rules: ReadonlyArray<NotWithin>;
 }
+
+/**
+ * The context for the contents of a kept block of the feature `within`: the
+ * features a rule keeps out of it are no longer allowed there, and their loss
+ * entries give the rule's reason (#197).
+ */
+const inside = (within: Feature, ctx: Ctx): Ctx => {
+  const rules = ctx.rules.filter((r) => r.within === within && ctx.allowed.has(r.feature));
+  if (Arr.isReadonlyArrayEmpty(rules)) return ctx;
+  const excluded = new Set(rules.map((r) => r.feature));
+  return {
+    allowed: new Set([...ctx.allowed].filter((f) => !excluded.has(f))),
+    rec: ctx.rec.within(new Map(rules.map((r) => [r.feature, r.reason]))),
+    rules: ctx.rules,
+  };
+};
 
 /** One populated attribute facet, kept if the target allows it, else recorded as dropped. */
 const keepFacet = <A>(
@@ -711,7 +743,7 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
 const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
   const feature = blockFeature(b._tag);
   return ctx.allowed.has(feature)
-    ? dispatchTag(KEEP, b, ctx)
+    ? dispatchTag(KEEP, b, inside(feature, ctx))
     : dispatchTag(FALLBACK, b, feature, ctx);
 };
 
@@ -720,7 +752,7 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  * dropped or down-converted.
  */
 export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): NarrowResult<To> => {
-  const ctx: Ctx = { allowed: to.features, rec: new Recorder() };
+  const ctx: Ctx = { allowed: to.features, rec: new Recorder(), rules: to.notWithin };
   let blocks = [...doc.blocks];
 
   const worksheets = blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));

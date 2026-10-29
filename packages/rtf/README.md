@@ -25,7 +25,7 @@ const program = Effect.gen(function* () {
 });
 ```
 
-Headings are written as bold, larger paragraphs (RTF has no semantic headings), so they read back as paragraphs. Use `Rtf.format` with `convert` to move between RTF and the other formats: DOCX → RTF reports the links, lists and tables it has to drop.
+Headings are written as bold, larger paragraphs (RTF has no semantic headings). Because a heading is bold, bold inside one can't be told apart from it: the `Rtf` profile keeps `Strong` out of headings, so `convert` unwraps it there and reports the loss. Use `Rtf.format` with `convert` to move between RTF and the other formats: DOCX → RTF reports the links, lists and tables it has to drop.
 
 ## API reference
 

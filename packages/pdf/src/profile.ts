@@ -46,20 +46,34 @@ export type PdfFeature = FeaturesOf<typeof Pdf>;
  * Neither is inline code: a monospace run that fills a line (or a wrapped
  * line's start) reads back as a code block (#198).
  */
-export const PdfWrite = defineProfile("pdf-write", [
-  "block.plain",
-  "block.para",
-  "block.header",
-  "block.bulletList",
-  "block.orderedList",
-  "block.codeBlock",
-  "inline.str",
-  "inline.space",
-  "inline.softBreak",
-  "inline.emph",
-  "inline.strong",
-  "inline.link",
-] as const);
+export const PdfWrite = defineProfile(
+  "pdf-write",
+  [
+    "block.plain",
+    "block.para",
+    "block.header",
+    "block.bulletList",
+    "block.orderedList",
+    "block.codeBlock",
+    "inline.str",
+    "inline.space",
+    "inline.softBreak",
+    "inline.emph",
+    "inline.strong",
+    "inline.link",
+  ] as const,
+  {
+    // Headings are set in bold, so the reader takes bold in a heading as the
+    // heading's own look (#197).
+    notWithin: [
+      {
+        feature: "inline.strong",
+        within: "block.header",
+        reason: "headings are bold in PDF, so bold inside one reads back as the heading's own look",
+      },
+    ],
+  },
+);
 
 /** The features of {@link PdfWrite}, what the PDF writer accepts, as a type. */
 export type PdfWriteFeature = FeaturesOf<typeof PdfWrite>;
