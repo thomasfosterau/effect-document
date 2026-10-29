@@ -49,6 +49,12 @@ const write = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {})
 };
 
 /** Each page's marked content: its text by MCID, and the artifacts' operators. */
+/** The MCID a `BDC` operator's properties give, or `"other"` for a sequence without one. */
+const mcidOf = (props: PdfObject | undefined): number | "other" => {
+  const mcid = isDict(props) ? props.entries.get("MCID") : undefined;
+  return Predicate.isNumber(mcid) ? mcid : "other";
+};
+
 const markedContent = (file: PdfFile) =>
   file.pages().map((page) => {
     const contents = file.resolve(page.dict.entries.get("Contents"));
@@ -58,23 +64,20 @@ const markedContent = (file: PdfFile) =>
     const open: Array<number | "Artifact" | "other"> = [];
     // text shown outside any marked-content sequence
     let unmarked = 0;
+    /** Record an operator shown inside the innermost open sequence. */
+    const shown = (op: string, operand: PdfObject | undefined): void => {
+      const inside = open[open.length - 1];
+      if (inside === "Artifact") artifacts.push(op);
+      if (op !== "Tj") return;
+      if (inside === undefined) unmarked += 1;
+      else if (Predicate.isNumber(inside) && isString(operand))
+        texts.set(inside, (texts.get(inside) ?? "") + bytesToLatin1(operand.bytes));
+    };
     parseContentStream(file.decode(contents).data).forEach(({ op, operands }) => {
-      if (op === "BDC") {
-        const props = operands[1];
-        const mcid = isDict(props) ? props.entries.get("MCID") : undefined;
-        open.push(Predicate.isNumber(mcid) ? mcid : "other");
-      } else if (op === "BMC") {
-        const tag = operands[0];
-        open.push(isName(tag) && tag.name === "Artifact" ? "Artifact" : "other");
-      } else if (op === "EMC") open.pop();
-      else {
-        const inside = open[open.length - 1];
-        const s = operands[0];
-        if (op === "Tj" && Predicate.isNumber(inside) && isString(s))
-          texts.set(inside, (texts.get(inside) ?? "") + bytesToLatin1(s.bytes));
-        if (inside === "Artifact") artifacts.push(op);
-        if (op === "Tj" && inside === undefined) unmarked += 1;
-      }
+      if (op === "BDC") open.push(mcidOf(operands[1]));
+      else if (op === "BMC") open.push(isName(operands[0], "Artifact") ? "Artifact" : "other");
+      else if (op === "EMC") open.pop();
+      else shown(op, operands[0]);
     });
     expect(open).toEqual([]);
     expect(unmarked).toBe(0);
@@ -231,15 +234,12 @@ describe("the PDF writer's structure tree (#198)", () => {
       assert(isDict(elem));
       const ownPage = elem.entries.get("Pg");
       const kids = file.lookupArray(elem, "K")?.items ?? [];
+      const onPage = (pg: PdfObject | undefined): boolean =>
+        isRef(pg) && pg.num === pages[page]?.ref?.num;
       return kids.some((kid) => {
-        const pageRef = pages[page]!.ref;
-        if (Predicate.isNumber(kid))
-          return kid === mcid && isRef(ownPage) && ownPage.num === pageRef?.num;
+        if (Predicate.isNumber(kid)) return kid === mcid && onPage(ownPage);
         const d = file.resolve(kid);
-        const pg = isDict(d) ? d.entries.get("Pg") : undefined;
-        return (
-          isDict(d) && file.lookupNumber(d, "MCID") === mcid && isRef(pg) && pg.num === pageRef?.num
-        );
+        return isDict(d) && file.lookupNumber(d, "MCID") === mcid && onPage(d.entries.get("Pg"));
       });
     };
     pages.forEach((page, p) => {
