@@ -291,10 +291,12 @@ const paragraphInlines = (p: XmlElement, rels: ReadonlyMap<string, string>): Inl
 // Numbering
 // ============================================================================
 
-/** List kind and start number per (numId, ilvl), from `word/numbering.xml`. */
+/** List kind, start number and left indent per (numId, ilvl), from `word/numbering.xml`. */
 interface Numbering {
   readonly kind: (numId: string, ilvl: number) => "bullet" | "ordered";
   readonly start: (numId: string, ilvl: number) => number;
+  /** The level's left indent in twentieths of a point (720 per level when the part gives none). */
+  readonly indent: (numId: string, ilvl: number) => number;
 }
 
 const intAttr = (el: XmlElement | undefined, name: string): number | undefined => {
@@ -303,17 +305,30 @@ const intAttr = (el: XmlElement | undefined, name: string): number | undefined =
   return Number.isFinite(n) ? n : undefined;
 };
 
+/** An element's `w:ind` left indent (`w:left`, or `w:start` as Strict and newer Word write it). */
+const leftIndent = (pPr: XmlElement | undefined): number | undefined => {
+  const ind = pPr === undefined ? undefined : findChild(pPr, "ind");
+  return intAttr(ind, "left") ?? intAttr(ind, "start");
+};
+
+interface Level {
+  readonly fmt: string;
+  readonly start: number;
+  readonly indent: number | undefined;
+}
+
 const parseNumbering = (root: XmlElement | null): Numbering => {
-  const abstractFormats = new Map<string, Map<number, { fmt: string; start: number }>>();
+  const abstractFormats = new Map<string, Map<number, Level>>();
   const nums = new Map<string, { abstractId: string; starts: Map<number, number> }>();
   if (root !== null) {
     for (const abs of findChildren(root, "abstractNum")) {
-      const levels = new Map<number, { fmt: string; start: number }>();
+      const levels = new Map<number, Level>();
       for (const lvl of findChildren(abs, "lvl")) {
         const numFmt = findChild(lvl, "numFmt");
         levels.set(intAttr(lvl, "ilvl") ?? 0, {
           fmt: numFmt === undefined ? "" : (getAttr(numFmt, "val") ?? ""),
           start: intAttr(findChild(lvl, "start"), "val") ?? 1,
+          indent: leftIndent(findChild(lvl, "pPr")),
         });
       }
       abstractFormats.set(getAttr(abs, "abstractNumId") ?? "", levels);
@@ -335,6 +350,7 @@ const parseNumbering = (root: XmlElement | null): Numbering => {
     abstractFormats.get(nums.get(numId)?.abstractId ?? "")?.get(ilvl);
   return {
     start: (numId, ilvl) => nums.get(numId)?.starts.get(ilvl) ?? level(numId, ilvl)?.start ?? 1,
+    indent: (numId, ilvl) => level(numId, ilvl)?.indent ?? 720 * (ilvl + 1),
     kind: (numId, ilvl) => {
       const fmt = level(numId, ilvl)?.fmt;
       if (fmt !== undefined) return fmt === "bullet" || fmt === "none" ? "bullet" : "ordered";
@@ -458,13 +474,41 @@ interface OpenList {
   readonly numId: string;
   readonly level: number;
   readonly start: number;
+  /** The left indent of the list's level: a paragraph or table indented to it continues the last item. */
+  readonly indent: number;
   readonly items: Block[][];
 }
 
-const listBlock = (l: OpenList): Block =>
-  l.kind === "ordered"
-    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items: l.items })
-    : new BulletList({ items: l.items });
+/**
+ * An item's blocks without an empty lead paragraph before other blocks: a
+ * numbered paragraph must exist for an item that starts with a code block,
+ * table or list, so the writer leaves it empty (#195).
+ */
+const itemBlocks = (item: Block[]): Block[] => {
+  const [first, ...rest] = item;
+  return first !== undefined &&
+    first._tag === "Plain" &&
+    Arr.isReadonlyArrayEmpty(first.content) &&
+    Arr.isReadonlyArrayNonEmpty(rest)
+    ? rest
+    : item;
+};
+
+const listBlock = (l: OpenList): Block => {
+  const items = l.items.map(itemBlocks);
+  return l.kind === "ordered"
+    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items })
+    : new BulletList({ items });
+};
+
+/** A paragraph's own left indent (`w:pPr/w:ind`), if it sets one. */
+const paragraphIndent = (p: XmlElement): number | undefined => leftIndent(findChild(p, "pPr"));
+
+/** A table's left indent (`w:tblPr/w:tblInd`), if it sets one. */
+const tableIndent = (tbl: XmlElement): number | undefined => {
+  const tblPr = findChild(tbl, "tblPr");
+  return intAttr(tblPr === undefined ? undefined : findChild(tblPr, "tblInd"), "w");
+};
 
 /**
  * Convert an element's `w:p`/`w:tbl` children (and those of block-level
@@ -486,14 +530,32 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
   const closeAll = (): void => {
     while (Arr.isReadonlyArrayNonEmpty(open)) close();
   };
+  /**
+   * Whether a block indented by `indent` continues an open list's last item,
+   * as Word indents a list's continuation paragraphs to the item's level
+   * (#195): if so, close the lists nested deeper and return that item.
+   */
+  const continuedItem = (indent: number | undefined): Block[] | undefined => {
+    if (indent === undefined) return undefined;
+    const at = open.findLastIndex(
+      (l) => l.indent === indent && Arr.isReadonlyArrayNonEmpty(l.items),
+    );
+    if (at < 0) return undefined;
+    while (open.length > at + 1) close();
+    return open[at]!.items[open[at]!.items.length - 1];
+  };
 
   const visit = (el: XmlElement): void => {
     for (const child of el.children) {
       if (child.name === "p") {
         const li = listInfo(child);
         if (li === null) {
-          closeAll();
-          out.push(...paragraphToBlocks(child, ctx));
+          const item = continuedItem(paragraphIndent(child));
+          if (item !== undefined) item.push(...paragraphToBlocks(child, ctx));
+          else {
+            closeAll();
+            out.push(...paragraphToBlocks(child, ctx));
+          }
           continue;
         }
         const kind = ctx.numbering.kind(li.numId, li.ilvl);
@@ -509,12 +571,17 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
         const current = open[open.length - 1];
         if (current === undefined || current.level < li.ilvl) {
           const start = ctx.numbering.start(li.numId, li.ilvl);
-          open.push({ kind, numId: li.numId, level: li.ilvl, start, items: [] });
+          const indent = ctx.numbering.indent(li.numId, li.ilvl);
+          open.push({ kind, numId: li.numId, level: li.ilvl, start, indent, items: [] });
         }
         open[open.length - 1]!.items.push([listItemBlock(child, ctx)]);
       } else if (child.name === "tbl") {
-        closeAll();
-        out.push(tableToBlock(child, ctx, depth));
+        const item = continuedItem(tableIndent(child));
+        if (item !== undefined) item.push(tableToBlock(child, ctx, depth));
+        else {
+          closeAll();
+          out.push(tableToBlock(child, ctx, depth));
+        }
       } else if (child.name === "sdt") {
         const sdtContent = findChild(child, "sdtContent");
         if (sdtContent !== undefined) visit(sdtContent);

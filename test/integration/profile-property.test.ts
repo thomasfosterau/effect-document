@@ -173,13 +173,7 @@ const CASES: ReadonlyArray<Case> = [
   { format: Csv.format, family: "sheet", options: { columnTyped: true }, runs: 100 },
   { format: Csv.tsvFormat, family: "sheet", options: { columnTyped: true }, runs: 50 },
   { format: Xlsx.format, family: "sheet", runs: 100 },
-  {
-    format: Docx.format,
-    family: "prose",
-    // A list item's blocks after its first paragraph are written outside the list (#195).
-    options: { listItems: "lead" },
-    runs: 100,
-  },
+  { format: Docx.format, family: "prose", runs: 100 },
   {
     format: Pptx.format,
     family: "deck",
