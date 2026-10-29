@@ -3,11 +3,13 @@
  * marked content they own, and the parent tree that maps content back to them.
  */
 
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
 import { assert, describe, expect, test } from "vite-plus/test";
 import {
   type Block,
+  type Meta,
   BlockQuote,
   bulletList,
   codeBlock,
@@ -27,7 +29,6 @@ import {
   PdfFile,
   type PdfDict,
   type PdfObject,
-  type PdfRef,
   bytesToLatin1,
   isArray,
   isDict,
@@ -40,7 +41,7 @@ import {
 /** The bullet as the writer encodes it (WinAnsiEncoding's code 0o177, which PDF maps to a bullet). */
 const BULLET = "\x7f";
 
-const write = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}): PdfFile => {
+const write = (blocks: ReadonlyArray<Block>, meta: Meta = {}): PdfFile => {
   const c = Effect.runSync(
     makePdfWriter({ compress: false }).write(trustAs<PdfFeature>(document(blocks, meta))),
   );
@@ -59,7 +60,8 @@ const markedContent = (file: PdfFile) =>
   file.pages().map((page) => {
     const contents = file.resolve(page.dict.entries.get("Contents"));
     assert(contents !== undefined && Predicate.isTagged(contents, "Stream"));
-    const texts = new Map<number, string>();
+    // each MCID's text, by MCID
+    const texts: Array<string | undefined> = [];
     const artifacts: Array<string> = [];
     const open: Array<number | "Artifact" | "other"> = [];
     // text shown outside any marked-content sequence
@@ -71,7 +73,7 @@ const markedContent = (file: PdfFile) =>
       if (op !== "Tj") return;
       if (inside === undefined) unmarked += 1;
       else if (Predicate.isNumber(inside) && isString(operand))
-        texts.set(inside, (texts.get(inside) ?? "") + bytesToLatin1(operand.bytes));
+        texts[inside] = (texts[inside] ?? "") + bytesToLatin1(operand.bytes);
     };
     parseContentStream(file.decode(contents).data).forEach(({ op, operands }) => {
       if (op === "BDC") open.push(mcidOf(operands[1]));
@@ -100,13 +102,13 @@ const structure = (file: PdfFile): Shape => {
     return {
       S: file.lookupName(elem, "S") ?? "?",
       K: kids.map((kid): Shape | string => {
-        if (Predicate.isNumber(kid)) return pages[own]?.texts.get(kid) ?? "";
+        if (Predicate.isNumber(kid)) return pages[own]?.texts[kid] ?? "";
         const d = file.resolve(kid);
         assert(isDict(d));
         const type = file.lookupName(d, "Type");
         if (type === "MCR") {
           const mcid = file.lookupNumber(d, "MCID") ?? -1;
-          return pages[pageOf(d.entries.get("Pg"))]?.texts.get(mcid) ?? "";
+          return pages[pageOf(d.entries.get("Pg"))]?.texts[mcid] ?? "";
         }
         if (type === "OBJR") return "[link]";
         return shape(d);
@@ -125,8 +127,8 @@ describe("the PDF writer's structure tree (#198)", () => {
     const lang = file.lookup(file.catalog, "Lang");
     assert(isString(lang));
     expect(bytesToLatin1(lang.bytes)).toBe("en-AU");
-    const page = file.pages()[0]!;
-    expect(page.dict.entries.get("StructParents")).toBe(0);
+    const [page] = file.pages();
+    expect(page?.dict.entries.get("StructParents")).toBe(0);
   });
 
   test("tags headings, paragraphs, links, lists, code and quotes", () => {
@@ -222,12 +224,9 @@ describe("the PDF writer's structure tree (#198)", () => {
     expect(pages.length).toBeGreaterThan(1);
     const tree = file.lookupDict(file.catalog, "StructTreeRoot");
     const nums = file.lookupArray(file.lookupDict(tree, "ParentTree"), "Nums")?.items ?? [];
-    const entries = new Map<number, PdfObject | undefined>();
-    for (let i = 0; i + 1 < nums.length; i += 2) {
-      const key = nums[i];
-      assert(Predicate.isNumber(key));
-      entries.set(key, nums[i + 1]);
-    }
+    // the number tree's `[key value key value …]` pairs
+    const pairs = Arr.chunksOf(nums, 2);
+    const entry = (key: number): PdfObject | undefined => pairs.find(([k]) => k === key)?.[1];
     /** Whether element `ref`'s kids include MCID `mcid` on page `page`. */
     const owns = (ref: PdfObject | undefined, page: number, mcid: number): boolean => {
       const elem = file.resolve(ref);
@@ -243,9 +242,9 @@ describe("the PDF writer's structure tree (#198)", () => {
       });
     };
     pages.forEach((page, p) => {
-      const owners = entries.get(p);
+      const owners = entry(p);
       assert(isArray(owners));
-      expect(owners.items.length).toBe(page.texts.size);
+      expect(owners.items.length).toBe(page.texts.length);
       owners.items.forEach((owner, mcid) => expect(owns(owner, p, mcid)).toBe(true));
     });
     // the paragraph that runs over a page break has content on both pages
@@ -259,11 +258,13 @@ describe("the PDF writer's structure tree (#198)", () => {
       .pages()
       .flatMap((page) => file.lookupArray(page.dict, "Annots")?.items ?? []);
     expect(annots.length).toBe(1);
-    const annot = file.resolve(annots[0]);
+    const [annotRef] = annots;
+    assert(isRef(annotRef));
+    const annot = file.resolve(annotRef);
     assert(isDict(annot));
     const key = file.lookupNumber(annot, "StructParent");
     assert(key !== undefined);
-    const linkElem = file.resolve(entries.get(key));
+    const linkElem = file.resolve(entry(key));
     assert(isDict(linkElem));
     expect(file.lookupName(linkElem, "S")).toBe("Link");
     const objr = file
@@ -272,8 +273,8 @@ describe("the PDF writer's structure tree (#198)", () => {
       .find(isDict);
     assert(objr !== undefined);
     const obj = objr.entries.get("Obj");
-    assert(isRef(obj) && isRef(annots[0]));
-    expect(obj.num).toBe((annots[0] as PdfRef).num);
+    assert(isRef(obj));
+    expect(obj.num).toBe(annotRef.num);
     expect(file.lookupNumber(tree, "ParentTreeNextKey")).toBe(pages.length + 1);
   });
 
@@ -281,6 +282,6 @@ describe("the PDF writer's structure tree (#198)", () => {
     const file = write([para([new Underline({ content: [str("u")] })])]);
     const [page] = markedContent(file);
     expect(page?.artifacts).toContain("S");
-    expect([...(page?.texts.values() ?? [])]).toEqual(["u"]);
+    expect(page?.texts).toEqual(["u"]);
   });
 });
