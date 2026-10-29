@@ -5,7 +5,8 @@
  * shape tree: every `<p:sp>` (including those inside `<p:grpSp>` groups, which
  * are flattened in document order) becomes a TextBox (or a Placeholder, if it
  * carries a `<p:ph>`), whose text body is read back into paragraphs/lists with
- * bold/italic/underline/strike runs. Paragraph `lvl` nests bullet lists, and
+ * bold/italic/underline/strike runs. Paragraph `lvl` nests bullet lists, an
+ * unbulleted paragraph at an open list's `marL` continues its last item, and
  * the paragraphs of title placeholders become level-1 headers. A slide whose
  * relationship or part is missing fails the read, as in XLSX.
  */
@@ -15,7 +16,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
   type Block,
-  BulletList,
   type Content,
   contentToBytes,
   type Doc,
@@ -25,7 +25,6 @@ import {
   type Inline,
   LineBreak,
   makeReaderTag,
-  OrderedList,
   Para,
   ParseError,
   Placeholder,
@@ -49,6 +48,7 @@ import {
   findChild,
   findChildren,
   getAttr,
+  ListStack,
   ooxmlParseError,
 } from "../shared/index.ts";
 import { PptxRead, type PptxReadFeature } from "./profile.ts";
@@ -125,6 +125,22 @@ const paragraphBullet = (p: XmlElement): Bullet => {
   return null;
 };
 
+/** An integer attribute of the paragraph's `a:pPr`, if it has a valid one. */
+const pPrInt = (pPr: XmlElement | undefined, name: string): number | undefined => {
+  const v = pPr === undefined ? undefined : getAttr(pPr, name);
+  const n = v === undefined ? Number.NaN : Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** The paragraph's left margin, `a:pPr@marL` in EMU, if it sets one. */
+const paragraphMargin = (p: XmlElement): number | undefined => pPrInt(findChild(p, "pPr"), "marL");
+
+/** Where an auto-numbered paragraph's numbering (re)starts, `a:buAutoNum@startAt`, if it says. */
+const paragraphStartAt = (p: XmlElement): number | undefined => {
+  const pPr = findChild(p, "pPr");
+  return pPrInt(pPr === undefined ? undefined : findChild(pPr, "buAutoNum"), "startAt");
+};
+
 /** The paragraph's indent level, `a:pPr@lvl` (0-8). */
 const paragraphLevel = (p: XmlElement): number => {
   const pPr = findChild(p, "pPr");
@@ -133,49 +149,36 @@ const paragraphLevel = (p: XmlElement): number => {
   return Number.isFinite(n) ? Math.min(Math.max(n, 0), 8) : 0;
 };
 
-interface OpenList {
-  readonly kind: "bullet" | "ordered";
-  readonly level: number;
-  readonly items: Block[][];
-}
-
-const listBlock = (l: OpenList): Block =>
-  l.kind === "ordered" ? new OrderedList({ items: l.items }) : new BulletList({ items: l.items });
-
 const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
-  const out: Block[] = [];
-  // The open lists, outermost first; a deeper `lvl` nests inside the last item.
-  const open: OpenList[] = [];
-
-  const close = (): void => {
-    const list = open.pop()!;
-    const parent = open[open.length - 1];
-    if (parent === undefined) out.push(listBlock(list));
-    else if (Arr.isReadonlyArrayEmpty(parent.items)) parent.items.push([listBlock(list)]);
-    else parent.items[parent.items.length - 1]!.push(listBlock(list));
-  };
-
+  const lists = new ListStack();
   for (const p of findChildren(txBody, "p")) {
     const inlines = paragraphInlines(p);
     const bullet = paragraphBullet(p);
-    if (bullet === null) {
-      while (Arr.isReadonlyArrayNonEmpty(open)) close();
-      out.push(
-        asHeaders ? new Header({ level: 1, content: inlines }) : new Para({ content: inlines }),
+    if (bullet === null)
+      // an unbulleted paragraph at an open list's margin continues its last item (#196)
+      // (in a title placeholder, a paragraph outside the lists is a heading)
+      lists.place(paragraphMargin(p), (continued) => [
+        asHeaders && !continued
+          ? new Header({ level: 1, content: inlines })
+          : new Para({ content: inlines }),
+      ]);
+    else {
+      const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;
+      lists.item(
+        {
+          kind: bullet,
+          level: paragraphLevel(p),
+          key: "",
+          // an ordered item that restarts its numbering begins a new list (#196)
+          restart: startAt !== undefined,
+          start: startAt ?? 1,
+          indent: paragraphMargin(p),
+        },
+        new Plain({ content: inlines }),
       );
-      continue;
     }
-    const level = paragraphLevel(p);
-    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > level) close();
-    const top = open[open.length - 1];
-    if (top !== undefined && top.level === level && top.kind !== bullet) close();
-    const current = open[open.length - 1];
-    if (current === undefined || current.level < level)
-      open.push({ kind: bullet, level, items: [] });
-    open[open.length - 1]!.items.push([new Plain({ content: inlines })]);
   }
-  while (Arr.isReadonlyArrayNonEmpty(open)) close();
-  return out;
+  return lists.closeAll();
 };
 
 /** Placeholder types whose text is the slide's title. */

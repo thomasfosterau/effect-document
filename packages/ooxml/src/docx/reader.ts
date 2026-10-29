@@ -20,10 +20,8 @@ import * as HashMap from "effect/HashMap";
 import * as HashSet from "effect/HashSet";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import {
   type Block,
-  BulletList,
   CodeBlock,
   type Content,
   contentToBytes,
@@ -38,7 +36,6 @@ import {
   limitNestingDepth,
   Link,
   makeReaderTag,
-  OrderedList,
   Para,
   ParseError,
   Plain,
@@ -64,6 +61,7 @@ import {
   findChild,
   findChildren,
   getAttr,
+  ListStack,
   ooxmlParseError,
 } from "../shared/index.ts";
 import { Docx, type DocxFeature } from "./profile.ts";
@@ -626,38 +624,6 @@ const tableToBlock = (tbl: XmlElement, ctx: Ctx, depth: Depth): Table => {
   return new Table({ colSpecs: [], head, body, foot: [] });
 };
 
-interface OpenList {
-  readonly kind: "bullet" | "ordered";
-  readonly numId: string;
-  readonly level: number;
-  readonly start: number;
-  /** The left indent of the list's level: a paragraph or table indented to it continues the last item. */
-  readonly indent: number;
-  readonly items: Block[][];
-}
-
-/**
- * An item's blocks without an empty lead paragraph before other blocks: a
- * numbered paragraph must exist for an item that starts with a code block,
- * table or list, so the writer leaves it empty (#195).
- */
-const itemBlocks = (item: Block[]): Block[] => {
-  const [first, ...rest] = item;
-  return first !== undefined &&
-    Predicate.isTagged(first, "Plain") &&
-    Arr.isReadonlyArrayEmpty(first.content) &&
-    Arr.isReadonlyArrayNonEmpty(rest)
-    ? rest
-    : item;
-};
-
-const listBlock = (l: OpenList): Block => {
-  const items = l.items.map(itemBlocks);
-  return l.kind === "ordered"
-    ? new OrderedList({ start: l.start === 1 ? undefined : l.start, items })
-    : new BulletList({ items });
-};
-
 /** A paragraph's own left indent (`w:pPr/w:ind`), if it sets one. */
 const paragraphIndent = (p: XmlElement): number | undefined => leftIndent(findChild(p, "pPr"));
 
@@ -673,66 +639,26 @@ const tableIndent = (tbl: XmlElement): number | undefined => {
  * `w:ilvl`.
  */
 const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
-  const out: Block[] = [];
-  // The open lists, outermost first; a deeper ilvl nests inside the last item.
-  const open: OpenList[] = [];
+  const lists = new ListStack();
 
-  const close = (): void => {
-    const list = open.pop()!;
-    const outer = open[open.length - 1];
-    if (outer === undefined) out.push(listBlock(list));
-    else if (Arr.isReadonlyArrayEmpty(outer.items)) outer.items.push([listBlock(list)]);
-    else outer.items[outer.items.length - 1]!.push(listBlock(list));
-  };
-  const closeAll = (): void => {
-    while (Arr.isReadonlyArrayNonEmpty(open)) close();
-  };
-  /**
-   * Whether a block indented by `indent` continues an open list's last item,
-   * as Word indents a list's continuation paragraphs to the item's level
-   * (#195): if so, close the lists nested deeper and return that item.
-   */
-  const continuedItem = (indent: number | undefined): Block[] | undefined => {
-    if (indent === undefined) return undefined;
-    const at = open.findLastIndex(
-      (l) => l.indent === indent && Arr.isReadonlyArrayNonEmpty(l.items),
+  /** A numbered paragraph: a new item, in a new list when its `numId` or kind changes at its level. */
+  const listParagraph = (p: XmlElement, li: { numId: string; ilvl: number }): void =>
+    lists.item(
+      {
+        kind: ctx.numbering.kind(li.numId, li.ilvl),
+        level: li.ilvl,
+        key: li.numId,
+        restart: false,
+        start: ctx.numbering.start(li.numId, li.ilvl),
+        // a paragraph or table indented to the level continues the item (#195)
+        indent: ctx.numbering.indent(li.numId, li.ilvl),
+      },
+      listItemBlock(p, ctx),
     );
-    const list = open[at];
-    if (list === undefined) return undefined;
-    open.slice(at + 1).forEach(close);
-    return list.items.at(-1);
-  };
-
-  /** A block outside any list item's numbering: an indented continuation of an open item, or a block after the lists. */
-  const place = (indent: number | undefined, blocks: () => Block[]): void => {
-    const item = continuedItem(indent);
-    if (item !== undefined) item.push(...blocks());
-    else {
-      closeAll();
-      out.push(...blocks());
-    }
-  };
-
-  /** A numbered paragraph: a new item of the list open at its level, opening or closing lists as its level needs. */
-  const listParagraph = (p: XmlElement, li: { numId: string; ilvl: number }): void => {
-    const kind = ctx.numbering.kind(li.numId, li.ilvl);
-    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
-    const top = open[open.length - 1];
-    // A different kind or numbering instance at the same level is a new list.
-    if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId))
-      close();
-    const current = open[open.length - 1];
-    if (current === undefined || current.level < li.ilvl) {
-      const start = ctx.numbering.start(li.numId, li.ilvl);
-      const indent = ctx.numbering.indent(li.numId, li.ilvl);
-      open.push({ kind, numId: li.numId, level: li.ilvl, start, indent, items: [] });
-    }
-    open[open.length - 1]!.items.push([listItemBlock(p, ctx)]);
-  };
 
   const paragraph = (p: XmlElement): void => {
     const li = listInfo(p);
-    if (li === null) place(paragraphIndent(p), () => paragraphToBlocks(p, ctx));
+    if (li === null) lists.place(paragraphIndent(p), () => paragraphToBlocks(p, ctx));
     else listParagraph(p, li);
   };
 
@@ -740,7 +666,7 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
     for (const child of el.children) {
       if (child.name === "p") paragraph(child);
       else if (child.name === "tbl")
-        place(tableIndent(child), () => [tableToBlock(child, ctx, depth)]);
+        lists.place(tableIndent(child), () => [tableToBlock(child, ctx, depth)]);
       else if (child.name === "sdt") {
         const sdtContent = findChild(child, "sdtContent");
         if (sdtContent !== undefined) visit(sdtContent);
@@ -750,8 +676,7 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
     }
   };
   visit(parent);
-  closeAll();
-  return out;
+  return lists.closeAll();
 };
 
 /** Create a DOCX Reader. */
