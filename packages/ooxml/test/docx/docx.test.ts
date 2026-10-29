@@ -322,7 +322,7 @@ describe("DOCX correctness (#72)", () => {
   test("continuation blocks are indented to their item's level (#195)", () => {
     const xml = parts([
       bulletList([[plainText("a"), para([str("p")]), table({ rows: [[[para([str("t")])]]] })]]),
-    ])("word/document.xml")!;
+    ])("word/document.xml");
     expect(xml).toContain(`<w:p><w:pPr><w:ind w:left="720"/></w:pPr>`);
     expect(xml).toContain(`<w:tblInd w:w="720" w:type="dxa"/>`);
   });

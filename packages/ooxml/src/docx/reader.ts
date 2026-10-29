@@ -3,7 +3,8 @@
  *
  * Parses `word/document.xml`: paragraphs (headings via `w:pStyle`, list items
  * via `w:numPr`, their kind and nesting from `word/numbering.xml` and
- * `w:ilvl`), runs (bold/italic/underline/strike/super/sub/small-caps, with
+ * `w:ilvl`, with a paragraph or table indented to an open list's level read
+ * as a continuation of its last item), runs (bold/italic/underline/strike/super/sub/small-caps, with
  * OOXML's explicit "off" toggle values), hyperlinks (external through the
  * document relationships, internal `w:anchor`s as `#anchor`), simple and
  * complex fields (a HYPERLINK field becomes a link), tables, and the content
@@ -17,6 +18,7 @@ import * as HashMap from "effect/HashMap";
 import * as HashSet from "effect/HashSet";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import {
   type Block,
   BulletList,
@@ -487,7 +489,7 @@ interface OpenList {
 const itemBlocks = (item: Block[]): Block[] => {
   const [first, ...rest] = item;
   return first !== undefined &&
-    first._tag === "Plain" &&
+    Predicate.isTagged(first, "Plain") &&
     Arr.isReadonlyArrayEmpty(first.content) &&
     Arr.isReadonlyArrayNonEmpty(rest)
     ? rest
@@ -540,49 +542,51 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
     const at = open.findLastIndex(
       (l) => l.indent === indent && Arr.isReadonlyArrayNonEmpty(l.items),
     );
-    if (at < 0) return undefined;
-    while (open.length > at + 1) close();
-    return open[at]!.items[open[at]!.items.length - 1];
+    const list = open[at];
+    if (list === undefined) return undefined;
+    open.slice(at + 1).forEach(close);
+    return list.items.at(-1);
+  };
+
+  /** A block outside any list item's numbering: an indented continuation of an open item, or a block after the lists. */
+  const place = (indent: number | undefined, blocks: () => Block[]): void => {
+    const item = continuedItem(indent);
+    if (item !== undefined) item.push(...blocks());
+    else {
+      closeAll();
+      out.push(...blocks());
+    }
+  };
+
+  /** A numbered paragraph: a new item of the list open at its level, opening or closing lists as its level needs. */
+  const listParagraph = (p: XmlElement, li: { numId: string; ilvl: number }): void => {
+    const kind = ctx.numbering.kind(li.numId, li.ilvl);
+    while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
+    const top = open[open.length - 1];
+    // A different kind or numbering instance at the same level is a new list.
+    if (top !== undefined && top.level === li.ilvl && (top.kind !== kind || top.numId !== li.numId))
+      close();
+    const current = open[open.length - 1];
+    if (current === undefined || current.level < li.ilvl) {
+      const start = ctx.numbering.start(li.numId, li.ilvl);
+      const indent = ctx.numbering.indent(li.numId, li.ilvl);
+      open.push({ kind, numId: li.numId, level: li.ilvl, start, indent, items: [] });
+    }
+    open[open.length - 1]!.items.push([listItemBlock(p, ctx)]);
+  };
+
+  const paragraph = (p: XmlElement): void => {
+    const li = listInfo(p);
+    if (li === null) place(paragraphIndent(p), () => paragraphToBlocks(p, ctx));
+    else listParagraph(p, li);
   };
 
   const visit = (el: XmlElement): void => {
     for (const child of el.children) {
-      if (child.name === "p") {
-        const li = listInfo(child);
-        if (li === null) {
-          const item = continuedItem(paragraphIndent(child));
-          if (item !== undefined) item.push(...paragraphToBlocks(child, ctx));
-          else {
-            closeAll();
-            out.push(...paragraphToBlocks(child, ctx));
-          }
-          continue;
-        }
-        const kind = ctx.numbering.kind(li.numId, li.ilvl);
-        while (Arr.isReadonlyArrayNonEmpty(open) && open[open.length - 1]!.level > li.ilvl) close();
-        const top = open[open.length - 1];
-        // A different kind or numbering instance at the same level is a new list.
-        if (
-          top !== undefined &&
-          top.level === li.ilvl &&
-          (top.kind !== kind || top.numId !== li.numId)
-        )
-          close();
-        const current = open[open.length - 1];
-        if (current === undefined || current.level < li.ilvl) {
-          const start = ctx.numbering.start(li.numId, li.ilvl);
-          const indent = ctx.numbering.indent(li.numId, li.ilvl);
-          open.push({ kind, numId: li.numId, level: li.ilvl, start, indent, items: [] });
-        }
-        open[open.length - 1]!.items.push([listItemBlock(child, ctx)]);
-      } else if (child.name === "tbl") {
-        const item = continuedItem(tableIndent(child));
-        if (item !== undefined) item.push(tableToBlock(child, ctx, depth));
-        else {
-          closeAll();
-          out.push(tableToBlock(child, ctx, depth));
-        }
-      } else if (child.name === "sdt") {
+      if (child.name === "p") paragraph(child);
+      else if (child.name === "tbl")
+        place(tableIndent(child), () => [tableToBlock(child, ctx, depth)]);
+      else if (child.name === "sdt") {
         const sdtContent = findChild(child, "sdtContent");
         if (sdtContent !== undefined) visit(sdtContent);
       } else if (child.name === "ins" || child.name === "moveTo" || child.name === "customXml") {
