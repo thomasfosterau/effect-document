@@ -57,7 +57,7 @@ catalog:
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
   "@thomasfosterau/effect-parse": ^0.3.0
-  "@types/node": ^26.6.5
+  "@types/node": ^26.6.6
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.0.5
