@@ -69,8 +69,8 @@ export const packageConfig = (options: PackageConfigOptions) => {
     run: {
       tasks: {
         // `src` under the native, Effect-patched `tsc`, then the tests under
-        // tsconfig.test.json, which resolves the package name to `src/` so
-        // this package's own build is never needed first.
+        // tsconfig.test.json. tsconfig.base.json's `paths` resolve every
+        // package name to `src/`, so no build is needed first.
         check: {
           command: "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
           dependsOn: [siblingBuild],
@@ -110,7 +110,7 @@ export const packageConfig = (options: PackageConfigOptions) => {
     },
     resolve: {
       // Tests import the package by name, exactly as a consumer would (and as
-      // tsconfig.test.json's `paths` type-checks them), so the runner resolves
+      // tsconfig.base.json's `paths` type-check them), so the runner resolves
       // that name to `src/` rather than to the built `dist/` that `exports`
       // points at — a unit run never needs this package's build first.
       alias: packageAliases(options),

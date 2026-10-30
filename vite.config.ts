@@ -267,30 +267,15 @@ export default defineConfig({
           // Table-driven cases run one after another so a failure names its
           // case; a `Promise.all` over them would interleave the runs.
           "eslint/no-await-in-loop": "off",
-          // A package's tests sit outside its `tsconfig.json` (see
-          // `options.typeCheck` below), so tsgolint reads them without
-          // `noUncheckedIndexedAccess` and calls every `rows[0]!` unnecessary
-          // (107 false positives): the `!` is what the `check` task's
-          // `tsconfig.test.json` requires.
-          "typescript/no-unnecessary-type-assertion": "off",
         },
       },
     ],
     // Type-aware rules run through oxlint-tsgolint (bundled with vite-plus,
     // patched by `effect-tsgo patch --oxlint`), so `vp check` reports the
     // typescript plugin's type-informed rules and `@effect/tsgo`'s.
-    //
-    // `typeCheck` stays off, measured: tsgolint builds each file's program
-    // from the nearest `tsconfig.json`, and a package's `tsconfig.json`
-    // includes only `src/`. Its tests are type-checked under
-    // `tsconfig.test.json`, which tsgolint never loads, so it checks them in
-    // an inferred program without the base options and reported a false
-    // TS2339 (`toReversed` missing on a readonly array) that the `check`
-    // task's native, Effect-patched `tsc` does not. Type errors stay that
-    // gate's job.
     options: {
       typeAware: true,
-      typeCheck: false,
+      typeCheck: true,
     },
     jsPlugins: [
       {

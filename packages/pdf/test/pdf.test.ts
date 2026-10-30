@@ -216,7 +216,7 @@ describe("PDF round trip", () => {
     expect(back.blocks.length).toBe(2);
     expect(
       back.blocks[0]!._tag === "Para" &&
-        back.blocks[0]!.content.some((i: Inline) => Predicate.isTagged(i, "SoftBreak")),
+        back.blocks[0].content.some((i: Inline) => Predicate.isTagged(i, "SoftBreak")),
     ).toBe(true);
     expect(blocksToText([back.blocks[0]!])).toBe(long);
   });

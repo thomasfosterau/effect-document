@@ -1,0 +1,6 @@
+{
+  // oxlint-tsgolint (the type-aware lint in `vp check`) types each file with
+  // its nearest `tsconfig.json`; this hands the tests the program the `check`
+  // task builds for them.
+  "extends": "../tsconfig.test.json"
+}

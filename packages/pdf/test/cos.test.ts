@@ -270,7 +270,7 @@ const xrefStreamPdf = (): Uint8Array => {
   row(1, offsets[4]!, 0);
   row(2, 6, 3);
   row(1, offsets[6]!, 0);
-  row(1, offsets[7]!, 0);
+  row(1, offsets[7], 0);
   const predicted: number[] = [];
   rows.forEach((r, i) =>
     predicted.push(2, ...r.map((b, j) => (b - (rows[i - 1]?.[j] ?? 0)) & 255)),
