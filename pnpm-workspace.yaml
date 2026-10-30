@@ -42,7 +42,7 @@ catalog:
   # examples read fixtures and write output through (dev-only: no published
   # package imports it). Exact, in lockstep with `effect` below: its own peer
   # is `effect: ^<its version>`.
-  "@effect/platform-node": 4.0.6
+  "@effect/platform-node": 4.1.0
   # Lint the packed tarballs (`vp run check:pack`): publint checks the
   # manifest and `exports` against the files, and attw resolves every entry's
   # types the way consumers' module resolution does.
@@ -61,7 +61,7 @@ catalog:
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.0.5
-  effect: 4.0.6
+  effect: 4.1.0
   fallow: 3.37.0
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
   fflate: ^0.8.2
