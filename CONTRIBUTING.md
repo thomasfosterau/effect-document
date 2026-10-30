@@ -16,7 +16,7 @@ Hooks are managed by Vite+; the editable [.vite-hooks/pre-commit](.vite-hooks/pr
 
 ## CI expectations
 
-[ci.yml](.github/workflows/ci.yml) runs one required job, `ci`, whose steps are the gate list in [AGENTS.md](AGENTS.md#verification). Until the default branch is renamed from `main` to `trunk`, neither workflow triggers. [release.yml](.github/workflows/release.yml) runs changesets/action on `trunk`: it opens the version PR while unreleased changesets exist and publishes once it merges, via npm OIDC trusted publishing (see [PUBLISHING.md](PUBLISHING.md)).
+[ci.yml](.github/workflows/ci.yml) runs one required job, `ci`, whose steps are the gate list in [AGENTS.md](AGENTS.md#verification). The workflows are hardened for Dependabot PRs: `permissions: {}` at the top with read-only scopes per job, every action pinned to a commit SHA, `persist-credentials: false` on CI checkouts, no secrets or OIDC in anything a pull request can trigger (the release job alone holds `id-token: write`, and runs only on pushes to `trunk`), `pnpm install --frozen-lockfile`, and `concurrency` / `timeout-minutes` on every job. `uvx zizmor .github` audits them (config in `.github/zizmor.yml`). [release.yml](.github/workflows/release.yml) runs changesets/action on `trunk`: it opens the version PR while unreleased changesets exist and publishes once it merges, via npm OIDC trusted publishing (see [PUBLISHING.md](PUBLISHING.md)).
 
 ## Pre-PR checklist
 
@@ -28,7 +28,7 @@ Hooks are managed by Vite+; the editable [.vite-hooks/pre-commit](.vite-hooks/pr
 ## Running individual checks
 
 ```sh
-vp lint                                  # oxlint (the Effect presets)
+vp lint                                  # oxlint (@enfect/oxlint + @effect/tsgo presets)
 vp fmt                                   # oxfmt
 vp run check                             # the whole type gate
 vp run --filter ./packages/pdf check     # one package's type gate

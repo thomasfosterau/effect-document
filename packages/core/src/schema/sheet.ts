@@ -130,7 +130,7 @@ export const denseRows = (
 export const sheetRow = (
   index: number,
   cells: ReadonlyArray<SheetCell>,
-  height?: number | undefined,
+  height?: number,
 ): SheetRow =>
   new SheetRow({
     index,

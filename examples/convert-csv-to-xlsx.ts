@@ -76,4 +76,4 @@ const program = Effect.fn("convert-csv-to-xlsx")(function* () {
   );
 });
 
-Effect.runPromise(program().pipe(Effect.provide(NodeServices.layer)));
+await Effect.runPromise(program().pipe(Effect.provide(NodeServices.layer)));

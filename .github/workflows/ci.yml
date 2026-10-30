@@ -7,8 +7,9 @@ name: CI
 # needs a database, a stage or a credential, so every PR class runs the whole
 # gate.
 #
-# The `ci` job runs on the latest stable Node (`node-version: latest` in the
-# setup action). The packages' `engines.node` (`>=22`) is the consumer floor,
+# The `ci` job runs on the latest stable Node (`node-version: "*"` with
+# `check-latest: true` in the setup action; never `latest`, which resolves to
+# a Node pre-release). The packages' `engines.node` (`>=22`) is the consumer floor,
 # so the `node-floor` job reruns the runtime gates (unit and integration
 # tests) on Node 22, which `latest` alone never exercises: #164 (Node 22's
 # `TextDecoder("windows-1252")` decoding 0x80–0x9F as C1 controls) got
@@ -54,13 +55,13 @@ jobs:
           restore-keys: |
             vp-task-v1-${{ runner.os }}-
       - name: Format and lint
-        run: vp check
+        run: pnpm exec vp check
       - name: Type gates (src + tests + examples)
-        run: vp run --concurrency-limit 2 check
+        run: pnpm exec vp run --concurrency-limit 2 check
       - name: Unit tests
-        run: vp run -r test:unit
+        run: pnpm exec vp run -r test:unit
       - name: Integration tests (cross-format conversions)
-        run: vp run test:integration
+        run: pnpm exec vp run test:integration
       # Public corpora pinned in corpora.json (#133): fetched, never
       # committed, and cached by their pins.
       - name: Restore the corpus cache
@@ -69,16 +70,16 @@ jobs:
           path: .corpora
           key: corpora-v1-${{ hashFiles('corpora.json') }}
       - name: Fetch the pinned corpora
-        run: vp run corpora:fetch
+        run: pnpm exec vp run corpora:fetch
       # Writer output checked by independent tools (#134): every OOXML part
       # against the ECMA-376 schemas (fetched above as a corpus).
       - name: Validate writer output (xmllint, ECMA-376)
         run: |
           command -v xmllint || { sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxml2-utils; }
-          vp run test:validate
+          pnpm exec vp run test:validate
       # Every reader over every corpus file: no defects, no hangs.
       - name: Corpus smoke tests
-        run: vp run test:corpus
+        run: pnpm exec vp run test:corpus
       - name: Corpus read rates
         if: always()
         run: |
@@ -91,16 +92,16 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Build
-        run: vp run -r build
+        run: pnpm exec vp run -r build
       - name: Dist import guard (no effect/unstable)
-        run: vp run check:dist
+        run: pnpm exec vp run check:dist
       # Runs every program under examples/ against the built dist/.
       - name: Run the examples
-        run: vp run examples
+        run: pnpm exec vp run examples
       # Packs every package, lints the tarballs (publint, attw) and imports
       # and type-checks them from a scratch consumer project.
       - name: Packed-package smoke test
-        run: vp run check:pack
+        run: pnpm exec vp run check:pack
       - name: Audit
         run: pnpm audit --audit-level high
 
@@ -122,9 +123,9 @@ jobs:
       - name: Node version
         run: node --version
       - name: Unit tests
-        run: vp run -r test:unit
+        run: pnpm exec vp run -r test:unit
       - name: Integration tests (cross-format conversions)
-        run: vp run test:integration
+        run: pnpm exec vp run test:integration
 
   # Optional, not a required check (#134): our writers' output opened by
   # independent tools. LibreOffice converts every DOCX, XLSX, PPTX and RTF
@@ -164,4 +165,4 @@ jobs:
           # apt writes the cache as root; the cache action saves it as the runner user
           sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
       - name: Interop tests
-        run: vp run test:interop
+        run: pnpm exec vp run test:interop

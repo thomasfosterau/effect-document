@@ -69,4 +69,4 @@ const program = Effect.fn("document-ast")(function* () {
   );
 });
 
-Effect.runPromise(program());
+await Effect.runPromise(program());

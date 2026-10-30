@@ -148,7 +148,7 @@ const loadSimpleFont = (file: PdfFile, dict: PdfDict, subtype: string): PdfFont 
   const widths = numbers(file, dict.entries.get("Widths"));
   const missing = file.lookupNumber(descriptor, "MissingWidth");
   const matrix = numbers(file, dict.entries.get("FontMatrix"));
-  const scale = subtype === "Type3" && Arr.isReadonlyArrayNonEmpty(matrix) ? matrix[0]! : 0.001;
+  const scale = subtype === "Type3" && Arr.isReadonlyArrayNonEmpty(matrix) ? matrix[0] : 0.001;
   const stdWidth = standard === undefined ? undefined : standardWidths(standard);
   const width = (code: number): number => {
     const w = widths[code - firstChar];

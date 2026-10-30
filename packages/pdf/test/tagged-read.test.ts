@@ -220,15 +220,15 @@ describe("reading other generators' tags (#198)", () => {
         const l = pdf.alloc();
         const item = (lbl: number, body: number): PdfObject => {
           const li = pdf.alloc();
-          const body_ = pdf.alloc();
+          const bodyRef = pdf.alloc();
           pdf.set(
-            body_,
+            bodyRef,
             pdfDict({
               Type: pdfName("StructElem"),
               S: pdfName("LBody"),
               P: li,
               Pg: page,
-              K: pdfArray([elem(pdf, "P", page, body_, body)]),
+              K: pdfArray([elem(pdf, "P", page, bodyRef, body)]),
             }),
           );
           pdf.set(
@@ -238,7 +238,7 @@ describe("reading other generators' tags (#198)", () => {
               S: pdfName("LI"),
               P: l,
               Pg: page,
-              K: pdfArray([elem(pdf, "Lbl", page, li, lbl), body_]),
+              K: pdfArray([elem(pdf, "Lbl", page, li, lbl), bodyRef]),
             }),
           );
           return li;

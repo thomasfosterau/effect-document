@@ -2,8 +2,10 @@
 # Sets up Node.js + pnpm, restores the pnpm store cache (keyed on
 # pnpm-lock.yaml by setup-node), and installs dependencies with a frozen
 # lockfile (retried — see the Install step's own comment for why).
-# `vp` and the dev bins (tsc, tsx, fallow) land in node_modules/.bin,
-# which this adds to PATH so later steps invoke `vp …` directly.
+# `vp` and the dev bins (tsc, tsx, fallow) land in node_modules/.bin;
+# later steps invoke them through `pnpm exec` (which puts that directory on
+# PATH for the command) rather than this action writing `GITHUB_PATH`, an
+# environment-file write zizmor flags as a step-to-step injection channel.
 # Copied from the effect-web library's action (itself from effect-drizzle-ext
 # and the gardeneria application), with a `node-version` input (as in
 # effect-ai-ext's copy) so the `node-floor` job can reuse it (#181).
@@ -16,7 +18,10 @@ inputs:
   node-version:
     description: The Node.js version to install (setup-node syntax).
     required: false
-    default: latest
+    # The newest stable release. Never `latest`: setup-node resolves it to
+    # the Node 27 alpha (`v27.0.0-alpha.0.0.0`), which hangs some tests.
+    # `*` with `check-latest: true` (below) is the newest non-pre-release.
+    default: "*"
 runs:
   using: composite
   steps:
@@ -29,6 +34,7 @@ runs:
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ inputs.node-version }}
+        check-latest: true
         cache: pnpm
 
     # Retried: pnpm's linker can race itself when a package with a build
@@ -53,4 +59,3 @@ runs:
           echo "::warning::pnpm install failed (attempt ${attempt}/3); retrying in ${delay}s"
           sleep "$delay"
         done
-        echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"

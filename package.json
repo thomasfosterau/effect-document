@@ -22,7 +22,7 @@
     "@effect/language-service": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/tsgo": "catalog:",
-    "@mpsuesser/oxlint-plugin-effect": "catalog:",
+    "@enfect/oxlint": "catalog:",
     "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-document": "workspace:*",
     "@thomasfosterau/effect-iwork": "workspace:*",

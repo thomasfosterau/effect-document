@@ -26,8 +26,10 @@ const program = Effect.fn("streaming")(function* () {
   // --- Stream rows without materializing the whole table ------------------
   // `readStream` is optional on a Reader; the CSV reader always provides it.
   const { readStream } = makeCsvReader();
-  if (readStream === undefined) return yield* Effect.die("the CSV reader streams");
-  const rows = readStream(text(csvText));
+  const rows = yield* Effect.fromNullishOr(readStream).pipe(
+    Effect.map((read) => read(text(csvText))),
+    Effect.orDie,
+  );
 
   yield* Console.log("=== First 5 rows ===");
   yield* rows.pipe(
@@ -49,4 +51,4 @@ const program = Effect.fn("streaming")(function* () {
   yield* Console.log(`\nTotal batches: ${batchCount}`);
 });
 
-Effect.runPromise(program());
+await Effect.runPromise(program());

@@ -471,7 +471,7 @@ export const findChildren = (element: XmlElement, name: string): ReadonlyArray<X
 /** Find all descendants with the given local name (depth-first, document order) */
 export const findAll = (element: XmlElement, name: string): ReadonlyArray<XmlElement> => {
   const results: XmlElement[] = [];
-  const stack: XmlElement[] = [...element.children].reverse();
+  const stack: XmlElement[] = element.children.toReversed();
   while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const el = stack.pop()!;
     if (el.name === name) results.push(el);
@@ -496,5 +496,5 @@ export const getAttr = (element: XmlElement, name: string): string | undefined =
     const own = matches.find((key) => scope?.get(prefixOf(key)) === element.ns);
     if (own !== undefined) return element.attrs[own];
   }
-  return Arr.isReadonlyArrayNonEmpty(matches) ? element.attrs[matches[0]!] : undefined;
+  return Arr.isReadonlyArrayNonEmpty(matches) ? element.attrs[matches[0]] : undefined;
 };

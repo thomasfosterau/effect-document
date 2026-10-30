@@ -228,7 +228,7 @@ describe("the stack-safe Document codec (#191)", () => {
     );
     const block = rows.blocks[0]!;
     assert(Predicate.isTagged(block, "Worksheet"));
-    const input = { ...rows, blocks: [{ ...block, rows: [...block.rows].reverse() }] };
+    const input = { ...rows, blocks: [{ ...block, rows: block.rows.toReversed() }] };
     const [ours, theirs] = failures(input);
     expect(ours).toContain("is not after");
     expect(theirs).toContain("is not after");

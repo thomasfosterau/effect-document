@@ -332,7 +332,7 @@ const expandBlock = (block: Block): TextPart[] => {
 
 const collapse = (parts: ReadonlyArray<TextPart>): string => {
   let out = "";
-  const stack: TextPart[] = [...parts].reverse();
+  const stack: TextPart[] = parts.toReversed();
   for (let part = stack.pop(); part !== undefined; part = stack.pop()) {
     if (Predicate.isString(part)) {
       out += part;

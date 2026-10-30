@@ -203,6 +203,8 @@ describe("sparse worksheet (#185)", () => {
   });
 
   test("the constructor rejects out-of-order cells too", () => {
-    expect(() => new SheetRow({ index: 0, cells: [at(2), at(1)] })).toThrow();
+    expect(() => new SheetRow({ index: 0, cells: [at(2), at(1)] })).toThrow(
+      "Schema validation failed",
+    );
   });
 });

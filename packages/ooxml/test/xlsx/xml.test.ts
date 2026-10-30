@@ -102,9 +102,9 @@ describe("parseXml", () => {
   });
 
   test("throws on malformed input", () => {
-    expect(() => parseXml("")).toThrow();
-    expect(() => parseXml("just text")).toThrow();
-    expect(() => parseXml("<unclosed")).toThrow();
+    expect(() => parseXml("")).toThrow("expected root element");
+    expect(() => parseXml("just text")).toThrow("expected root element");
+    expect(() => parseXml("<unclosed")).toThrow("found end of input");
   });
 
   test("keeps CDATA verbatim and accepts a byte order mark", () => {
