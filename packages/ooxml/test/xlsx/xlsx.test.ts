@@ -353,7 +353,7 @@ describe("XLSX writer validity (#61)", () => {
     const out = await run(makeXlsxWriter().write(doc));
     assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
-    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
+    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
   };
 
   test("NaN and ±Infinity are written as #NUM! errors", async () => {
@@ -471,7 +471,7 @@ describe("XLSX writer validity (#61)", () => {
       )[0]!;
       const width = Math.max(...rows.map((r) => r.length));
       const expected = rows.map((r) =>
-        Array.from({ length: width }, (_, c) => (r[c] === undefined ? "" : cellToText(r[c]!))),
+        Array.from({ length: width }, (_, c) => (r[c] === undefined ? "" : cellToText(r[c]))),
       );
       // Blank cells are not written, so the sheet reads back as the valued cells alone.
       expect(back.rows.every((r) => r.cells.every((c) => c.cell._tag !== "CellBlank"))).toBe(true);

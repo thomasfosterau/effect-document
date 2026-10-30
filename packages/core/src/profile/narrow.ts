@@ -116,9 +116,9 @@ export interface NarrowResult<To extends Feature> {
  * constraint `From extends To` makes this safe only when `To` is a superset.
  */
 export const widen = <To extends Feature, From extends To = To>(doc: Doc<From>): Doc<To> =>
-  // SAFETY: `From extends To`, and `Doc`'s feature parameter is a phantom in a
-  // covariant position, so every `Doc<From>` is a valid `Doc<To>`.
-  doc as Doc<To>;
+  // `From extends To`, and `Doc`'s feature parameter is a phantom in a
+  // covariant position, so every `Doc<From>` is already a `Doc<To>`.
+  doc;
 
 // ============================================================================
 // narrow
@@ -822,4 +822,4 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
 export const narrowEffect = <To extends Feature>(
   doc: Document,
   to: Profile<To>,
-): Effect.Effect<NarrowResult<To>, never> => Effect.sync(() => narrow(doc, to));
+): Effect.Effect<NarrowResult<To>> => Effect.sync(() => narrow(doc, to));

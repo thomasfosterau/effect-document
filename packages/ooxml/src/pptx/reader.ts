@@ -210,7 +210,7 @@ const shapeOf = (sp: XmlElement): Shape => {
  */
 const shapeElements = (spTree: XmlElement): XmlElement[] => {
   const out: XmlElement[] = [];
-  const stack: XmlElement[] = [...spTree.children].reverse();
+  const stack: XmlElement[] = spTree.children.toReversed();
   while (Arr.isReadonlyArrayNonEmpty(stack)) {
     const el = stack.pop()!;
     if (el.name === "sp") out.push(el);

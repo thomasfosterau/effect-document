@@ -252,7 +252,9 @@ describe("the PDF writer's structure tree (#198)", () => {
     assert(first !== undefined && !Predicate.isString(first));
     expect(first.K.length).toBeGreaterThan(1);
     // (lines are joined without their breaks, so compare the words alone)
-    expect(first.K.join("").replace(/\s/g, "")).toBe(words.replace(/\s/g, ""));
+    const runs = first.K;
+    assert(runs.every(Predicate.isString));
+    expect(runs.join("").replace(/\s/g, "")).toBe(words.replace(/\s/g, ""));
     // the link annotation's /StructParent is its Link element's key
     const annots = file
       .pages()

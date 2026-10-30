@@ -61,7 +61,7 @@ const generateRandomContent = (lengthRange: readonly [number, number], rng: Seed
   ).join("");
 
 /** Generate a table of random string data according to the spec. */
-export const synthesizeTable = (spec: SynthesisSpec): Effect.Effect<SynthesizedTable, never> =>
+export const synthesizeTable = (spec: SynthesisSpec): Effect.Effect<SynthesizedTable> =>
   Effect.gen(function* () {
     const rawLengthRange = spec.fieldLengthRange ?? [5, 20];
     const lower = Math.min(rawLengthRange[0], rawLengthRange[1]);
@@ -93,7 +93,7 @@ export const synthesizeTable = (spec: SynthesisSpec): Effect.Effect<SynthesizedT
 export const synthesizeDocument = (
   spec: SynthesisSpec,
   sheetName: string = "Sheet1",
-): Effect.Effect<Doc<CsvFeature>, never> =>
+): Effect.Effect<Doc<CsvFeature>> =>
   Effect.map(synthesizeTable(spec), ({ headers, rows }) =>
     trustAs<CsvFeature>(
       document([

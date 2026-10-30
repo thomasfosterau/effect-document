@@ -48,9 +48,10 @@ jobs:
       # ignored.
       pnpm_config_verify_deps_before_run: "false"
     steps:
-      - name: Checkout
+      - name: Checkout # zizmor: ignore[artipacked]
         # The Changesets action pushes the version branch, so it needs the
-        # checkout's git credentials (the ephemeral, job-scoped GITHUB_TOKEN).
+        # checkout's git credentials (the ephemeral, job-scoped GITHUB_TOKEN),
+        # so they persist here on purpose; the job uploads no artifacts.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -63,6 +64,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          # A pinned stable major, never `latest` (setup-node resolves that to a
+          # Node pre-release, which must never publish).
           node-version: 22.x
           cache: pnpm
           registry-url: https://registry.npmjs.org

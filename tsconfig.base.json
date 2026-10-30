@@ -34,6 +34,35 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noEmit": true,
+    // Every workspace package name resolves to its `src/`, in every program
+    // (each package's `tsconfig.json` / `tsconfig.test.json`, the root one).
+    // The `exports` point at `dist/`, which does not exist before
+    // `vp run -r build`; without this, the type-aware lint in `vp check`
+    // (oxlint-tsgolint, which reads these configs) types every sibling
+    // import as `error` on a clean tree. What consumers see in `dist/` is
+    // still checked by `vp run check:pack` (and `check:dist`). Paths here are
+    // relative to this file; a config that sets its own `paths` replaces
+    // this map, so none does.
+    "paths": {
+      "@thomasfosterau/effect-document": ["./packages/core/src/index.ts"],
+      "@thomasfosterau/effect-document/schema": ["./packages/core/src/schema/index.ts"],
+      "@thomasfosterau/effect-document/profile": ["./packages/core/src/profile/index.ts"],
+      "@thomasfosterau/effect-document/profiles": ["./packages/core/src/profile/profiles.ts"],
+      "@thomasfosterau/effect-document/io": ["./packages/core/src/io/index.ts"],
+      "@thomasfosterau/effect-csv": ["./packages/csv/src/index.ts"],
+      "@thomasfosterau/effect-iwork": ["./packages/iwork/src/index.ts"],
+      "@thomasfosterau/effect-iwork/pages": ["./packages/iwork/src/pages.ts"],
+      "@thomasfosterau/effect-iwork/numbers": ["./packages/iwork/src/numbers.ts"],
+      "@thomasfosterau/effect-iwork/keynote": ["./packages/iwork/src/keynote.ts"],
+      "@thomasfosterau/effect-iwork/codec": ["./packages/iwork/src/codec.ts"],
+      "@thomasfosterau/effect-ooxml": ["./packages/ooxml/src/index.ts"],
+      "@thomasfosterau/effect-ooxml/xlsx": ["./packages/ooxml/src/xlsx/index.ts"],
+      "@thomasfosterau/effect-ooxml/docx": ["./packages/ooxml/src/docx/index.ts"],
+      "@thomasfosterau/effect-ooxml/pptx": ["./packages/ooxml/src/pptx/index.ts"],
+      "@thomasfosterau/effect-pdf": ["./packages/pdf/src/index.ts"],
+      "@thomasfosterau/effect-pdf/cos": ["./packages/pdf/src/cos/index.ts"],
+      "@thomasfosterau/effect-rtf": ["./packages/rtf/src/index.ts"]
+    },
     "plugins": [
       {
         "name": "@effect/language-service",

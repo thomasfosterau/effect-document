@@ -72,4 +72,4 @@ const program = Effect.fn("readIworkDirectory")(function* () {
   yield* Console.log(blocksToText(doc.blocks));
 });
 
-Effect.runPromise(program().pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)));
+await Effect.runPromise(program().pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)));

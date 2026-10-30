@@ -209,10 +209,7 @@ class InlineCollector {
   /** Close any field left open at the end of the paragraph, and any bookmark (it ends in a later one). */
   finish(): Piece[] {
     while (Arr.isReadonlyArrayNonEmpty(this.fields)) this.emitField(this.fields.pop()!);
-    this.bookmarks
-      .slice()
-      .reverse()
-      .forEach((b) => this.closeBookmark(b.wid));
+    this.bookmarks.toReversed().forEach((b) => this.closeBookmark(b.wid));
     return this.out;
   }
 

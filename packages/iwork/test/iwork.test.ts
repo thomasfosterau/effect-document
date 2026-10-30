@@ -59,7 +59,7 @@ describe("Protobuf wire reader", () => {
     const fields = parseMessage(new Uint8Array([0x08, 0x05, 0x12, 0x02, 0x68, 0x69]));
     expect(fields[0]).toMatchObject({ field: 1, wire: 0, value: 5 });
     expect(fields[1]).toMatchObject({ field: 2, wire: 2 });
-    expect(new TextDecoder().decode(fields[1]!.bytes!)).toBe("hi");
+    expect(new TextDecoder().decode(fields[1]!.bytes)).toBe("hi");
   });
 
   test("parses fixed 32- and 64-bit fields", () => {

@@ -34,3 +34,4 @@ dist/
 
 # Written by examples/convert-csv-to-xlsx.ts.
 output.xlsx
+.vitest/

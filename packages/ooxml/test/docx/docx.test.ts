@@ -249,7 +249,7 @@ describe("DOCX correctness (#72)", () => {
     const out = run(makeDocxWriter().write(doc(blocks)));
     assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
     const files = unzipSync(out.bytes);
-    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]!));
+    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
   };
 
   // ---- writer

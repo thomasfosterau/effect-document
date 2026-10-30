@@ -172,7 +172,7 @@ const quoteField = (value: string, dialect: CsvDialect, escape: Option.Option<st
 
 /** Why `escapeChar` can't be used with this dialect, if it can't. */
 const badEscape = (escape: string, dialect: CsvDialect): Option.Option<string> =>
-  [...escape].length !== 1
+  Array.from(escape).length !== 1
     ? Option.some("must be exactly one character")
     : escape === dialect.separator ||
         escape === dialect.wrapper ||

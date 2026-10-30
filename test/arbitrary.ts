@@ -87,7 +87,7 @@ const LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /** A word: letters only, so it never reads as a number, a boolean or markup. */
 const word: Arbitrary.Arbitrary<string> = Arbitrary.map(
-  Arbitrary.array(pick([...LETTERS]), { minLength: 1, maxLength: 7 }),
+  Arbitrary.array(pick(Array.from(LETTERS)), { minLength: 1, maxLength: 7 }),
   (chars) => chars.join(""),
 );
 
@@ -218,7 +218,7 @@ const listItem = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<ReadonlyArray<Bl
   const leads: Array<Arbitrary.Arbitrary<Block>> = [];
   if (has("block.para")) leads.push(Arbitrary.map(text, (content) => new Para({ content })));
   if (has("block.plain")) leads.push(Arbitrary.map(text, (content) => new Plain({ content })));
-  const lists = depth > 0 ? lists_(ctx, depth) : [];
+  const lists = depth > 0 ? listBlocks(ctx, depth) : [];
   return Arbitrary.map(
     Arbitrary.all([
       oneOf(leads),
@@ -231,7 +231,7 @@ const listItem = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<ReadonlyArray<Bl
 };
 
 /** The list blocks the profile allows, with items at `depth - 1`. */
-const lists_ = (ctx: Ctx, depth: number): ReadonlyArray<Arbitrary.Arbitrary<Block>> => {
+const listBlocks = (ctx: Ctx, depth: number): ReadonlyArray<Arbitrary.Arbitrary<Block>> => {
   const items = Arbitrary.array(listItem(ctx, depth - 1), { minLength: 1, maxLength: 3 });
   return [
     ...(ctx.has("block.bulletList")
@@ -318,7 +318,7 @@ const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
     table.filter(([feature]) => ctx.has(feature)).map(([, make]) => make());
   return oneOf([
     ...allowed(leaves),
-    ...(depth > 0 ? [...lists_(ctx, depth), ...allowed(containers)] : []),
+    ...(depth > 0 ? [...listBlocks(ctx, depth), ...allowed(containers)] : []),
   ]);
 };
 

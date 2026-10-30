@@ -35,7 +35,7 @@ import { loadFixtures } from "./fixture.ts";
 const fixture = await loadFixtures(["simple-oneslide.iwa", "simple-oneslide.key"]);
 
 /** The `IworkError` a codec call throws (anything else, or no failure, fails the test). */
-const failure = <A>(f: () => A): IworkError => {
+const failure = (f: () => void): IworkError => {
   const r = Result.try({ try: f, catch: (e) => e });
   assert(Result.isFailure(r) && r.failure instanceof IworkError, "expected an IworkError");
   return r.failure;
@@ -411,7 +411,7 @@ const mutate = (rand: () => number, input: Uint8Array): Uint8Array => {
 };
 
 /** Run `f`, which may succeed or throw only an `IworkError`. */
-const survives = <A>(f: () => A, input: Uint8Array): void => {
+const survives = (f: () => void, input: Uint8Array): void => {
   const r = Result.try({ try: f, catch: (e) => e });
   if (Result.isFailure(r) && !(r.failure instanceof IworkError))
     assert.fail(`defect on input [${Array.from(input).join(",")}]: ${String(r.failure)}`);

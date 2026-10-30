@@ -397,9 +397,9 @@ const walk = (
   /** Visit a queued value: resolve its kind, read its own fields, queue its children. */
   const visit = ({ value, ref, path }: Work): void => {
     const k = direction.kindOf(value, ref);
-    if (SchemaIssue.isIssue(k)) return void fail(at(path, k));
+    if (SchemaIssue.isIssue(k)) return fail(at(path, k));
     const own = direction.own(k, value);
-    if (Result.isFailure(own)) return void fail(at(path, own.failure.issue));
+    if (Result.isFailure(own)) return fail(at(path, own.failure.issue));
     // SAFETY: `own` succeeded, so `value` is an object (a struct accepts nothing else).
     const node = value as Own;
     const templates = k.children.map((child) => field(node, child, path));

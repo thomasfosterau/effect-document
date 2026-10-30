@@ -16,7 +16,7 @@
 
 import { defineConfig } from "vite-plus";
 import { recommended } from "@effect/tsgo/oxlint-presets";
-import effect from "@mpsuesser/oxlint-plugin-effect";
+import effect from "@enfect/oxlint";
 import { packageAliases } from "./vite.package.ts";
 import { options as core } from "./packages/core/vite.config.ts";
 import { options as csv } from "./packages/csv/vite.config.ts";
@@ -47,8 +47,14 @@ export default defineConfig({
   lint: {
     ignorePatterns: ["**/dist/**", "**/docs/**", "**/coverage/**", "**/node_modules/**"],
     extends: [recommended, effect.configs.recommended],
+    // Oxlint's own plugins beyond its defaults (typescript, unicorn, oxc):
+    // the import graph, promise handling, the Vitest suites and JSDoc
+    // comments, each at the categories below.
+    plugins: ["typescript", "unicorn", "oxc", "import", "promise", "vitest", "jsdoc"],
     categories: {
       correctness: "error",
+      suspicious: "error",
+      perf: "error",
     },
     rules: {
       "eslint/no-unused-vars": [
@@ -59,6 +65,23 @@ export default defineConfig({
         },
       ],
       "eslint/prefer-const": "warn",
+      // `_tag` is the discriminant of every Effect tagged value; the rule
+      // knows no other way to allow it.
+      "eslint/no-underscore-dangle": ["error", { allow: ["_tag"] }],
+      // Vitest's `expect(value, message)` takes the failure message as its
+      // second argument.
+      "vitest/valid-expect": ["error", { maxArgs: 2 }],
+      // `survives` (packages/iwork/test/malformed.test.ts) is the fuzz
+      // suites' assertion: it fails the test when the decoder throws
+      // anything but its own typed error.
+      "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "assert", "survives"] }],
+      // The lists it flags are module-level constants of a few strings
+      // (structure types, list-numbering names, paragraph content tags). A
+      // module-level `new Set` is a top-level call in a `sideEffects: false`
+      // dist and a native collection the Effect preset's
+      // `avoid-native-object-helpers` flags, so the fix trades one finding
+      // for two and buys nothing at this size.
+      "unicorn/prefer-set-has": "off",
       // The `Buffer` global is typed `any` wherever a consumer loads
       // @cloudflare/workers-types next to @types/node, so every call on it is
       // unchecked there. These readers and writers work on bytes, so the rule
@@ -101,22 +124,39 @@ export default defineConfig({
       // preset's `error`.
       // Remaining sites are listed in effect-document#155, which also says
       // why each rule could not reach zero in the migration PR.
-      // 256 sites in packages/*/src (pdf 142, ooxml 47, iwork 32, core 22, csv
+      // 247 sites in packages/*/src (pdf 141, ooxml 39, iwork 32, core 22, csv
       // 7, rtf 6): indexed loops over bytes, glyphs and XML children in the
       // decoders' hot paths, and the explicit-stack walks that keep deep
       // documents off the call stack.
       "effect/imperative-loops": "warn",
-      // 187 sites in packages/*/src (pdf 107, ooxml 40, iwork 23, csv 8,
+      // 176 sites in packages/*/src (pdf 106, ooxml 30, iwork 23, csv 8,
       // rtf 6, core 3): `buf[i]!`-style reads beside a bounds check the
       // compiler cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
-      // 86 sites in packages/*/src (pdf 39, ooxml 27, iwork 12, rtf 4, core 2,
-      // csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
+      // 95 sites in packages/*/src (pdf 40, ooxml 27, iwork 12, core 10,
+      // rtf 4, csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
       // model and `Profile.features` / `collectFeatures` are public `Set`s
       // (a `HashMap` / `HashSet` would change that API), the rest are decoder
       // caches and identity-keyed cycle guards; plus the CSV compiled-parser
       // memo (a bounded cache keyed by the option string).
       "effect/avoid-native-object-helpers": "warn",
+      // ---- Oxlint categories: adoption allowances ---------------------------
+      // `suspicious` arrived with the @enfect/oxlint move (effect-document
+      // PR, Vite+ 1.4). The two rules below had too many sites to rework
+      // safely there; each stays reported at `warn`, a new site is a defect,
+      // and the line is deleted once its count reaches zero.
+      // 60 sites (src 14, tests 46): closures defined inside a function that
+      // capture nothing, mostly test helpers inside `describe` blocks.
+      "unicorn/consistent-function-scoping": "warn",
+      // 42 sites (src 39, tests 3): inner bindings that reuse an outer name
+      // (`el`, `ctx`, `i`) in the decoders' nested walks.
+      "eslint/no-shadow": "warn",
+      // ---- Type-aware rules: adoption allowance -----------------------------
+      // 43 sites (src 16, tests 27): narrowings a byte-level decoder needs
+      // (a decoded record to its schema type, a PDF object to its kind),
+      // the same sites `effect/casting-awareness` keeps visible. Reported at
+      // `warn`; a new site is a defect, and the line goes once it is zero.
+      "typescript/no-unsafe-type-assertion": "warn",
       // ---- Effect preset: rules this workspace's conventions cut across ----
       // `prefer-option-over-null` also fires on `?: T | undefined`, which is
       // the ONLY spelling of an optional member `exactOptionalPropertyTypes`
@@ -129,7 +169,6 @@ export default defineConfig({
       // primitives that `typeof` discriminates. Each stays visible.
       "effect/no-unknown-parameters": "warn",
       "effect/no-unsafe-dictionary-type": "warn",
-      "effect/no-runtime-typeof": "warn",
       "typescript/no-explicit-any": "off",
       "typescript/no-empty-object-type": "off",
       "typescript/ban-ts-comment": "off",
@@ -182,6 +221,20 @@ export default defineConfig({
         files: ["examples/**/*.ts"],
         rules: {
           "effect/effect-run-in-body": "off",
+          // The same boundary provides the platform layer.
+          "effecttsgo/strict-effect-provide": "off",
+        },
+      },
+      // The quadratic-scan regression test counts `charCodeAt` calls by
+      // swapping `String.prototype.charCodeAt` for a counter and restoring it
+      // in `Effect.ensuring` (a `vi.spyOn` recording every call exhausts
+      // memory there): the patch IS the instrument.
+      {
+        files: ["packages/csv/test/csv.test.ts"],
+        rules: {
+          "eslint/no-extend-native": "off",
+          // The saved original is re-invoked with `.call(this, …)`.
+          "typescript/unbound-method": "off",
         },
       },
       // Type-level tests: the expect-error directives ARE the assertions
@@ -205,18 +258,24 @@ export default defineConfig({
           // the rule has no entrypoint detection (effect-web disables it per
           // file in its suites; here it is one override for every suite).
           "effect/effect-run-in-body": "off",
+          // ...and provides the layers the effect under test needs.
+          "effecttsgo/strict-effect-provide": "off",
           "effect/require-safety-comment-for-type-assertion": "warn",
           "effect/use-clock-service": "warn",
           "effect/avoid-process-env": "warn",
           "effect/require-effect-concurrency": "warn",
+          // Table-driven cases run one after another so a failure names its
+          // case; a `Promise.all` over them would interleave the runs.
+          "eslint/no-await-in-loop": "off",
         },
       },
     ],
-    // Type-aware linting is intentionally disabled: type checking stays the
-    // `check` tasks' job (native tsc, Effect-patched).
+    // Type-aware rules run through oxlint-tsgolint (bundled with vite-plus,
+    // patched by `effect-tsgo patch --oxlint`), so `vp check` reports the
+    // typescript plugin's type-informed rules and `@effect/tsgo`'s.
     options: {
-      typeAware: false,
-      typeCheck: false,
+      typeAware: true,
+      typeCheck: true,
     },
     jsPlugins: [
       {

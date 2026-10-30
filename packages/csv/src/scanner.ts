@@ -136,7 +136,11 @@ const makeQuoted = ({ wrapper, doubleWrapper }: CsvDialect): Parser.Parser<strin
 
 /** Whitespace that may be trimmed before a quoted field (or fill a blank line). */
 const leadingSpace = (separator: string): Parser.Parser<string> =>
-  Token.takeWhile([..." \t\f\v"].filter((c) => !separator.includes(c)).join(""));
+  Token.takeWhile(
+    Array.from(" \t\f\v")
+      .filter((c) => !separator.includes(c))
+      .join(""),
+  );
 
 /**
  * One field. A field that starts with the wrapper is quoted, and any text after
@@ -507,11 +511,11 @@ export const scanCsvStream = <E, R>(
       }),
       Stream.mapError((e) => {
         if (SyntaxError.isParseError(e)) {
-          // SAFETY: a grammar failure from this stream's own string parser
-          return fromSyntaxError(e as SyntaxError.ParseError, nextRow);
+          // a grammar failure from this stream's own string parser
+          return fromSyntaxError(e, nextRow);
         }
-        // SAFETY: anything else is the input stream's own failure, `E`
-        return e as E;
+        // anything else is the input stream's own failure, `E`
+        return e;
       }),
       Stream.filter((r): r is Located => r.fields !== null),
       Stream.mapAccumEffect(

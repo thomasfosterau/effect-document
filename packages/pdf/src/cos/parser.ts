@@ -435,6 +435,7 @@ export class Parser {
         return { _tag: "Keyword", word: t.char };
       }
     }
+    return undefined;
   }
 
   /** An array or a dictionary (or stream), one level deeper, after its opening token. */
