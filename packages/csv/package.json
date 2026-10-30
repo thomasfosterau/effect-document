@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-csv",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "CSV/TSV reader and writer for effect-document, with streaming",
   "keywords": [
     "csv",
