@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-document",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with the Reader/Writer/Format abstractions and lossy-aware conversion",
   "keywords": [
     "converter",
