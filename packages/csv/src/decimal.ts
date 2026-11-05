@@ -17,6 +17,14 @@ export const exactDigits = 15;
 /** Powers of ten that a double holds exactly: 10^0 to 10^22. */
 const EXACT_POWERS_OF_TEN = Array.from({ length: 23 }, (_, k) => 10 ** k);
 
+/**
+ * Their reciprocals, rounded: {@link longDecimal} multiplies by one where a
+ * division would stand (a division's latency was a third of a long
+ * decimal's reading). Its estimate need not be correctly rounded, as the
+ * exact residual that follows decides whether it is.
+ */
+const INVERSE_POWERS_OF_TEN = EXACT_POWERS_OF_TEN.map((p) => 1 / p);
+
 /** Veltkamp's splitter for doubles: 2^27 + 1. */
 const SPLITTER = 134_217_729;
 
@@ -93,16 +101,18 @@ const longDecimal = (
   scale: number,
   negative: boolean,
   exact: boolean,
+  last: number,
 ): number => {
   if (scale > 22 || total > 24) return Number.NaN;
   const power = EXACT_POWERS_OF_TEN[scale] ?? 1;
+  const inverse = INVERSE_POWERS_OF_TEN[scale] ?? 1;
   const highPart = twoProduct(high, EXACT_POWERS_OF_TEN[total - 9] ?? 1);
   const highError = scratch.error;
-  let c = (highPart + low) / power;
+  let c = (highPart + low) * inverse;
   let r = twoProduct(c, power) - highPart - low + (scratch.error - highError);
   let halfUlp = (ulpOf(c) * power) / 2;
   if (!(Math.abs(r) < halfUlp * (1 - 1e-9))) {
-    c -= r / power;
+    c -= r * inverse;
     r = twoProduct(c, power) - highPart - low + (scratch.error - highError);
     halfUlp = (ulpOf(c) * power) / 2;
   }
@@ -114,7 +124,6 @@ const longDecimal = (
   // the decimals one digit shorter either side are whole tens of units from
   // the digits, at `r + last` below the double and `10 - last - r` above it:
   // one of them reads back as the double when within half its ulp
-  const last = low % 10;
   const margin = halfUlp * (1 + 1e-9);
   if (r + last < margin || 10 - last - r < margin) return Number.NaN;
   return negative ? -c : c;
@@ -209,7 +218,7 @@ const decimalFrom = (
   const quick =
     exact && text.charCodeAt(end - 1) === 48
       ? Number.NaN
-      : longDecimal(high, low, total, scale, negative, exact);
+      : longDecimal(high, low, total, scale, negative, exact, text.charCodeAt(end - 1) - 48);
   if (!Number.isNaN(quick)) return quick;
   const raw = text.slice(start, end);
   return exact ? longValue(raw) : Number(raw);
