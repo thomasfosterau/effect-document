@@ -123,6 +123,8 @@ interface Scan<T> {
    * that is not a small integer (bench/csv.bench.ts, a table of numbers).
    */
   numbers: Option.Option<Array<T>>;
+  /** Whether the record being read started from the number template. */
+  doubles: boolean;
   /** Whether the quoted field just read holds a doubled wrapper. */
   doubled: boolean;
   /** The value of the quoted field just read. */
@@ -265,18 +267,21 @@ const readField = <T>(
  * wrapper kept as written. The index past its line break, {@link UNCLOSED}
  * on an unclosed quote, or {@link STOPPED} when `onRow` returns false.
  */
-const readRecord = <T>(
+/**
+ * A reader of the record at `start`: hands its fields to `onRow`, and
+ * returns the index past its line break, {@link UNCLOSED} or {@link STOPPED}.
+ */
+type RecordReader = <T>(
   text: string,
   start: number,
   plan: FastPlan,
   scan: Scan<T>,
   reader: FieldReader<T>,
   onRow: (fields: Array<T>) => boolean,
-): number => {
-  const numbers = scan.numbers;
-  const doubles = Option.isSome(numbers);
-  // a branch, not `Option.getOrElse`: its thunk would be a closure a row
-  const fields = (doubles ? numbers.value : scan.template).slice();
+) => number;
+
+const readRecord: RecordReader = (text, start, plan, scan, reader, onRow) => {
+  const fields = startRecord(scan);
   let p = start;
   let n = 0;
   // only a reader that reads fields in place makes numbers: the string scan
@@ -286,23 +291,51 @@ const readRecord = <T>(
   for (;;) {
     p = readField(text, p, plan, scan, reader, n);
     if (p === UNCLOSED) return UNCLOSED;
-    const value = scan.field;
-    if (doubles && Predicate.isNumber(value)) storeNumber(fields, n, value);
-    else store(fields, n, value);
-    if (allNumbers) allNumbers = Predicate.isNumber(value);
+    const number = place(scan, fields, n, scan.field);
+    if (allNumbers) allNumbers = number;
     n++;
     if (text.charCodeAt(p) !== plan.separator) break;
     p++;
   }
-  // a record of another width: trim the copy, and size the next one to it
-  const resized = n !== scan.template.length;
-  if (resized) {
-    fields.length = n;
-    scan.template = fields.map(() => reader.fill);
-  }
-  keepNumbers(scan, fields, allNumbers, resized);
-  if (!onRow(fields)) return STOPPED;
-  return afterLineBreak(text, p);
+  return endRecord(text, p, scan, fields, n, allNumbers, reader.fill, onRow);
+};
+
+/**
+ * A record's array, before its fields are read: a copy of the number
+ * template while rows are all numbers (so it holds doubles), else of the
+ * template. A branch, not `Option.getOrElse`: its thunk would be a closure a row.
+ */
+const startRecord = <T>(scan: Scan<T>): Array<T> => {
+  const numbers = scan.numbers;
+  scan.doubles = Option.isSome(numbers);
+  return (Option.isSome(numbers) ? numbers.value : scan.template).slice();
+};
+
+/** Put field `n` of a record (see {@link storeNumber}): whether it is a number. */
+const place = <T>(scan: Scan<T>, fields: Array<T>, n: number, value: T): boolean => {
+  const number = Predicate.isNumber(value);
+  if (number && scan.doubles) storeNumber(fields, n, value);
+  else store(fields, n, value);
+  return number;
+};
+
+/**
+ * Finish a record of `n` fields ending at `p` (its line break): fit the
+ * templates to it, hand it to `onRow`, and return the index past its line
+ * break, or {@link STOPPED}.
+ */
+const endRecord = <T>(
+  text: string,
+  p: number,
+  scan: Scan<T>,
+  fields: Array<T>,
+  n: number,
+  allNumbers: boolean,
+  fill: T,
+  onRow: (fields: Array<T>) => boolean,
+): number => {
+  keepNumbers(scan, fields, allNumbers, fitTemplate(scan, fields, n, fill));
+  return onRow(fields) ? afterLineBreak(text, p) : STOPPED;
 };
 
 /** Set field `n` of a record's array (growing it by one when `n` is its length). */
@@ -352,6 +385,82 @@ const doubleFill = <T>(value: T): T =>
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
   Predicate.isNumber(value) ? (0.5 as T & number) : value;
 
+/**
+ * Trim a record read into a copy of the template to its `n` fields, and size
+ * the template to it (a record of another width): whether the width changed.
+ */
+const fitTemplate = <T>(scan: Scan<T>, fields: Array<T>, n: number, fill: T): boolean => {
+  if (n === scan.template.length) return false;
+  fields.length = n;
+  scan.template = fields.map(() => fill);
+  return true;
+};
+
+/**
+ * {@link readRecord} for text with no wrapper in it (quoting off): no field
+ * is tested for a quote, and each is read by the reader in place. A loop of
+ * its own, as the string scan's is: the general one's per-field branches and
+ * calls cost a fifth of a scan of short fields (bench/csv.bench.ts).
+ */
+const plainRecord: RecordReader = (text, start, plan, scan, reader, onRow) => {
+  const fields = startRecord(scan);
+  let allNumbers = true;
+  let p = start;
+  let n = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
+  for (;;) {
+    const end = unquotedEnd(text, p, plan, scan);
+    const number = place(scan, fields, n, reader.unquoted(text, p, end, n));
+    if (allNumbers) allNumbers = number;
+    n++;
+    p = end;
+    if (text.charCodeAt(end) !== plan.separator) break;
+    p++;
+  }
+  return endRecord(text, p, scan, fields, n, allNumbers, reader.fill, onRow);
+};
+
+/**
+ * The string scan's record of text with no wrapper in it: each field the
+ * slice it spans, with no reader between (the indirection alone cost the
+ * scan a fifth on short fields: bench/csv.bench.ts, level with uDSV without).
+ */
+const stringRecord = (
+  text: string,
+  start: number,
+  plan: FastPlan,
+  scan: Scan<string>,
+  onRow: (fields: Array<string>) => boolean,
+): number => {
+  const fields = scan.template.slice();
+  let p = start;
+  let n = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
+  for (;;) {
+    const end = unquotedEnd(text, p, plan, scan);
+    store(fields, n, text.slice(p, end));
+    n++;
+    p = end;
+    if (text.charCodeAt(end) !== plan.separator) break;
+    p++;
+  }
+  fitTemplate(scan, fields, n, "");
+  return onRow(fields) ? afterLineBreak(text, p) : STOPPED;
+};
+
+/** A fresh scan state, its fields placeholders `fill`. */
+const newScan = <T>(fill: T): Scan<T> => ({
+  separator: -1,
+  lf: -1,
+  cr: -1,
+  template: [],
+  numbers: Option.none(),
+  doubles: false,
+  doubled: false,
+  quoted: "",
+  field: fill,
+});
+
 /** {@link readRecord}: a quoted field is never closed. */
 const UNCLOSED = -1;
 /** {@link readRecord}: the row callback stopped the scan. */
@@ -377,9 +486,31 @@ export type FastScanEnd = "done" | "unclosed" | "stopped";
  */
 const fastEachRow = (
   text: string,
-  plan: FastPlan,
+  given: FastPlan,
   onRow: (fields: Array<string>) => boolean,
-): FastScanEnd => fastEachRecord(text, plan, STRINGS, onRow);
+): FastScanEnd => {
+  const plan = unquotedPlan(text, given);
+  if (plan.quote !== -1) return fastEachRecord(text, plan, STRINGS, onRow);
+  const scan = newScan("");
+  return eachLine(text, plan, (p) => stringRecord(text, p, plan, scan, onRow));
+};
+
+/**
+ * Read `text` line by line, each record with `record` (the index past it,
+ * or {@link UNCLOSED} or {@link STOPPED}), blank lines skipped when
+ * `filterEmpty` is set.
+ */
+const eachLine = (text: string, plan: FastPlan, record: (p: number) => number): FastScanEnd => {
+  let p = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
+  while (p < text.length) {
+    const blank = plan.filterEmpty ? blankLineEnd(text, p, plan) : -1;
+    p = blank !== -1 ? afterLineBreak(text, blank) : record(p);
+    if (p === UNCLOSED) return "unclosed";
+    if (p === STOPPED) return "stopped";
+  }
+  return "done";
+};
 
 /** {@link fastEachRow}, each field made by `reader`. */
 export const fastEachRecord = <T>(
@@ -389,25 +520,15 @@ export const fastEachRecord = <T>(
   onRow: (fields: Array<T>) => boolean,
 ): FastScanEnd => {
   const plan = unquotedPlan(text, given);
-  const scan: Scan<T> = {
-    separator: -1,
-    lf: -1,
-    cr: -1,
-    template: [],
-    numbers: Option.none(),
-    doubled: false,
-    quoted: "",
-    field: reader.fill,
-  };
-  let p = 0;
-  // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
-  while (p < text.length) {
-    const blank = plan.filterEmpty ? blankLineEnd(text, p, plan) : -1;
-    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, reader, onRow);
-    if (p === UNCLOSED) return "unclosed";
-    if (p === STOPPED) return "stopped";
-  }
-  return "done";
+  const plain = plan.quote === -1 && reader.inPlace;
+  const scan = newScan(reader.fill);
+  return eachLine(
+    text,
+    plan,
+    plain
+      ? (p) => plainRecord(text, p, plan, scan, reader, onRow)
+      : (p) => readRecord(text, p, plan, scan, reader, onRow),
+  );
 };
 
 /**
