@@ -167,6 +167,11 @@ const printTable = (
   heaps: ReadonlyArray<number | undefined>,
 ): void => {
   const medians = samples.map(median);
+  // the mean counts every run's collections: where runs split between ones a
+  // scavenge lands in and ones it does not, the median falls on either side of
+  // the split, and the mean is what a caller's throughput is
+  const means = samples.map((s) => s.reduce((a, b) => a + b, 0) / s.length);
+  const fastestMean = Math.min(...means);
   const fastest = Math.min(...medians);
   // the best run is the least disturbed by a noisy machine; its ratio is the steadier one
   const bests = samples.map((s) => Math.min(...s));
@@ -177,15 +182,15 @@ const printTable = (
     `## ${group.name} (${mb.toFixed(2)} MB, ${Math.min(...runs)}–${Math.max(...runs)} runs a case)\n`,
   );
   console.log(
-    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("best vs best", 12)} | ${padL("result MB", 9)} |`,
+    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("mean ms", 9)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("mean vs mean", 12)} | ${padL("best vs best", 12)} | ${padL("result MB", 9)} |`,
   );
   console.log(
-    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(11)}: | ${"-".repeat(8)}: |`,
+    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(11)}: | ${"-".repeat(11)}: | ${"-".repeat(8)}: |`,
   );
   group.cases.forEach((c, i) => {
     const m = medians[i]!;
     console.log(
-      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(bests[i]!.toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(`${(bests[i]! / fastestBest).toFixed(2)}x`, 12)} | ${padL(megabytes(heaps[i]), 9)} |`,
+      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(means[i]!.toFixed(2), 9)} | ${padL(bests[i]!.toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(`${(means[i]! / fastestMean).toFixed(2)}x`, 12)} | ${padL(`${(bests[i]! / fastestBest).toFixed(2)}x`, 12)} | ${padL(megabytes(heaps[i]), 9)} |`,
     );
   });
   console.log("");
