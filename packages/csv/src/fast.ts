@@ -278,7 +278,7 @@ type RecordReader = <T>(
   plan: FastPlan,
   scan: Scan<T>,
   reader: FieldReader<T>,
-  onRow: (fields: Array<T>) => boolean,
+  onRow: (fields: Array<T>, numbers: boolean) => boolean,
 ) => number;
 
 const readRecord: RecordReader = (text, start, plan, scan, reader, onRow) => {
@@ -323,7 +323,8 @@ const place = <T>(scan: Scan<T>, fields: Array<T>, n: number, value: T): boolean
 /**
  * Finish a record of `n` fields ending at `p` (its line break): copy it out
  * of the scratch (see `row.ts`), keep or drop the number scratch, hand the
- * row to `onRow`, and return the index past its line break, or
+ * row to `onRow` (with whether it is a row of numbers copied from the number
+ * scratch, an array of doubles), and return the index past its line break, or
  * {@link STOPPED}.
  */
 const endRecord = <T>(
@@ -333,11 +334,12 @@ const endRecord = <T>(
   fields: Array<T>,
   n: number,
   allNumbers: boolean,
-  onRow: (fields: Array<T>) => boolean,
+  onRow: (fields: Array<T>, numbers: boolean) => boolean,
 ): number => {
-  const row = copyRow(fields, n, allNumbers && scan.doubles);
+  const numbers = allNumbers && scan.doubles;
+  const row = copyRow(fields, n, numbers);
   keepNumbers(scan, fields, n, allNumbers);
-  return onRow(row) ? afterLineBreak(text, p) : STOPPED;
+  return onRow(row, numbers) ? afterLineBreak(text, p) : STOPPED;
 };
 
 /** Set field `n` of a record's array (growing it by one when `n` is its length). */
@@ -502,7 +504,7 @@ export const fastEachRecord = <T>(
   text: string,
   given: FastPlan,
   reader: FieldReader<T>,
-  onRow: (fields: Array<T>) => boolean,
+  onRow: (fields: Array<T>, numbers: boolean) => boolean,
 ): FastScanEnd => {
   const plan = unquotedPlan(text, given);
   const plain = plan.quote === -1 && reader.inPlace;

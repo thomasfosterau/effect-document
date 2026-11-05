@@ -240,6 +240,33 @@ export const sheetRowOf = (index: number, cells: ReadonlyArray<RowCell>): SheetR
     : new SheetRow({ index, cells, height: undefined });
 
 /**
+ * {@link sheetRowOf} for a row its caller expects to hold only plain numbers
+ * (a reader's row of a table of numbers): the same row, from the same
+ * array, with the same failures. Its check of the numbers is its own, so it
+ * only ever meets arrays of numbers, which V8 holds as unboxed doubles and
+ * reads without boxing; `sheetRowOf`'s check meets every kind of row and
+ * boxes each number it reads from such an array (a heap number per cell).
+ * A row holding anything else is handed to `sheetRowOf`.
+ *
+ * @example
+ * ```ts
+ * import { sheetRowOfNumbers } from "@thomasfosterau/effect-document"
+ *
+ * sheetRowOfNumbers(0, [1.5, 2, -3])
+ * ```
+ */
+export const sheetRowOfNumbers = (index: number, cells: ReadonlyArray<RowCell>): SheetRow => {
+  const n = cells.length;
+  let numbers = n > 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per cell of a row of numbers: `every` boxes each number of an array of doubles to pass it to its callback (9.7 MB of the CSV reader's 31.6 MB a read of bench/csv.bench.ts's numbers table)
+  for (let i = 0; numbers && i < n; i++) {
+    const value = cells[i];
+    numbers = Predicate.isNumber(value) && Number.isFinite(value);
+  }
+  return numbers && isPosition(index) ? trustedRowOf(index, cells) : sheetRowOf(index, cells);
+};
+
+/**
  * A dense row built from any values: the cell at column `n` is
  * `toCell(items[n], n)`. It is `sheetRowOf(index, items.map(toCell))`, and
  * fails as `sheetRow` does.

@@ -19,7 +19,13 @@
  */
 
 import * as Option from "effect/Option";
-import { cell, type RowCell, type SheetRow, sheetRowOf } from "@thomasfosterau/effect-document";
+import {
+  cell,
+  type RowCell,
+  type SheetRow,
+  sheetRowOf,
+  sheetRowOfNumbers,
+} from "@thomasfosterau/effect-document";
 import { fastEachRecord, type FastPlan, type FastScanEnd, type FieldReader } from "./fast.ts";
 
 /** A column's type so far: `blank` while it holds only blanks. */
@@ -168,10 +174,10 @@ interface Pass<F, R> {
  * a value contradicting its column's guess.
  */
 const fusedPass = <F, R>(
-  scan: (onRow: (fields: Array<F>) => boolean) => FastScanEnd,
+  scan: (onRow: (fields: Array<F>, numbers: boolean) => boolean) => FastScanEnd,
   options: FusedOptions,
   guess: ColumnGuess<unknown>,
-  rowOf: (index: number, fields: Array<F>) => R,
+  rowOf: (index: number, fields: Array<F>, numbers: boolean) => R,
   onFirst: () => void = () => {},
 ): Option.Option<Pass<F, R>> => {
   // the first row waits when it may be the header: row 0 is kept for it
@@ -180,7 +186,7 @@ const fusedPass = <F, R>(
   let width = -1;
   const rows: Array<R> = [];
   if (!hold) onFirst();
-  const end = scan((fields) => {
+  const end = scan((fields, numbers) => {
     // every row must be as wide as the first, header or not
     if (width === -1) width = fields.length;
     else if (options.checkWidths && fields.length !== width) return false;
@@ -189,7 +195,7 @@ const fusedPass = <F, R>(
       onFirst();
       return true;
     }
-    rows.push(rowOf(rows.length + (hold ? 1 : 0), fields));
+    rows.push(rowOf(rows.length + (hold ? 1 : 0), fields, numbers));
     return !guess.contradicted;
   });
   return end !== "done" || guess.contradicted ? Option.none() : Option.some({ first, rows });
@@ -240,7 +246,9 @@ export const fusedRows = (
       (onRow) => fastEachRecord(text, plan, reader, onRow),
       options,
       guess,
-      (index, fields) => sheetRowOf(index, fields),
+      // a row of numbers is an array of doubles: checked without boxing them
+      (index, fields, numbers) =>
+        numbers ? sheetRowOfNumbers(index, fields) : sheetRowOf(index, fields),
       () => reader.start(),
     ),
     ({ first, rows }) =>
