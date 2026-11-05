@@ -11,7 +11,7 @@
 import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
-import type { Block, Inline, Shape } from "./ast.ts";
+import { type Block, type Inline, isPlainRow, type Shape } from "./ast.ts";
 import type { Document } from "./document.ts";
 
 /** A node that counts as one level of nesting. */
@@ -85,7 +85,9 @@ export const nestedChildren = (node: NestedNode): ReadonlyArray<NestedNode> => {
     }),
     Match.tag("Worksheet", (n) => {
       return n.rows.flatMap((r) =>
-        r.cells.flatMap(({ cell: c }) => (Predicate.isTagged(c, "CellRichText") ? c.runs : [])),
+        (isPlainRow(r) ? r : r.cells).flatMap((c) =>
+          Predicate.isTagged(c, "CellRichText") ? c.runs : [],
+        ),
       );
     }),
     Match.tag("SlideShow", (n) => {

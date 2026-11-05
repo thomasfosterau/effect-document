@@ -53,9 +53,11 @@ import {
   RawInline,
   type SheetCell,
   type Shape,
-  IndexedCell,
   SheetColumn,
+  type RowCell,
   SheetRow,
+  isPlainRow,
+  type WorksheetRow,
   Slide,
   SlideShow,
   SmallCaps,
@@ -74,7 +76,7 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
-import { denseRows, sheetRow } from "../schema/sheet.ts";
+import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
@@ -455,15 +457,26 @@ const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
   return dispatchTag(CELL, c, style, ctx);
 };
 
-/** A row with its cells narrowed: the row itself when every cell is kept unchanged. */
-const narrowRow = (r: SheetRow, ctx: Ctx): SheetRow => {
-  const cells = r.cells.map((c) => {
-    const cell = narrowCell(c.cell, ctx);
-    return cell === c.cell ? c : new IndexedCell({ col: c.col, cell });
-  });
-  return cells.every((c, i) => c === r.cells[i])
-    ? r
-    : new SheetRow({ index: r.index, cells, height: r.height });
+/**
+ * A row position narrowed: a gap as it is, a node narrowed, and a plain cell
+ * narrowed as the node it stands for, kept plain when that node is kept.
+ */
+const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
+  const node = cellOf(position);
+  if (node === undefined) return position;
+  const narrowed = narrowCell(node, ctx);
+  return narrowed === node ? position : narrowed;
+};
+
+/**
+ * A row with its cells narrowed: the row itself when every cell is kept
+ * unchanged, and a plain row stays a plain row (#227).
+ */
+const narrowRow = (r: WorksheetRow, ctx: Ctx): WorksheetRow => {
+  const old = rowCellsOf(r);
+  const cells = old.map((c) => narrowPosition(c, ctx));
+  if (cells.every((c, i) => c === old[i])) return r;
+  return isPlainRow(r) ? cells : new SheetRow({ index: r.index, cells, height: r.height });
 };
 
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {

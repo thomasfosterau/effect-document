@@ -7,13 +7,14 @@
  * relationship files, parses the SpreadsheetML, and builds
  * a sparse, typed worksheet per sheet.
  *
- * A worksheet holds only the cells that hold a value: empty `<row>`s and
+ * A worksheet holds only the rows that hold a value: empty `<row>`s and
  * style-only `<c>`s are not kept, and `<dimension>` is not read (it is only a
- * hint), so a sheet with one value at A1 and one at XFD1048576 holds two
- * cells. `maxCells` is one budget for the whole workbook: a sheet holding
- * more valued cells than the sheets before it left fails with a ParseError,
- * so many sheets (or one sheet referenced many times) cannot add up to an
- * unbounded allocation.
+ * hint). A row's cells are positional, so it costs its width: one past its
+ * last valued cell (a sheet with one value at A1 and one at XFD1048576 holds
+ * two rows, the second 16,384 positions wide). `maxCells` is one budget of
+ * those positions for the whole workbook: a sheet needing more than the
+ * sheets before it left fails with a ParseError, so many sheets (or one sheet
+ * referenced many times) cannot add up to an unbounded allocation.
  */
 
 import * as Predicate from "effect/Predicate";
@@ -22,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Order from "effect/Order";
 import {
+  type PlainCell,
   type Content,
   contentToBytes,
   type Doc,
@@ -30,8 +32,9 @@ import {
   ParseError,
   type Reader,
   type SheetCell,
-  type SheetRow,
-  sparseRow,
+  sheetRowOf,
+  worksheetFromRows,
+  type WorksheetRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -64,11 +67,12 @@ const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 /** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
-   * The most valued cells (summed over every worksheet) the workbook may
-   * hold. A sheet holding more than what the sheets before it left fails the
-   * read with a ParseError instead of exhausting memory. Blank and style-only
-   * cells are not kept, so they do not count. Defaults to
-   * {@link DEFAULT_MAX_CELLS}.
+   * The most cell positions (summed over every worksheet) the workbook may
+   * hold: each row held costs its width, one past its last valued cell, as
+   * its cells are positional. A sheet needing more than what the sheets
+   * before it left fails the read with a ParseError instead of exhausting
+   * memory. Rows without a valued cell are not kept, so they cost nothing.
+   * Defaults to {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number | undefined;
   /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
@@ -83,18 +87,26 @@ const WORKBOOK_CONTENT_TYPES = [
   "application/vnd.ms-excel.template.macroEnabled.main+xml",
 ];
 
-/** The default {@link XlsxReaderOptions.maxCells}: five million cells. */
+/** The default {@link XlsxReaderOptions.maxCells}: five million cell positions. */
 export const DEFAULT_MAX_CELLS = 5_000_000;
 
 // ============================================================================
 // OOXML package navigation
 // ============================================================================
 
-/** A required part, parsed; failures keep the part name and XML position. */
-const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, ParseError> =>
+/**
+ * A required part, parsed; failures keep the part name and XML position.
+ * `fastContentOf` names an element whose content is read by the XML layer's
+ * fast scanner (a worksheet's `sheetData`).
+ */
+const parsePart = (
+  pkg: OpcReader,
+  path: string,
+  fastContentOf?: string,
+): Effect.Effect<XmlElement, ParseError> =>
   Effect.try({
     try: () => {
-      const root = pkg.xml(path);
+      const root = pkg.xml(path, fastContentOf);
       if (root === null)
         throw new OpcError("MissingPart", `Missing required package part: ${path}`);
       return root;
@@ -110,12 +122,65 @@ const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
   findChildren(root, "si").map(collectText);
 
 type WorksheetRows =
-  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
+  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<WorksheetRow>; readonly cells: number }
   | { readonly _tag: "TooLarge"; readonly cells: number };
 
 /**
+ * The plain cell an unstyled text, number or boolean cell is written as (a
+ * row holds the bare value, one object fewer a cell); any other cell as it is.
+ */
+const plainOrCell = (c: SheetCell): SheetCell | PlainCell =>
+  c.style !== undefined
+    ? c
+    : Predicate.isTagged(c, "CellText") || Predicate.isTagged(c, "CellBoolean")
+      ? c.value
+      : Predicate.isTagged(c, "CellNumber") && Number.isFinite(c.value)
+        ? c.value
+        : c;
+
+/** A row's valued cells by column as they are read, and its width so far. */
+interface RowCellsSoFar {
+  /** The row's cells by position (its width is their length), gaps `undefined`. */
+  readonly cells: Array<SheetCell | PlainCell | undefined>;
+}
+
+/** The positions a row grows by to take a cell at `col` (0 when it is already wider). */
+const widen = (row: RowCellsSoFar, col: number): number =>
+  col < row.cells.length ? 0 : col + 1 - row.cells.length;
+
+/**
+ * Put a cell at `col` of a row, filling any columns before it with gaps (a
+ * later cell at a position replaces an earlier one, as in SpreadsheetML).
+ */
+const place = (row: RowCellsSoFar, col: number, value: SheetCell | PlainCell): void => {
+  const { cells } = row;
+  // oxlint-disable-next-line effect/imperative-loops -- once per gap a row's cells leave, beside the per-cell loop
+  while (cells.length < col) cells.push(undefined);
+  if (col === cells.length) cells.push(value);
+  else cells[col] = value;
+};
+
+/** Rows by index, as worksheet rows in ascending order. */
+const byIndex = Order.mapInput(Order.Number, ([index]: readonly [number, unknown]) => index);
+
+/**
+ * The rows read, ascending by index (each row's cells are positional
+ * already). Rows may arrive in any order, but writers emit them in order, so
+ * the sort is skipped when it would change nothing. A row right after the one
+ * before it is a plain row (#227: its cells alone, no node); one after a gap
+ * is a `SheetRow` carrying its index.
+ */
+const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<WorksheetRow> => {
+  const all = Array.from(cellMap);
+  const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
+  return (sorted ? all : Arr.sort(all, byIndex)).map(([index, { cells }], i, rows) =>
+    index === (i === 0 ? 0 : (rows[i - 1]?.[0] ?? -2) + 1) ? cells : sheetRowOf(index, cells),
+  );
+};
+
+/**
  * A worksheet's rows of valued cells, at most `maxCells` (the budget the
- * workbook has left) cells.
+ * workbook has left) cell positions: each row costs its width.
  */
 const parseWorksheetRows = (
   root: XmlElement,
@@ -155,7 +220,9 @@ const parseWorksheetRows = (
 
   // Only cells holding a value are kept, so this map is bounded by the input.
   // A later cell at the same position replaces an earlier one.
-  const cellMap = new Map<number, Map<number, SheetCell>>();
+  // Each row's width is kept beside its cells: the positions the row will
+  // hold, grown as its cells arrive, which is what `maxCells` counts.
+  const cellMap = new Map<number, RowCellsSoFar>();
   let count = 0;
 
   for (const { el, row, col } of positioned) {
@@ -174,28 +241,15 @@ const parseWorksheetRows = (
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
-      rowCells = new Map<number, SheetCell>();
+      rowCells = { cells: [] };
       cellMap.set(row, rowCells);
     }
-    if (!rowCells.has(col)) count += 1;
+    count += widen(rowCells, col);
     if (count > maxCells) return { _tag: "TooLarge", cells: count };
-    rowCells.set(col, value);
+    place(rowCells, col, plainOrCell(value));
   }
 
-  // Rows and cells may arrive in any order; the worksheet holds them ascending.
-  const byPosition = Order.mapInput(
-    Order.Number,
-    ([position]: readonly [number, unknown]) => position,
-  );
-  // Writers emit rows and cells in order, so the sort is skipped when it
-  // would change nothing (it runs once per row, and its comparator per cell).
-  const ascending = <A>(entries: Iterable<readonly [number, A]>) => {
-    const all = Array.from(entries);
-    const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
-    return sorted ? all : Arr.sort(all, byPosition);
-  };
-  const rows = ascending(cellMap).map(([index, cells]) => sparseRow(index, ascending(cells)));
-  return { _tag: "Rows", rows, cells: count };
+  return { _tag: "Rows", rows: rowsInOrder(cellMap), cells: count };
 };
 
 // ============================================================================
@@ -275,7 +329,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
 
-            const worksheetRoot = yield* parsePart(pkg, target);
+            const worksheetRoot = yield* parsePart(pkg, target, "sheetData");
             const remaining = maxCells - allocated;
             const parsed = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
             if (Predicate.isTagged(parsed, "TooLarge")) {
@@ -287,7 +341,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            return new Worksheet({ name, columns: [], rows: parsed.rows, merges: [] });
+            return worksheetFromRows(name, parsed.rows);
           }),
         { concurrency: 1 },
       );

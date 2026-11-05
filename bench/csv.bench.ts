@@ -6,7 +6,8 @@
  * - **scan**: text to rows of strings (`scanCsv` against each library's
  *   string-array parse).
  * - **read**: text to typed values (`makeCsvReader().read`, which also infers
- *   column types and builds the document, against each library's typed parse,
+ *   column types and builds the document, and `readCsvRows`, the same
+ *   inference into rows of plain values, against each library's typed parse,
  *   and against SheetJS reading the text into a workbook of cell objects, the
  *   nearest to our document model).
  * - **stream**: the same text in 64 KiB chunks (`scanCsvStream` against
@@ -19,6 +20,7 @@
 import {
   makeCsvReader,
   makeCsvWriter,
+  readCsvRows,
   renderTable,
   scanCsv,
   scanCsvStream,
@@ -34,7 +36,7 @@ import type { Duplex } from "node:stream";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { inferSchema, initParser } from "udsv";
-import { type Case, type Group, rng, runGroups } from "./harness.ts";
+import { type Case, type Group, type GroupSource, rng, runGroups } from "./harness.ts";
 
 const random = rng(2026);
 const pick = <A>(xs: ReadonlyArray<A>): A => xs[Math.floor(random() * xs.length)]!;
@@ -99,6 +101,18 @@ const numeric = (rows: number): string => {
 };
 
 /**
+ * Computed floats at full precision (17 significant digits, as JavaScript
+ * prints a double): past the digits every double holds, so a lossless reader
+ * must check each one reads back as written.
+ */
+const floats = (rows: number): string => {
+  const out = ["id,label,ratio,score"];
+  for (let i = 0; i < rows; i++)
+    out.push(`${i},item${i},${String(i / 7)},${String(random() * 100)}`);
+  return out.join("\n") + "\n";
+};
+
+/**
  * `BENCH_LARGE=1` adds a 100 MB table, run three rounds (a few minutes, and
  * a few GB of heap: `NODE_OPTIONS=--max-old-space-size=8192`).
  */
@@ -108,6 +122,7 @@ const inputs = [
   { name: "mixed, 100k rows", csv: mixed(100_000), minRounds: 15 },
   { name: "quoted, 50k rows", csv: quoted(50_000), minRounds: 15 },
   { name: "numeric, 100k rows", csv: numeric(100_000), minRounds: 15 },
+  { name: "floats, 100k rows", csv: floats(100_000), minRounds: 15 },
   { name: "mixed, 1k rows", csv: mixed(1_000), minRounds: 15 },
   ...(large ? [{ name: "mixed, 1.2M rows", csv: mixed(1_200_000), minRounds: 3 }] : []),
 ];
@@ -118,6 +133,7 @@ const encoder = new TextEncoder();
 const bytes = (s: string) => encoder.encode(s).length;
 
 const reader = makeCsvReader({ treatFirstRowAsHeader: true });
+const lossyReader = makeCsvReader({ treatFirstRowAsHeader: true, exactNumbers: false });
 const writer = makeCsvWriter();
 
 const chunks = (s: string, size: number): Array<string> => {
@@ -150,6 +166,20 @@ const readCases = (csv: string): Array<Case> => {
       name: "effect-csv read (inferTypes off)",
       run: () =>
         run(makeCsvReader({ treatFirstRowAsHeader: true, inferTypes: false }).read(text(csv))),
+    },
+    // typed rows rather than a document: like with like against the libraries below
+    {
+      name: "effect-csv readCsvRows",
+      run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true })),
+    },
+    // numbers as `Number` reads them, digits held or not: the libraries' rule
+    {
+      name: "effect-csv readCsvRows (lossy)",
+      run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true, exactNumbers: false })),
+    },
+    {
+      name: "effect-csv read (lossy)",
+      run: () => run(lossyReader.read(text(csv))),
     },
     {
       name: "uDSV inferSchema + typedArrs",
@@ -218,11 +248,24 @@ const writeCases = (csv: string): Array<Case> => {
   ];
 };
 
-const groups: Array<Group> = inputs.flatMap(({ name, csv, minRounds }) => [
-  { name: `scan: ${name}`, bytes: bytes(csv), cases: scanCases(csv), minRounds },
-  { name: `read: ${name}`, bytes: bytes(csv), cases: readCases(csv), minRounds },
-  { name: `stream: ${name}`, bytes: bytes(csv), cases: streamCases(csv), minRounds },
-  { name: `write: ${name}`, bytes: bytes(csv), cases: writeCases(csv), minRounds },
-]);
+// each group built when it runs, so no group's inputs weigh on another's
+const groups: Array<GroupSource> = inputs.flatMap(({ name, csv, minRounds }) =>
+  (
+    [
+      ["scan", scanCases],
+      ["read", readCases],
+      ["stream", streamCases],
+      ["write", writeCases],
+    ] as const
+  ).map(([kind, cases]) => ({
+    name: `${kind}: ${name}`,
+    build: (): Group => ({
+      name: `${kind}: ${name}`,
+      bytes: bytes(csv),
+      cases: cases(csv),
+      minRounds,
+    }),
+  })),
+);
 
 await runGroups("CSV", groups);

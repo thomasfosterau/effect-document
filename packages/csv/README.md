@@ -26,7 +26,14 @@ const program = Effect.gen(function* () {
 });
 ```
 
-By default the reader sniffs the header row: the first row is the header when every value in it is text and some column below it is all numbers or booleans. Pass `treatFirstRowAsHeader: true` or `false` to decide instead (an all-text file needs `true` for its first row to be a header). Each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text.
+By default the reader sniffs the header row: the first row is the header when every value in it is text and some column below it is all numbers or booleans. Pass `treatFirstRowAsHeader: true` or `false` to decide instead (an all-text file needs `true` for its first row to be a header). Each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text; pass `exactNumbers: false` to read every value the number grammar matches as `Number` of it instead, as d3-dsv and uDSV do (lossy past a double's digits).
+
+For rows rather than a document, `Csv.readCsvRows(text, options)` takes the same options and returns `{ headers, rows }`: the header (or `null`) and each row's values as plain strings, numbers, booleans and `null` (a null spelling), typed exactly as `read` types its cells. It is the like-for-like counterpart of d3-dsv's `autoType` and Papa Parse's `dynamicTyping`, and the cheaper choice when the table goes straight into code (see the performance table in the repository README).
+
+```ts
+const { headers, rows } = yield * Csv.readCsvRows("name,age\nalice,30\nbob,\n");
+// headers: ["name", "age"]; rows: [["alice", 30], ["bob", null]]
+```
 
 `Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
 
@@ -80,6 +87,9 @@ const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, 
 | `CsvInferenceOptions` | interface | How raw strings become typed values. |
 | `CsvReaderOptions` | interface | Options for the CSV reader. |
 | `inferCell` | function | Infer a typed cell from a raw CSV string value, on its own. |
+| `CsvValue` | type | A typed CSV value, as `readCsvRows` returns it: `null` for a null spelling. |
+| `CsvRows` | interface | A CSV table of typed values: its header row (or `null`) and its data rows. |
+| `readCsvRows` | function | Read CSV text into rows of typed values, typed as `read` types its cells. |
 | `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
 | `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
 | `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |

@@ -4,31 +4,39 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   Document,
-  IndexedCell,
-  type SheetCell,
   SheetRow,
   Worksheet,
   blocksToText,
   cell,
+  cellAt,
+  cellOf,
   DEFAULT_MAX_DENSE_CELLS,
   DenseGridTooLarge,
   denseRows,
   denseSize,
   document,
+  decodeDocumentResult,
+  encodeDocumentResult,
+  isPlainRow,
+  rowCellsOf,
+  rowEntries,
+  rowIndexes,
+  rowsOf,
   sheetExtent,
   sheetRow,
+  sparseRow,
+  worksheetFromRows,
+  worksheetOfTrustedRows,
 } from "../../src/schema/index.ts";
 import { Profiles, narrow } from "../../src/profile/index.ts";
-
-const at = (col: number, c: SheetCell = cell.text(`c${col}`)) => new IndexedCell({ col, cell: c });
 
 /** Two values far apart: A1 and C4 (row 3, column 2), nothing between them. */
 const sparse = new Worksheet({
   name: "S",
   columns: [],
   rows: [
-    new SheetRow({ index: 0, cells: [at(0, cell.text("a"))] }),
-    new SheetRow({ index: 3, cells: [at(2, cell.number(7))] }),
+    new SheetRow({ index: 0, cells: [cell.text("a")] }),
+    new SheetRow({ index: 3, cells: [undefined, undefined, cell.number(7)] }),
   ],
   merges: [],
 });
@@ -46,7 +54,8 @@ const sheetJson = (rows: unknown) => ({
 
 describe("sparse worksheet (#185)", () => {
   test("holds only the cells it has", () => {
-    expect(sparse.rows.flatMap((r) => r.cells)).toHaveLength(2);
+    // the rows it has; within a row, a gap is a position (positional cells, #226)
+    expect(sparse.rows.flatMap((r) => rowEntries(r))).toHaveLength(2);
     expect(sheetExtent(sparse)).toEqual({ rows: 4, columns: 3 });
     expect(sheetExtent(new Worksheet({ name: "E", columns: [], rows: [], merges: [] }))).toEqual({
       rows: 0,
@@ -58,15 +67,17 @@ describe("sparse worksheet (#185)", () => {
   const far = new Worksheet({
     name: "Far",
     columns: [],
-    rows: [new SheetRow({ index: 1_048_575, cells: [at(16_383, cell.text("z"))] })],
+    rows: [sparseRow(1_048_575, [[16_383, cell.text("z")]])],
     merges: [],
   });
 
-  test("a far-out cell costs one entry, not its extent", () => {
+  test("a far-out cell costs its row's width, not the sheet's extent", () => {
     expect(sheetExtent(far)).toEqual({ rows: 1_048_576, columns: 16_384 });
     const wire = Schema.fromJsonString(Document);
     const json = Schema.encodeUnknownSync(wire)(document([far]));
-    expect(json.length).toBeLessThan(500);
+    // the million rows above it cost nothing; its own row is 16,384 positions
+    // (XLSX's widest), each gap a `null`
+    expect(json.length).toBeLessThan(16_384 * 5 + 500);
     expect(Schema.decodeUnknownSync(wire)(json)).toEqual(document([far]));
   });
 
@@ -110,11 +121,58 @@ describe("sparse worksheet (#185)", () => {
     const row = sheetRow(2, [cell.text("x"), cell.blank(), cell.number(1)], 18);
     expect(row.index).toBe(2);
     expect(row.height).toBe(18);
-    expect(row.cells.map((c) => [c.col, c.cell])).toEqual([
-      [0, cell.text("x")],
-      [1, cell.blank()],
-      [2, cell.number(1)],
+    expect(row.cells).toEqual([cell.text("x"), cell.blank(), cell.number(1)]);
+  });
+
+  test("a plain cell stands for its unstyled node, and is its bare value in JSON", () => {
+    const row = sheetRow(0, ["a", 1.5, true, cell.number(2), undefined, false]);
+    expect(rowEntries(row)).toEqual([
+      [0, cell.text("a")],
+      [1, cell.number(1.5)],
+      [2, cell.boolean(true)],
+      [3, cell.number(2)],
+      [5, cell.boolean(false)],
     ]);
+    expect(cellAt(row, 4)).toBeUndefined();
+    expect(cellOf("x")).toStrictEqual(cell.text("x"));
+    const encoded = Schema.encodeSync(SheetRow)(row);
+    expect(encoded.cells).toEqual(["a", 1.5, true, { _tag: "CellNumber", value: 2 }, null, false]);
+    expect(Schema.decodeSync(SheetRow)(encoded)).toEqual(row);
+    // a plain number is finite: JSON holds no other (a node carries NaN and ±Infinity)
+    expect(() => sheetRow(0, [Number.NaN])).toThrow("Schema validation failed");
+    expect(cellAt(sheetRow(0, [cell.number(Number.NaN)]), 0)).toStrictEqual(
+      cell.number(Number.NaN),
+    );
+    // a sheet of plain cells narrows and lays out as the same sheet of nodes
+    const plain = new Worksheet({ name: "P", columns: [], rows: [row], merges: [] });
+    expect(narrow(document([plain]), Profiles.Csv).loss.entries).toEqual([]);
+    expect(grid(plain)[0]).toEqual([
+      cell.text("a"),
+      cell.number(1.5),
+      cell.boolean(true),
+      cell.number(2),
+      cell.blank(),
+      cell.boolean(false),
+    ]);
+  });
+
+  test("a row's cells are positional: a gap is undefined, and the last position holds a cell", () => {
+    const row = sheetRow(0, [cell.text("a"), undefined, cell.number(3)]);
+    expect(rowEntries(row)).toEqual([
+      [0, cell.text("a")],
+      [2, cell.number(3)],
+    ]);
+    expect(
+      sparseRow(0, [
+        [0, cell.text("a")],
+        [2, cell.number(3)],
+      ]).cells,
+    ).toStrictEqual(row.cells);
+    expect(() => sheetRow(0, [cell.text("a"), undefined])).toThrow("Schema validation failed");
+    // a gap is `null` in JSON, and decodes back to a gap
+    const encoded = Schema.encodeSync(SheetRow)(row);
+    expect(encoded.cells[1]).toBeNull();
+    expect(Schema.decodeSync(SheetRow)(encoded)).toEqual(row);
   });
 
   test("text collapse is the cells a sheet holds, not its gaps", () => {
@@ -142,17 +200,11 @@ describe("sparse worksheet (#185)", () => {
   const decode = Schema.decodeUnknownResult(Document);
   const text = { _tag: "CellText", value: "v" };
 
-  test("decodes rows and cells in ascending order", () => {
+  test("decodes rows in ascending order, a gap between cells written null", () => {
     const r = decode(
       sheetJson([
-        { index: 1, cells: [{ col: 0, cell: text }] },
-        {
-          index: 5,
-          cells: [
-            { col: 2, cell: text },
-            { col: 9, cell: text },
-          ],
-        },
+        { index: 1, cells: [text] },
+        { index: 5, cells: [null, null, text, null, text] },
       ]),
     );
     expect(Result.isSuccess(r)).toBe(true);
@@ -173,39 +225,133 @@ describe("sparse worksheet (#185)", () => {
         { index: 1, cells: [] },
       ],
     ],
-    [
-      "cells out of order",
-      [
-        {
-          index: 0,
-          cells: [
-            { col: 3, cell: text },
-            { col: 1, cell: text },
-          ],
-        },
-      ],
-    ],
-    [
-      "a repeated column",
-      [
-        {
-          index: 0,
-          cells: [
-            { col: 1, cell: text },
-            { col: 1, cell: text },
-          ],
-        },
-      ],
-    ],
     ["a negative row", [{ index: -1, cells: [] }]],
-    ["a fractional column", [{ index: 0, cells: [{ col: 0.5, cell: text }] }]],
+    ["a trailing gap", [{ index: 0, cells: [text, null] }]],
+    ["an indexed cell (the old form)", [{ index: 0, cells: [{ col: 0, cell: text }] }]],
   ])("rejects %s", (_, rows) => {
     expect(Result.isFailure(decode(sheetJson(rows)))).toBe(true);
   });
 
-  test("the constructor rejects out-of-order cells too", () => {
-    expect(() => new SheetRow({ index: 0, cells: [at(2), at(1)] })).toThrow(
+  test("the constructor rejects a trailing gap too", () => {
+    expect(() => new SheetRow({ index: 0, cells: [cell.text("a"), undefined] })).toThrow(
       "Schema validation failed",
     );
+  });
+});
+
+describe("plain rows (#227)", () => {
+  const decode = Schema.decodeUnknownResult(Document);
+  const text = { _tag: "CellText", value: "v" };
+  /** Row 0 and 1 plain, row 4 a node with a height, row 5 plain. */
+  const mixed = worksheetFromRows("M", [
+    ["a", 1],
+    [cell.text("b"), undefined, true],
+    sheetRow(4, [2.5], 18),
+    ["c"],
+  ]);
+
+  test("a plain row stands for the row one past the one before it", () => {
+    expect(rowIndexes(mixed)).toEqual([0, 1, 4, 5]);
+    expect(rowsOf(mixed)).toEqual([
+      sheetRow(0, ["a", 1]),
+      sheetRow(1, [cell.text("b"), undefined, true]),
+      sheetRow(4, [2.5], 18),
+      sheetRow(5, ["c"]),
+    ]);
+    expect(rowsOf(mixed).every((r) => r instanceof SheetRow)).toBe(true);
+    expect(mixed.rows.map(isPlainRow)).toEqual([true, true, false, true]);
+    expect(rowsOf(mixed).map((r) => r.height)).toEqual([undefined, undefined, 18, undefined]);
+    expect(rowCellsOf(mixed.rows[1] ?? [])).toEqual([cell.text("b"), undefined, true]);
+  });
+
+  test("the views read plain rows as the rows they stand for", () => {
+    const asNodes = new Worksheet({ name: "M", columns: [], rows: rowsOf(mixed), merges: [] });
+    expect(sheetExtent(mixed)).toEqual({ rows: 6, columns: 3 });
+    expect(sheetExtent(mixed)).toEqual(sheetExtent(asNodes));
+    expect(grid(mixed)).toEqual(grid(asNodes));
+    expect(denseSize(mixed, { rectangular: false })).toBe(
+      denseSize(asNodes, { rectangular: false }),
+    );
+    expect(blocksToText([mixed])).toBe(blocksToText([asNodes]));
+    expect(rowEntries(["a", undefined, 3])).toEqual([
+      [0, cell.text("a")],
+      [2, cell.number(3)],
+    ]);
+    expect(cellAt(["a", undefined, 3], 2)).toStrictEqual(cell.number(3));
+  });
+
+  test("worksheetFromRows is new Worksheet for plain rows, and fails as it does", () => {
+    const rows = [["a", 1], sheetRow(3, ["x"]), [true]];
+    expect(worksheetFromRows("S", rows)).toStrictEqual(
+      new Worksheet({ name: "S", columns: [], rows, merges: [] }),
+    );
+    // a node must come after the rows before it, plain ones included
+    expect(() => worksheetFromRows("S", [["a"], ["b"], sheetRow(1, ["c"])])).toThrow(
+      "Schema validation failed",
+    );
+    // a plain row holds positional cells, the last a cell
+    expect(() => worksheetFromRows("S", [["a", undefined]])).toThrow("Schema validation failed");
+    expect(() => worksheetFromRows("S", [[Number.NaN]])).toThrow("Schema validation failed");
+  });
+
+  test("worksheetOfTrustedRows takes valid rows unchecked, as worksheetFromRows builds them", () => {
+    const rows = [["a", 1], sheetRow(3, ["x"]), [true, undefined, cell.text("y")]];
+    expect(worksheetOfTrustedRows("S", rows)).toStrictEqual(worksheetFromRows("S", rows));
+    expect(worksheetOfTrustedRows("S", rows).rows).toBe(rows);
+  });
+
+  test("the numberRows hint changes nothing but the speed", () => {
+    const rows = [[1, 2.5], ["a", 3], [4], sheetRow(7, [1])];
+    const plain = worksheetFromRows("S", rows);
+    // the right hint, a wrong one, and one past the plain rows
+    expect(worksheetFromRows("S", rows, [0, 2])).toStrictEqual(plain);
+    expect(worksheetFromRows("S", rows, [1])).toStrictEqual(plain);
+    expect(worksheetFromRows("S", rows, [3])).toStrictEqual(plain);
+    expect(() => worksheetFromRows("S", [[1, Number.NaN]], [0])).toThrow(
+      "Schema validation failed",
+    );
+  });
+
+  test("a plain row is a bare array in JSON, through Schema and the stack-safe codec", () => {
+    const doc = document([mixed]);
+    const json = Schema.encodeSync(Document)(doc);
+    expect(json.blocks[0]).toMatchObject({
+      rows: [
+        ["a", 1],
+        [{ _tag: "CellText", value: "b" }, null, true],
+        { index: 4, cells: [2.5], height: 18 },
+        ["c"],
+      ],
+    });
+    expect(Schema.decodeSync(Document)(json)).toEqual(doc);
+    const fast = encodeDocumentResult(doc);
+    assert(Result.isSuccess(fast));
+    expect(fast.success).toEqual(json);
+    const back = decodeDocumentResult(json);
+    assert(Result.isSuccess(back));
+    expect(back.success).toEqual(doc);
+    // the codec rejects what Schema rejects
+    const bad = {
+      meta: {},
+      blocks: [{ _tag: "Worksheet", name: "S", columns: [], merges: [], rows: [["a", null]] }],
+    };
+    expect(Result.isFailure(decode(bad))).toBe(true);
+    expect(Result.isFailure(decodeDocumentResult(bad))).toBe(true);
+    const unordered = sheetJson([["a"], ["b"], { index: 1, cells: [text] }]);
+    expect(Result.isFailure(decode(unordered))).toBe(true);
+    expect(Result.isFailure(decodeDocumentResult(unordered))).toBe(true);
+  });
+
+  test("narrowing keeps a plain row plain, and reports as for its node", () => {
+    const { document: out, loss } = narrow(document([mixed]), Profiles.Csv);
+    const asNodes = new Worksheet({ name: "M", columns: [], rows: rowsOf(mixed), merges: [] });
+    const fromNodes = narrow(document([asNodes]), Profiles.Csv);
+    expect(loss.entries).toEqual(fromNodes.loss.entries);
+    const ws = out.blocks[0];
+    assert(Predicate.isTagged(ws, "Worksheet"));
+    expect(ws.rows.map(isPlainRow)).toEqual([true, true, false, true]);
+    const nodes = fromNodes.document.blocks[0];
+    assert(Predicate.isTagged(nodes, "Worksheet"));
+    expect(rowsOf(ws)).toEqual(rowsOf(nodes));
   });
 });

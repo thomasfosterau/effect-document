@@ -24,6 +24,7 @@ import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import { ParseError } from "@thomasfosterau/effect-document";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
+import { fastPlan, fastScan } from "./fast.ts";
 
 /** How the scanner splits CSV text into rows: headers, row limits and the like (shared by the reader). */
 export interface CsvScanOptions {
@@ -333,10 +334,44 @@ const checkHeaders = (error: Option.Option<ParseError>): Effect.Effect<void, Par
 interface Records {
   readonly fields: ReadonlyArray<ReadonlyArray<string>>;
   readonly rowOf: (i: number) => number;
+  /**
+   * The first record, when the scan held it apart (it is the header, and
+   * `fields` the records after it): so the data rows need no copy without it.
+   */
+  readonly first: Option.Option<ReadonlyArray<string>>;
 }
 
 const splitHeaders = (
-  { fields, rowOf }: Records,
+  { fields, rowOf, first }: Records,
+  options: CsvScanOptions,
+): Effect.Effect<ScannedTable, ParseError> =>
+  Option.match(first, {
+    onNone: () => splitAll(fields, rowOf, options),
+    onSome: (header) => splitAfterHeader(header, fields, rowOf, options),
+  });
+
+/** {@link splitHeaders} of the records after a header row the scan held apart. */
+const splitAfterHeader = (
+  header: ReadonlyArray<string>,
+  fields: ReadonlyArray<ReadonlyArray<string>>,
+  rowOf: (i: number) => number,
+  options: CsvScanOptions,
+): Effect.Effect<ScannedTable, ParseError> => {
+  const provided = options.providedHeaders;
+  const headers = provided ?? header;
+  const validated = options.validateHeaders
+    ? checkHeaders(headerError(headers, provided ? undefined : rowOf(0)))
+    : Effect.void;
+  // record `i` of `fields` is record `i + 1` of the text
+  return Effect.flatMap(validated, () =>
+    splitRows(headers, fields, 0, (i) => rowOf(i + 1), options),
+  );
+};
+
+/** {@link splitHeaders} of every record, the header (if any) among them. */
+const splitAll = (
+  fields: ReadonlyArray<ReadonlyArray<string>>,
+  rowOf: (i: number) => number,
   options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
   if (Arr.isReadonlyArrayEmpty(fields)) return Effect.succeed({ headers: null, rows: [] });
@@ -490,20 +525,37 @@ export const scanCsv = (
 ): Effect.Effect<ScannedTable, ParseError> => {
   const opts = defaults(options);
   const source = stripBom(text);
+  // the hand-written scan for the common dialects (fast.ts), else the grammar
+  // a header row is held apart as it is scanned, so the data rows need no copy
+  const holdFirst = !!opts.treatFirstRowAsHeader;
+  const fast = Option.flatMap(fastPlan(dialect, opts), (plan) => fastScan(source, plan, holdFirst));
+  if (Option.isSome(fast)) {
+    const { first, rows } = fast.value;
+    return splitHeaders({ fields: rows, rowOf: rowsOf(source, dialect, opts), first }, opts);
+  }
   const result = Parser.parse(tableParser(dialect, opts), source);
   if (Result.isFailure(result)) return Effect.fail(fromSyntaxError(result.failure, 0));
   const parsed = result.success;
   // blank and comment lines scan as null
   const fields = parsed.filter((record): record is ReadonlyArray<string> => record !== null);
-  // Positions are needed only to report an error, so they are found then,
-  // by scanning again with offsets (#177).
+  return splitHeaders({ fields, rowOf: rowsOf(source, dialect, opts), first: Option.none() }, opts);
+};
+
+/**
+ * Record `i`'s source row, for an error. Positions are needed only to report
+ * one, so they are found then, by scanning again with offsets (#177).
+ */
+const rowsOf = (
+  source: string,
+  dialect: CsvDialect,
+  opts: CsvScanOptions,
+): ((i: number) => number) => {
   let rows = Option.none<ReadonlyArray<number>>();
-  const rowOf = (i: number): number => {
+  return (i) => {
     const known = Option.getOrElse(rows, () => recordRows(source, dialect, opts));
     rows = Option.some(known);
     return known[i] ?? 0;
   };
-  return splitHeaders({ fields, rowOf }, opts);
 };
 
 /**
