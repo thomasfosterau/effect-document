@@ -27,6 +27,7 @@ import {
   type SheetCell,
   type SheetRow,
   sheetRow,
+  sheetRowOf,
   trustAs,
   worksheetFromRows,
 } from "@thomasfosterau/effect-document";
@@ -387,7 +388,7 @@ const sheetRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   first: number,
   cellAt: (raw: string, col: number) => SheetCell,
-): Array<SheetRow> => rows.map((row, r) => sheetRow(first + r, row.map(cellAt)));
+): Array<SheetRow> => rows.map((row, r) => sheetRowOf(first + r, row.map(cellAt)));
 
 /** How each value becomes a cell: typed by column or by cell, or (off) text as written. */
 const cellMaker = (

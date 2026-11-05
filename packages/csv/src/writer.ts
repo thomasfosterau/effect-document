@@ -23,7 +23,6 @@ import {
   denseSize,
   type Doc,
   type FeaturesOf,
-  type IndexedCell,
   makeWriterTag,
   type SheetCell,
   type SheetRow,
@@ -331,8 +330,8 @@ const renderTextRow = (
   return line;
 };
 
-/** One past a sparse row's last column: the number of fields it is written as. */
-const rowWidth = (cells: ReadonlyArray<IndexedCell>): number => (cells.at(-1)?.col ?? -1) + 1;
+/** One past a row's last cell's column: the number of fields it is written as. */
+const rowWidth = (cells: ReadonlyArray<SheetCell | undefined>): number => cells.length;
 
 /**
  * Render row `index` from a sparse sheet row's cells (none, for a row the
@@ -340,28 +339,25 @@ const rowWidth = (cells: ReadonlyArray<IndexedCell>): number => (cells.at(-1)?.c
  * its last cell, each gap an empty field, then empty fields to `width`.
  */
 const renderSheetRow = (
-  cells: ReadonlyArray<IndexedCell>,
+  cells: ReadonlyArray<SheetCell | undefined>,
   index: number,
   width: number,
   ctx: RowContext,
 ): string | WriteError => {
   const n = Math.max(rowWidth(cells), width);
   const only = cells[0];
-  if (n === 1 && (only === undefined || cellField(only.cell, ctx) === "")) {
+  if (n === 1 && (only === undefined || cellField(only, ctx) === "")) {
     return loneEmptyField(index, ctx);
   }
   if (ctx.plain) return renderPlainRow(cells, n, ctx);
   let line = "";
-  // the cells are in ascending column order, so one cursor walks them
-  let next = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field written: the measured hot path (bench/csv.bench.ts), where a Field object and a Result per field cost most of the write
   for (let col = 0; col < n; col++) {
-    const entry = cells[next];
-    const held = entry?.col === col;
-    if (held) next++;
-    const field = held
-      ? renderOneField(cellField(entry.cell, ctx), isNumberCell(entry.cell), index, ctx)
-      : renderOneField("", false, index, ctx);
+    const held = cells[col];
+    const field =
+      held === undefined
+        ? renderOneField("", false, index, ctx)
+        : renderOneField(cellField(held, ctx), isNumberCell(held), index, ctx);
     if (!Predicate.isString(field)) return field;
     line = col === 0 ? field : line + ctx.dialect.separator + field;
   }
@@ -369,16 +365,16 @@ const renderSheetRow = (
 };
 
 /** {@link renderSheetRow} under the plain options: every field quoted as `minimal` does, joined. */
-const renderPlainRow = (cells: ReadonlyArray<IndexedCell>, n: number, ctx: RowContext): string => {
+const renderPlainRow = (
+  cells: ReadonlyArray<SheetCell | undefined>,
+  n: number,
+  ctx: RowContext,
+): string => {
   const fields: Array<string> = [];
-  let next = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
   for (let col = 0; col < n; col++) {
-    const entry = cells[next];
-    if (entry?.col === col) {
-      next++;
-      fields.push(minimalField(cellField(entry.cell, ctx), ctx));
-    } else fields.push("");
+    const held = cells[col];
+    fields.push(held === undefined ? "" : minimalField(cellField(held, ctx), ctx));
   }
   return fields.join(ctx.dialect.separator);
 };

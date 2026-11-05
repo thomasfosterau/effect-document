@@ -69,7 +69,7 @@ const program = Effect.fn("convert-csv-to-xlsx")(function* () {
   yield* Console.log("\n=== Typed cells (numbers and booleans inferred) ===");
   yield* Effect.forEach(
     rows,
-    (row) => Console.log(Arr.map(row.cells, ({ cell }) => cell._tag).join(", ")),
+    (row) => Console.log(Arr.map(row.cells, (cell) => cell?._tag ?? "(gap)").join(", ")),
     {
       concurrency: 1,
     },

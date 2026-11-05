@@ -359,7 +359,7 @@ const expandBlock = (block: Block): TextPart[] => {
       joinParts(
         n.rows.map((row) =>
           joinParts(
-            row.cells.map(({ cell: c }) => [{ c }]),
+            row.cells.flatMap((c) => (c === undefined ? [] : [[{ c }]])),
             "\t",
           ),
         ),

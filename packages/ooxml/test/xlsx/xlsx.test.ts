@@ -10,6 +10,7 @@ import {
   cellToText,
   denseRows,
   type SheetCell,
+  rowEntries,
   sheetExtent,
   type Doc,
   document,
@@ -159,7 +160,7 @@ describe("XLSX round-trip", () => {
     expect(sheet).toContain(`<dimension ref="A1:C3"/>`);
     expect(sheet.match(/<c /g)).toHaveLength(3);
     const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
-    expect(ws.rows.map((r) => [r.index, r.cells.map((c) => c.col)])).toEqual([
+    expect(columnsOf(ws)).toEqual([
       [0, [0, 1]],
       [2, [1]],
     ]);
@@ -172,7 +173,11 @@ const extent = (ws: Worksheet) => {
   return [rows, columns];
 };
 /** How many cells a worksheet holds. */
-const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + r.cells.length, 0);
+const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + rowEntries(r).length, 0);
+
+/** Each row's index and the columns of the cells it holds. */
+const columnsOf = (ws: Worksheet) =>
+  ws.rows.map((r) => [r.index, rowEntries(r).map(([col]) => col)]);
 
 describe("XLSX reader sparse worksheets (#62, #185)", () => {
   test("empty rows and style-only cells are not kept", async () => {
@@ -188,19 +193,22 @@ describe("XLSX reader sparse worksheets (#62, #185)", () => {
     expect(held(ws)).toBe(1);
   });
 
-  test("a value at A1 and one far out hold two cells, not their extent", async () => {
+  test("a value at A1 and one far out hold two rows; the far one costs its width", async () => {
     const xlsx = packageWith(
       sheetXml(
         `<row r="1"><c r="A1"><v>1</v></c></row>` +
           `<row r="1048576"><c r="XFD1048576"><v>2</v></c></row>`,
       ),
     );
-    const ws = worksheets(await run(makeXlsxReader({ maxCells: 2 }).read(xlsx)))[0]!;
+    // the million rows between cost nothing; the far row is 16,384 positions
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 16_384 }).read(xlsx)));
+    expect(error.reason).toContain("maxCells");
+    const ws = worksheets(await run(makeXlsxReader({ maxCells: 16_385 }).read(xlsx)))[0]!;
     expect(held(ws)).toBe(2);
     expect(extent(ws)).toEqual([1_048_576, 16_384]);
-    expect(ws.rows.map((r) => [r.index, r.cells[0]!.col])).toEqual([
-      [0, 0],
-      [1_048_575, 16_383],
+    expect(columnsOf(ws)).toEqual([
+      [0, [0]],
+      [1_048_575, [16_383]],
     ]);
   });
 
@@ -212,22 +220,23 @@ describe("XLSX reader sparse worksheets (#62, #185)", () => {
       ),
     );
     const ws = worksheets(await run(makeXlsxReader().read(xlsx)))[0]!;
-    expect(ws.rows.map((r) => [r.index, r.cells.map((c) => c.col)])).toEqual([
+    expect(columnsOf(ws)).toEqual([
       [0, [1]],
       [2, [0, 2]],
     ]);
   });
 
-  test("maxCells counts valued cells and is configurable", async () => {
+  test("maxCells counts each row's width (to its last valued cell) and is configurable", async () => {
     const xlsx = packageWith(
       sheetXml(
         `<row r="10"><c r="A10"><v>1</v></c><c r="J10"><v>2</v></c><c r="Z10" s="1"/></row>`,
       ),
     );
-    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 1 }).read(xlsx)));
+    // A10 and J10 valued (Z10 is style-only): a row ten positions wide
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 9 }).read(xlsx)));
     expect(error._tag).toBe("ParseError");
     expect(error.reason).toContain("maxCells");
-    const ws = worksheets(await run(makeXlsxReader({ maxCells: 2 }).read(xlsx)))[0]!;
+    const ws = worksheets(await run(makeXlsxReader({ maxCells: 10 }).read(xlsx)))[0]!;
     expect(held(ws)).toBe(2);
   });
 
@@ -241,18 +250,18 @@ describe("XLSX reader sparse worksheets (#62, #185)", () => {
   });
 
   test("maxCells bounds the whole workbook, not each sheet", async () => {
-    // Each sheet holds two valued cells, under the limit on its own; together they are not.
+    // Each sheet's row is five positions wide, under the limit on its own; together they are not.
     const sheet = sheetXml(`<row r="10"><c r="A10"><v>1</v></c><c r="E10"><v>2</v></c></row>`);
     const xlsx = packageWith([
       { name: "A", xml: sheet },
       { name: "B", xml: sheet },
       { name: "C", xml: sheet },
     ]);
-    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 5 }).read(xlsx)));
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 14 }).read(xlsx)));
     expect(error._tag).toBe("ParseError");
     expect(error.reason).toContain('"C"');
     expect(error.reason).toContain("maxCells");
-    const read = worksheets(await run(makeXlsxReader({ maxCells: 6 }).read(xlsx)));
+    const read = worksheets(await run(makeXlsxReader({ maxCells: 15 }).read(xlsx)));
     expect(read.map(extent)).toEqual([
       [10, 5],
       [10, 5],
@@ -481,7 +490,9 @@ describe("XLSX writer validity (#61)", () => {
         Array.from({ length: width }, (_, c) => (r[c] === undefined ? "" : cellToText(r[c]))),
       );
       // Blank cells are not written, so the sheet reads back as the valued cells alone.
-      expect(back.rows.every((r) => r.cells.every((c) => c.cell._tag !== "CellBlank"))).toBe(true);
+      expect(
+        back.rows.every((r) => rowEntries(r).every(([, c]) => !Predicate.isTagged(c, "CellBlank"))),
+      ).toBe(true);
       const backGrid = grid(back);
       const actual = expected.map((r, ri) =>
         r.map((_, ci) => {

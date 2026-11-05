@@ -56,9 +56,9 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
 
     // the date became text, the formula became its cached result
     const firstRow = worksheets[0]!.rows[0]!.cells;
-    expect(firstRow[1]!.cell._tag).toBe("CellText");
+    expect(firstRow[1]!._tag).toBe("CellText");
     const secondRow = worksheets[0]!.rows[1]!.cells;
-    expect(secondRow[0]!.cell).toMatchObject({ _tag: "CellText", value: "cached" });
+    expect(secondRow[0]).toMatchObject({ _tag: "CellText", value: "cached" });
 
     // the loss report names exactly what changed
     const features = loss.entries.map((e) => e.feature);

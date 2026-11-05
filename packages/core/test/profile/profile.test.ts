@@ -37,7 +37,7 @@ const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => 
       name: "S",
       columns: [],
       merges: [],
-      rows: [{ index: 0, cells: [{ col: 0, cell: cellJson }] }],
+      rows: [{ index: 0, cells: [cellJson] }],
     },
   ],
 });

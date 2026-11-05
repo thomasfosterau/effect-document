@@ -4,8 +4,6 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import {
   Document,
-  IndexedCell,
-  type SheetCell,
   SheetRow,
   Worksheet,
   blocksToText,
@@ -15,20 +13,20 @@ import {
   denseRows,
   denseSize,
   document,
+  rowEntries,
   sheetExtent,
   sheetRow,
+  sparseRow,
 } from "../../src/schema/index.ts";
 import { Profiles, narrow } from "../../src/profile/index.ts";
-
-const at = (col: number, c: SheetCell = cell.text(`c${col}`)) => new IndexedCell({ col, cell: c });
 
 /** Two values far apart: A1 and C4 (row 3, column 2), nothing between them. */
 const sparse = new Worksheet({
   name: "S",
   columns: [],
   rows: [
-    new SheetRow({ index: 0, cells: [at(0, cell.text("a"))] }),
-    new SheetRow({ index: 3, cells: [at(2, cell.number(7))] }),
+    new SheetRow({ index: 0, cells: [cell.text("a")] }),
+    new SheetRow({ index: 3, cells: [undefined, undefined, cell.number(7)] }),
   ],
   merges: [],
 });
@@ -46,7 +44,8 @@ const sheetJson = (rows: unknown) => ({
 
 describe("sparse worksheet (#185)", () => {
   test("holds only the cells it has", () => {
-    expect(sparse.rows.flatMap((r) => r.cells)).toHaveLength(2);
+    // the rows it has; within a row, a gap is a position (positional cells, #226)
+    expect(sparse.rows.flatMap((r) => rowEntries(r))).toHaveLength(2);
     expect(sheetExtent(sparse)).toEqual({ rows: 4, columns: 3 });
     expect(sheetExtent(new Worksheet({ name: "E", columns: [], rows: [], merges: [] }))).toEqual({
       rows: 0,
@@ -58,15 +57,17 @@ describe("sparse worksheet (#185)", () => {
   const far = new Worksheet({
     name: "Far",
     columns: [],
-    rows: [new SheetRow({ index: 1_048_575, cells: [at(16_383, cell.text("z"))] })],
+    rows: [sparseRow(1_048_575, [[16_383, cell.text("z")]])],
     merges: [],
   });
 
-  test("a far-out cell costs one entry, not its extent", () => {
+  test("a far-out cell costs its row's width, not the sheet's extent", () => {
     expect(sheetExtent(far)).toEqual({ rows: 1_048_576, columns: 16_384 });
     const wire = Schema.fromJsonString(Document);
     const json = Schema.encodeUnknownSync(wire)(document([far]));
-    expect(json.length).toBeLessThan(500);
+    // the million rows above it cost nothing; its own row is 16,384 positions
+    // (XLSX's widest), each gap a `null`
+    expect(json.length).toBeLessThan(16_384 * 5 + 500);
     expect(Schema.decodeUnknownSync(wire)(json)).toEqual(document([far]));
   });
 
@@ -110,11 +111,26 @@ describe("sparse worksheet (#185)", () => {
     const row = sheetRow(2, [cell.text("x"), cell.blank(), cell.number(1)], 18);
     expect(row.index).toBe(2);
     expect(row.height).toBe(18);
-    expect(row.cells.map((c) => [c.col, c.cell])).toEqual([
-      [0, cell.text("x")],
-      [1, cell.blank()],
-      [2, cell.number(1)],
+    expect(row.cells).toEqual([cell.text("x"), cell.blank(), cell.number(1)]);
+  });
+
+  test("a row's cells are positional: a gap is undefined, and the last position holds a cell", () => {
+    const row = sheetRow(0, [cell.text("a"), undefined, cell.number(3)]);
+    expect(rowEntries(row)).toEqual([
+      [0, cell.text("a")],
+      [2, cell.number(3)],
     ]);
+    expect(
+      sparseRow(0, [
+        [0, cell.text("a")],
+        [2, cell.number(3)],
+      ]).cells,
+    ).toStrictEqual(row.cells);
+    expect(() => sheetRow(0, [cell.text("a"), undefined])).toThrow("Schema validation failed");
+    // a gap is `null` in JSON, and decodes back to a gap
+    const encoded = Schema.encodeSync(SheetRow)(row);
+    expect(encoded.cells[1]).toBeNull();
+    expect(Schema.decodeSync(SheetRow)(encoded)).toEqual(row);
   });
 
   test("text collapse is the cells a sheet holds, not its gaps", () => {
@@ -142,17 +158,11 @@ describe("sparse worksheet (#185)", () => {
   const decode = Schema.decodeUnknownResult(Document);
   const text = { _tag: "CellText", value: "v" };
 
-  test("decodes rows and cells in ascending order", () => {
+  test("decodes rows in ascending order, a gap between cells written null", () => {
     const r = decode(
       sheetJson([
-        { index: 1, cells: [{ col: 0, cell: text }] },
-        {
-          index: 5,
-          cells: [
-            { col: 2, cell: text },
-            { col: 9, cell: text },
-          ],
-        },
+        { index: 1, cells: [text] },
+        { index: 5, cells: [null, null, text, null, text] },
       ]),
     );
     expect(Result.isSuccess(r)).toBe(true);
@@ -173,38 +183,15 @@ describe("sparse worksheet (#185)", () => {
         { index: 1, cells: [] },
       ],
     ],
-    [
-      "cells out of order",
-      [
-        {
-          index: 0,
-          cells: [
-            { col: 3, cell: text },
-            { col: 1, cell: text },
-          ],
-        },
-      ],
-    ],
-    [
-      "a repeated column",
-      [
-        {
-          index: 0,
-          cells: [
-            { col: 1, cell: text },
-            { col: 1, cell: text },
-          ],
-        },
-      ],
-    ],
     ["a negative row", [{ index: -1, cells: [] }]],
-    ["a fractional column", [{ index: 0, cells: [{ col: 0.5, cell: text }] }]],
+    ["a trailing gap", [{ index: 0, cells: [text, null] }]],
+    ["an indexed cell (the old form)", [{ index: 0, cells: [{ col: 0, cell: text }] }]],
   ])("rejects %s", (_, rows) => {
     expect(Result.isFailure(decode(sheetJson(rows)))).toBe(true);
   });
 
-  test("the constructor rejects out-of-order cells too", () => {
-    expect(() => new SheetRow({ index: 0, cells: [at(2), at(1)] })).toThrow(
+  test("the constructor rejects a trailing gap too", () => {
+    expect(() => new SheetRow({ index: 0, cells: [cell.text("a"), undefined] })).toThrow(
       "Schema validation failed",
     );
   });

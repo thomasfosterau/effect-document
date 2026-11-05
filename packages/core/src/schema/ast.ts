@@ -10,7 +10,9 @@
  * TypeScript the plain-JSON shape it needs to type those suspended references.
  */
 
+import * as Arr from "effect/Array";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { Attributes, Style, attrField } from "./attributes.ts";
 
 // ============================================================================
@@ -306,15 +308,10 @@ export interface SheetColumnEncoded {
   readonly width?: number | undefined;
   readonly style?: StyleE | undefined;
 }
-/** The JSON (encoded) form of {@link IndexedCell}. */
-export interface IndexedCellEncoded {
-  readonly col: number;
-  readonly cell: SheetCellEncoded;
-}
-/** The JSON (encoded) form of {@link SheetRow}. */
+/** The JSON (encoded) form of {@link SheetRow}: a gap between cells is `null`. */
 export interface SheetRowEncoded {
   readonly index: number;
-  readonly cells: ReadonlyArray<IndexedCellEncoded>;
+  readonly cells: ReadonlyArray<SheetCellEncoded | null>;
   readonly height?: number | undefined;
 }
 /** The JSON (encoded) form of {@link MergeRange}. */
@@ -798,29 +795,48 @@ const strictlyAscending = <A>(
   );
 
 /**
- * A cell at its 0-based column. A row holds only the cells it has, so a gap
- * between two columns is simply absent (a {@link CellBlank} is kept only when
- * a format has something to say about an empty cell, such as its style).
+ * One position of a row: its cell, or `undefined` for a gap (a column the
+ * row has no cell in), written `null` in JSON. A {@link CellBlank} is kept
+ * only when a format has something to say about an empty cell, such as its
+ * style.
  */
-export class IndexedCell extends Schema.Class<IndexedCell>("IndexedCell")({
-  col: SheetIndex,
-  cell: SheetCell,
-}) {}
+export const RowCell = Schema.NullOr(SheetCell).pipe(
+  Schema.decodeTo(
+    Schema.UndefinedOr(Schema.toType(SheetCell)),
+    SchemaTransformation.transform({
+      decode: (cell) => cell ?? undefined,
+      encode: (cell) => cell ?? null,
+    }),
+  ),
+);
+/** One position of a row, as a type: a cell, or `undefined` for a gap. */
+export type RowCell = typeof RowCell.Type;
+
+/** A filter requiring a row's last position to hold a cell, so each row has one form. */
+const endsWithCell = Schema.makeFilter<ReadonlyArray<SheetCell | undefined>>(
+  (cells) =>
+    Arr.isReadonlyArrayEmpty(cells) || cells.at(-1) !== undefined
+      ? []
+      : [{ path: [cells.length - 1], issue: "a row's last position is a gap" }],
+  {
+    identifier: "SheetRowEndsWithCell",
+    title: "a row ending with a cell",
+    description:
+      "A row's cells end with a cell, not a gap, so a row has one form: its width is its length.",
+  },
+);
 
 /**
- * A spreadsheet row: its 0-based `index` and the cells it holds, in strictly
- * ascending column order. A worksheet holds only the rows it has, so a row
- * with no cells exists only to carry a `height`. See `denseRows` for a grid.
+ * A spreadsheet row: its 0-based `index` and its cells by position, the
+ * cell at array position `n` being in column `n` and `undefined` a gap (a
+ * column with no cell). The last position holds a cell, so `cells.length`
+ * is the row's width. A worksheet holds only the rows it has, so a row with
+ * no cells exists only to carry a `height`. See `denseRows` for a grid and
+ * `rowEntries` for the cells a row holds with their columns.
  */
 export class SheetRow extends Schema.Class<SheetRow>("SheetRow")({
   index: SheetIndex,
-  cells: Schema.Array(IndexedCell).check(
-    strictlyAscending((c) => c.col, "column", {
-      identifier: "SheetRowCellsAscending",
-      title: "cells in ascending column order",
-      description: "A row's cells have strictly ascending columns: each column once, in order.",
-    }),
-  ),
+  cells: Schema.Array(RowCell).check(endsWithCell),
   height: Schema.optional(Schema.Number),
 }) {}
 /** A rectangular merged-cell range (0-based, inclusive). */

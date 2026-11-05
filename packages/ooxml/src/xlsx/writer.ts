@@ -15,6 +15,7 @@ import {
   type Content,
   type Doc,
   makeWriterTag,
+  rowEntries,
   sheetExtent,
   type Worksheet,
   WriteError,
@@ -184,7 +185,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
       : `<dimension ref="A1:${toA1(extent.columns - 1, extent.rows - 1)}"/>`;
   const rows = ws.rows
     .map((row) => {
-      const cells = row.cells.flatMap(({ col, cell }) => {
+      const cells = rowEntries(row).flatMap(([col, cell]) => {
         const rendered = cellToSpreadsheetMl(cell, sharedStrings);
         if (rendered === null) return [];
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
@@ -227,7 +228,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
             row.cells.some(
-              ({ cell }) => Predicate.isTagged(cell, "CellFormula") && cell.result === undefined,
+              (cell) => Predicate.isTagged(cell, "CellFormula") && cell.result === undefined,
             ),
           ),
         );

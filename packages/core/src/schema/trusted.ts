@@ -4,8 +4,8 @@
  *
  * A `Schema.Class` constructor parses its input against the class's struct
  * every time, and a nested class re-checks every child it is given: a cell is
- * parsed when it is built, again as an `IndexedCell`'s `SheetCell` union
- * member, and its `IndexedCell` again as an element of the row's cells. For a
+ * parsed when it is built, and again as a `SheetCell` union member of its
+ * row's cells. For a
  * large sheet that is most of a reader's time. Effect builds a decoded class
  * without that pass internally (`makeClassTrusted`), but exports no public way
  * to, so this module does what the class's own constructor does once its
@@ -34,7 +34,6 @@ import {
   CellNumber,
   CellRichText,
   CellText,
-  IndexedCell,
   type SheetCell,
   SheetRow,
   Str,
@@ -62,7 +61,7 @@ const shared = <A>(make: () => A): (() => A) => {
 
 /*
  * Constructor functions for the nodes there is one of per cell (a text or
- * number cell, and its `IndexedCell`). An object
+ * number cell). An object
  * built by `new` gets exactly the slots its constructor stores, where one
  * built by `Object.create` plus stores gets V8's default slack: 40 bytes a
  * node rather than 56, a sixth of a CSV document's memory (and of the time
@@ -76,28 +75,20 @@ function NumberCell(this: { _tag: string; value: number }, value: number): void 
   this._tag = "CellNumber";
   this.value = value;
 }
-function Indexed(this: { col: number; cell: SheetCell }, col: number, cell: SheetCell): void {
-  this.col = col;
-  this.cell = cell;
-}
 
 interface Constructors {
   readonly text: new (value: string) => CellText;
   readonly number: new (value: number) => CellNumber;
-  readonly indexed: new (col: number, cell: SheetCell) => IndexedCell;
 }
 
 const constructors = /*#__PURE__*/ shared((): Constructors => {
   TextCell.prototype = CellText.prototype;
   NumberCell.prototype = CellNumber.prototype;
-  Indexed.prototype = IndexedCell.prototype;
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: a function with the class's prototype that stores exactly the class's fields builds what the class's constructor builds once its struct has accepted them (see the module comment)
   const text = TextCell as unknown as Constructors["text"];
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
   const number = NumberCell as unknown as Constructors["number"];
-  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
-  const indexed = Indexed as unknown as Constructors["indexed"];
-  return { text, number, indexed };
+  return { text, number };
 });
 
 /** A text cell whose `value` is a string. */
@@ -162,66 +153,28 @@ export const isCellInstance = (value: unknown): value is SheetCell => {
   );
 };
 
-/** A cell at column `col`, a non-negative integer. */
-export const trustedIndexedCell = (col: number, cell: SheetCell): IndexedCell => {
-  return new (constructors().indexed)(col, cell);
-};
-
 /**
- * A row at `index` (a non-negative integer) of cell instances, the cell at
- * array position `n` at column `n` (so ascending by construction). `height`
- * is kept as an own property even when undefined, as `new SheetRow` keeps it.
+ * A row at `index` (a non-negative integer) holding `cells` as its array: cell
+ * instances by column, `undefined` for a gap, the last a cell. `height` is
+ * kept as an own property even when undefined, as `new SheetRow` keeps it.
  */
-export const trustedDenseRow = (
+export const trustedRowOf = (
   index: number,
-  cells: ReadonlyArray<SheetCell>,
+  cells: ReadonlyArray<SheetCell | undefined>,
   height?: number,
 ): SheetRow => {
   const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
   row.index = index;
-  row.cells = cells.map((cell, col) => trustedIndexedCell(col, cell));
-  row.height = height;
-  return row;
-};
-
-/**
- * A row at `index` (a non-negative integer) of indexed cells in strictly
- * ascending column order, kept as given.
- */
-export const trustedRowOf = (index: number, cells: ReadonlyArray<IndexedCell>): SheetRow => {
-  const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
-  row.index = index;
   row.cells = cells;
-  row.height = undefined;
-  return row;
-};
-
-/**
- * A row at `index` (a non-negative integer) whose cell at column `n` is
- * `toCell(items[n], n)`, each built straight into its indexed cell: through
- * the trusted constructor when it is an instance, else `new IndexedCell`
- * (which checks and converts it, as `new SheetRow` would).
- */
-export const trustedRowFrom = <A>(
-  index: number,
-  items: ReadonlyArray<A>,
-  toCell: (item: A, col: number) => SheetCell,
-): SheetRow => {
-  const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
-  row.index = index;
-  row.cells = items.map((item, col) => {
-    const c = toCell(item, col);
-    return isCellInstance(c) ? trustedIndexedCell(col, c) : new IndexedCell({ col, cell: c });
-  });
-  row.height = undefined;
+  row.height = height;
   return row;
 };
 
 /**
  * A row at `index` (a non-negative integer) of `[column, cell]` entries whose
  * columns are non-negative integers in strictly ascending order, each cell an
- * instance. Without a height it has no `height` key, as `sparseRow`'s
- * validating path builds it.
+ * instance: each cell at its column, every column between a gap. Without a
+ * height it has no `height` key, as `sparseRow`'s validating path builds it.
  */
 export const trustedSparseRow = (
   index: number,
@@ -230,10 +183,28 @@ export const trustedSparseRow = (
 ): SheetRow => {
   const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
   row.index = index;
-  row.cells = entries.map(([col, cell]) => trustedIndexedCell(col, cell));
+  row.cells = positional(entries);
   // as `new SheetRow` without a height: no `height` key at all
   if (height !== undefined) row.height = height;
   return row;
+};
+
+/**
+ * The positional cells of `[column, cell]` entries in strictly ascending
+ * column order: an array as long as the last column plus one, `undefined`
+ * (never a hole) at each column without an entry.
+ */
+export const positional = (
+  entries: ReadonlyArray<readonly [number, SheetCell]>,
+): Array<SheetCell | undefined> => {
+  const cells: Array<SheetCell | undefined> = Array.from(
+    { length: (entries.at(-1)?.[0] ?? -1) + 1 },
+    () => undefined,
+  );
+  entries.forEach(([col, cell]) => {
+    cells[col] = cell;
+  });
+  return cells;
 };
 
 /**

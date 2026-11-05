@@ -14,9 +14,9 @@ import {
   encodeDocument,
   type ParseError,
   type SheetCell,
-  IndexedCell,
   SheetRow,
   sheetRow,
+  sparseRow,
   text,
   trustAs,
   Worksheet,
@@ -57,8 +57,8 @@ const nudged = (s: string): Array<string> => {
 /** A number's significant digits: from the first non-zero digit to the last. */
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
-/** A CSV row's cells: the reader writes every field, so they run from column 0 without gaps. */
-const cellsOf = (row: SheetRow) => row.cells.map((c) => c.cell);
+/** A CSV row's cells: the reader writes every field, so a row has no gaps. */
+const cellsOf = (row: SheetRow) => row.cells.flatMap((c) => (c === undefined ? [] : [c]));
 
 /** A document's first worksheet; fails the test when it has none. */
 const firstWorksheet = (doc: Document): Worksheet => {
@@ -1019,8 +1019,8 @@ describe("CSV writer", () => {
       name: "S",
       columns: [],
       rows: [
-        new SheetRow({ index: 0, cells: [new IndexedCell({ col: 2, cell: cell.text("c") })] }),
-        new SheetRow({ index: 2, cells: [new IndexedCell({ col: 0, cell: cell.number(1) })] }),
+        new SheetRow({ index: 0, cells: [undefined, undefined, cell.text("c")] }),
+        new SheetRow({ index: 2, cells: [cell.number(1)] }),
       ],
       merges: [],
     });
@@ -1038,12 +1038,7 @@ describe("CSV writer", () => {
     const far = new Worksheet({
       name: "Far",
       columns: [],
-      rows: [
-        new SheetRow({
-          index: 1_048_575,
-          cells: [new IndexedCell({ col: 16_383, cell: cell.text("z") })],
-        }),
-      ],
+      rows: [sparseRow(1_048_575, [[16_383, cell.text("z")]])],
       merges: [],
     });
     // ragged: a million empty lines and 16 384 fields fit the default budget
@@ -1062,11 +1057,10 @@ describe("CSV writer", () => {
   });
 
   test("a streamed row wider than maxFields fails the stream (#185)", async () => {
-    const wide = new SheetRow({
-      index: 0,
-      cells: [new IndexedCell({ col: 9_000_000_000, cell: cell.text("z") })],
-    });
-    const result = await run(Effect.result(Stream.runCollect(renderCsvStream(Stream.make(wide)))));
+    const wide = sparseRow(0, [[20, cell.text("z")]]);
+    const result = await run(
+      Effect.result(Stream.runCollect(renderCsvStream(Stream.make(wide), { maxFields: 10 }))),
+    );
     assert(Result.isFailure(result));
     expect(result.failure).toMatchObject({ _tag: "WriteError" });
   });

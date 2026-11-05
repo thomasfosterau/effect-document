@@ -5,18 +5,12 @@
  * from dense ones.
  */
 
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { CellBlank, IndexedCell, type SheetCell, SheetRow, type Worksheet } from "./ast.ts";
-import {
-  isCellInstance,
-  trustedDenseRow,
-  trustedIndexedCell,
-  trustedRowFrom,
-  trustedRowOf,
-  trustedSparseRow,
-} from "./trusted.ts";
+import { CellBlank, SheetCell, SheetRow, type Worksheet } from "./ast.ts";
+import { isCellInstance, positional, trustedRowOf, trustedSparseRow } from "./trusted.ts";
 
 /** A worksheet's extent: one past its last row index and one past its last column. */
 export interface SheetExtent {
@@ -32,7 +26,7 @@ export interface SheetExtent {
  */
 export const sheetExtent = (ws: Worksheet): SheetExtent => {
   const last = ws.rows.at(-1);
-  const columns = ws.rows.reduce((m, row) => Math.max(m, (row.cells.at(-1)?.col ?? -1) + 1), 0);
+  const columns = ws.rows.reduce((m, row) => Math.max(m, row.cells.length), 0);
   return { rows: last === undefined ? 0 : last.index + 1, columns };
 };
 
@@ -73,7 +67,7 @@ export interface DenseRowsOptions {
 }
 
 /** The width of a row's dense form: one past its last cell's column. */
-const rowWidth = (row: SheetRow): number => (row.cells.at(-1)?.col ?? -1) + 1;
+const rowWidth = (row: SheetRow): number => row.cells.length;
 
 /**
  * The cells {@link denseRows} would allocate for a worksheet, plus one per
@@ -88,16 +82,8 @@ export const denseSize = (ws: Worksheet, options?: DenseRowsOptions): number => 
 };
 
 /** A row's cells from column 0 to `width`, each gap a fresh unstyled blank. */
-const denseCells = (row: SheetRow | undefined, width: number): ReadonlyArray<SheetCell> => {
-  // The cells are in ascending column order, so one cursor walks them.
-  let next = 0;
-  return Array.from({ length: width }, (_, col) => {
-    const entry = row?.cells[next];
-    if (entry?.col !== col) return new CellBlank();
-    next += 1;
-    return entry.cell;
-  });
-};
+const denseCells = (row: SheetRow | undefined, width: number): ReadonlyArray<SheetCell> =>
+  Array.from({ length: width }, (_, col) => row?.cells[col] ?? new CellBlank());
 
 /**
  * The derived dense view of a worksheet: one array per row from row 0 to the
@@ -134,33 +120,65 @@ export const denseRows = (
 /** Whether a value is a row or column position: a non-negative safe integer. */
 const isPosition = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
 
+/** Whether a height is absent or a number, as `SheetRow` accepts. */
+const isHeight = (height: number | undefined): boolean =>
+  height === undefined || Predicate.isNumber(height);
+
 /**
- * A sparse row from a dense array of cells: the cell at array position `n`
- * goes to column `n`. Every cell is kept, blanks included, so the row reads
- * back exactly as given; drop unstyled blanks first for a sparse row.
+ * Whether positional cells are what `SheetRow` accepts unchanged: each a cell
+ * instance or `undefined` (a gap), the last a cell.
+ */
+const isPositional = (cells: ReadonlyArray<SheetCell | undefined>): boolean =>
+  cells.every((cell) => cell === undefined || isCellInstance(cell)) &&
+  (Arr.isReadonlyArrayEmpty(cells) || cells.at(-1) !== undefined);
+
+/**
+ * A row from its cells by position: the cell at array position `n` goes to
+ * column `n`, and `undefined` is a gap (no cell in that column); the last
+ * position must hold a cell. The array is copied. Every cell is kept, blanks
+ * included, so the row reads back exactly as given; anything `SheetRow` would
+ * reject fails as `new SheetRow` does.
+ *
+ * @example
+ * ```ts
+ * import { cell, sheetRow } from "@thomasfosterau/effect-document"
+ *
+ * // A1 and C1, with B1 a gap
+ * sheetRow(0, [cell.text("a"), undefined, cell.number(3)])
+ * ```
  */
 export const sheetRow = (
   index: number,
-  cells: ReadonlyArray<SheetCell>,
+  cells: ReadonlyArray<SheetCell | undefined>,
   height?: number,
 ): SheetRow =>
-  // the schema pass would accept these unchanged (columns ascend by
-  // construction), so skip it; anything else is checked and fails as before
-  isPosition(index) &&
-  (height === undefined || Predicate.isNumber(height)) &&
-  cells.every(isCellInstance)
-    ? trustedDenseRow(index, cells, height)
-    : new SheetRow({
-        index,
-        cells: cells.map((cell, col) => new IndexedCell({ col, cell })),
-        height,
-      });
+  // the schema pass would accept these unchanged, so skip it; anything else
+  // is checked and fails as before
+  isPosition(index) && isHeight(height) && isPositional(cells)
+    ? trustedRowOf(index, cells.slice(), height)
+    : new SheetRow({ index, cells, height });
+
+/**
+ * A row holding `cells` as its own array (not copied: the caller hands it
+ * over and must not change it after), as {@link sheetRow} otherwise: readers
+ * build one array per line of a file and need not copy it again.
+ *
+ * @example
+ * ```ts
+ * import { cell, sheetRowOf } from "@thomasfosterau/effect-document"
+ *
+ * sheetRowOf(0, [cell.text("a"), cell.number(1)])
+ * ```
+ */
+export const sheetRowOf = (index: number, cells: ReadonlyArray<SheetCell | undefined>): SheetRow =>
+  isPosition(index) && isPositional(cells)
+    ? trustedRowOf(index, cells)
+    : new SheetRow({ index, cells, height: undefined });
 
 /**
  * A dense row built from any values: the cell at column `n` is
- * `toCell(items[n], n)`. It is `sheetRow(index, items.map(toCell))` without
- * the array of cells in between (readers build one row per line of a file),
- * and fails as `sheetRow` does.
+ * `toCell(items[n], n)`. It is `sheetRowOf(index, items.map(toCell))`, and
+ * fails as `sheetRow` does.
  *
  * @example
  * ```ts
@@ -173,56 +191,36 @@ export const sheetRowFrom = <A>(
   index: number,
   items: ReadonlyArray<A>,
   toCell: (item: A, col: number) => SheetCell,
-): SheetRow =>
-  isPosition(index) ? trustedRowFrom(index, items, toCell) : sheetRow(index, items.map(toCell));
+): SheetRow => sheetRowOf(index, items.map(toCell));
 
 /**
- * A cell at its 0-based column: `new IndexedCell({ col, cell })` without the
- * schema pass when `col` is a position and `cell` an instance of a cell
- * class. Nodes are immutable, so a reader may place the same indexed cell in
- * many rows (a column's repeated value).
+ * The cells a row holds with their columns, in ascending column order (the
+ * gaps left out): for code that walks only the cells present.
  *
  * @example
  * ```ts
- * import { cell, indexedCell } from "@thomasfosterau/effect-document"
+ * import { cell, rowEntries, sheetRow } from "@thomasfosterau/effect-document"
  *
- * indexedCell(2, cell.text("a"))
+ * rowEntries(sheetRow(0, [cell.text("a"), undefined, cell.number(3)]))
+ * // [[0, CellText], [2, CellNumber]]
  * ```
  */
-export const indexedCell = (col: number, cell: SheetCell): IndexedCell =>
-  isPosition(col) && isCellInstance(cell)
-    ? trustedIndexedCell(col, cell)
-    : new IndexedCell({ col, cell });
+export const rowEntries = (row: SheetRow): ReadonlyArray<readonly [col: number, cell: SheetCell]> =>
+  row.cells.flatMap((cell, col) => (cell === undefined ? [] : [[col, cell] as const]));
 
 /**
- * A row from indexed cells in strictly ascending column order (see
- * `indexedCell`), kept as given; anything else fails as `new SheetRow` does.
- *
- * @example
- * ```ts
- * import { cell, indexedCell, sheetRowOf } from "@thomasfosterau/effect-document"
- *
- * sheetRowOf(0, [indexedCell(0, cell.text("a")), indexedCell(3, cell.number(1))])
- * ```
- */
-export const sheetRowOf = (index: number, cells: ReadonlyArray<IndexedCell>): SheetRow =>
-  isPosition(index) &&
-  cells.every((c, i) => c instanceof IndexedCell && (i === 0 || c.col > (cells[i - 1]?.col ?? -1)))
-    ? trustedRowOf(index, cells)
-    : new SheetRow({ index, cells, height: undefined });
-
-/**
- * A sparse row from its cells' `[column, cell]` entries, in strictly
- * ascending column order: the readers' constructor for rows whose cells skip
- * columns. Entries that are out of order, or a column that is not a
- * non-negative integer, fail as `new SheetRow` does; valid ones skip its
- * schema pass, as `sheetRow` does.
+ * A row from its cells' `[column, cell]` entries, in strictly ascending
+ * column order: the readers' constructor for rows whose cells skip columns
+ * (every column between two entries is a gap). Entries that are out of
+ * order, or a column that is not a non-negative integer, fail with a
+ * `SchemaError` as `new SheetRow` does; valid ones skip its schema pass, as
+ * `sheetRow` does.
  *
  * @example
  * ```ts
  * import { cell, sparseRow } from "@thomasfosterau/effect-document"
  *
- * // A1 and C1, with B1 absent
+ * // A1 and C1, with B1 a gap
  * sparseRow(0, [[0, cell.text("a")], [2, cell.number(3)]])
  * ```
  */
@@ -232,7 +230,7 @@ export const sparseRow = (
   height?: number,
 ): SheetRow =>
   isPosition(index) &&
-  (height === undefined || Predicate.isNumber(height)) &&
+  isHeight(height) &&
   entries.every(
     ([col, cell], i) =>
       isPosition(col) && isCellInstance(cell) && (i === 0 || col > (entries[i - 1]?.[0] ?? -1)),
@@ -240,13 +238,34 @@ export const sparseRow = (
     ? trustedSparseRow(index, entries, height)
     : validatedSparseRow(index, entries, height);
 
-/** {@link sparseRow}'s validating path: `new SheetRow`, with no `height` key unless one is given. */
+/** A column: a non-negative integer. */
+const Column = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+
+/** Entries whose columns strictly ascend, as {@link sparseRow} takes them. */
+const SparseEntries = Schema.Array(Schema.Tuple([Column, SheetCell])).check(
+  Schema.makeFilter<ReadonlyArray<readonly [number, SheetCell]>>(
+    (entries) =>
+      entries.flatMap(([col], i): Array<Schema.FilterIssue> => {
+        const previous = entries[i - 1]?.[0];
+        return previous !== undefined && col <= previous
+          ? [{ path: [i, 0], issue: `column ${col} is not after ${previous}` }]
+          : [];
+      }),
+    {
+      identifier: "SparseRowColumnsAscending",
+      title: "entries in ascending column order",
+      description: "A sparse row's entries have strictly ascending columns: each column once.",
+    },
+  ),
+);
+
+/** {@link sparseRow}'s validating path: the entries checked, then `new SheetRow`, with no `height` key unless one is given. */
 const validatedSparseRow = (
   index: number,
   entries: ReadonlyArray<readonly [col: number, cell: SheetCell]>,
   height?: number,
 ): SheetRow => {
-  const cells = entries.map(([col, cell]) => new IndexedCell({ col, cell }));
+  const cells = positional(Schema.decodeUnknownSync(SparseEntries)(entries));
   return height === undefined
     ? new SheetRow({ index, cells })
     : new SheetRow({ index, cells, height });

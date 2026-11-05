@@ -48,7 +48,6 @@ import {
   Header,
   HorizontalRule,
   Image,
-  IndexedCell,
   Inline,
   LineBlock,
   LineBreak,
@@ -109,6 +108,8 @@ interface Child {
   readonly depth: 0 | 1 | 2;
   readonly ref: Ref;
   readonly optional: boolean;
+  /** Whether the array may hold gaps (a row's cells): `undefined`, written `null`. */
+  readonly gaps: boolean;
 }
 
 /** A node class, the struct of its own (non-recursive) fields, and its recursive fields. */
@@ -127,14 +128,29 @@ interface Kind {
   readonly order: ReadonlyArray<readonly [string, number]>;
 }
 
-const one = (key: string, ref: Ref): Child => ({ key, depth: 0, ref, optional: false });
+const one = (key: string, ref: Ref): Child => ({
+  key,
+  depth: 0,
+  ref,
+  optional: false,
+  gaps: false,
+});
 const many = (key: string, ref: Ref, optional = false): Child => ({
   key,
   depth: 1,
   ref,
   optional,
+  gaps: false,
 });
-const manyMany = (key: string, ref: Ref): Child => ({ key, depth: 2, ref, optional: false });
+const manyMany = (key: string, ref: Ref): Child => ({
+  key,
+  depth: 2,
+  ref,
+  optional: false,
+  gaps: false,
+});
+/** An array whose positions may be gaps (a row's cells). */
+const positions = (key: string, ref: Ref): Child => ({ ...many(key, ref), gaps: true });
 
 const inlines = (key: string): Child => many(key, "Inline");
 const blocks = (key: string): Child => many(key, "Block");
@@ -178,8 +194,7 @@ const TABLE = kind(Table, [
   many("body", TABLE_ROW),
   many("foot", TABLE_ROW),
 ]);
-const INDEXED_CELL = kind(IndexedCell, [one("cell", "SheetCell")]);
-const SHEET_ROW = kind(SheetRow, [many("cells", INDEXED_CELL)]);
+const SHEET_ROW = kind(SheetRow, [positions("cells", "SheetCell")]);
 const SLIDE = kind(Slide, [many("shapes", "Shape"), many("notes", "Block", true)]);
 const DOCUMENT = kind(Document, [blocks("blocks")]);
 
@@ -303,8 +318,9 @@ const ABSENT: unique symbol = Symbol("absent");
 
 /**
  * Where a recursive field's nodes go: the index of each node in the walk
- * (shaped like the field: one, an array or an array of arrays), {@link ABSENT},
- * or `undefined` for an optional field present as `undefined`.
+ * (shaped like the field: one, an array or an array of arrays; {@link GAP} for
+ * a gap in a row's cells), {@link ABSENT}, or `undefined` for an optional
+ * field present as `undefined`.
  */
 type Template =
   | number
@@ -312,6 +328,9 @@ type Template =
   | ReadonlyArray<ReadonlyArray<number>>
   | typeof ABSENT
   | undefined;
+
+/** A gap's place in a template: no node is walked for it. */
+const GAP = -1;
 
 /** A node met by the walk: its kind, where it sits, its own fields and a template per recursive field. */
 interface Frame {
@@ -323,6 +342,10 @@ interface Frame {
 
 /** How a walk reads and builds one node, encoding or decoding. */
 interface Direction {
+  /** A gap as this direction reads it (`null` in JSON, `undefined` in a node). */
+  readonly gapIn: null | undefined;
+  /** A gap as this direction writes it. */
+  readonly gapOut: null | undefined;
   /** The kind of a value in a `ref` position, or the issue when it isn't one. */
   readonly kindOf: (value: unknown, ref: Ref) => Kind | SchemaIssue.Issue;
   /** The node's own fields, encoded or decoded. */
@@ -348,7 +371,7 @@ type Filled =
   | Built
   | undefined
   | typeof ABSENT
-  | ReadonlyArray<Built | undefined>
+  | ReadonlyArray<Built | null | undefined>
   | ReadonlyArray<ReadonlyArray<Built | undefined>>;
 
 /**
@@ -387,7 +410,10 @@ const walk = (
     if (child.depth === 0) return queue(value, child.ref, fieldPath);
     const outer = array(value, child.ref, fieldPath);
     if (outer === undefined) return undefined;
-    if (child.depth === 1) return outer.map((v, i) => queue(v, child.ref, down(fieldPath, i)));
+    if (child.depth === 1)
+      return outer.map((v, i) =>
+        child.gaps && v === direction.gapIn ? GAP : queue(v, child.ref, down(fieldPath, i)),
+      );
     return outer.map((inner, i) => {
       const vs = array(inner, child.ref, down(fieldPath, i)) ?? [];
       return vs.map((v, j) => queue(v, child.ref, down(fieldPath, i, j)));
@@ -423,7 +449,13 @@ const walk = (
       ? t
       : Predicate.isNumber(t)
         ? built[t]
-        : t.map((u) => (Predicate.isNumber(u) ? built[u] : u.map((v) => built[v])));
+        : t.map((u) =>
+            Predicate.isNumber(u)
+              ? u === GAP
+                ? direction.gapOut
+                : built[u]
+              : u.map((v) => built[v]),
+          );
   Arr.unfold(frames.length - 1, (i) => {
     const frame = frames[i];
     if (frame === undefined || state.failure !== undefined) return Option.none();
@@ -446,6 +478,8 @@ const constructorIssue = (e: unknown): SchemaIssue.Issue =>
     : new SchemaIssue.InvalidValue({ message: String(e) });
 
 const decoding: Direction = {
+  gapIn: null,
+  gapOut: undefined,
   kindOf: (value, ref) => {
     if (!Predicate.isString(ref)) return ref;
     const k = Predicate.isObject(value) ? memberOf(ref, value["_tag"]) : undefined;
@@ -474,6 +508,8 @@ const decoding: Direction = {
 };
 
 const encoding: Direction = {
+  gapIn: undefined,
+  gapOut: null,
   kindOf: (value, ref) => {
     // as Schema's encode does: the value must be an instance of its position's class
     const k = Predicate.isString(ref)

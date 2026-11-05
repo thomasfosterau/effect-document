@@ -21,8 +21,6 @@
 import * as Option from "effect/Option";
 import {
   cell,
-  type IndexedCell,
-  indexedCell,
   type SheetCell,
   type SheetRow,
   sheetRow,
@@ -153,25 +151,23 @@ const MAX_VALUES = 8192;
 
 /**
  * One column's cells, as a dictionary of its values: a value seen before in
- * the column gets the very indexed cell (and cell) it got then. Nodes are
- * immutable, so sharing them is invisible, and columns repeat values
- * (categories, flags, small numbers, dates): each repeat is two objects the
- * document does not hold and the collector does not copy. Looking a fresh
+ * the column gets the very cell it got then. Nodes are immutable, so sharing
+ * them is invisible, and columns repeat values (categories, flags, small
+ * numbers, dates): each repeat is an object the document does not hold and
+ * the collector does not copy. Looking a fresh
  * string up hashes it, which costs about what a cell does, so a column whose
  * values mostly do not repeat (IDs, free text) turns its dictionary off after
  * its first {@link TRIAL} values.
  */
 class ColumnCells {
   // oxlint-disable-next-line effect/avoid-native-object-helpers -- a lookup per value of the file; a `HashMap` hashes through `Equal`, the cost this dictionary exists to beat (bench/csv.bench.ts)
-  private readonly known = new Map<string, IndexedCell>();
+  private readonly known = new Map<string, SheetCell>();
   private on = true;
   private lookups = 0;
   private hits = 0;
-  private readonly col: number;
   private readonly make: (raw: string) => SheetCell;
 
-  constructor(col: number, make: (raw: string) => SheetCell, on: boolean) {
-    this.col = col;
+  constructor(make: (raw: string) => SheetCell, on: boolean) {
     this.make = make;
     this.on = on;
   }
@@ -181,16 +177,16 @@ class ColumnCells {
     return this.on;
   }
 
-  /** The indexed cell for `raw` in this column. */
-  get(raw: string): IndexedCell {
-    if (!this.on) return indexedCell(this.col, this.make(raw));
+  /** The cell for `raw` in this column. */
+  get(raw: string): SheetCell {
+    if (!this.on) return this.make(raw);
     this.lookups++;
     const shared = this.known.get(raw);
     if (shared !== undefined) {
       this.hits++;
       return shared;
     }
-    const made = indexedCell(this.col, this.make(raw));
+    const made = this.make(raw);
     if (this.lookups >= TRIAL && this.hits * 2 < this.lookups) {
       // mostly distinct values: the lookups cost more than they save
       this.on = false;
@@ -219,8 +215,8 @@ class RowCells {
     );
   }
 
-  /** The indexed cell for `raw` in column `c`. */
-  at(raw: string, c: number): IndexedCell {
+  /** The cell for `raw` in column `c`. */
+  at(raw: string, c: number): SheetCell {
     return (this.columns[c] ??= this.column(c)).get(raw);
   }
 
@@ -235,7 +231,7 @@ class RowCells {
 
   private column(c: number): ColumnCells {
     const cellAt = this.cellAt;
-    return new ColumnCells(c, (raw) => cellAt(raw, c), this.dictionaries);
+    return new ColumnCells((raw) => cellAt(raw, c), this.dictionaries);
   }
 }
 
@@ -330,7 +326,7 @@ export const fusedRows = (
     options.inferTypes && !options.byCell,
   );
   return Option.flatMap(
-    fusedPass<IndexedCell, SheetRow>(
+    fusedPass<SheetCell, SheetRow>(
       (onRow) => fastEachRecord(text, plan, reader, onRow),
       options,
       guess,
@@ -408,11 +404,11 @@ abstract class FieldBuilder<A> implements FieldReader<A> {
 }
 
 /**
- * The document scan's fields: indexed cells, a number read in place only in
+ * The document scan's fields: cells, a number read in place only in
  * a column whose dictionary is off (its values mostly unique).
  */
-class CellReader extends FieldBuilder<IndexedCell> {
-  readonly fill: IndexedCell = indexedCell(0, cell.blank());
+class CellReader extends FieldBuilder<SheetCell> {
+  readonly fill: SheetCell = cell.blank();
   private readonly cells: RowCells;
 
   constructor(
@@ -429,11 +425,11 @@ class CellReader extends FieldBuilder<IndexedCell> {
     return this.cells.unshared(c);
   }
 
-  protected number(value: number, c: number): IndexedCell {
-    return indexedCell(c, cell.number(value));
+  protected number(value: number): SheetCell {
+    return cell.number(value);
   }
 
-  protected field(raw: string, c: number): IndexedCell {
+  protected field(raw: string, c: number): SheetCell {
     return this.cells.at(raw, c);
   }
 }

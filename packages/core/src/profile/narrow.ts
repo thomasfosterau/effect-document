@@ -53,7 +53,6 @@ import {
   RawInline,
   type SheetCell,
   type Shape,
-  IndexedCell,
   SheetColumn,
   SheetRow,
   Slide,
@@ -457,10 +456,7 @@ const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
 
 /** A row with its cells narrowed: the row itself when every cell is kept unchanged. */
 const narrowRow = (r: SheetRow, ctx: Ctx): SheetRow => {
-  const cells = r.cells.map((c) => {
-    const cell = narrowCell(c.cell, ctx);
-    return cell === c.cell ? c : new IndexedCell({ col: c.col, cell });
-  });
+  const cells = r.cells.map((c) => (c === undefined ? c : narrowCell(c, ctx)));
   return cells.every((c, i) => c === r.cells[i])
     ? r
     : new SheetRow({ index: r.index, cells, height: r.height });

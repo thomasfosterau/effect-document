@@ -7,13 +7,14 @@
  * relationship files, parses the SpreadsheetML, and builds
  * a sparse, typed worksheet per sheet.
  *
- * A worksheet holds only the cells that hold a value: empty `<row>`s and
+ * A worksheet holds only the rows that hold a value: empty `<row>`s and
  * style-only `<c>`s are not kept, and `<dimension>` is not read (it is only a
- * hint), so a sheet with one value at A1 and one at XFD1048576 holds two
- * cells. `maxCells` is one budget for the whole workbook: a sheet holding
- * more valued cells than the sheets before it left fails with a ParseError,
- * so many sheets (or one sheet referenced many times) cannot add up to an
- * unbounded allocation.
+ * hint). A row's cells are positional, so it costs its width: one past its
+ * last valued cell (a sheet with one value at A1 and one at XFD1048576 holds
+ * two rows, the second 16,384 positions wide). `maxCells` is one budget of
+ * those positions for the whole workbook: a sheet needing more than the
+ * sheets before it left fails with a ParseError, so many sheets (or one sheet
+ * referenced many times) cannot add up to an unbounded allocation.
  */
 
 import * as Predicate from "effect/Predicate";
@@ -64,11 +65,12 @@ const REL_SHARED_STRINGS_SUFFIX = "/sharedStrings";
 /** Options for the XLSX reader: the cell-count limit and the zip resource limits. */
 export interface XlsxReaderOptions {
   /**
-   * The most valued cells (summed over every worksheet) the workbook may
-   * hold. A sheet holding more than what the sheets before it left fails the
-   * read with a ParseError instead of exhausting memory. Blank and style-only
-   * cells are not kept, so they do not count. Defaults to
-   * {@link DEFAULT_MAX_CELLS}.
+   * The most cell positions (summed over every worksheet) the workbook may
+   * hold: each row held costs its width, one past its last valued cell, as
+   * its cells are positional. A sheet needing more than what the sheets
+   * before it left fails the read with a ParseError instead of exhausting
+   * memory. Rows without a valued cell are not kept, so they cost nothing.
+   * Defaults to {@link DEFAULT_MAX_CELLS}.
    */
   readonly maxCells?: number | undefined;
   /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
@@ -83,7 +85,7 @@ const WORKBOOK_CONTENT_TYPES = [
   "application/vnd.ms-excel.template.macroEnabled.main+xml",
 ];
 
-/** The default {@link XlsxReaderOptions.maxCells}: five million cells. */
+/** The default {@link XlsxReaderOptions.maxCells}: five million cell positions. */
 export const DEFAULT_MAX_CELLS = 5_000_000;
 
 // ============================================================================
@@ -113,9 +115,26 @@ type WorksheetRows =
   | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
   | { readonly _tag: "TooLarge"; readonly cells: number };
 
+/** A row's valued cells by column as they are read, and its width so far. */
+interface RowCellsSoFar {
+  readonly cells: Map<number, SheetCell>;
+  width: number;
+}
+
+/**
+ * Widen a row's width to take a cell at `col`: the positions that adds (0
+ * when the row is already wider).
+ */
+const widen = (row: RowCellsSoFar, col: number): number => {
+  if (col < row.width) return 0;
+  const added = col + 1 - row.width;
+  row.width = col + 1;
+  return added;
+};
+
 /**
  * A worksheet's rows of valued cells, at most `maxCells` (the budget the
- * workbook has left) cells.
+ * workbook has left) cell positions: each row costs its width.
  */
 const parseWorksheetRows = (
   root: XmlElement,
@@ -155,7 +174,9 @@ const parseWorksheetRows = (
 
   // Only cells holding a value are kept, so this map is bounded by the input.
   // A later cell at the same position replaces an earlier one.
-  const cellMap = new Map<number, Map<number, SheetCell>>();
+  // Each row's width is kept beside its cells: the positions the row will
+  // hold, grown as its cells arrive, which is what `maxCells` counts.
+  const cellMap = new Map<number, RowCellsSoFar>();
   let count = 0;
 
   for (const { el, row, col } of positioned) {
@@ -174,12 +195,12 @@ const parseWorksheetRows = (
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
-      rowCells = new Map<number, SheetCell>();
+      rowCells = { cells: new Map<number, SheetCell>(), width: 0 };
       cellMap.set(row, rowCells);
     }
-    if (!rowCells.has(col)) count += 1;
+    count += widen(rowCells, col);
     if (count > maxCells) return { _tag: "TooLarge", cells: count };
-    rowCells.set(col, value);
+    rowCells.cells.set(col, value);
   }
 
   // Rows and cells may arrive in any order; the worksheet holds them ascending.
@@ -194,7 +215,7 @@ const parseWorksheetRows = (
     const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
     return sorted ? all : Arr.sort(all, byPosition);
   };
-  const rows = ascending(cellMap).map(([index, cells]) => sparseRow(index, ascending(cells)));
+  const rows = ascending(cellMap).map(([index, { cells }]) => sparseRow(index, ascending(cells)));
   return { _tag: "Rows", rows, cells: count };
 };
 
