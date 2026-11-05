@@ -9,10 +9,20 @@ import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { CellBlank, PlainCell, type RowCell, SheetCell, SheetRow, type Worksheet } from "./ast.ts";
+import {
+  CellBlank,
+  isPlainRow,
+  PlainCell,
+  type RowCell,
+  SheetCell,
+  SheetRow,
+  Worksheet,
+  type WorksheetRow,
+} from "./ast.ts";
 import {
   isCellInstance,
   positional,
+  trustedWorksheet,
   trustedBoolean,
   trustedNumber,
   trustedRowOf,
@@ -27,15 +37,71 @@ export interface SheetExtent {
 }
 
 /**
+ * A worksheet row's cells by position, whether it is a {@link SheetRow} or a
+ * plain row (#227): no node is built.
+ *
+ * @example
+ * ```ts
+ * import { rowCellsOf, sheetRow } from "@thomasfosterau/effect-document"
+ *
+ * rowCellsOf(["a", 1]) // ["a", 1]
+ * rowCellsOf(sheetRow(3, ["a", 1])) // ["a", 1]
+ * ```
+ */
+export const rowCellsOf = (row: WorksheetRow): ReadonlyArray<RowCell> =>
+  isPlainRow(row) ? row : row.cells;
+
+/**
+ * The index of each of a worksheet's rows, in order: a {@link SheetRow}'s
+ * own, and a plain row's one past the row before it (row 0 when first). One
+ * array for the sheet, so a caller walking `rows` by position pays nothing
+ * per row for it.
+ *
+ * @example
+ * ```ts
+ * import { rowIndexes, sheetRow, worksheetFromRows } from "@thomasfosterau/effect-document"
+ *
+ * rowIndexes(worksheetFromRows("S", [["a"], sheetRow(4, ["b"]), ["c"]])) // [0, 4, 5]
+ * ```
+ */
+export const rowIndexes = (ws: Worksheet): ReadonlyArray<number> => {
+  let previous = -1;
+  return ws.rows.map((row) => {
+    previous = isPlainRow(row) ? previous + 1 : row.index;
+    return previous;
+  });
+};
+
+/**
+ * A worksheet's rows as {@link SheetRow} nodes, in order: a `SheetRow` as it
+ * is, and each plain row as the node it stands for (built when asked for, so
+ * two calls give equal nodes, not the same ones). For code that wants nodes;
+ * {@link rowIndexes} and {@link rowCellsOf} read a sheet without building any.
+ *
+ * @example
+ * ```ts
+ * import { rowsOf, worksheetFromRows } from "@thomasfosterau/effect-document"
+ *
+ * rowsOf(worksheetFromRows("S", [["a"], ["b"]])).map((row) => row.index) // [0, 1]
+ * ```
+ */
+export const rowsOf = (ws: Worksheet): ReadonlyArray<SheetRow> => {
+  const indexes = rowIndexes(ws);
+  // a plain row was checked as the sheet was built: its node is the trusted one
+  return ws.rows.map((row, i) => (isPlainRow(row) ? trustedRowOf(indexes[i] ?? i, row) : row));
+};
+
+/**
  * The extent of a worksheet: `rows` is one past the last row's index (rows
  * without cells count, since they exist to carry a height) and `columns` one
  * past the rightmost cell's column. `{ rows: 0, columns: 0 }` for an empty
  * sheet. Linear in the rows the sheet holds.
  */
 export const sheetExtent = (ws: Worksheet): SheetExtent => {
-  const last = ws.rows.at(-1);
-  const columns = ws.rows.reduce((m, row) => Math.max(m, row.cells.length), 0);
-  return { rows: last === undefined ? 0 : last.index + 1, columns };
+  const indexes = rowIndexes(ws);
+  const columns = ws.rows.reduce((m, row) => Math.max(m, rowCellsOf(row).length), 0);
+  const last = indexes.at(-1);
+  return { rows: last === undefined ? 0 : last + 1, columns };
 };
 
 /**
@@ -75,7 +141,7 @@ export interface DenseRowsOptions {
 }
 
 /** The width of a row's dense form: one past its last cell's column. */
-const rowWidth = (row: SheetRow): number => row.cells.length;
+const rowWidth = (row: WorksheetRow): number => rowCellsOf(row).length;
 
 /**
  * The cells {@link denseRows} would allocate for a worksheet, plus one per
@@ -90,8 +156,11 @@ export const denseSize = (ws: Worksheet, options?: DenseRowsOptions): number => 
 };
 
 /** A row's cells from column 0 to `width`, each gap a fresh unstyled blank. */
-const denseCells = (row: SheetRow | undefined, width: number): ReadonlyArray<SheetCell> =>
-  Array.from({ length: width }, (_, col) => cellOf(row?.cells[col]) ?? new CellBlank());
+const denseCells = (
+  cells: ReadonlyArray<RowCell> | undefined,
+  width: number,
+): ReadonlyArray<SheetCell> =>
+  Array.from({ length: width }, (_, col) => cellOf(cells?.[col]) ?? new CellBlank());
 
 /**
  * The derived dense view of a worksheet: one array per row from row 0 to the
@@ -113,14 +182,15 @@ export const denseRows = (
   if (cells > maxCells) return Result.fail(new DenseGridTooLarge({ cells, maxCells }));
   const rectangular = options?.rectangular ?? true;
   const width = sheetExtent(ws).columns;
+  const indexes = rowIndexes(ws);
   // The rows are in ascending index order, so one cursor walks them.
   let next = 0;
   return Result.succeed(
     Array.from({ length: sheetExtent(ws).rows }, (_, index) => {
-      const held = ws.rows[next];
-      const row = held?.index === index ? held : undefined;
-      if (row !== undefined) next += 1;
-      return denseCells(row, rectangular ? width : row === undefined ? 0 : rowWidth(row));
+      const held = indexes[next] === index ? ws.rows[next] : undefined;
+      if (held !== undefined) next += 1;
+      const heldCells = held === undefined ? undefined : rowCellsOf(held);
+      return denseCells(heldCells, rectangular ? width : (heldCells?.length ?? 0));
     }),
   );
 };
@@ -186,7 +256,8 @@ export const cellOf = (position: RowCell): SheetCell | undefined =>
  * cellAt(sheetRow(0, ["a", 1]), 1) // CellNumber { value: 1 }
  * ```
  */
-export const cellAt = (row: SheetRow, col: number): SheetCell | undefined => cellOf(row.cells[col]);
+export const cellAt = (row: WorksheetRow, col: number): SheetCell | undefined =>
+  cellOf(rowCellsOf(row)[col]);
 
 /**
  * Whether positional cells are what `SheetRow` accepts unchanged: each a cell
@@ -255,15 +326,27 @@ export const sheetRowOf = (index: number, cells: ReadonlyArray<RowCell>): SheetR
  * sheetRowOfNumbers(0, [1.5, 2, -3])
  * ```
  */
-export const sheetRowOfNumbers = (index: number, cells: ReadonlyArray<RowCell>): SheetRow => {
+export const sheetRowOfNumbers = (index: number, cells: ReadonlyArray<RowCell>): SheetRow =>
+  isPositionalNumbers(cells) && isPosition(index)
+    ? trustedRowOf(index, cells)
+    : sheetRowOf(index, cells);
+
+/**
+ * Whether a row's cells are all plain finite numbers (and there is at least
+ * one), checked by a loop of its own: called only for arrays of doubles, it
+ * reads them without boxing, where `every` boxes each number to pass it to
+ * its callback (9.7 MB of the CSV reader's 31.6 MB a read of
+ * bench/csv.bench.ts's numbers table).
+ */
+const isPositionalNumbers = (cells: ReadonlyArray<RowCell>): boolean => {
   const n = cells.length;
   let numbers = n > 0;
-  // oxlint-disable-next-line effect/imperative-loops -- once per cell of a row of numbers: `every` boxes each number of an array of doubles to pass it to its callback (9.7 MB of the CSV reader's 31.6 MB a read of bench/csv.bench.ts's numbers table)
+  // oxlint-disable-next-line effect/imperative-loops -- once per cell of a row of numbers: `every` boxes each number of an array of doubles to pass it to its callback (see above)
   for (let i = 0; numbers && i < n; i++) {
     const value = cells[i];
     numbers = Predicate.isNumber(value) && Number.isFinite(value);
   }
-  return numbers && isPosition(index) ? trustedRowOf(index, cells) : sheetRowOf(index, cells);
+  return numbers;
 };
 
 /**
@@ -297,8 +380,10 @@ export const sheetRowFrom = <A>(
  * // [[0, CellText], [2, CellNumber]]
  * ```
  */
-export const rowEntries = (row: SheetRow): ReadonlyArray<readonly [col: number, cell: SheetCell]> =>
-  row.cells.flatMap((position, col) => {
+export const rowEntries = (
+  row: WorksheetRow,
+): ReadonlyArray<readonly [col: number, cell: SheetCell]> =>
+  rowCellsOf(row).flatMap((position, col) => {
     const cell = cellOf(position);
     return cell === undefined ? [] : [[col, cell] as const];
   });
@@ -369,3 +454,90 @@ const validatedSparseRow = (
     ? new SheetRow({ index, cells })
     : new SheetRow({ index, cells, height });
 };
+
+/**
+ * A worksheet of finished rows, for readers that build each row as they go:
+ * `SheetRow`s (`sheetRow`, `sparseRow`) and plain rows (a row's cells alone,
+ * standing for the row one past the one before it, #227). Rows that are what
+ * `Worksheet` accepts unchanged (instances or positional cell arrays, in
+ * strictly ascending index order) skip the schema pass; anything else is
+ * checked and fails as `new Worksheet` does.
+ *
+ * `numberRows`, ascending, lists the positions of the rows the caller
+ * expects to be plain rows of numbers (a reader's rows of a table of
+ * numbers): they are checked by a loop that only ever meets arrays of
+ * doubles, which V8 then reads without boxing each number. It changes only
+ * the speed: a listed row that is not one is checked as any other.
+ *
+ * @example
+ * ```ts
+ * import { cell, sheetRow, worksheetFromRows } from "@thomasfosterau/effect-document"
+ *
+ * worksheetFromRows("Sheet1", [sheetRow(0, [cell.text("a")]), sheetRow(2, [cell.number(1)])])
+ * // rows 0 and 1, as plain rows
+ * worksheetFromRows("Sheet1", [["a", 1], ["b", 2]])
+ * ```
+ */
+export const worksheetFromRows = (
+  name: string,
+  rows: ReadonlyArray<WorksheetRow>,
+  numberRows: ReadonlyArray<number> = [],
+): Worksheet =>
+  Predicate.isString(name) && areWorksheetRows(rows, numberRows)
+    ? trustedWorksheet(name, rows)
+    : new Worksheet({ name, columns: [], rows, merges: [] });
+
+/** Whether rows are what `Worksheet` accepts unchanged (see {@link worksheetFromRows}). */
+const areWorksheetRows = (
+  rows: ReadonlyArray<WorksheetRow>,
+  numberRows: ReadonlyArray<number>,
+): boolean => {
+  let previous = -1;
+  let next = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per row of a sheet a reader builds, a cursor over `numberRows` beside it
+  for (let i = 0; i < rows.length; i++) {
+    const listed = numberRows[next] === i;
+    if (listed) next++;
+    const row = rows[i];
+    if (row === undefined) return false;
+    previous = acceptedIndex(row, previous, listed);
+    if (previous === -1) return false;
+  }
+  return true;
+};
+
+/**
+ * The index of a row `Worksheet` accepts unchanged after a row at
+ * `previous`, or -1: a plain row of positional cells (of plain numbers when
+ * `listed`, by their own loop) is the next index, a `SheetRow` its own when
+ * it is later.
+ */
+const acceptedIndex = (row: WorksheetRow, previous: number, listed: boolean): number => {
+  if (isPlainRow(row))
+    return (listed && isPositionalNumbers(row)) || isPositional(row) ? previous + 1 : -1;
+  return row instanceof SheetRow && row.index > previous ? row.index : -1;
+};
+
+/**
+ * A worksheet of rows its caller built valid itself, taken without any
+ * check: the unchecked escape hatch for a reader's own output, as `trustAs`
+ * is for a document's profile. Each row must be what `Worksheet` accepts (a
+ * `SheetRow` instance, or a plain row of positional cells: plain cells, cell
+ * instances and gaps, the last a cell), the rows in strictly ascending index
+ * order. Nothing checks it, so a row that is not breaks the worksheet's
+ * guarantees silently: anything not built by the caller goes through
+ * {@link worksheetFromRows}, which checks every cell (about 2.3 ms per 100k
+ * rows of four, on bench/csv.bench.ts's floats table).
+ *
+ * @example
+ * ```ts
+ * import { worksheetOfTrustedRows } from "@thomasfosterau/effect-document"
+ *
+ * // rows a reader typed itself: plain cells, a row per line
+ * worksheetOfTrustedRows("Sheet1", [["a", 1], ["b", 2]])
+ * ```
+ */
+export const worksheetOfTrustedRows = (
+  name: string,
+  rows: ReadonlyArray<WorksheetRow>,
+): Worksheet => trustedWorksheet(name, rows);

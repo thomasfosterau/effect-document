@@ -11,6 +11,7 @@ import {
   denseRows,
   type SheetCell,
   rowEntries,
+  rowsOf,
   sheetExtent,
   type Doc,
   document,
@@ -177,7 +178,7 @@ const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + rowEntries(r).lengt
 
 /** Each row's index and the columns of the cells it holds. */
 const columnsOf = (ws: Worksheet) =>
-  ws.rows.map((r) => [r.index, rowEntries(r).map(([col]) => col)]);
+  rowsOf(ws).map((r) => [r.index, rowEntries(r).map(([col]) => col)]);
 
 describe("XLSX reader sparse worksheets (#62, #185)", () => {
   test("empty rows and style-only cells are not kept", async () => {

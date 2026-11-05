@@ -5,16 +5,20 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Equivalence from "effect/Equivalence";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import {
   cell,
   document,
-  type Document,
+  Document,
   encodeDocument,
   type ParseError,
   type SheetCell,
   SheetRow,
+  type WorksheetRow,
+  isPlainRow,
+  rowCellsOf,
   rowEntries,
   sheetRow,
   sparseRow,
@@ -59,7 +63,7 @@ const nudged = (s: string): Array<string> => {
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
 /** A CSV row's cells as nodes: the reader writes every field, so a row has no gaps. */
-const cellsOf = (row: SheetRow) => rowEntries(row).map(([, c]) => c);
+const cellsOf = (row: WorksheetRow) => rowEntries(row).map(([, c]) => c);
 
 /** A document's first worksheet; fails the test when it has none. */
 const firstWorksheet = (doc: Document): Worksheet => {
@@ -757,6 +761,32 @@ describe("CSV reader fast path", () => {
     { exactNumbers: false },
     { exactNumbers: false, inference: "cell", treatFirstRowAsHeader: false },
   ];
+  const decodeJson = Schema.decodeResult(Document);
+  const toJson = Schema.encodeSync(Document);
+  test("its documents, taken unchecked (worksheetOfTrustedRows), are what the schema accepts", () => {
+    // the reader builds its rows unchecked, so a row the schema would reject
+    // would pass silently: a decode of each document's encoding checks every
+    // cell, on both paths
+    const tables = Arr.makeBy(400, table);
+    const docs = optionSets.flatMap((options) =>
+      tables.flatMap((csv) =>
+        [csv, `junk\n${csv}`].flatMap((source, i) =>
+          Result.match(
+            Effect.runSync(
+              Effect.result(
+                makeCsvReader(i === 0 ? options : { ...options, skipRows: 1 }).read(text(source)),
+              ),
+            ),
+            { onSuccess: (doc) => [doc], onFailure: () => [] },
+          ),
+        ),
+      ),
+    );
+    expect(docs.length).toBeGreaterThan(1000);
+    const rejected = docs.filter((doc) => Result.isFailure(decodeJson(toJson(doc))));
+    expect(rejected).toEqual([]);
+  });
+
   test("gives the general path's document or failure", () => {
     const tables = Arr.makeBy(1500, table);
     const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
@@ -804,7 +834,9 @@ describe("readCsvRows", () => {
     const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
     expect((await run(readCsvRows(csv, options))).rows).toEqual(expected);
     const doc = await run(makeCsvReader(options).read(text(csv)));
-    expect(firstWorksheet(doc).rows.map((row) => row.cells)).toEqual(expected);
+    expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
+    // a CSV document's rows are plain rows (#227)
+    expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
     const words = Arr.makeBy(w, (c) => `w${c}`);
     const scanned = await run(scanCsv(`${words.join(",")}\n${words.join(",")}\n`));
     expect(scanned.rows).toEqual([words, words]);

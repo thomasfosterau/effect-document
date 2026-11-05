@@ -26,10 +26,9 @@ import {
   type ParseError,
   type Reader,
   type SheetCell,
-  type SheetRow,
-  sheetRowOf,
+  type PlainRow,
   trustAs,
-  worksheetFromRows,
+  worksheetOfTrustedRows,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -404,16 +403,15 @@ const sniffHeader = (
  * per value after its first text value.
  */
 /**
- * The rows of typed cells, as worksheet rows from `first` on. Each row is
- * built whole as soon as its cells are, so a row's intermediate cell array
- * dies young (and costs the collector nothing) instead of living until every
- * row is typed.
+ * The rows of typed cells, as plain worksheet rows (#227: a row's cells
+ * alone, standing for the row after the one before it). Each row is typed
+ * whole as soon as its cells are, so the strings it came from die young (and
+ * cost the collector nothing) instead of living until every row is typed.
  */
-const sheetRows = (
+const plainRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
-  first: number,
   cellAt: (raw: string, col: number) => RowCell,
-): Array<SheetRow> => rows.map((row, r) => sheetRowOf(first + r, row.map(cellAt)));
+): Array<PlainRow> => rows.map((row) => row.map(cellAt));
 
 /** How each value becomes a cell: typed by column or by cell, or (off) text as written. */
 const cellMaker = (
@@ -557,8 +555,10 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
 
   // the one-pass read (fused.ts), for the options it covers
   const fused = fusedRead(dialect, options ?? {}, classifier, fusedRows);
-  const asDocument = (rows: ReadonlyArray<SheetRow>): Doc<CsvFeature> =>
-    trustAs<CsvFeature>(document([worksheetFromRows(sheetName, rows)]));
+  // the reader typed every cell itself (plain cells, finite numbers, blanks
+  // as nodes): its rows are taken unchecked, as its profile is by `trustAs`
+  const asDocument = (rows: ReadonlyArray<PlainRow>): Doc<CsvFeature> =>
+    trustAs<CsvFeature>(document([worksheetOfTrustedRows(sheetName, rows)]));
 
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     Effect.suspend(() => {
@@ -577,14 +577,12 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
     pipe(
       scanTable(source, dialect, options ?? {}, classifier),
       Effect.map(({ headers, rows }) => {
-        const header = headers === null ? [] : [sheetRowOf(0, headers.slice())];
-        const body = sheetRows(
-          rows,
-          header.length,
-          cellMaker(rows, { ...options, inferTypes }, classifier),
-        );
+        const header = headers === null ? [] : [headers.slice()];
+        const body = plainRows(rows, cellMaker(rows, { ...options, inferTypes }, classifier));
         return trustAs<CsvFeature>(
-          document([worksheetFromRows(sheetName, headers === null ? body : [...header, ...body])]),
+          document([
+            worksheetOfTrustedRows(sheetName, headers === null ? body : [...header, ...body]),
+          ]),
         );
       }),
     );
