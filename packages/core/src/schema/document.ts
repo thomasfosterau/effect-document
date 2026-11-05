@@ -39,6 +39,14 @@ import {
   Worksheet,
 } from "./ast.ts";
 import { sheetRow } from "./sheet.ts";
+import {
+  trustedBlank,
+  trustedBoolean,
+  trustedNumber,
+  trustedStr,
+  trustedText,
+  trustedWorksheet,
+} from "./trusted.ts";
 
 // ============================================================================
 // Document
@@ -62,7 +70,10 @@ export type DocumentEncoded = Schema.Codec.Encoded<typeof Document>;
 // ============================================================================
 
 /** A `Str`: a run of text. */
-export const str = (text: string): Str => new Str({ text });
+export const str = (text: string): Str =>
+  // a string is all the schema pass would check, so skip it (readers build a
+  // run per span of text)
+  Predicate.isString(text) ? trustedStr(text) : new Str({ text });
 /** An `Emph` (emphasis, usually italic) around `content`. */
 export const emph = (content: ReadonlyArray<Inline>): Emph => new Emph({ content });
 /** A `Strong` (strong emphasis, usually bold) around `content`. */
@@ -80,7 +91,7 @@ export const para = (content: ReadonlyArray<Inline>): Para => new Para({ content
 /** A `Plain` block: inline content with no paragraph semantics (as in a tight list item). */
 export const plain = (content: ReadonlyArray<Inline>): Plain => new Plain({ content });
 /** A `Plain` block holding a single `Str` of `text`. */
-export const plainText = (text: string): Plain => new Plain({ content: [new Str({ text })] });
+export const plainText = (text: string): Plain => new Plain({ content: [str(text)] });
 /** A `Header` of `level` 1–6 around `content`. */
 export const header = (level: number, content: ReadonlyArray<Inline>): Header =>
   new Header({ level, content });
@@ -125,14 +136,22 @@ export const table = (options: {
 // Constructors - spreadsheet
 // ============================================================================
 
-/** Ergonomic spreadsheet-cell constructors. */
+/**
+ * Ergonomic spreadsheet-cell constructors. `text`, `number`, `boolean` and
+ * `blank` skip the schema pass for a value of the right primitive type (the
+ * readers build cells by the million, and the pass is most of their time);
+ * any other value goes through the class constructor and fails as it does.
+ */
 export const cell = {
-  text: (value: string): CellText => new CellText({ value }),
-  number: (value: number): CellNumber => new CellNumber({ value }),
-  boolean: (value: boolean): CellBoolean => new CellBoolean({ value }),
+  text: (value: string): CellText =>
+    Predicate.isString(value) ? trustedText(value) : new CellText({ value }),
+  number: (value: number): CellNumber =>
+    Predicate.isNumber(value) ? trustedNumber(value) : new CellNumber({ value }),
+  boolean: (value: boolean): CellBoolean =>
+    Predicate.isBoolean(value) ? trustedBoolean(value) : new CellBoolean({ value }),
   date: (value: Date): CellDate => new CellDate({ value }),
   error: (value: string): CellError => new CellError({ value }),
-  blank: (): CellBlank => new CellBlank(),
+  blank: (): CellBlank => trustedBlank(),
   formula: (formula: string, result?: string): CellFormula => new CellFormula({ formula, result }),
   richText: (runs: ReadonlyArray<Inline>): CellRichText => new CellRichText({ runs }),
 } as const;
@@ -148,12 +167,12 @@ export const worksheet = (
   headers?: ReadonlyArray<string>,
 ): Worksheet => {
   const allRows = headers === undefined ? rows : [headers.map((h) => cell.text(h)), ...rows];
-  return new Worksheet({
-    name,
-    columns: [],
-    rows: allRows.map((cells, index) => sheetRow(index, cells)),
-    merges: [],
-  });
+  const sheetRows = allRows.map((cells, index) => sheetRow(index, cells));
+  // `sheetRow` returns a SheetRow at each index 0, 1, 2, …, so the rows are
+  // already what the schema pass would accept; only the name is left to check
+  return Predicate.isString(name)
+    ? trustedWorksheet(name, sheetRows)
+    : new Worksheet({ name, columns: [], rows: sheetRows, merges: [] });
 };
 
 // ============================================================================
@@ -363,7 +382,19 @@ export const inlinesToText = (inlines: ReadonlyArray<Inline>): string =>
   collapse(inlineParts(inlines));
 
 /** Collapse a single spreadsheet cell to plain text. */
-export const cellToText = (c: SheetCell): string => collapse([{ c }]);
+export const cellToText = (c: SheetCell): string => {
+  // Every cell but rich text is a single value, read directly: writers call
+  // this once per cell, and the collapse (a stack, a part per node, a
+  // `Match` per node) costs several times the value itself. The texts are
+  // the ones `expandCell` gives.
+  if (Predicate.isTagged(c, "CellText") || Predicate.isTagged(c, "CellError")) return c.value;
+  if (Predicate.isTagged(c, "CellNumber")) return String(c.value);
+  if (Predicate.isTagged(c, "CellBoolean")) return c.value ? "true" : "false";
+  if (Predicate.isTagged(c, "CellBlank")) return "";
+  if (Predicate.isTagged(c, "CellFormula")) return c.result ?? "";
+  if (Predicate.isTagged(c, "CellDate")) return c.value.toISOString();
+  return collapse([{ c }]);
+};
 
 /** Collapse a single slide shape to plain text. */
 export const shapeToText = (shape: Shape): string => collapse([{ s: shape }]);

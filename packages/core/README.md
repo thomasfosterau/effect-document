@@ -271,6 +271,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `denseSize` | function | The cells `denseRows` would allocate for a worksheet, plus one per row. |
 | `denseRows` | function | The derived dense view of a worksheet, built only within a cell budget. |
 | `sheetRow` | function | A sparse row from a dense array of cells. |
+| `sparseRow` | function | A sparse row from its cells' `[column, cell]` entries, in strictly ascending column order: the readers' constructor for rows whose cells skip columns. |
 | `NestedNode` | type | A node that counts as one level of nesting. |
 | `DEFAULT_MAX_NESTING_DEPTH` | const | The default maximum nesting depth readers accept. |
 | `nestedChildren` | function | The blocks, inlines and shapes directly inside a node. |

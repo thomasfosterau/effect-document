@@ -5,9 +5,11 @@
  * from dense ones.
  */
 
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { CellBlank, IndexedCell, type SheetCell, SheetRow, type Worksheet } from "./ast.ts";
+import { isCellInstance, trustedDenseRow, trustedSparseRow } from "./trusted.ts";
 
 /** A worksheet's extent: one past its last row index and one past its last column. */
 export interface SheetExtent {
@@ -122,6 +124,9 @@ export const denseRows = (
   );
 };
 
+/** Whether a value is a row or column position: a non-negative safe integer. */
+const isPosition = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
+
 /**
  * A sparse row from a dense array of cells: the cell at array position `n`
  * goes to column `n`. Every cell is kept, blanks included, so the row reads
@@ -132,8 +137,55 @@ export const sheetRow = (
   cells: ReadonlyArray<SheetCell>,
   height?: number,
 ): SheetRow =>
-  new SheetRow({
-    index,
-    cells: cells.map((cell, col) => new IndexedCell({ col, cell })),
-    height,
-  });
+  // the schema pass would accept these unchanged (columns ascend by
+  // construction), so skip it; anything else is checked and fails as before
+  isPosition(index) &&
+  (height === undefined || Predicate.isNumber(height)) &&
+  cells.every(isCellInstance)
+    ? trustedDenseRow(index, cells, height)
+    : new SheetRow({
+        index,
+        cells: cells.map((cell, col) => new IndexedCell({ col, cell })),
+        height,
+      });
+
+/**
+ * A sparse row from its cells' `[column, cell]` entries, in strictly
+ * ascending column order: the readers' constructor for rows whose cells skip
+ * columns. Entries that are out of order, or a column that is not a
+ * non-negative integer, fail as `new SheetRow` does; valid ones skip its
+ * schema pass, as `sheetRow` does.
+ *
+ * @example
+ * ```ts
+ * import { cell, sparseRow } from "@thomasfosterau/effect-document"
+ *
+ * // A1 and C1, with B1 absent
+ * sparseRow(0, [[0, cell.text("a")], [2, cell.number(3)]])
+ * ```
+ */
+export const sparseRow = (
+  index: number,
+  entries: ReadonlyArray<readonly [col: number, cell: SheetCell]>,
+  height?: number,
+): SheetRow =>
+  isPosition(index) &&
+  (height === undefined || Predicate.isNumber(height)) &&
+  entries.every(
+    ([col, cell], i) =>
+      isPosition(col) && isCellInstance(cell) && (i === 0 || col > (entries[i - 1]?.[0] ?? -1)),
+  )
+    ? trustedSparseRow(index, entries, height)
+    : validatedSparseRow(index, entries, height);
+
+/** {@link sparseRow}'s validating path: `new SheetRow`, with no `height` key unless one is given. */
+const validatedSparseRow = (
+  index: number,
+  entries: ReadonlyArray<readonly [col: number, cell: SheetCell]>,
+  height?: number,
+): SheetRow => {
+  const cells = entries.map(([col, cell]) => new IndexedCell({ col, cell }));
+  return height === undefined
+    ? new SheetRow({ index, cells })
+    : new SheetRow({ index, cells, height });
+};

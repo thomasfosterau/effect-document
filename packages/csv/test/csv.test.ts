@@ -31,6 +31,7 @@ import {
   makeCsvReader,
   makeCsvWriter,
   renderCsvStream,
+  renderField,
   renderTable,
   scanCsv,
   scanCsvStream,
@@ -38,6 +39,9 @@ import {
 } from "../src/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
+
+/** A number's significant digits: from the first non-zero digit to the last. */
+const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
 /** A CSV row's cells: the reader writes every field, so they run from column 0 without gaps. */
 const cellsOf = (row: SheetRow) => row.cells.map((c) => c.cell);
@@ -104,6 +108,39 @@ describe("CSV reader", () => {
     const reader = makeCsvReader();
     const doc = await run(reader.read(text("a,1\nb,2\n")));
     expect(reader.profile.is(doc)).toBe(true);
+  });
+
+  test("classifies numbers as the plain-decimal grammar does", () => {
+    // The reference is the grammar as a regular expression with the
+    // digits check, the classifier's general path: the allocation-free
+    // matcher of the default syntax must agree with it on every value.
+    const grammar = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+    const reference = (raw: string): SheetCell => {
+      if (raw === "") return cell.blank();
+      const lower = raw.toLowerCase();
+      if (lower === "true" || lower === "false") return cell.boolean(lower === "true");
+      const m = grammar.exec(raw);
+      if (m === null) return cell.text(raw);
+      const [, sign, int = "", frac = "", exp = "0"] = m;
+      const value = Number(`${sign}${int}.${frac || "0"}e${exp}`);
+      const shortest = Math.abs(value).toExponential().replace(/e.*$/, "").replace(".", "");
+      return significantDigits(shortest) === significantDigits(int + frac)
+        ? cell.number(value)
+        : cell.text(raw);
+    };
+    // a Lehmer generator, so the values are the same on every run
+    let seed = 2026;
+    const next = (n: number) => {
+      seed = (seed * 48271) % 2147483647;
+      return seed % n;
+    };
+    const alphabet = "0123456789-+.eE x";
+    const samples = Array.from({ length: 20000 }, () =>
+      Array.from({ length: 1 + next(20) }, () => alphabet[next(alphabet.length)]).join(""),
+    );
+    for (const raw of [...samples, "-", "-0", "0.0", "1e", "1e+", "1e-5", "-0e0", "9".repeat(16)]) {
+      expect(inferCell(raw), raw).toEqual(reference(raw));
+    }
   });
 
   test("reads only plain decimals as numbers", async () => {
@@ -495,6 +532,33 @@ describe("CSV stream scanner", () => {
     expect(Result.isFailure(bad) && bad.failure._tag).toBe("ParseError");
   });
 
+  test("emits the rows before a bad one, then fails at it, within one chunk", async () => {
+    const seen: Array<ReadonlyArray<string>> = [];
+    const r = await Effect.runPromise(
+      Effect.result(
+        Stream.runForEach(
+          scanCsvStream(Stream.make("h1,h2\n1,2\n3,4\n5\n6,7\n"), undefined, {
+            treatFirstRowAsHeader: true,
+          }),
+          (row) => Effect.sync(() => seen.push(row)),
+        ),
+      ),
+    );
+    expect(seen).toEqual([
+      ["1", "2"],
+      ["3", "4"],
+    ]);
+    expect(Result.isFailure(r) && r.failure.reason).toBe("Row 3 has 1 columns, expected 2");
+  });
+
+  test("a stream failing its header check emits nothing", async () => {
+    const r = await collect(["a,a\n1,2\n"], { treatFirstRowAsHeader: true, validateHeaders: true });
+    expect(outcome(r)).toEqual({
+      reason: 'Header "a" appears in columns 1 and 2',
+      position: { row: 0, column: 1 },
+    });
+  });
+
   test("skipRows drops physical lines across chunk boundaries", async () => {
     const r = await collect(["junk", " line\nmore\na,b\n"], { skipRows: 2 });
     expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"]]);
@@ -826,6 +890,33 @@ describe("CSV writer", () => {
       "﻿x,y,\na,,\nb,c,d\n",
     );
     expect(await written([], { headers: ["x"] })).toBe("x\n");
+  });
+
+  test("pads a sheet of many rows without overflowing the stack", async () => {
+    const rows = Array.from({ length: 300_000 }, (_, i) => [cell.number(i)]);
+    const out = await run(
+      makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([worksheet("S", rows)]))),
+    );
+    expect(Predicate.isTagged(out, "Text") && out.text.split("\n").length).toBe(300_001);
+  });
+
+  test("renderField quotes only a field that needs it, as the minimal mode does", () => {
+    expect(
+      ["plain", "a,b", 'say "hi"', "two\nlines", "cr\r", " edge", "edge\u00a0", ""].map((f) =>
+        renderField(f, StandardDialect),
+      ),
+    ).toEqual([
+      "plain",
+      '"a,b"',
+      '"say ""hi"""',
+      '"two\nlines"',
+      '"cr\r"',
+      '" edge"',
+      '"edge\u00a0"',
+      "",
+    ]);
+    expect(renderField("a\tb", TsvDialect)).toBe('"a\tb"');
+    expect(renderField("a\tb", StandardDialect)).toBe("a\tb");
   });
 
   test("renderCsvStream emits a chunk per row", async () => {

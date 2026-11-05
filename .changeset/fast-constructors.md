@@ -1,0 +1,5 @@
+---
+"@thomasfosterau/effect-document": minor
+---
+
+Building documents is several times faster. `cell.text` / `number` / `boolean` / `blank`, `str`, `sheetRow` and `worksheet` no longer run the `Schema.Class` constructor's schema pass when their input is already valid; they build the same node directly (an instance of its class, `Equal.equals` to the one `new` builds, with the same keys). Invalid input still fails as before. `cellToText` reads a cell's value directly, without the general text collapse. New: `sparseRow(index, [[col, cell], …], height?)`, the same fast constructor for rows whose cells skip columns, which fails as `new SheetRow` does on columns out of order.

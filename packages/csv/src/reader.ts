@@ -24,9 +24,8 @@ import {
   type ParseError,
   type Reader,
   type SheetCell,
-  sheetRow,
   trustAs,
-  Worksheet,
+  worksheet,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -119,33 +118,144 @@ const holdsDigits = (value: number, digits: string): boolean =>
   significantDigits(Math.abs(value).toExponential().replace(/e.*$/, "").replace(".", "")) ===
   significantDigits(digits);
 
-/** Build the value classifier for a set of inference options. */
-const makeClassifier = (options: CsvInferenceOptions): ((raw: string) => Inferred) => {
+/**
+ * The most digits a double always holds exactly (`DBL_DIG`): a decimal of at
+ * most this many digits, with no exponent, reads back as written, so it needs
+ * no {@link holdsDigits} check.
+ */
+const exactDigits = 15;
+
+const isDigit = (c: number): boolean => c >= 48 && c <= 57;
+
+/** {@link plainDigits}: the value matched but has an exponent, so take the general path. */
+const WITH_EXPONENT = -2;
+
+/** The index past the run of digits in `raw` from `i`. */
+const skipDigits = (raw: string, i: number): number => {
+  let j = i;
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, run on every value that may be a number
+  while (j < raw.length && isDigit(raw.charCodeAt(j))) j++;
+  return j;
+};
+
+/** The index past an integer part (`0|[1-9]\d*`) at `i`, or -1 if there is none. */
+const integerEnd = (raw: string, i: number): number => {
+  const lead = raw.charCodeAt(i);
+  if (lead === 48) return i + 1;
+  return lead >= 49 && lead <= 57 ? skipDigits(raw, i) : -1;
+};
+
+/** Whether an exponent (`[eE][+-]?\d+`) runs from `i` to the end of `raw`. */
+const isExponent = (raw: string, i: number): boolean => {
+  const e = raw.charCodeAt(i);
+  if (e !== 101 && e !== 69) return false;
+  const sign = raw.charCodeAt(i + 1);
+  const start = sign === 43 || sign === 45 ? i + 2 : i + 1;
+  const end = skipDigits(raw, start);
+  return end > start && end === raw.length;
+};
+
+/**
+ * Match `raw` against the default number syntax,
+ * `-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`, without a regular expression:
+ * the count of its integer and fraction digits, `-1` if it does not match, or
+ * {@link WITH_EXPONENT} if it matches with an exponent.
+ */
+const plainDigits = (raw: string): number => {
+  const sign = raw.charCodeAt(0) === 45 ? 1 : 0;
+  let i = integerEnd(raw, sign);
+  if (i === -1) return -1;
+  let digits = i - sign;
+  if (raw.charCodeAt(i) === 46) {
+    const end = skipDigits(raw, i + 1);
+    if (end === i + 1) return -1;
+    digits += end - i - 1;
+    i = end;
+  }
+  if (i === raw.length) return digits;
+  return isExponent(raw, i) ? WITH_EXPONENT : -1;
+};
+
+/** A set of inference options, resolved: the value classifier and its null test. */
+interface Classifier {
+  readonly classify: (raw: string) => Inferred;
+  /** Whether a value is one of the null spellings. */
+  readonly isNull: (raw: string) => boolean;
+}
+
+/** The null test for a set of inference options. */
+const makeNullTest = (options: CsvInferenceOptions): ((raw: string) => boolean) => {
   const nulls = new Set(options.nullValues ?? [""]);
+  // A set lookup hashes the string, and each scanned value is a fresh one:
+  // look up only a value as long as some null spelling.
+  const nullLengths = Array.from(nulls, (n) => n.length);
+  return (raw) => nullLengths.includes(raw.length) && nulls.has(raw);
+};
+
+/** The boolean a value spells, or `undefined` for any other value. */
+const makeBooleanTest = (options: CsvInferenceOptions): ((raw: string) => boolean | undefined) => {
   const caseSensitive = !!options.booleansCaseSensitive;
   const fold = (s: string) => (caseSensitive ? s : s.toLowerCase());
   const [truthy, falsy] =
     options.booleans === false ? [] : (options.booleans ?? ["true", "false"]).map(fold);
+  // only a value as long as a spelling can be one, so most skip the fold
+  const truthyLength = truthy?.length ?? -1;
+  const falsyLength = falsy?.length ?? -1;
+  return (raw) => {
+    if (raw.length !== truthyLength && raw.length !== falsyLength) return undefined;
+    const folded = fold(raw);
+    return folded === truthy ? true : folded === falsy ? false : undefined;
+  };
+};
+
+/** The number a value spells under the options, or `undefined` for any other value. */
+const makeNumberTest = (options: CsvInferenceOptions): ((raw: string) => number | undefined) => {
+  const decimalChar = options.decimalChar ?? ".";
   const group = options.groupChar ? escapeRegExp(options.groupChar) : undefined;
   const integer =
     group === undefined ? "0|[1-9]\\d*" : `0|[1-9]\\d{0,2}(?:${group}\\d{3})+|[1-9]\\d*`;
   const number = new RegExp(
-    `^(-?)(${integer})(?:${escapeRegExp(options.decimalChar ?? ".")}(\\d+))?(?:[eE]([+-]?\\d+))?${options.percent ? "(%?)" : "()"}$`,
+    `^(-?)(${integer})(?:${escapeRegExp(decimalChar)}(\\d+))?(?:[eE]([+-]?\\d+))?${options.percent ? "(%?)" : "()"}$`,
   );
   const groups = group === undefined ? undefined : new RegExp(group, "g");
-  return (raw) => {
-    if (nulls.has(raw)) return null;
-    const folded = fold(raw);
-    if (folded === truthy) return true;
-    if (folded === falsy) return false;
+  // Without a group or decimal character of its own or a percent sign, a
+  // matched value is a JavaScript numeric literal, so `Number` reads it as is.
+  const plain = groups === undefined && decimalChar === ".";
+  const fast = plain && !options.percent;
+  /** The general path: the grammar as a regular expression, then the digits check. */
+  const general = (raw: string): number | undefined => {
     const m = number.exec(raw);
     if (m === null) return undefined;
-    const [, sign, grouped = "", frac = "", exp = "0", pct] = m;
+    const [, sign, grouped = "", frac = "", exp, pct] = m;
     const int = groups === undefined ? grouped : grouped.replace(groups, "");
     // a percentage shifts the exponent, so `7%` parses exactly as 0.07
-    const value = Number(`${sign}${int}.${frac || "0"}e${Number(exp) - (pct ? 2 : 0)}`);
-    return holdsDigits(value, int + frac) ? value : undefined;
+    const value =
+      plain && !pct
+        ? Number(raw)
+        : Number(`${sign}${int}.${frac || "0"}e${Number(exp ?? "0") - (pct ? 2 : 0)}`);
+    const exact = exp === undefined && int.length + frac.length <= exactDigits;
+    return exact || holdsDigits(value, int + frac) ? value : undefined;
   };
+  return (raw) => {
+    // a number starts with a digit or a minus sign
+    const first = raw.charCodeAt(0);
+    if (first !== 45 && (first < 48 || first > 57)) return undefined;
+    if (!fast) return general(raw);
+    // the common case, matched without allocating
+    const digits = plainDigits(raw);
+    if (digits === -1) return undefined;
+    return digits !== WITH_EXPONENT && digits <= exactDigits ? Number(raw) : general(raw);
+  };
+};
+
+/** Build the value classifier for a set of inference options. */
+const makeClassifier = (options: CsvInferenceOptions): Classifier => {
+  const isNull = makeNullTest(options);
+  const asBoolean = makeBooleanTest(options);
+  const asNumber = makeNumberTest(options);
+  const classify = (raw: string): Inferred =>
+    isNull(raw) ? null : (asBoolean(raw) ?? asNumber(raw));
+  return { classify, isNull };
 };
 
 const toCell = (raw: string, value: Inferred): SheetCell =>
@@ -161,7 +271,7 @@ const defaultClassifier = makeClassifier({});
 
 /** Infer a typed cell from a raw CSV string value, on its own. */
 export const inferCell = (raw: string, options?: CsvInferenceOptions): SheetCell =>
-  toCell(raw, (options === undefined ? defaultClassifier : makeClassifier(options))(raw));
+  toCell(raw, (options === undefined ? defaultClassifier : makeClassifier(options)).classify(raw));
 
 /**
  * Whether the first row looks like a header: at least two rows, every
@@ -188,31 +298,87 @@ const sniffHeader = (
   });
 };
 
-/** Type rows of raw values, by column or by cell. */
+/** A column's type so far: `blank` while it holds only blanks. */
+type ColumnKind = "number" | "boolean" | "text" | "blank";
+
+/** The kind of a classified value other than a blank. */
+const kindOf = (value: Inferred): ColumnKind =>
+  Predicate.isNumber(value) ? "number" : Predicate.isBoolean(value) ? "boolean" : "text";
+
+/**
+ * Type rows of raw values, by column or by cell.
+ *
+ * By column, a value in a column already known to be text is only checked for
+ * being null (it is text either way), so a text column costs one set lookup
+ * per value after its first text value.
+ */
 const inferRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   options: CsvInferenceOptions,
-  classify: (raw: string) => Inferred,
+  classifier: Classifier,
 ): Array<Array<SheetCell>> => {
-  const values = rows.map((row) => row.map(classify));
-  if (options.inference === "cell")
-    return rows.map((row, r) => row.map((raw, c) => toCell(raw, values[r]![c])));
-  // each column's type, from its non-null values (undefined while it has none)
-  const columns: Array<"number" | "boolean" | "text" | undefined> = [];
-  for (const row of values) {
-    row.forEach((value, c) => {
-      if (value === null || columns[c] === "text") return;
-      const kind = value === undefined ? "text" : Predicate.isNumber(value) ? "number" : "boolean";
-      columns[c] = columns[c] === undefined || columns[c] === kind ? kind : "text";
-    });
-  }
-  return rows.map((row, r) =>
-    row.map((raw, c) => {
-      const value = values[r]![c];
-      return toCell(raw, value === null || columns[c] !== "text" ? value : undefined);
-    }),
-  );
+  const byCell = options.inference === "cell";
+  const { values, columns } = classifyRows(rows, byCell, classifier);
+  let next = 0;
+  return rows.map((row) => {
+    const n = row.length;
+    const out: Array<SheetCell> = [];
+    // oxlint-disable-next-line effect/imperative-loops -- once per value of the file, as in `classifyRows`
+    for (let c = 0; c < n; c++) {
+      const value = values[next++];
+      const typed = byCell || value === null || columns[c] !== "text" ? value : undefined;
+      out.push(toCell(row[c] ?? "", typed));
+    }
+    return out;
+  });
 };
+
+/** Every row's values, classified, in one array row after row, and each column's kind. */
+interface ClassifiedRows {
+  readonly values: ReadonlyArray<Inferred>;
+  /** Each column's kind, by column only (empty by cell). */
+  readonly columns: ReadonlyArray<ColumnKind>;
+}
+
+/**
+ * Every row's values, classified, in one array row after row, and each
+ * column's kind (by column only).
+ */
+const classifyRows = (
+  rows: ReadonlyArray<ReadonlyArray<string>>,
+  byCell: boolean,
+  classifier: Classifier,
+): ClassifiedRows => {
+  const columns: Array<ColumnKind> = [];
+  const values: Array<Inferred> = [];
+  // oxlint-disable-next-line effect/imperative-loops -- once per row of the file, beside the per-value loop in `classifyRow`
+  for (const row of rows) classifyRow(row, byCell, classifier, columns, values);
+  return { values, columns };
+};
+
+/** Classify one row's values onto `values`, updating each column's kind (by column only). */
+const classifyRow = (
+  row: ReadonlyArray<string>,
+  byCell: boolean,
+  { classify, isNull }: Classifier,
+  columns: Array<ColumnKind>,
+  values: Array<Inferred>,
+): void => {
+  // oxlint-disable-next-line effect/imperative-loops -- once per value of the file: the measured hot path (bench/csv.bench.ts), where a callback per value costs
+  for (let c = 0; c < row.length; c++) {
+    const raw = row[c] ?? "";
+    const column = columns[c] ?? "blank";
+    // a text column stays text: only a null still needs telling apart
+    const text = !byCell && column === "text";
+    const value = text ? (isNull(raw) ? null : undefined) : classify(raw);
+    values.push(value);
+    if (!byCell && !text && value !== null) columns[c] = merge(column, kindOf(value));
+  }
+};
+
+/** A column's kind once it also holds a value of `kind`. */
+const merge = (column: ColumnKind, kind: ColumnKind): ColumnKind =>
+  column === "blank" || column === kind ? kind : "text";
 
 // ============================================================================
 // Reader
@@ -223,7 +389,7 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const dialect = options?.dialect ?? StandardDialect;
   const inferTypes = options?.inferTypes ?? true;
   const sheetName = options?.sheetName ?? "Sheet1";
-  const classify = makeClassifier(options ?? {});
+  const classifier = makeClassifier(options ?? {});
 
   // unset with no provided headers: scan headerless, then sniff from the types
   const sniff =
@@ -234,21 +400,15 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
       scanCsv(contentToText(input), dialect, options),
       Effect.map((scanned) => {
         const [first, ...rest] = scanned.rows;
-        return sniff && first !== undefined && sniffHeader(scanned.rows, classify)
+        return sniff && first !== undefined && sniffHeader(scanned.rows, classifier.classify)
           ? { headers: first, rows: rest }
           : scanned;
       }),
       Effect.map(({ headers, rows }) => {
         const body = inferTypes
-          ? inferRows(rows, options ?? {}, classify)
+          ? inferRows(rows, options ?? {}, classifier)
           : rows.map((row) => row.map(cell.text));
-        const grid = headers === null ? body : [headers.map((h) => cell.text(h)), ...body];
-        const ws = new Worksheet({
-          name: sheetName,
-          columns: [],
-          rows: grid.map((cells, index) => sheetRow(index, cells)),
-          merges: [],
-        });
+        const ws = worksheet(sheetName, body, headers ?? undefined);
         return trustAs<CsvFeature>(document([ws]));
       }),
     );

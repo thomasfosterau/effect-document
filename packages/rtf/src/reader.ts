@@ -38,7 +38,7 @@ import {
   Para,
   ParseError,
   type Reader,
-  Str,
+  str,
   Strikeout,
   Strong,
   trustAs,
@@ -93,7 +93,7 @@ const fmtEq = (a: Fmt, b: Fmt): boolean =>
 
 const wrapRun = (text: string, fmt: Fmt): Inline => {
   // a lone surrogate from an unpaired `\uN` becomes U+FFFD
-  let node: Inline = new Str({ text: text.toWellFormed() });
+  let node: Inline = str(text.toWellFormed());
   if (fmt.italic) node = new Emph({ content: [node] });
   if (fmt.bold) node = new Strong({ content: [node] });
   if (fmt.underline) node = new Underline({ content: [node] });

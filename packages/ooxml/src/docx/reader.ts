@@ -42,7 +42,7 @@ import {
   type Reader,
   SmallCaps,
   Span,
-  Str,
+  str,
   Strikeout,
   Strong,
   Subscript,
@@ -250,7 +250,7 @@ class InlineCollector {
 
   private runChild(child: XmlElement, f: Fmt): void {
     const text = child.name === "t" ? Option.some(child.text) : HashMap.get(RUN_TEXT, child.name);
-    if (Option.isSome(text)) this.push(wrap(new Str({ text: text.value }), f));
+    if (Option.isSome(text)) this.push(wrap(str(text.value), f));
     else if (child.name === "br")
       this.push(getAttr(child, "type") === "page" ? PAGE_BREAK : new LineBreak());
     else if (child.name === "cr") this.push(new LineBreak());

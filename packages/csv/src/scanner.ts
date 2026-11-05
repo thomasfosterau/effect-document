@@ -107,8 +107,12 @@ const makeTextPart = (separator: string, stops: string): Parser.Parser<string> =
     : run;
 };
 
-/** Text up to the next separator or line break, possibly empty. */
-const makeText = (separator: string): Parser.Parser<string> => concat(makeTextPart(separator, ""));
+/**
+ * Text up to the next separator or line break, possibly empty. With a
+ * one-character separator that is a single run (no fold over pieces).
+ */
+const makeText = (separator: string): Parser.Parser<string> =>
+  separator.length > 1 ? concat(makeTextPart(separator, "")) : Token.takeTill(separator + "\r\n");
 
 /**
  * A quoted segment, without its wrappers. Inside quotes, `doubleWrapper` stands
@@ -123,7 +127,18 @@ const makeQuoted = ({ wrapper, doubleWrapper }: CsvDialect): Parser.Parser<strin
   const content =
     doubleWrapper === ""
       ? concat(Parser.alt(run, lone))
-      : concat(Parser.alt(Parser.as(Token.literal(doubleWrapper), wrapper), run, lone));
+      : wrapper.length === 1 && doubleWrapper === wrapper + wrapper
+        ? // The common case (RFC 4180's `""`): the content is one slice of the
+          // text, with each doubled wrapper then halved.
+          Parser.map(
+            Parser.taken(
+              Parser.repeat(
+                Parser.alt(Token.takeTill(wrapper, { min: 1 }), Token.literal(doubleWrapper)),
+              ),
+            ),
+            (raw) => raw.replaceAll(doubleWrapper, wrapper),
+          )
+        : concat(Parser.alt(Parser.as(Token.literal(doubleWrapper), wrapper), run, lone));
   return Parser.preceded(
     quote,
     Parser.cut(
@@ -173,16 +188,16 @@ const makeField = (dialect: CsvDialect, options: CsvScanOptions): Parser.Parser<
   return Parser.preceded(leadingSpace(separator), Parser.alt(quotedField, trimmed(text)));
 };
 
+/** A scanned row: a record's fields, or `null` for a skipped blank or comment line. */
+type ScannedRow = ReadonlyArray<string> | null;
+
 /**
  * One physical-or-logical row: a record (an array of fields) or `null` for a
  * skipped blank or comment line, followed by its line ending. Never matches at
  * the end of input, so it can be repeated or streamed.
  */
-const makeRow = (
-  dialect: CsvDialect,
-  options: CsvScanOptions,
-): Parser.Parser<ReadonlyArray<string> | null> => {
-  const record: Parser.Parser<ReadonlyArray<string> | null> = Parser.separated(
+const makeRow = (dialect: CsvDialect, options: CsvScanOptions): Parser.Parser<ScannedRow> => {
+  const record: Parser.Parser<ScannedRow> = Parser.separated(
     makeField(dialect, options),
     Token.literal(dialect.separator),
   );
@@ -231,13 +246,23 @@ const positionAt = (text: string, offset: number): TextPosition => {
   return { row, column: offset - lineStart };
 };
 
-const lineBreaks = /\r\n?|\n/g;
+/** Line breaks in a field (CRLF, LF or a bare CR); most fields have none, so they are checked for first. */
+const breaksIn = (field: string): number => {
+  if (!field.includes("\n") && !field.includes("\r")) return 0;
+  let n = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, of the rare field that holds a line break
+  for (let i = 0; i < field.length; i++) {
+    const c = field.charCodeAt(i);
+    if (c === 10 || (c === 13 && field.charCodeAt(i + 1) !== 10)) n++;
+  }
+  return n;
+};
 
 /** Physical lines taken by a scanned row: one, plus any quoted line breaks. */
-const linesIn = (row: ReadonlyArray<string> | null): number => {
+const linesIn = (row: ScannedRow): number => {
   let n = 1;
   if (row !== null) {
-    for (const field of row) n += field.match(lineBreaks)?.length ?? 0;
+    for (const field of row) n += breaksIn(field);
   }
   return n;
 };
@@ -281,11 +306,11 @@ const columnCountError = (row: number, actual: number, expected: number): ParseE
  * Fail on the first empty (or whitespace-only) or repeated header name, at its
  * column; `row` is the header row's source row, when the headers came from one.
  */
-const checkHeaders = (
+const headerError = (
   headers: ReadonlyArray<string>,
   row: number | undefined,
-): Effect.Effect<void, ParseError> =>
-  Option.match(
+): Option.Option<ParseError> =>
+  Option.map(
     Arr.findFirstWithIndex(headers, (name, i): Option.Option<string> => {
       if (name.trim() === "") return Option.some(`Header ${i + 1} is empty`);
       const first = headers.indexOf(name);
@@ -293,50 +318,60 @@ const checkHeaders = (
         ? Option.some(`Header "${name}" appears in columns ${first + 1} and ${i + 1}`)
         : Option.none();
     }),
-    {
-      onNone: () => Effect.void,
-      onSome: ([reason, column]) =>
-        Effect.fail(new ParseError({ format: "csv", reason, position: { row, column } })),
-    },
+    ([reason, column]) => new ParseError({ format: "csv", reason, position: { row, column } }),
   );
 
+/** Fail with a header check's error, if it found one. */
+const checkHeaders = (error: Option.Option<ParseError>): Effect.Effect<void, ParseError> =>
+  Option.match(error, { onNone: () => Effect.void, onSome: Effect.fail });
+
+/**
+ * Scanned records, their fields in `fields` and, for record `i`, the source
+ * row it starts on as `rowOf(i)` (read only to report an error: `scanCsv`
+ * computes it from the source text).
+ */
+interface Records {
+  readonly fields: ReadonlyArray<ReadonlyArray<string>>;
+  readonly rowOf: (i: number) => number;
+}
+
 const splitHeaders = (
-  records: ReadonlyArray<Located>,
+  { fields, rowOf }: Records,
   options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
-  if (Arr.isReadonlyArrayEmpty(records)) return Effect.succeed({ headers: null, rows: [] });
+  if (Arr.isReadonlyArrayEmpty(fields)) return Effect.succeed({ headers: null, rows: [] });
   const dropFirst = !!options.treatFirstRowAsHeader;
-  const headers = options.providedHeaders ?? (dropFirst ? records[0]!.fields : null);
-  const data = dropFirst ? records.slice(1) : records;
+  const headers = options.providedHeaders ?? (dropFirst ? fields[0]! : null);
+  const skip = dropFirst ? 1 : 0;
   const validated =
     options.validateHeaders && headers !== null
-      ? checkHeaders(headers, options.providedHeaders ? undefined : records[0]?.row)
+      ? checkHeaders(headerError(headers, options.providedHeaders ? undefined : rowOf(0)))
       : Effect.void;
-  return Effect.flatMap(validated, () => splitRows(headers, data, options));
+  return Effect.flatMap(validated, () => splitRows(headers, fields, skip, rowOf, options));
 };
 
 const splitRows = (
   headers: ReadonlyArray<string> | null,
-  data: ReadonlyArray<Located>,
+  fields: ReadonlyArray<ReadonlyArray<string>>,
+  skip: number,
+  rowOf: (i: number) => number,
   options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
   if (!options.allowVariableColumns) {
-    const width = headers?.length ?? data[0]?.fields.length ?? 0;
-    // read `row` only on a mismatch: `scanCsv` computes it from the source text
-    for (const record of data) {
-      if (record.fields.length !== width) {
-        return Effect.fail(columnCountError(record.row, record.fields.length, width));
-      }
-    }
+    const width = headers?.length ?? fields[skip]?.length ?? 0;
+    const bad = fields.findIndex((record, i) => i >= skip && record.length !== width);
+    if (bad !== -1)
+      return Effect.fail(columnCountError(rowOf(bad), fields[bad]?.length ?? 0, width));
   }
-  return Effect.succeed({ headers, rows: data.map((r) => r.fields) });
+  return Effect.succeed({ headers, rows: skip === 0 ? fields : fields.slice(skip) });
 };
 
 // ============================================================================
 // Scanning
 // ============================================================================
 
-type TableParser = Parser.Parser<ReadonlyArray<readonly [number, ReadonlyArray<string> | null]>>;
+type TableParser = Parser.Parser<ReadonlyArray<ScannedRow>>;
+type LocatedTableParser = Parser.Parser<ReadonlyArray<readonly [number, ScannedRow]>>;
 type RowParser = ReturnType<typeof makeRow>;
 
 const maxCachedParsers = 32;
@@ -382,18 +417,58 @@ const memoized = <P>(
   };
 };
 
-/** The compiled whole-text grammar, memoized by everything that shapes it. */
+const tableKey = (dialect: CsvDialect, options: CsvScanOptions): string =>
+  `${options.skipRows ?? 0}\u0000${rowKey(dialect, options)}`;
+
+/**
+ * The compiled whole-text grammar, memoized by everything that shapes it. It
+ * records no positions, so a row costs only its fields; a failure that needs
+ * one re-scans with {@link locatedTableParser}.
+ */
 const tableParser: (dialect: CsvDialect, options: CsvScanOptions) => TableParser =
-  /*#__PURE__*/ memoized(
-    (dialect, options) => `${options.skipRows ?? 0}\u0000${rowKey(dialect, options)}`,
-    (dialect, options) =>
-      Compiler.jit(
-        Parser.preceded(
-          skipLines(options.skipRows ?? 0),
-          Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options))),
-        ),
-      ),
+  /*#__PURE__*/ memoized(tableKey, (dialect, options) =>
+    Compiler.jit(
+      Parser.preceded(skipLines(options.skipRows ?? 0), Parser.repeat(makeRow(dialect, options))),
+    ),
   );
+
+/** {@link tableParser} with each row's start offset, for error positions. */
+const locatedTableParser: (dialect: CsvDialect, options: CsvScanOptions) => LocatedTableParser =
+  /*#__PURE__*/ memoized(tableKey, (dialect, options) =>
+    Parser.preceded(
+      skipLines(options.skipRows ?? 0),
+      Parser.repeat(Parser.seq(Parser.location, makeRow(dialect, options))),
+    ),
+  );
+
+/**
+ * The source row of each record (blank and comment lines left out) in
+ * `source`, which `tableParser` has already scanned without error.
+ */
+const recordRows = (
+  source: string,
+  dialect: CsvDialect,
+  options: CsvScanOptions,
+): ReadonlyArray<number> => {
+  const located = Parser.parse(locatedTableParser(dialect, options), source);
+  // the same grammar accepted this text, so the located one does too
+  const rows: Array<number> = [];
+  if (Result.isFailure(located)) return rows;
+  // offsets ascend, so one walk over the text counts the line breaks before
+  // each (CRLF, LF and a bare CR, as `positionAt` does)
+  let row = 0;
+  let i = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- one walk over the text, as `positionAt` makes for one offset
+  for (const [offset, record] of located.success) {
+    // oxlint-disable-next-line effect/imperative-loops -- as above
+    for (; i < offset; i++) {
+      const c = source.charCodeAt(i);
+      if (c === 10 || (c === 13 && source.charCodeAt(i + 1) !== 10)) row++;
+    }
+    if (record !== null) rows.push(row);
+  }
+  return rows;
+};
 
 /**
  * The compiled streaming row grammar, memoized like {@link tableParser} but
@@ -417,27 +492,65 @@ export const scanCsv = (
   const source = stripBom(text);
   const result = Parser.parse(tableParser(dialect, opts), source);
   if (Result.isFailure(result)) return Effect.fail(fromSyntaxError(result.failure, 0));
-  const records: Array<Located> = [];
-  for (const [offset, fields] of result.success) {
-    if (fields === null) continue;
-    // O(offset), so computed only when an error reports it (#177)
-    records.push({
-      fields,
-      get row() {
-        return positionAt(source, offset).row;
-      },
-    });
-  }
-  return splitHeaders(records, opts);
+  const parsed = result.success;
+  // blank and comment lines scan as null
+  const fields = parsed.filter((record): record is ReadonlyArray<string> => record !== null);
+  // Positions are needed only to report an error, so they are found then,
+  // by scanning again with offsets (#177).
+  let rows = Option.none<ReadonlyArray<number>>();
+  const rowOf = (i: number): number => {
+    const known = Option.getOrElse(rows, () => recordRows(source, dialect, opts));
+    rows = Option.some(known);
+    return known[i] ?? 0;
+  };
+  return splitHeaders({ fields, rowOf }, opts);
 };
 
-interface HeaderState {
+/**
+ * The stream's header and column-count checks, row by row: the header row
+ * (with `treatFirstRowAsHeader`) is consumed, and every data row must be as
+ * wide as the headers, or as the first data row without them.
+ */
+class RowChecks {
   /** Records seen so far, including the header row. */
-  readonly index: number;
-  readonly headers: ReadonlyArray<string> | null;
+  private index = 0;
+  private headers: ReadonlyArray<string> | null;
   /** The width every data row must have, once known. */
-  readonly width: number | null;
+  private width: number | null;
+
+  private readonly opts: CsvScanOptions;
+
+  constructor(opts: CsvScanOptions, provided: ReadonlyArray<string> | null) {
+    this.opts = opts;
+    this.headers = provided;
+    this.width = provided?.length ?? null;
+  }
+
+  /** `"header"` for a header row, else the failure the row hits, if any. */
+  next({ row, fields }: Located): "header" | Option.Option<ParseError> {
+    if (this.opts.treatFirstRowAsHeader && this.index === 0) {
+      this.index = 1;
+      const named = this.headers ?? fields;
+      const failure = this.opts.validateHeaders
+        ? headerError(named, this.headers ? undefined : row)
+        : Option.none();
+      this.headers = named;
+      this.width = named.length;
+      return Option.isSome(failure) ? failure : "header";
+    }
+    this.index++;
+    const width = (this.width ??= fields.length);
+    return !this.opts.allowVariableColumns && fields.length !== width
+      ? Option.some(columnCountError(row, fields.length, width))
+      : Option.none();
+  }
 }
+
+/** Marks where a scanned stream stops at a failure (see `scanCsvStream`). */
+interface Halt {
+  readonly halt: true;
+}
+const halt: Halt = { halt: true };
 
 /** Drop a leading byte order mark from a stream of text chunks. */
 const dropBom = <E, R>(chunks: Stream.Stream<string, E, R>): Stream.Stream<string, E, R> =>
@@ -497,9 +610,13 @@ export const scanCsvStream = <E, R>(
     const opts = defaults(options);
     const provided = opts.providedHeaders ?? null;
     const validated =
-      opts.validateHeaders && provided !== null ? checkHeaders(provided, undefined) : Effect.void;
+      opts.validateHeaders && provided !== null
+        ? checkHeaders(headerError(provided, undefined))
+        : Effect.void;
     // the source row the next scanned row starts on
     let nextRow = opts.skipRows ?? 0;
+    // a header or column-count failure, raised after the rows before it
+    let failure = Option.none<ParseError>();
     const rows = pipe(
       chunks,
       dropBom,
@@ -519,29 +636,33 @@ export const scanCsvStream = <E, R>(
         return e;
       }),
       Stream.filter((r): r is Located => r.fields !== null),
-      Stream.mapAccumEffect(
-        (): HeaderState => ({ index: 0, headers: provided, width: provided?.length ?? null }),
-        (
-          state,
-          { row, fields },
-        ): Effect.Effect<
-          readonly [HeaderState, ReadonlyArray<ReadonlyArray<string>>],
-          ParseError
-        > => {
-          const index = state.index + 1;
-          if (opts.treatFirstRowAsHeader && state.index === 0) {
-            const headers = state.headers ?? fields;
-            const checked = opts.validateHeaders
-              ? checkHeaders(headers, state.headers ? undefined : row)
-              : Effect.void;
-            return Effect.as(checked, [{ index, headers, width: headers.length }, []] as const);
+      // A chunk at a time (the scan emits every row of an input chunk at
+      // once), as pure code: a row that fails ends its chunk with `halt`,
+      // after the rows before it, and the failure is raised after them.
+      Stream.mapAccumArray(
+        () => new RowChecks(opts, provided),
+        (checks, chunk): readonly [RowChecks, ReadonlyArray<ReadonlyArray<string> | Halt>] => {
+          const out: Array<ReadonlyArray<string> | Halt> = [];
+          // oxlint-disable-next-line effect/imperative-loops -- once per row of the stream, where an Effect per row was most of its time (bench/csv.bench.ts)
+          for (const located of chunk) {
+            const checked = checks.next(located);
+            if (checked === "header") continue;
+            if (Option.isSome(checked)) {
+              failure = checked;
+              out.push(halt);
+              break;
+            }
+            out.push(located.fields);
           }
-          const width = state.width ?? fields.length;
-          if (!opts.allowVariableColumns && fields.length !== width) {
-            return Effect.fail(columnCountError(row, fields.length, width));
-          }
-          return Effect.succeed([{ index, headers: state.headers, width }, [fields]] as const);
+          return [checks, out];
         },
+      ),
+      // ends the stream (and stops reading its input) at a failure
+      Stream.takeWhile((r): r is ReadonlyArray<string> => r !== halt),
+      Stream.concat(
+        Stream.suspend(() =>
+          Option.match(failure, { onNone: () => Stream.empty, onSome: Stream.fail }),
+        ),
       ),
     );
     return Stream.concat(Stream.fromEffectDrain(validated), rows);

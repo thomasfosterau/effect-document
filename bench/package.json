@@ -1,0 +1,32 @@
+{
+  "$schema": "https://www.schemastore.org/package",
+  "name": "@thomasfosterau/effect-document-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Benchmarks of every format's reader and writer against the leading JavaScript libraries for that format, run over the built dist/.",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@thomasfosterau/effect-csv": "workspace:*",
+    "@thomasfosterau/effect-document": "workspace:*",
+    "@thomasfosterau/effect-iwork": "workspace:*",
+    "@thomasfosterau/effect-ooxml": "workspace:*",
+    "@thomasfosterau/effect-pdf": "workspace:*",
+    "@thomasfosterau/effect-rtf": "workspace:*",
+    "@types/d3-dsv": "catalog:",
+    "@types/papaparse": "catalog:",
+    "csv-parse": "catalog:",
+    "csv-stringify": "catalog:",
+    "d3-dsv": "catalog:",
+    "docx": "catalog:",
+    "effect": "catalog:",
+    "exceljs": "catalog:",
+    "mammoth": "catalog:",
+    "papaparse": "catalog:",
+    "pdf-lib": "catalog:",
+    "pdfjs-dist": "catalog:",
+    "pptxgenjs": "catalog:",
+    "udsv": "catalog:",
+    "xlsx": "catalog:"
+  }
+}

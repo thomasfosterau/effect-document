@@ -222,26 +222,63 @@ export const extractPageText = (file: PdfFile, page: PdfPage): PageText => {
       const ts = gs.text;
       const font = ts.font;
       if (font === undefined) return;
+      // This runs once per glyph, so the matrix products below are `mul` and
+      // `apply` written out on scalars, without an array per step. Each term
+      // is kept as `mul` and `apply` compute it, multiplications by zero
+      // included (they are not no-ops for NaN and -0), so every result is
+      // bit-for-bit theirs: trm = [s0 0 0 s3 0 rise] × (tm × ctm), the glyph
+      // at trm × (0, 0) and its end at trm × (width, 0), then
+      // tm = [1 0 0 1 tx 0] × tm.
+      const [c0, c1, c2, c3, c4, c5] = gs.ctm;
+      let [m0, m1, m2, m3, m4, m5] = tm;
+      const s0 = ts.size * ts.scale;
+      const s3 = ts.size;
+      const rise = ts.rise;
+      // the marked content cannot change within one text-showing operator
+      const mark = marking();
+      /* oxlint-disable oxc/erasing-op -- `0 * x` is not 0 for NaN, ±Infinity or -0; the terms are kept so the results stay `mul`'s and `apply`'s exactly */
       for (const g of font.decode(bytes)) {
-        const trm = mul([ts.size * ts.scale, 0, 0, ts.size, 0, ts.rise], mul(tm, gs.ctm));
-        const [x, y] = apply(trm, 0, 0);
-        const [ex, ey] = apply(trm, g.width, 0);
-        const size = Math.hypot(trm[2], trm[3]);
+        const p0 = m0 * c0 + m1 * c2;
+        const p1 = m0 * c1 + m1 * c3;
+        const p2 = m2 * c0 + m3 * c2;
+        const p3 = m2 * c1 + m3 * c3;
+        const p4 = m4 * c0 + m5 * c2 + c4;
+        const p5 = m4 * c1 + m5 * c3 + c5;
+        const t0 = s0 * p0 + 0 * p2;
+        const t1 = s0 * p1 + 0 * p3;
+        const t2 = 0 * p0 + s3 * p2;
+        const t3 = 0 * p1 + s3 * p3;
+        const t4 = 0 * p0 + rise * p2 + p4;
+        const t5 = 0 * p1 + rise * p3 + p5;
+        const x = t0 * 0 + t2 * 0 + t4;
+        const y = t1 * 0 + t3 * 0 + t5;
+        const ex = t0 * g.width + t2 * 0 + t4;
+        const ey = t1 * g.width + t3 * 0 + t5;
         glyphs.push({
           text: g.text,
           x,
           y,
           width: Math.hypot(ex - x, ey - y),
-          size,
+          size: Math.hypot(t2, t3),
           bold: font.bold,
           italic: font.italic,
           monospace: font.monospace,
           upright: Math.abs(ey - y) <= Math.abs(ex - x) * 0.05 + 1e-6 && ex >= x,
-          ...marking(),
+          ...mark,
         });
         const tx = (g.width * ts.size + ts.charSpace + (g.wordSpace ? ts.wordSpace : 0)) * ts.scale;
-        tm = mul([1, 0, 0, 1, tx, 0], tm);
+        // every right-hand side reads the old matrix, so `m4` / `m5` first
+        m4 = tx * m0 + 0 * m2 + m4;
+        m5 = tx * m1 + 0 * m3 + m5;
+        const n0 = 1 * m0 + 0 * m2;
+        const n1 = 1 * m1 + 0 * m3;
+        m2 = 0 * m0 + 1 * m2;
+        m3 = 0 * m1 + 1 * m3;
+        m0 = n0;
+        m1 = n1;
       }
+      /* oxlint-enable oxc/erasing-op */
+      tm = [m0, m1, m2, m3, m4, m5];
     };
 
     const nextLine = (tx: number, ty: number): void => {

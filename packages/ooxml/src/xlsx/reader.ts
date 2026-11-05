@@ -28,10 +28,10 @@ import {
   document,
   makeReaderTag,
   ParseError,
-  IndexedCell,
   type Reader,
   type SheetCell,
-  SheetRow,
+  type SheetRow,
+  sparseRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -188,13 +188,7 @@ const parseWorksheetRows = (
     ([position]: readonly [number, unknown]) => position,
   );
   const ascending = <A>(entries: Iterable<readonly [number, A]>) => Arr.sort(entries, byPosition);
-  const rows = ascending(cellMap).map(
-    ([index, cells]) =>
-      new SheetRow({
-        index,
-        cells: ascending(cells).map(([col, cell]) => new IndexedCell({ col, cell })),
-      }),
-  );
+  const rows = ascending(cellMap).map(([index, cells]) => sparseRow(index, ascending(cells)));
   return { _tag: "Rows", rows, cells: count };
 };
 

@@ -136,9 +136,19 @@ const attribute = Parser.separatedPair(
     Parser.expected("attribute value"),
   ),
 );
+/**
+ * Whether an element's attribute names are all distinct. Elements have a
+ * handful of attributes, so they are compared pairwise without allocating
+ * (this runs once per element); past 16 a set keeps it linear.
+ */
+const distinctNames = (pairs: ReadonlyArray<readonly [string, string]>): boolean => {
+  if (pairs.length > 16) return new Set(pairs.map(([k]) => k)).size === pairs.length;
+  return pairs.every(([k], i) => !pairs.some(([j], n) => n < i && j === k));
+};
+
 const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(
   Parser.filterOrFail(
-    (pairs) => new Set(pairs.map(([k]) => k)).size === pairs.length,
+    distinctNames,
     (pairs) =>
       `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`,
   ),
@@ -274,10 +284,12 @@ const BASE_SCOPE: Scope = new Map([["xml", NS_XML]]);
 /** Extend `scope` with the element's `xmlns`/`xmlns:p` declarations. */
 const withDeclarations = (scope: Scope, attrs: Record<string, string>): Scope => {
   let out: Map<string, string> | undefined;
-  for (const [key, value] of Object.entries(attrs)) {
+  // `for…in` rather than `Object.entries`: this runs once per element, and
+  // almost every element declares nothing, so nothing should be allocated
+  for (const key in attrs) {
     if (key === "xmlns" || key.startsWith("xmlns:")) {
       out ??= new Map(scope);
-      out.set(key === "xmlns" ? "" : key.substring(6), value);
+      out.set(key === "xmlns" ? "" : key.substring(6), attrs[key] ?? "");
     }
   }
   return out ?? scope;

@@ -13,7 +13,7 @@ This repo publishes the `@thomasfosterau/effect-document` package family: an Eff
 | `@thomasfosterau/effect-pdf` | `packages/pdf` | `.`, `./cos` |
 | `@thomasfosterau/effect-iwork` | `packages/iwork` | `.`, `./pages`, `./numbers`, `./keynote`, `./codec` |
 
-`examples/` is a private workspace package (`vp run examples` runs it); `test/integration` holds the cross-format suite.
+`examples/` is a private workspace package (`vp run examples` runs it); `bench/` is another (`vp run bench`, the benchmarks against other libraries); `test/integration` holds the cross-format suite.
 
 A new package adds a row here and in the root `README.md`, its own `CLAUDE.md` and `README.md`, its names in `paths` in `tsconfig.base.json` and a `test/tsconfig.json` extending its `tsconfig.test.json`, a `.fallowrc.json` zone and rule plus its entry points, a root `package.json` devDependency, its `options` import in the root `vite.config.ts` (the integration aliases) and its `#check` / `#build` edges there (`check`, `check:dist`, `check:pack`, `examples`, `test:coverage`), and its directory in `scripts/check-dist-imports.mjs` and `scripts/check-pack.mjs`.
 
@@ -25,6 +25,7 @@ A new package adds a row here and in the root `README.md`, its own `CLAUDE.md` a
 - **The profile is the contract.** A reader's return type and a writer's parameter type are `Doc<F>` for the format's profile; a change that lets a writer accept a feature its format cannot encode, or a reader emit one outside its profile, is a type-level regression even when every runtime test passes. `test/integration/type-level.types.ts` pins the compile-time guarantees.
 - **Lossy steps are reported, never silent.** `narrow` and `convert` record every drop and conversion in the `LossReport`; a writer that quietly discards a node breaks that promise.
 - **`effect` is a peer, never a dependency.** Two copies break `Context` / `Layer` / `Schema` identity; the consuming app owns the singleton.
+- **The per-value loops are hot paths.** A reader runs once per cell, glyph or XML element and a writer once per field. Keep `Schema.Class` constructors (`new CellText(…)`, `new SheetRow(…)`), an `Effect` or `Result` per value, and per-value regexes and closures out of them: use core's constructors (`cell.*`, `str`, `sheetRow`, `sparseRow`, `worksheet`), which skip the schema pass for input they have checked. Run the benchmark for the format (`vp run bench:<format>`) before and after touching a reader, a writer or those constructors, and report the numbers. A one-site `oxlint-disable-next-line effect/imperative-loops` carries the measured reason.
 
 Package-local invariants, terms and import boundaries live only in each package's `CLAUDE.md` (`packages/<name>/CLAUDE.md`); read it before changing that package.
 
@@ -49,6 +50,7 @@ Package-local invariants, terms and import boundaries live only in each package'
 - `vp run check:dist` — the import guard: no built `dist/` imports `effect/unstable/*`. Run after the build.
 - `vp run examples` — runs every program under `examples/` against the built packages.
 - `vp run check:pack` — the consumer smoke test: packs every package as `pnpm publish` would, lints the tarballs (publint, attw `esm-only`), installs them into a scratch project from npm, and imports and type-checks every entry (`nodenext`, `skipLibCheck: false`). Run after the build; needs the registry.
+- `vp run bench` — every format's reader and writer against the leading JavaScript library for it (`bench/<format>.bench.ts`: uDSV, d3-dsv, Papa Parse and csv-parse for CSV; SheetJS and ExcelJS for XLSX; mammoth and `docx` for DOCX; PptxGenJS for PPTX; pdf.js and pdf-lib for PDF; RTF and iWork on their own), over the built packages; `vp run bench:<format>` runs one, `BENCH_FILTER` narrows it to matching groups and `BENCH_TIME` sets the milliseconds per group. Never in CI: the numbers depend on the machine.
 - `vp run test:coverage` — every suite under one Istanbul map at `coverage/coverage-final.json`, which `fallow audit` reads for exact per-function CRAP scores. Without the map fallow scores every function as uncovered, and any function with cyclomatic complexity ≥ 5 fails the gate on its own.
 - `pnpm changeset` — add a changeset.
 

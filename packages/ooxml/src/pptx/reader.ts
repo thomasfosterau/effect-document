@@ -33,7 +33,7 @@ import {
   type Shape,
   Slide,
   SlideShow,
-  Str,
+  str,
   Strikeout,
   Strong,
   TextBox,
@@ -107,7 +107,7 @@ const paragraphInlines = (p: XmlElement): Inline[] => {
     if (child.name === "r" || child.name === "fld") {
       const f = runFmt(child);
       const t = findChild(child, "t");
-      if (t !== undefined) out.push(wrap(new Str({ text: t.text }), f));
+      if (t !== undefined) out.push(wrap(str(t.text), f));
     } else if (child.name === "br") {
       out.push(new LineBreak());
     }

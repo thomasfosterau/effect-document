@@ -120,16 +120,16 @@ export default defineConfig({
       // preset's `error`.
       // Remaining sites are listed in effect-document#155, which also says
       // why each rule could not reach zero in the migration PR.
-      // 247 sites in packages/*/src (pdf 141, ooxml 39, iwork 32, core 22, csv
-      // 7, rtf 6): indexed loops over bytes, glyphs and XML children in the
+      // 242 sites in packages/*/src (pdf 140, ooxml 39, iwork 32, core 22, rtf
+      // 6, csv 3): indexed loops over bytes, glyphs and XML children in the
       // decoders' hot paths, and the explicit-stack walks that keep deep
       // documents off the call stack.
       "effect/imperative-loops": "warn",
-      // 176 sites in packages/*/src (pdf 106, ooxml 30, iwork 23, csv 8,
-      // rtf 6, core 3): `buf[i]!`-style reads beside a bounds check the
+      // 172 sites in packages/*/src (pdf 105, ooxml 30, iwork 23, rtf 6,
+      // csv 5, core 3): `buf[i]!`-style reads beside a bounds check the
       // compiler cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
-      // 95 sites in packages/*/src (pdf 40, ooxml 27, iwork 12, core 10,
+      // 93 sites in packages/*/src (pdf 40, ooxml 25, iwork 12, core 10,
       // rtf 4, csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
       // model and `Profile.features` / `collectFeatures` are public `Set`s
       // (a `HashMap` / `HashSet` would change that API), the rest are decoder
@@ -194,6 +194,34 @@ export default defineConfig({
           // `...(process.env.X ? { x } : {})` is how a vitest option is left
           // unset under `exactOptionalPropertyTypes`.
           "effect/no-conditional-empty-object-spread": "off",
+        },
+      },
+      // The benchmarks (`bench/`) are bare-Node measurement programs, run by
+      // hand over the built packages: the timing loop must run outside any
+      // Effect runtime (an Effect around each sample would be measured too),
+      // awaits each sample in turn so samples never overlap, prints its
+      // tables with `console.log`, and reads its knobs (`BENCH_TIME`,
+      // `BENCH_FILTER`) from `process.env`. Each case runs the effect under
+      // test at the call site, as a consumer would.
+      {
+        files: ["bench/**/*.ts"],
+        rules: {
+          "effect/effect-run-in-body": "off",
+          "effect/use-console-service": "off",
+          "effect/avoid-process-env": "off",
+          "effect/imperative-loops": "off",
+          "effect/no-length-comparison": "off",
+          "effect/avoid-native-object-helpers": "off",
+          "effect/no-unknown-returns": "off",
+          "effect/avoid-non-null-assertion": "off",
+          // ...and reads its fixtures (the PDF and iWork test files) once, up
+          // front, before anything is timed.
+          "effect/use-filesystem-service": "off",
+          "effect/avoid-sync-fs": "off",
+          // ...and drives the Node streaming parsers (Papa Parse's, csv-parse's)
+          // through their `node:stream` interface, as their users do.
+          "effect/avoid-node-imports": "off",
+          "eslint/no-await-in-loop": "off",
         },
       },
       // The runnable examples are entrypoints: each ends by running its
@@ -316,6 +344,110 @@ export default defineConfig({
       examples: {
         command:
           "tsx examples/document-ast.ts && tsx examples/streaming.ts && tsx examples/convert-csv-to-xlsx.ts && tsx examples/read-iwork-directory.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      // Benchmarks (`bench/`): every format's reader and writer against the
+      // leading JavaScript library for it, over the built packages (each
+      // imports them by name, through `exports` to `dist/`, hence the build
+      // edges). Run by hand around a change to a reader or writer, never in
+      // CI: the numbers depend on the machine. `BENCH_TIME` (ms per group,
+      // default 3000) and `BENCH_FILTER` (a group-name substring) narrow a
+      // run. `bench` runs them all.
+      bench: {
+        command:
+          "node bench/csv.bench.ts && node bench/xlsx.bench.ts && node bench/docx.bench.ts && node bench/pptx.bench.ts && node bench/rtf.bench.ts && node bench/pdf.bench.ts && node bench/iwork.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:csv": {
+        command: "node bench/csv.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:xlsx": {
+        command: "node bench/xlsx.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:docx": {
+        command: "node bench/docx.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:pptx": {
+        command: "node bench/pptx.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:rtf": {
+        command: "node bench/rtf.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:pdf": {
+        command: "node bench/pdf.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:iwork": {
+        command: "node bench/iwork.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
