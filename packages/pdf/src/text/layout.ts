@@ -272,17 +272,31 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
   return result;
 };
 
+/**
+ * How a line that ends in a hyphen joins the next: `"layout"` takes a letter
+ * and a hyphen before a lowercase letter for a word broken across lines (the
+ * guess untagged text needs); `"tagged"` follows Tagged PDF, where a hyphen
+ * the line breaking added is a soft hyphen (U+00AD), so only that one joins
+ * and a plain hyphen (U+002D) at a line end is part of the text (#198).
+ */
+type Hyphenation = "layout" | "tagged";
+
+/** Whether the line `prev` ends in a word that `next` continues, by {@link Hyphenation}. */
+const continuesWord = (prev: string, next: string, hyphenation: Hyphenation): boolean =>
+  /\p{L}\u00AD$/u.test(prev) ||
+  (hyphenation === "layout" && /\p{L}-$/u.test(prev) && /^\p{Ll}/u.test(next));
+
 /** Inlines for several lines, joined by soft breaks (or nothing, after a hyphen). */
 const linesToInlines = (
   lines: ReadonlyArray<{ runs: ReadonlyArray<Run>; text: string }>,
+  hyphenation: Hyphenation = "layout",
 ): Inline[] => {
   const out: Inline[] = [];
   lines.forEach((l, i) => {
-    if (i > 0) {
-      const prev = lines[i - 1]!.text;
-      // a word broken with a hyphen at the end of the line continues directly
-      if (!(/\p{L}-$/u.test(prev) && /^\p{Ll}/u.test(l.text))) out.push(new SoftBreak());
-    }
+    const prev = lines[i - 1];
+    // a word broken with a hyphen at the end of the line continues directly
+    if (prev !== undefined && !continuesWord(prev.text, l.text, hyphenation))
+      out.push(new SoftBreak());
     out.push(...runsToInlines(l.runs));
   });
   return out;
@@ -683,7 +697,7 @@ export const structureBlocks = (
     const flush = (): void => {
       const lines = linesOf(pending);
       if (Arr.isReadonlyArrayNonEmpty(lines))
-        out.push(new Para({ content: linesToInlines(lines) }));
+        out.push(new Para({ content: linesToInlines(lines, "tagged") }));
       pending = [];
     };
     elem.kids.forEach((kid) => {
@@ -708,6 +722,7 @@ export const structureBlocks = (
       allBold
         ? lines.map((l) => ({ ...l, runs: l.runs.map((r) => ({ ...r, bold: false })) }))
         : lines,
+      "tagged",
     );
     return [new Header({ level, content })];
   };

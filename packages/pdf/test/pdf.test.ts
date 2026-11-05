@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -256,6 +257,14 @@ describe("PDF round trip", () => {
       { pageSize: [200, 400], margin: 20 },
     );
     expect(textOf(data)).toContain("well-known");
+  });
+
+  test("a tagged line ending in a plain hyphen keeps the space after it (#198)", () => {
+    // every line ends in "a-", and the writer wraps only at spaces
+    const text = Arr.makeBy(80, () => "a-").join(" ");
+    const back = roundTrip([para([str(text)])]);
+    expect(back.blocks.map((b) => b._tag)).toEqual(["Para"]);
+    expect(blocksToText(back.blocks).replace(/\s+/g, " ").trim()).toBe(text);
   });
 });
 
