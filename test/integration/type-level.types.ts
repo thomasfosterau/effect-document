@@ -71,8 +71,10 @@ export const notCsvTag: CsvTags = "CellDate";
 declare const csvCell: CellOf<CsvF>;
 export const csvCellTag: "CellText" | "CellNumber" | "CellBoolean" | "CellBlank" = csvCell._tag;
 declare const pdfInline: InlineOf<FeaturesOf<typeof Pdf.format.writeProfile>>;
-// @ts-expect-error inline code is not in the PDF write profile
-export const pdfCode: "Code" = pdfInline._tag;
+// Inline code is in the PDF write profile: the tags carry it back (#212).
+export const pdfCode: typeof pdfInline._tag = "Code";
+// @ts-expect-error underline is not in the PDF write profile: it is only a drawn line
+export const pdfUnderline: typeof pdfInline._tag = "Underline";
 declare const docxBlock: BlockOf<FeaturesOf<typeof Docx>>;
 // @ts-expect-error a rule is not in the DOCX profile
 export const docxRule: "HorizontalRule" = docxBlock._tag;
