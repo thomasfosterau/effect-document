@@ -19,15 +19,11 @@ const EXACT_POWERS_OF_TEN = Array.from({ length: 23 }, (_, k) => 10 ** k);
 
 /** Veltkamp's splitter for doubles: 2^27 + 1. */
 const SPLITTER = 134_217_729;
-/** 2^53: every integer up to it is a double. */
-const TWO_53 = 9_007_199_254_740_992;
 
 /** Results read back from the helpers below (no allocation per value). */
 const scratch = {
   /** {@link twoProduct}'s rounding error. */
   error: 0,
-  /** Whether {@link plainValueAt} left a long plain decimal for its caller to judge. */
-  long: false,
 };
 
 /**
@@ -52,18 +48,20 @@ const words = /*#__PURE__*/ new Uint32Array(bits.buffer);
 /** The index of the low 32 bits of a double in {@link words}. */
 const LOW = /*#__PURE__*/ new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 0 : 1;
 
-/** The gap from a positive normal double to the next one up, or `NaN` across a word boundary. */
+/**
+ * The gap from a positive normal double to the next one up, when it is also
+ * the gap to the next one down; `NaN` otherwise (a power of two, whose gap
+ * below is half the one above) and across a word boundary, for the caller
+ * to leave to `Number`.
+ */
 const ulpOf = (c: number): number => {
   bits[0] = c;
   const low = words[LOW] ?? 0;
-  if (low === 0xff_ff_ff_ff) return Number.NaN;
+  const high = words[1 - LOW] ?? 0;
+  if (low === 0xff_ff_ff_ff || (low === 0 && (high & 0xf_ff_ff) === 0)) return Number.NaN;
   words[LOW] = low + 1;
   return (bits[0] ?? c) - c;
 };
-
-/** `digits / 10^scale` correctly rounded (`digits * 10` for scale -1): `Number` of that decimal. */
-const decimalValue = (digits: number, scale: number): number =>
-  scale < 0 ? digits * 10 : digits / (EXACT_POWERS_OF_TEN[scale] ?? 1);
 
 /**
  * The double a long plain decimal reads as, when a double holds its digits
@@ -86,8 +84,11 @@ const decimalValue = (digits: number, scale: number): number =>
  * digit of the double (else another of its length is nearer: the same
  * residual tells), and (2) neither decimal one digit shorter either side of
  * it reads back as the double (else a shorter one does; any shorter one
- * would make one of these two do so too): two correctly rounded divisions of
- * integers below 2^53 (Clinger). Rounding margins in (1) return `NaN`.
+ * would make one of these two do so too). Those two lie a whole number of
+ * tens of units from the digits, so the residual gives their distances from
+ * the double exactly, and each reads back as it when within half its ulp. A
+ * power of two (whose gap below is half the gap above) and every rounding
+ * margin return `NaN`.
  */
 const longDecimal = (
   high: number,
@@ -110,20 +111,17 @@ const longDecimal = (
   }
   // `c` is the correctly rounded value, and the decimal the nearest of its length to it
   if (!(Math.abs(r) < halfUlp * (1 - 1e-9)) || !(Math.abs(r) < 0.5 - 1e-9)) return Number.NaN;
-  const shorter = high * (EXACT_POWERS_OF_TEN[total - 10] ?? 1) + Math.floor(low / 10);
-  if (
-    shorter >= TWO_53 ||
-    decimalValue(shorter, scale - 1) === c ||
-    decimalValue(shorter + 1, scale - 1) === c
-  )
-    return Number.NaN;
+  // the decimals one digit shorter either side are whole tens of units from
+  // the digits, at `r + last` below the double and `10 - last - r` above it:
+  // one of them reads back as the double when within half its ulp
+  const last = low % 10;
+  const margin = halfUlp * (1 + 1e-9);
+  if (r + last < margin || 10 - last - r < margin) return Number.NaN;
   return negative ? -c : c;
 };
 
 /** {@link scanDecimal}'s reading of a decimal's digits. */
 const scan = {
-  /** The digits as an integer (exact up to 2^53). */
-  value: 0,
   /** The first nine digits as an integer (leading zeros among them). */
   high: 0,
   /** The digits after the first nine as an integer. */
@@ -139,23 +137,29 @@ const scan = {
  * in one pass. False at any other character, or a second point.
  */
 const scanDecimal = (raw: string, from: number, end: number): boolean => {
-  let value = 0;
   let high = 0;
   let low = 0;
   let total = 0;
   let point = -1;
+  let j = from;
   // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per value of a number column: the measured hot path (bench/csv.bench.ts)
-  for (let j = from; j < end; j++) {
+  for (; j < end && total < 9; j++) {
     const d = raw.charCodeAt(j) - 48;
     if (d >= 0 && d <= 9) {
-      value = value * 10 + d;
-      if (total < 9) high = value;
-      else low = low * 10 + d;
+      high = high * 10 + d;
       total++;
     } else if (d === -2 && point === -1) point = j;
     else return false;
   }
-  scan.value = value;
+  // oxlint-disable-next-line effect/imperative-loops -- the digits after the first nine, as above
+  for (; j < end; j++) {
+    const d = raw.charCodeAt(j) - 48;
+    if (d >= 0 && d <= 9) {
+      low = low * 10 + d;
+      total++;
+    } else if (d === -2 && point === -1) point = j;
+    else return false;
+  }
   scan.high = high;
   scan.low = low;
   scan.total = total;
@@ -176,29 +180,33 @@ const isPlain = (raw: string, from: number, end: number): boolean => {
 };
 
 /**
- * The value of the plain decimal from `start` to `end` of `raw`, read in
- * one scan, or `NaN` for anything else (an exponent, not a number), and for
- * a long decimal (more than {@link exactDigits} digits) {@link longDecimal}
- * cannot settle, which sets `scratch.long`. Up to {@link exactDigits}
- * digits, the digits as an integer are below 2^53 and the power of ten it is
- * divided by is exact, so the one correctly rounded division gives exactly
- * what `Number` does (Clinger's fast path).
+ * The value of a plain decimal from its digits (`high`, `low`, `total`, as
+ * the scans read them) and `scale`, or `NaN` when a double does not hold
+ * them, or when that is not cheap to tell and `Number` and `String` say so
+ * (the text from `start` to `end` is sliced then). Up to {@link exactDigits}
+ * digits, the digits as an integer are below 2^53 and the power of ten they
+ * are divided by is exact, so the one correctly rounded division gives
+ * exactly what `Number` does (Clinger's fast path); a longer decimal goes to
+ * {@link longDecimal}.
  */
-const plainValueAt = (raw: string, start: number, end: number): number => {
-  scratch.long = false;
-  const negative = raw.charCodeAt(start) === 45;
-  const from = negative ? start + 1 : start;
-  if (!scanDecimal(raw, from, end) || !isPlain(raw, from, end)) return Number.NaN;
-  const { value, high, low, total, point } = scan;
-  const scale = point === -1 ? 0 : end - point - 1;
+const decimalFrom = (
+  high: number,
+  low: number,
+  total: number,
+  scale: number,
+  negative: boolean,
+  text: string,
+  start: number,
+  end: number,
+): number => {
   if (total <= exactDigits) {
+    const value = total <= 9 ? high : high * (EXACT_POWERS_OF_TEN[total - 9] ?? 1) + low;
     const magnitude = scale === 0 ? value : value / (EXACT_POWERS_OF_TEN[scale] ?? 1);
     return negative ? -magnitude : magnitude;
   }
   const quick =
-    raw.charCodeAt(end - 1) === 48 ? Number.NaN : longDecimal(high, low, total, scale, negative);
-  scratch.long = Number.isNaN(quick);
-  return quick;
+    text.charCodeAt(end - 1) === 48 ? Number.NaN : longDecimal(high, low, total, scale, negative);
+  return Number.isNaN(quick) ? longValue(text.slice(start, end)) : quick;
 };
 
 /**
@@ -212,11 +220,70 @@ const longValue = (raw: string): number => {
 };
 
 /**
- * The plain decimal from `start` to `end` of `text`, read in place, when it
- * is one a double holds the digits of; else `NaN` (not a plain decimal, or
- * one the reader's general path must judge).
+ * The plain decimal from `start` to `end` of a string, when it is one a
+ * double holds the digits of; else `NaN` (not a plain decimal, or one the
+ * reader's general path must judge). For a value already sliced from the
+ * text: {@link decimalInText} reads one in place.
  */
 export const decimalAt = (text: string, start: number, end: number): number => {
-  const value = plainValueAt(text, start, end);
-  return scratch.long ? longValue(text.slice(start, end)) : value;
+  const negative = text.charCodeAt(start) === 45;
+  const from = negative ? start + 1 : start;
+  if (!scanDecimal(text, from, end) || !isPlain(text, from, end)) return Number.NaN;
+  const { high, low, total, point } = scan;
+  const scale = point === -1 ? 0 : end - point - 1;
+  return decimalFrom(high, low, total, scale, negative, text, start, end);
+};
+
+/** {@link digitsInText}'s running digits, as {@link scan} holds {@link scanDecimal}'s. */
+const inText = { high: 0, low: 0, total: 0 };
+
+/**
+ * The index past the run of digits from `from` (to `end` at most) of the
+ * source text, with {@link inText} extended by them.
+ *
+ * This and {@link decimalInText} read a field in place in the text the
+ * scanner holds, and only there: {@link scanDecimal} also reads values
+ * sliced from it (short ones copied, long ones sliced), and a character scan
+ * that meets more than one string representation runs at about half the
+ * speed of one that meets only the source text's (measured on the floats
+ * table of bench/csv.bench.ts, 34 against 60 ns a value).
+ */
+const digitsInText = (text: string, from: number, end: number): number => {
+  let { high, low, total } = inText;
+  let j = from;
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per value of a number column read in place: the measured hot path (bench/csv.bench.ts)
+  for (; j < end; j++) {
+    const d = text.charCodeAt(j) - 48;
+    if (d < 0 || d > 9) break;
+    if (total < 9) high = high * 10 + d;
+    else low = low * 10 + d;
+    total++;
+  }
+  inText.high = high;
+  inText.low = low;
+  inText.total = total;
+  return j;
+};
+
+/**
+ * The plain decimal from `start` to `end` of the source text, read in place,
+ * as {@link decimalAt} reads it from a string: `NaN` for anything else.
+ */
+export const decimalInText = (text: string, start: number, end: number): number => {
+  const negative = text.charCodeAt(start) === 45;
+  const from = negative ? start + 1 : start;
+  inText.high = 0;
+  inText.low = 0;
+  inText.total = 0;
+  const intEnd = digitsInText(text, from, end);
+  const intDigits = intEnd - from;
+  // an integer part of `0` alone, or of digits not led by `0`
+  if (intDigits === 0 || (intDigits > 1 && text.charCodeAt(from) === 48)) return Number.NaN;
+  const point = intEnd < end;
+  if (point && text.charCodeAt(intEnd) !== 46) return Number.NaN;
+  const last = point ? digitsInText(text, intEnd + 1, end) : intEnd;
+  // digits after a point, and nothing after them
+  if ((point && last === intEnd + 1) || last !== end) return Number.NaN;
+  const { high, low, total } = inText;
+  return decimalFrom(high, low, total, point ? end - intEnd - 1 : 0, negative, text, start, end);
 };

@@ -34,7 +34,7 @@ import {
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.ts";
-import { decimalAt, exactDigits } from "./decimal.ts";
+import { decimalAt, decimalInText, exactDigits } from "./decimal.ts";
 import { fastPlan, type FastPlan } from "./fast.ts";
 import {
   asCells,
@@ -292,7 +292,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
     }
     return isNumber(raw) ? numberOf(raw) : Number.NaN;
   };
-  const numberAt = fast ? decimalAt : () => Number.NaN;
+  const numberAt = fast ? decimalInText : () => Number.NaN;
   return { isNumber, numberOf, numberValue, numberAt };
 };
 

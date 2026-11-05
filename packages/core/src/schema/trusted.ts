@@ -63,7 +63,7 @@ const shared = <A>(make: () => A): (() => A) => {
 
 /*
  * Constructor functions for the nodes there is one of per cell (a text or
- * number cell). An object
+ * number cell) or per row. An object
  * built by `new` gets exactly the slots its constructor stores, where one
  * built by `Object.create` plus stores gets V8's default slack: 40 bytes a
  * node rather than 56, a sixth of a CSV document's memory (and of the time
@@ -73,6 +73,16 @@ function TextCell(this: { _tag: string; value: string }, value: string): void {
   this._tag = "CellText";
   this.value = value;
 }
+function Row(
+  this: { index: number; cells: ReadonlyArray<RowCell>; height: number | undefined },
+  index: number,
+  cells: ReadonlyArray<RowCell>,
+  height: number | undefined,
+): void {
+  this.index = index;
+  this.cells = cells;
+  this.height = height;
+}
 function NumberCell(this: { _tag: string; value: number }, value: number): void {
   this._tag = "CellNumber";
   this.value = value;
@@ -81,16 +91,24 @@ function NumberCell(this: { _tag: string; value: number }, value: number): void 
 interface Constructors {
   readonly text: new (value: string) => CellText;
   readonly number: new (value: number) => CellNumber;
+  readonly row: new (
+    index: number,
+    cells: ReadonlyArray<RowCell>,
+    height: number | undefined,
+  ) => SheetRow;
 }
 
 const constructors = /*#__PURE__*/ shared((): Constructors => {
   TextCell.prototype = CellText.prototype;
   NumberCell.prototype = CellNumber.prototype;
+  Row.prototype = SheetRow.prototype;
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: a function with the class's prototype that stores exactly the class's fields builds what the class's constructor builds once its struct has accepted them (see the module comment)
   const text = TextCell as unknown as Constructors["text"];
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
   const number = NumberCell as unknown as Constructors["number"];
-  return { text, number };
+  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
+  const row = Row as unknown as Constructors["row"];
+  return { text, number, row };
 });
 
 /** A text cell whose `value` is a string. */
@@ -165,11 +183,7 @@ export const trustedRowOf = (
   cells: ReadonlyArray<RowCell>,
   height?: number,
 ): SheetRow => {
-  const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
-  row.index = index;
-  row.cells = cells;
-  row.height = height;
-  return row;
+  return new (constructors().row)(index, cells, height);
 };
 
 /**

@@ -18,7 +18,6 @@
 
 import * as Arr from "effect/Array";
 import { Compiler, ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
-import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
 
 // ============================================================================
@@ -136,29 +135,44 @@ const attribute = Parser.separatedPair(
     Parser.expected("attribute value"),
   ),
 );
+/** An element's attributes as they are parsed, and the first name given twice, if any. */
+interface AttributesSoFar {
+  readonly attrs: Record<string, string>;
+  duplicate: string | undefined;
+}
+
 /**
- * Whether an element's attribute names are all distinct. Elements have a
- * handful of attributes, so they are compared pairwise without allocating
- * (this runs once per element); past 16 a set keeps it linear.
+ * Take one attribute into the element's: the first repeated name is kept
+ * for the failure. `__proto__` is defined as an own property, as
+ * `Object.fromEntries` does, never set as the prototype.
  */
-const distinctNames = (pairs: ReadonlyArray<readonly [string, string]>): boolean => {
-  if (pairs.length > 16) return new Set(pairs.map(([k]) => k)).size === pairs.length;
-  // oxlint-disable-next-line effect/imperative-loops -- once per element of every part: callbacks here allocated per element (bench/xlsx.bench.ts)
-  for (let i = 1; i < pairs.length; i++) {
-    const name = pairs[i]?.[0];
-    // oxlint-disable-next-line effect/imperative-loops -- as above
-    for (let j = 0; j < i; j++) if (pairs[j]?.[0] === name) return false;
-  }
-  return true;
+const addAttribute = (acc: AttributesSoFar, [name, value]: readonly [string, string]) => {
+  if (Object.hasOwn(acc.attrs, name)) acc.duplicate ??= name;
+  else if (name === "__proto__")
+    Object.defineProperty(acc.attrs, name, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  else acc.attrs[name] = value;
+  return acc;
 };
 
-const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(
+/**
+ * An element's attributes, built into its record as they are parsed (no
+ * array of pairs per element: this runs once per element of every part,
+ * bench/xlsx.bench.ts); a name given twice fails the element.
+ */
+const attributes = Parser.fold(Parser.preceded(ws1, attribute), {
+  init: (): AttributesSoFar => ({ attrs: {}, duplicate: undefined }),
+  f: addAttribute,
+}).pipe(
   Parser.filterOrFail(
-    distinctNames,
-    (pairs) =>
-      `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`,
+    (acc) => acc.duplicate === undefined,
+    (acc) => `duplicate attribute "${acc.duplicate}"`,
   ),
-  Parser.map((pairs): Record<string, string> => Rec.fromEntries(pairs)),
+  Parser.map((acc): Record<string, string> => acc.attrs),
 );
 
 /** `open ... close`, committed once `open` has matched. */
@@ -254,11 +268,6 @@ const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<
   Parser.as(doctype, null),
 );
 
-/** A whole XML document as tokens: an optional BOM, then tokens to the end. */
-const xmlTokens: Parser.Parser<ReadonlyArray<XmlToken>, string> = Compiler.jit(
-  Parser.delimited(Parser.opt(Token.literal("﻿")), Parser.repeat(xmlToken), Parser.cut(Parser.eof)),
-);
-
 // ---- tree building ---------------------------------------------------------
 
 const NS_XML = "http://www.w3.org/XML/1998/namespace";
@@ -336,9 +345,21 @@ const failAt = (
     description,
   });
 
-const hasSeveralAttrs = (attrs: Record<string, string>): boolean => {
+/**
+ * Whether `getAttr` may need an element's scope: it does only to choose
+ * between attributes that share a local name, so only for several
+ * attributes, one of them prefixed (two unprefixed names never share one).
+ * A cell's `<c r="A1" t="s">` needs none, and a weak map entry per cell
+ * costs the collector (bench/xlsx.bench.ts).
+ */
+const needsScope = (attrs: Record<string, string>): boolean => {
   let n = 0;
-  for (const _ in attrs) if (++n > 1) return true;
+  let prefixed = false;
+  for (const key in attrs) {
+    n++;
+    if (!prefixed && key.includes(":")) prefixed = true;
+    if (n > 1 && prefixed) return true;
+  }
   return false;
 };
 
@@ -346,7 +367,25 @@ const hasSeveralAttrs = (attrs: Record<string, string>): boolean => {
 const elementScopes = new WeakMap<XmlElement, Scope>();
 
 type TokenOf<K extends string> = Extract<NonNullable<XmlToken>, { readonly k: K }>;
-type Failure = ParseError.ParseError<string> | undefined;
+/**
+ * A tree-building failure, found as tokens arrive and turned into a
+ * `ParseError` against the input once the whole input has tokenized (so a
+ * tokenizing error later in the input still takes precedence, as when the
+ * tokens were all read before the tree was built).
+ */
+interface Pending {
+  readonly offset: number;
+  readonly description: string;
+  readonly expected: ReadonlyArray<string>;
+}
+
+type Failure = Pending | undefined;
+
+const pending = (
+  offset: number,
+  description: string,
+  expected: ReadonlyArray<string> = [],
+): Pending => ({ offset, description, expected });
 
 interface Frame {
   readonly el: MutableElement;
@@ -355,14 +394,26 @@ interface Frame {
   readonly scope: Scope;
 }
 
-/** The open elements while tokens arrive; each step returns the failure it hits, if any. */
+/**
+ * The open elements while tokens arrive, built as each token is parsed (so
+ * no token outlives its step); the first failure is kept, and later tokens
+ * are only tokenized.
+ */
 class TreeBuilder {
-  readonly input: string;
   root: MutableElement | undefined = undefined;
   readonly stack: Frame[] = [];
+  failure: Failure = undefined;
 
-  constructor(input: string) {
-    this.input = input;
+  /** Take one token into the tree, keeping the first failure. */
+  step(token: XmlToken): this {
+    if (token === null || this.failure !== undefined) return this;
+    this.failure =
+      token.k === "text"
+        ? this.text(token)
+        : token.k === "open"
+          ? this.open(token)
+          : this.close(token);
+    return this;
   }
 
   get top(): Frame | undefined {
@@ -374,7 +425,7 @@ class TreeBuilder {
     if (top !== undefined) top.el.text += token.text;
     else if (token.text.trim() !== "") {
       const what = this.root === undefined ? "root element" : "end of input";
-      return failAt(this.input, token.at, `expected ${what}`, [what]);
+      return pending(token.at, `expected ${what}`, [what]);
     }
     return undefined;
   }
@@ -382,7 +433,7 @@ class TreeBuilder {
   open(token: TokenOf<"open">): Failure {
     const top = this.top;
     if (top === undefined && this.root !== undefined)
-      return failAt(this.input, token.at - 1, "expected end of input", ["end of input"]);
+      return pending(token.at - 1, "expected end of input", ["end of input"]);
     const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
     const el: MutableElement = {
       name: localName(token.name),
@@ -392,8 +443,8 @@ class TreeBuilder {
       text: "",
     };
     // Scopes are only consulted to disambiguate attributes and resolve
-    // mc:Choice requirements, so only those elements record one.
-    if (el.ns === NS_MCE || hasSeveralAttrs(token.attrs)) elementScopes.set(el, scope);
+    // mc:Choice requirements, so only the elements that may need one record it.
+    if (el.ns === NS_MCE || needsScope(token.attrs)) elementScopes.set(el, scope);
     if (top === undefined) this.root = el;
     else top.el.children.push(el);
     if (!token.empty) this.stack.push({ el, raw: token.name, at: token.at, scope });
@@ -403,10 +454,9 @@ class TreeBuilder {
 
   close(token: TokenOf<"close">): Failure {
     const top = this.stack.pop();
-    if (top === undefined)
-      return failAt(this.input, token.at, `unexpected closing tag </${token.name}>`);
+    if (top === undefined) return pending(token.at, `unexpected closing tag </${token.name}>`);
     if (top.raw !== token.name)
-      return failAt(this.input, top.at, `closing tag </${token.name}> does not match <${top.raw}>`);
+      return pending(top.at, `closing tag </${token.name}> does not match <${top.raw}>`);
     const parent = this.top;
     // Markup Compatibility: replace the AlternateContent with one branch.
     if (parent !== undefined && isAlternateContent(top.el)) {
@@ -416,18 +466,18 @@ class TreeBuilder {
     return undefined;
   }
 
-  finish(): Result.Result<XmlElement, ParseError.ParseError<string>> {
+  /** The root element of `input`, or its first failure. */
+  finish(input: string): Result.Result<XmlElement, ParseError.ParseError<string>> {
+    const failure = this.failure;
+    if (failure !== undefined)
+      return Result.fail(failAt(input, failure.offset, failure.description, failure.expected));
     const open = this.top;
     if (open !== undefined)
       return Result.fail(
-        failAt(this.input, this.input.length, `expected closing tag </${open.raw}>`, [
-          "closing tag",
-        ]),
+        failAt(input, input.length, `expected closing tag </${open.raw}>`, ["closing tag"]),
       );
     if (this.root === undefined)
-      return Result.fail(
-        failAt(this.input, this.input.length, "expected root element", ["root element"]),
-      );
+      return Result.fail(failAt(input, input.length, "expected root element", ["root element"]));
     return Result.succeed(this.root);
   }
 }
@@ -435,23 +485,20 @@ class TreeBuilder {
 const isAlternateContent = (el: MutableElement): boolean =>
   el.ns === NS_MCE && el.name === "AlternateContent";
 
-const buildTree = (
-  input: string,
-  tokens: ReadonlyArray<XmlToken>,
-): Result.Result<XmlElement, ParseError.ParseError<string>> => {
-  const tree = new TreeBuilder(input);
-  for (const token of tokens) {
-    if (token === null) continue;
-    const failure =
-      token.k === "text"
-        ? tree.text(token)
-        : token.k === "open"
-          ? tree.open(token)
-          : tree.close(token);
-    if (failure !== undefined) return Result.fail(failure);
-  }
-  return tree.finish();
-};
+/**
+ * A whole XML document: an optional BOM, then tokens to the end, each taken
+ * into the tree as it is parsed.
+ */
+const xmlTree: Parser.Parser<TreeBuilder, string> = /*#__PURE__*/ Compiler.jit(
+  Parser.delimited(
+    Parser.opt(Token.literal("\ufeff")),
+    Parser.fold(xmlToken, {
+      init: () => new TreeBuilder(),
+      f: (tree: TreeBuilder, token: XmlToken) => tree.step(token),
+    }),
+    Parser.cut(Parser.eof),
+  ),
+);
 
 /**
  * Parse an XML document into its root element, or a `ParseError` that points
@@ -460,8 +507,8 @@ const buildTree = (
 export const parseXmlResult = (
   xml: string,
 ): Result.Result<XmlElement, ParseError.ParseError<string>> => {
-  const tokens = Parser.parse(xmlTokens, xml);
-  return Result.isSuccess(tokens) ? buildTree(xml, tokens.success) : Result.fail(tokens.failure);
+  const tree = Parser.parse(xmlTree, xml);
+  return Result.isSuccess(tree) ? tree.success.finish(xml) : Result.fail(tree.failure);
 };
 
 /**

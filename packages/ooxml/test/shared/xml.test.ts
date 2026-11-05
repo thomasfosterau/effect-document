@@ -194,5 +194,24 @@ describe("hardening (#55)", () => {
     expect(Result.isFailure(parseXmlResult(`<1a/>`))).toBe(true);
     const dup = parseXmlResult(`<a x="1" x="2"/>`);
     expect(Result.isFailure(dup) && dup.failure.message).toContain(`duplicate attribute "x"`);
+    // the first name given twice is the one named
+    const twice = parseXmlResult(`<a y="1" x="1" y="2" x="2"/>`);
+    expect(Result.isFailure(twice) && twice.failure.message).toContain(`duplicate attribute "y"`);
+  });
+
+  test("an attribute named __proto__ is an own attribute, not the record's prototype", () => {
+    const root = parseXml(`<a __proto__="p" b="q"/>`);
+    expect(Object.getPrototypeOf(root.attrs)).toBe(Object.prototype);
+    expect(Object.entries(root.attrs)).toEqual([
+      ["__proto__", "p"],
+      ["b", "q"],
+    ]);
+  });
+
+  test("a structural error after a later tokenizing error still reports the tokenizing one", () => {
+    // `</b>` mismatches first, but the `<1` after it does not tokenize: as
+    // when every token was read before the tree, the tokenizing error wins
+    const r = parseXmlResult(`<a></b><1/></a>`);
+    expect(Result.isFailure(r) && r.failure.message).not.toContain("does not match");
   });
 });

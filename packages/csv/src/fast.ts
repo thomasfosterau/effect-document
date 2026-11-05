@@ -118,6 +118,8 @@ interface Scan<T> {
   doubled: boolean;
   /** The value of the quoted field just read. */
   quoted: string;
+  /** The field just read, as the reader makes it. */
+  field: T;
 }
 
 /** The index of `c` at or after `p` in `text`, or its length if there is none. */
@@ -204,6 +206,12 @@ const readQuoted = (text: string, p: number, plan: FastPlan, scan: Scan<unknown>
  * making the string first.
  */
 export interface FieldReader<T> {
+  /**
+   * Whether {@link unquoted} reads a field from the text it spans; otherwise
+   * an unquoted field is sliced and given to {@link quoted}, which keeps the
+   * string scan's call sites to one target each.
+   */
+  readonly inPlace: boolean;
   readonly unquoted: (text: string, start: number, end: number, n: number) => T;
   readonly quoted: (value: string, n: number) => T;
   /** What a record's array is filled with before its fields are read. */
@@ -212,9 +220,34 @@ export interface FieldReader<T> {
 
 /** The string scan's fields: the text each spans. */
 const STRINGS: FieldReader<string> = {
+  inPlace: false,
   unquoted: (text, start, end) => text.slice(start, end),
   quoted: (value) => value,
   fill: "",
+};
+
+/**
+ * Read field `n` at `p` into `scan.field`, quoted or not: the index past it,
+ * or {@link UNCLOSED} on an unclosed quote.
+ */
+const readField = <T>(
+  text: string,
+  p: number,
+  plan: FastPlan,
+  scan: Scan<T>,
+  reader: FieldReader<T>,
+  n: number,
+): number => {
+  if (text.charCodeAt(p) === plan.quote) {
+    const next = readQuoted(text, p, plan, scan);
+    if (next !== -1) scan.field = reader.quoted(scan.quoted, n);
+    return next === -1 ? UNCLOSED : next;
+  }
+  const end = unquotedEnd(text, p, plan, scan);
+  scan.field = reader.inPlace
+    ? reader.unquoted(text, p, end, n)
+    : reader.quoted(text.slice(p, end), n);
+  return end;
 };
 
 /**
@@ -236,18 +269,10 @@ const readRecord = <T>(
   let n = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
-    let value: T;
-    if (text.charCodeAt(p) === plan.quote) {
-      p = readQuoted(text, p, plan, scan);
-      if (p === -1) return UNCLOSED;
-      value = reader.quoted(scan.quoted, n);
-    } else {
-      const end = unquotedEnd(text, p, plan, scan);
-      value = reader.unquoted(text, p, end, n);
-      p = end;
-    }
-    if (n < fields.length) fields[n] = value;
-    else fields.push(value);
+    p = readField(text, p, plan, scan, reader, n);
+    if (p === UNCLOSED) return UNCLOSED;
+    if (n < fields.length) fields[n] = scan.field;
+    else fields.push(scan.field);
     n++;
     if (text.charCodeAt(p) !== plan.separator) break;
     p++;
@@ -296,6 +321,7 @@ export const fastEachRecord = <T>(
     template: [],
     doubled: false,
     quoted: "",
+    field: reader.fill,
   };
   let p = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
@@ -310,17 +336,30 @@ export const fastEachRecord = <T>(
 
 /**
  * Scan `text` as the row grammar does under `plan`: its records, blank lines
- * left out when `filterEmpty` is set; none if a quoted field is never closed
- * (the grammar reports where). `text` has no byte order mark.
+ * left out when `filterEmpty` is set, the first held apart when `holdFirst`
+ * is set (a header row); none if a quoted field is never closed (the grammar
+ * reports where). `text` has no byte order mark.
  */
 export const fastScan = (
   text: string,
   plan: FastPlan,
-): Option.Option<Array<ReadonlyArray<string>>> => {
+  holdFirst: boolean,
+): Option.Option<FastTable> => {
   const rows: Array<ReadonlyArray<string>> = [];
+  let first = Option.none<ReadonlyArray<string>>();
+  let hold = holdFirst;
   const end = fastEachRow(text, plan, (fields) => {
-    rows.push(fields);
+    if (hold) {
+      first = Option.some(fields);
+      hold = false;
+    } else rows.push(fields);
     return true;
   });
-  return end === "done" ? Option.some(rows) : Option.none();
+  return end === "done" ? Option.some({ first, rows }) : Option.none();
 };
+
+/** {@link fastScan}'s records: the first held apart (when asked and there is one), then the rest. */
+export interface FastTable {
+  readonly first: Option.Option<ReadonlyArray<string>>;
+  readonly rows: Array<ReadonlyArray<string>>;
+}

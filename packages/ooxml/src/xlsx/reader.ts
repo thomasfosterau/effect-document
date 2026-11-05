@@ -33,7 +33,7 @@ import {
   type Reader,
   type SheetCell,
   type SheetRow,
-  sparseRow,
+  sheetRowOf,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -131,19 +131,40 @@ const plainOrCell = (c: SheetCell): SheetCell | PlainCell =>
 
 /** A row's valued cells by column as they are read, and its width so far. */
 interface RowCellsSoFar {
-  readonly cells: Map<number, SheetCell | PlainCell>;
-  width: number;
+  /** The row's cells by position (its width is their length), gaps `undefined`. */
+  readonly cells: Array<SheetCell | PlainCell | undefined>;
 }
 
+/** The positions a row grows by to take a cell at `col` (0 when it is already wider). */
+const widen = (row: RowCellsSoFar, col: number): number =>
+  col < row.cells.length ? 0 : col + 1 - row.cells.length;
+
 /**
- * Widen a row's width to take a cell at `col`: the positions that adds (0
- * when the row is already wider).
+ * Put a cell at `col` of a row, filling any columns before it with gaps (a
+ * later cell at a position replaces an earlier one, as in SpreadsheetML).
  */
-const widen = (row: RowCellsSoFar, col: number): number => {
-  if (col < row.width) return 0;
-  const added = col + 1 - row.width;
-  row.width = col + 1;
-  return added;
+const place = (row: RowCellsSoFar, col: number, value: SheetCell | PlainCell): void => {
+  const { cells } = row;
+  // oxlint-disable-next-line effect/imperative-loops -- once per gap a row's cells leave, beside the per-cell loop
+  while (cells.length < col) cells.push(undefined);
+  if (col === cells.length) cells.push(value);
+  else cells[col] = value;
+};
+
+/** Rows by index, as worksheet rows in ascending order. */
+const byIndex = Order.mapInput(Order.Number, ([index]: readonly [number, unknown]) => index);
+
+/**
+ * The rows read, ascending by index (each row's cells are positional
+ * already). Rows may arrive in any order, but writers emit them in order, so
+ * the sort is skipped when it would change nothing.
+ */
+const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<SheetRow> => {
+  const all = Array.from(cellMap);
+  const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
+  return (sorted ? all : Arr.sort(all, byIndex)).map(([index, { cells }]) =>
+    sheetRowOf(index, cells),
+  );
 };
 
 /**
@@ -209,28 +230,15 @@ const parseWorksheetRows = (
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
-      rowCells = { cells: new Map<number, SheetCell | PlainCell>(), width: 0 };
+      rowCells = { cells: [] };
       cellMap.set(row, rowCells);
     }
     count += widen(rowCells, col);
     if (count > maxCells) return { _tag: "TooLarge", cells: count };
-    rowCells.cells.set(col, plainOrCell(value));
+    place(rowCells, col, plainOrCell(value));
   }
 
-  // Rows and cells may arrive in any order; the worksheet holds them ascending.
-  const byPosition = Order.mapInput(
-    Order.Number,
-    ([position]: readonly [number, unknown]) => position,
-  );
-  // Writers emit rows and cells in order, so the sort is skipped when it
-  // would change nothing (it runs once per row, and its comparator per cell).
-  const ascending = <A>(entries: Iterable<readonly [number, A]>) => {
-    const all = Array.from(entries);
-    const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
-    return sorted ? all : Arr.sort(all, byPosition);
-  };
-  const rows = ascending(cellMap).map(([index, { cells }]) => sparseRow(index, ascending(cells)));
-  return { _tag: "Rows", rows, cells: count };
+  return { _tag: "Rows", rows: rowsInOrder(cellMap), cells: count };
 };
 
 // ============================================================================

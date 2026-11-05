@@ -291,19 +291,21 @@ class TypedReader<A> implements FieldReader<A> {
     this.typing = true;
   }
 
-  readonly unquoted = (text: string, start: number, end: number, c: number): A => {
+  readonly inPlace = true;
+
+  unquoted(text: string, start: number, end: number, c: number): A {
     if (this.typing && this.byColumn && this.kinds[c] === "number") {
       const value = this.numberAt(text, start, end);
       if (!Number.isNaN(value)) return this.asNumber(value);
     }
     return this.quoted(text.slice(start, end), c);
-  };
+  }
 
-  readonly quoted = (value: string, c: number): A => {
+  quoted(value: string, c: number): A {
     if (this.typing) return this.field(value, c);
     this.held[c] = value;
     return this.fill;
-  };
+  }
 }
 
 /** A table of typed values: its header (or `null`) and its rows. */
