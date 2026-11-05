@@ -7,7 +7,6 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@cantoo/pdf-lib": "catalog:",
     "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-document": "workspace:*",
     "@thomasfosterau/effect-iwork": "workspace:*",
@@ -16,6 +15,7 @@
     "@thomasfosterau/effect-rtf": "workspace:*",
     "@types/d3-dsv": "catalog:",
     "@types/papaparse": "catalog:",
+    "@types/pdfkit": "catalog:",
     "csv-parse": "catalog:",
     "csv-stringify": "catalog:",
     "d3-dsv": "catalog:",
@@ -25,6 +25,7 @@
     "mammoth": "catalog:",
     "papaparse": "catalog:",
     "pdfjs-dist": "catalog:",
+    "pdfkit": "catalog:",
     "pptxgenjs": "catalog:",
     "read-excel-file": "catalog:",
     "udsv": "catalog:",

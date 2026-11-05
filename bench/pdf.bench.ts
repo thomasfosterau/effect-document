@@ -1,7 +1,7 @@
 /**
  * The PDF reader and writer against pdf.js (Mozilla's, the reference PDF
- * reader in JavaScript) and @cantoo/pdf-lib (the maintained fork of pdf-lib,
- * the most used PDF writer, which has not been published since 2021), on prose
+ * reader in JavaScript) and PDFKit (the most used maintained PDF writer;
+ * pdf-lib has not been published since 2021), on prose
  * documents of headings, styled paragraphs and lists (`prose.ts`, narrowed
  * to what the PDF writer encodes).
  *
@@ -11,8 +11,8 @@
  *   only), all reading the file our writer wrote, and the LibreOffice and
  *   ReportLab fixtures.
  * - **write**: content to PDF bytes (`makePdfWriter().write`, which lays the
- *   document out, against @cantoo/pdf-lib drawing the same paragraphs a line at a
- *   time, wrapped by hand, in a standard font).
+ *   document out, against PDFKit laying out the same paragraphs, wrapped and
+ *   paginated by PDFKit, in a standard font).
  *
  * Run with `vp run bench:pdf` (builds first).
  */
@@ -20,7 +20,8 @@ import { readFileSync } from "node:fs";
 import { bytes, contentToBytes, narrow } from "@thomasfosterau/effect-document";
 import { makePdfReader, makePdfWriter, PdfWrite } from "@thomasfosterau/effect-pdf";
 import * as Effect from "effect/Effect";
-import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
+import { Buffer } from "node:buffer";
+import PDFKitDocument from "pdfkit";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { type Case, type Group, runGroups } from "./harness.ts";
 import { proseDocument, proseParagraphs } from "./prose.ts";
@@ -48,39 +49,21 @@ const readCases = (file: Uint8Array): Array<Case> => [
   { name: "pdf.js getTextContent (all pages)", run: () => pdfjsText(file) },
 ];
 
-/** pdf-lib: the paragraphs in Helvetica, wrapped greedily to the page width. */
-const pdfLibWrite = async (paragraphs: ReadonlyArray<string>): Promise<Uint8Array> => {
-  const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const size = 11;
-  const width = 595 - 144;
-  let page = pdf.addPage([595, 842]);
-  let y = 842 - 72;
-  for (const paragraph of paragraphs) {
-    let line = "";
-    for (const word of paragraph.split(" ")) {
-      const next = line === "" ? word : `${line} ${word}`;
-      if (font.widthOfTextAtSize(next, size) <= width) {
-        line = next;
-        continue;
-      }
-      page.drawText(line, { x: 72, y, size, font });
-      y -= size * 1.4;
-      if (y < 72) {
-        page = pdf.addPage([595, 842]);
-        y = 842 - 72;
-      }
-      line = word;
-    }
-    page.drawText(line, { x: 72, y, size, font });
-    y -= size * 2;
-    if (y < 72) {
-      page = pdf.addPage([595, 842]);
-      y = 842 - 72;
-    }
-  }
-  return pdf.save();
-};
+/**
+ * PDFKit: the paragraphs in Helvetica, laid out (wrapped and paginated) by
+ * PDFKit itself, collected from its output stream.
+ */
+const pdfkitWrite = (paragraphs: ReadonlyArray<string>): Promise<Uint8Array> =>
+  new Promise((resolve, reject) => {
+    const pdf = new PDFKitDocument({ size: "A4", margin: 72 });
+    const chunks: Array<Uint8Array> = [];
+    pdf.on("data", (chunk: Uint8Array) => chunks.push(chunk));
+    pdf.on("end", () => resolve(Buffer.concat(chunks)));
+    pdf.on("error", reject);
+    pdf.font("Helvetica").fontSize(11);
+    for (const paragraph of paragraphs) pdf.text(paragraph, { paragraphGap: 11 });
+    pdf.end();
+  });
 
 const groups = (name: string, sections: number): Array<Group> => {
   const doc = narrow(proseDocument(sections), PdfWrite).document;
@@ -94,7 +77,7 @@ const groups = (name: string, sections: number): Array<Group> => {
       bytes: file.length,
       cases: [
         { name: "effect-pdf write (document)", run: () => run(writer.write(doc)) },
-        { name: "@cantoo/pdf-lib drawText (paragraphs)", run: () => pdfLibWrite(paragraphs) },
+        { name: "PDFKit text (paragraphs)", run: () => pdfkitWrite(paragraphs) },
       ],
     },
   ];
