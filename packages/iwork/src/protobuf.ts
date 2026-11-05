@@ -259,29 +259,33 @@ export const parseMessage = (buf: Uint8Array): Field[] => {
 };
 
 /** The first varint/fixed value for a field number, if present. */
-export const getVarint = (fields: ReadonlyArray<Field>, field: number): number | undefined =>
-  fields.find((f) => f.field === field && f.value !== undefined)?.value;
+export const getVarint = (fields: ReadonlyArray<Field>, fieldNumber: number): number | undefined =>
+  fields.find((f) => f.field === fieldNumber && f.value !== undefined)?.value;
 
 /** The first length-delimited payload for a field number, if present. */
-export const getBytes = (fields: ReadonlyArray<Field>, field: number): Uint8Array | undefined =>
-  fields.find((f) => f.field === field && f.bytes !== undefined)?.bytes;
+export const getBytes = (
+  fields: ReadonlyArray<Field>,
+  fieldNumber: number,
+): Uint8Array | undefined =>
+  fields.find((f) => f.field === fieldNumber && f.bytes !== undefined)?.bytes;
 
 /** All length-delimited payloads for a field number (e.g. repeated fields). */
-export const getAllBytes = (fields: ReadonlyArray<Field>, field: number): Uint8Array[] =>
-  fields.filter((f) => f.field === field && f.bytes !== undefined).map((f) => f.bytes!);
+export const getAllBytes = (fields: ReadonlyArray<Field>, fieldNumber: number): Uint8Array[] =>
+  fields.filter((f) => f.field === fieldNumber && f.bytes !== undefined).map((f) => f.bytes!);
 
 /** All varint/fixed values for a field number. */
-export const getAllVarints = (fields: ReadonlyArray<Field>, field: number): number[] =>
-  fields.filter((f) => f.field === field && f.value !== undefined).map((f) => f.value!);
+export const getAllVarints = (fields: ReadonlyArray<Field>, fieldNumber: number): number[] =>
+  fields.filter((f) => f.field === fieldNumber && f.value !== undefined).map((f) => f.value!);
 
 /** The first field number's scalar (varint or fixed-width), optionally of one wire type. */
 const firstScalar = (
   fields: ReadonlyArray<Field>,
-  field: number,
+  fieldNumber: number,
   wire?: number,
 ): Field | undefined =>
   fields.find(
-    (f) => f.field === field && f.value !== undefined && (wire === undefined || f.wire === wire),
+    (f) =>
+      f.field === fieldNumber && f.value !== undefined && (wire === undefined || f.wire === wire),
   );
 
 const viewOf = (bytes: Uint8Array): DataView =>
@@ -304,31 +308,34 @@ const unzigzagNumber = (v: number): number => (v % 2 === 0 ? v / 2 : -(v + 1) / 
  */
 export const getBigInt = (
   fields: ReadonlyArray<Field>,
-  field: number,
+  fieldNumber: number,
   type: "uint64" | "int64" | "sint64" = "uint64",
 ): bigint | undefined => {
-  const f = firstScalar(fields, field);
+  const f = firstScalar(fields, fieldNumber);
   if (f === undefined) return undefined;
   const u = toUint64(f);
   return type === "int64" ? BigInt.asIntN(64, u) : type === "sint64" ? unzigzag(u) : u;
 };
 
 /** The first zigzag (`sint32`/`sint64`) varint for a field number. */
-export const getSint = (fields: ReadonlyArray<Field>, field: number): number | undefined => {
-  const f = firstScalar(fields, field, WIRE_VARINT);
+export const getSint = (fields: ReadonlyArray<Field>, fieldNumber: number): number | undefined => {
+  const f = firstScalar(fields, fieldNumber, WIRE_VARINT);
   if (f === undefined) return undefined;
   return f.big !== undefined ? Number(unzigzag(f.big)) : unzigzagNumber(f.value!);
 };
 
 /** The first `double` (64-bit) for a field number. */
-export const getDouble = (fields: ReadonlyArray<Field>, field: number): number | undefined => {
-  const f = firstScalar(fields, field, WIRE_I64);
+export const getDouble = (
+  fields: ReadonlyArray<Field>,
+  fieldNumber: number,
+): number | undefined => {
+  const f = firstScalar(fields, fieldNumber, WIRE_I64);
   return f === undefined ? undefined : viewOf(f.raw!).getFloat64(0, true);
 };
 
 /** The first `float` (32-bit) for a field number. */
-export const getFloat = (fields: ReadonlyArray<Field>, field: number): number | undefined => {
-  const f = firstScalar(fields, field, WIRE_I32);
+export const getFloat = (fields: ReadonlyArray<Field>, fieldNumber: number): number | undefined => {
+  const f = firstScalar(fields, fieldNumber, WIRE_I32);
   return f === undefined ? undefined : viewOf(f.raw!).getFloat32(0, true);
 };
 
@@ -365,14 +372,14 @@ const fixedElement = (view: DataView, at: number, type: PackedType): number => {
  */
 export const getPacked = (
   fields: ReadonlyArray<Field>,
-  field: number,
+  fieldNumber: number,
   type: PackedType,
 ): number[] => {
   const size = PACKED_SIZE[type];
   const wire = size === 0 ? WIRE_VARINT : size === 8 ? WIRE_I64 : WIRE_I32;
   const out: number[] = [];
   for (const f of fields) {
-    if (f.field !== field) continue;
+    if (f.field !== fieldNumber) continue;
     if (f.bytes !== undefined) {
       const bytes = f.bytes;
       if (size === 0) {

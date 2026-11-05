@@ -652,7 +652,7 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   );
 
   /** Handle a control word. Returns the number of fallback characters to skip. */
-  const controlWord = (word: string, param: string): number => {
+  const handleControlWord = (word: string, param: string): number => {
     const on = param !== "0";
     const n = param === "" ? undefined : Number(param);
     const state = top();
@@ -677,8 +677,8 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   };
 
   /** A run of source text (after any `\uN` fallback is skipped). */
-  const textRun = (source: string): void => {
-    let text = source;
+  const textRun = (raw: string): void => {
+    let text = raw;
     // a style's name, inside the stylesheet
     const def = top().styleDef;
     if (def !== undefined) {
@@ -734,7 +734,8 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
     if (group) flushText();
     if (Predicate.isTagged(token, "Open")) stack.push(cloneState(top()));
     else if (Predicate.isTagged(token, "Close")) stack.pop();
-    else if (Predicate.isTagged(token, "Word")) fallback = controlWord(token.word, token.param);
+    else if (Predicate.isTagged(token, "Word"))
+      fallback = handleControlWord(token.word, token.param);
     else if (Predicate.isTagged(token, "Symbol")) symbol(token.symbol);
     // a Bin token's binary data (pictures, objects) is never text
   };
@@ -755,27 +756,31 @@ const parseRtf = (rtf: string, binary: boolean): Block[] => {
   return blocks;
 };
 
+/** Read RTF content into a document; a failure is a `ParseError`. */
+const readRtf = (input: Content): Effect.Effect<Doc<RtfFeature>, ParseError> =>
+  Effect.try({
+    try: () => {
+      const blocks = Predicate.isTagged(input, "Text")
+        ? parseRtf(input.text, false)
+        : parseRtf(latin1(input.bytes), true);
+      return trustAs<RtfFeature>(document(blocks));
+    },
+    catch: (cause) =>
+      cause instanceof ParseError
+        ? cause
+        : new ParseError({
+            format: "rtf",
+            reason: `Failed to read rtf: ${String(cause)}`,
+            cause,
+          }),
+  });
+
 /** Create an RTF Reader. */
-export const makeRtfReader = (): Reader<RtfFeature> => {
-  const read = (input: Content): Effect.Effect<Doc<RtfFeature>, ParseError> =>
-    Effect.try({
-      try: () => {
-        const blocks = Predicate.isTagged(input, "Text")
-          ? parseRtf(input.text, false)
-          : parseRtf(latin1(input.bytes), true);
-        return trustAs<RtfFeature>(document(blocks));
-      },
-      catch: (cause) =>
-        cause instanceof ParseError
-          ? cause
-          : new ParseError({
-              format: "rtf",
-              reason: `Failed to read rtf: ${String(cause)}`,
-              cause,
-            }),
-    });
-  return { format: "rtf", profile: Rtf, read };
-};
+export const makeRtfReader = (): Reader<RtfFeature> => ({
+  format: "rtf",
+  profile: Rtf,
+  read: readRtf,
+});
 
 /** The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. */
 export const RtfReaderTag = makeReaderTag<RtfFeature>("rtf");

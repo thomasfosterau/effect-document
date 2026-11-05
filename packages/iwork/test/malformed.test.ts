@@ -15,7 +15,7 @@ import {
   openBundle,
   openBundleDirectory,
 } from "../src/bundle.ts";
-import { IworkError } from "../src/errors.ts";
+import { IworkError, isIworkError } from "../src/errors.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import {
   getBigInt,
@@ -339,13 +339,14 @@ describe("bundle: typed failures and inflation limits", () => {
   });
 });
 
-describe("readers: component failures", () => {
-  const corrupted = (name: string, data: Uint8Array): Uint8Array => {
-    const files: Record<string, Uint8Array> = unzipSync(fixture("simple-oneslide.key"));
-    files[name] = data;
-    return zipSync(files);
-  };
+/** The Keynote fixture with component `name` replaced by `data`. */
+const corrupted = (name: string, data: Uint8Array): Uint8Array => {
+  const files: Record<string, Uint8Array> = unzipSync(fixture("simple-oneslide.key"));
+  files[name] = data;
+  return zipSync(files);
+};
 
+describe("readers: component failures", () => {
   test("name the component and keep the IworkError as the cause", () => {
     const deck = corrupted("Index/Slide-8060.iwa", new Uint8Array([0x00, 5, 0, 0, 1]));
     const r = Effect.runSync(Effect.result(Keynote.makeKeynoteReader().read(bytes(deck))));
@@ -354,7 +355,8 @@ describe("readers: component failures", () => {
     expect(e.reason).toMatch(
       /^Failed to read keynote: Truncated: Index\/Slide-8060\.iwa, offset 4: /,
     );
-    expect((e.cause as IworkError).reason).toBe("Truncated");
+    assert(isIworkError(e.cause));
+    expect(e.cause.reason).toBe("Truncated");
   });
 
   test("a bad payload names its object", () => {

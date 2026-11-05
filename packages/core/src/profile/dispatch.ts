@@ -24,11 +24,27 @@ export const dispatchTag = <
   R,
 >(
   handlers: TagHandlers<U, Args, R>,
-  node: U,
+  node: ByTag<U>[U["_tag"]],
   ...args: Args
-): R => {
-  // SAFETY: the mapped type gives the entry at `node._tag` the parameter
-  // `Extract<U, { _tag: typeof node._tag }>`, which is exactly `node`'s member
-  const handler = handlers[node._tag as U["_tag"]] as (node: U, ...args: Args) => R;
-  return handler(node, ...args);
+): R => runHandler<U, U["_tag"], Args, R>(handlers, node._tag, node, args);
+
+/** The member of `U` tagged `T`, by tag. */
+type ByTag<U extends { readonly _tag: string }> = {
+  readonly [T in U["_tag"]]: Extract<U, { readonly _tag: T }>;
 };
+
+/**
+ * Run `handlers[tag]` on `node`, the member tagged `tag`: written over the
+ * tag `K` so the compiler correlates the handler with its node.
+ */
+const runHandler = <
+  U extends { readonly _tag: string },
+  K extends U["_tag"],
+  Args extends ReadonlyArray<unknown>,
+  R,
+>(
+  handlers: { readonly [T in K]: (node: ByTag<U>[T], ...args: Args) => R },
+  tag: K,
+  node: ByTag<U>[K],
+  args: Args,
+): R => handlers[tag](node, ...args);

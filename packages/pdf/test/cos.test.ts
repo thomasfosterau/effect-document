@@ -8,12 +8,12 @@ import {
   PdfBuilder,
   PdfFile,
   type PdfObject,
-  type PdfStream,
   applyFilter,
   bytesToLatin1,
   decodeFilters,
   flateEncode,
   isDict,
+  isRef,
   isStream,
   latin1ToBytes,
   parseContentStream,
@@ -109,7 +109,8 @@ describe("object parser", () => {
     });
     expect(parseObject(serializeObject(o))).toEqual(o);
     const s = pdfStream(pdfDict({ Type: pdfName("X") }), Uint8Array.of(0, 255, 10, 13));
-    const back = parseObject(serializeObject(s)) as PdfStream;
+    const back = parseObject(serializeObject(s));
+    assert(isStream(back));
     expect(Array.from(back.data)).toEqual([0, 255, 10, 13]);
   });
 });
@@ -126,7 +127,8 @@ describe("content streams", () => {
       enc("q BI /W 2 /H 1 /BPC 8 /CS /G ID \x00EI\xff EI Q (after) Tj"),
     );
     expect(ops.map((o) => o.op)).toEqual(["q", "BI", "Q", "Tj"]);
-    const img = ops[1]!.operands[0] as PdfStream;
+    const img = ops[1]!.operands[0];
+    assert(isStream(img));
     expect(img.dict.entries.get("W")).toBe(2);
     expect(Array.from(img.data)).toEqual([0x00, 0x45, 0x49, 0xff]);
   });
@@ -345,13 +347,14 @@ describe("PdfFile", () => {
     const infoRef = file.trailer.entries.get("Info");
     const rootRef = file.trailer.entries.get("Root");
     const prevXref = Number(/startxref\n(\d+)/.exec(bytesToLatin1(base))![1]);
-    const infoNum = (infoRef as { num: number }).num;
+    assert(isRef(infoRef) && isRef(rootRef));
+    const infoNum = infoRef.num;
     const objAt = base.length;
     const update = `${infoNum} 0 obj\n<< /Title (New title) >>\nendobj\n`;
     const xrefAt = objAt + update.length;
     const tail =
       `xref\n${infoNum} 1\n${String(objAt).padStart(10, "0")} 00000 n\r\n` +
-      `trailer\n<< /Size ${infoNum + 1} /Root ${(rootRef as { num: number }).num} 0 R /Info ${infoNum} 0 R /Prev ${prevXref} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
+      `trailer\n<< /Size ${infoNum + 1} /Root ${rootRef.num} 0 R /Info ${infoNum} 0 R /Prev ${prevXref} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
     const updated = concat([base, update, tail]);
     const doc = run(makePdfReader().read(bytes(updated)));
     expect(doc.meta.title).toBe("New title");
@@ -394,9 +397,11 @@ describe("PdfFile", () => {
   });
 });
 
+/** `n` levels of `open` … `close` around a `1`. */
+const nested = (open: string, close: string, n: number) =>
+  enc(open.repeat(n) + "1" + close.repeat(n));
+
 describe("nesting limit (#110)", () => {
-  const nested = (open: string, close: string, n: number) =>
-    enc(open.repeat(n) + "1" + close.repeat(n));
   const limitExceeded = { _tag: "PdfSyntaxError", code: "LimitExceeded" };
 
   test("arrays and dictionaries up to MAX_OBJECT_NESTING parse", () => {

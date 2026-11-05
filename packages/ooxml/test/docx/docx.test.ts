@@ -44,10 +44,14 @@ const roundtrip = (blocks: ReadonlyArray<Block>) =>
 const findInline = (inlines: ReadonlyArray<Inline>, tag: string): Inline | undefined => {
   for (const i of inlines) {
     if (i._tag === tag) return i;
-    if ("content" in i) {
-      const found = findInline((i as { content: ReadonlyArray<Inline> }).content, tag);
-      if (found) return found;
-    }
+    // a note holds blocks: search the inlines of its paragraphs
+    const kids = Predicate.isTagged(i, "Note")
+      ? i.content.flatMap(inlinesOf)
+      : "content" in i
+        ? i.content
+        : [];
+    const found = findInline(kids, tag);
+    if (found) return found;
   }
   return undefined;
 };
@@ -148,47 +152,49 @@ describe("DOCX round-trip", () => {
   });
 });
 
-describe("DOCX nesting limit (#110)", () => {
-  /** A paragraph inside `n` nested single-cell tables. */
-  const nestedTables = (n: number): Block => {
-    let b: Block = para([str("x")]);
-    for (let i = 0; i < n; i++) b = table({ rows: [[[b]]] });
-    return b;
-  };
-  const docx = (n: number) => run(makeDocxWriter().write(doc([nestedTables(n)])));
+/** A paragraph inside `n` nested single-cell tables. */
+const nestedTables = (n: number): Block => {
+  let b: Block = para([str("x")]);
+  for (let i = 0; i < n; i++) b = table({ rows: [[[b]]] });
+  return b;
+};
 
+/**
+ * `depth` nested single-cell tables around a paragraph, built as XML rather
+ * than through the (recursive) writer, whose rendering of a very deep
+ * document would exhaust Node's stack before the reader is ever reached.
+ */
+const deepTables = (depth: number) => {
+  const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
+  const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
+  const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const body =
+    "<w:tbl><w:tr><w:tc>".repeat(depth) +
+    "<w:p><w:r><w:t>x</w:t></w:r></w:p>" +
+    "</w:tc></w:tr></w:tbl>".repeat(depth);
+  return bytes(
+    zipSync({
+      "_rels/.rels": strToU8(
+        `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
+      ),
+      "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
+    }),
+  );
+};
+
+/** A DOCX of a paragraph inside `n` nested tables, written by our writer. */
+const nestedDocx = (n: number) => run(makeDocxWriter().write(doc([nestedTables(n)])));
+
+describe("DOCX nesting limit (#110)", () => {
   test("tables nested past maxDepth fail with a LimitExceeded ParseError", () => {
-    const error = run(Effect.flip(makeDocxReader({ maxDepth: 10 }).read(docx(10))));
+    const error = run(Effect.flip(makeDocxReader({ maxDepth: 10 }).read(nestedDocx(10))));
     expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
   });
 
   test("tables nested within maxDepth read normally", () => {
-    const back = run(makeDocxReader({ maxDepth: 10 }).read(docx(8)));
+    const back = run(makeDocxReader({ maxDepth: 10 }).read(nestedDocx(8)));
     expect(blocksToText(back.blocks)).toBe("x");
   });
-
-  /**
-   * `depth` nested single-cell tables around a paragraph, built as XML rather
-   * than through the (recursive) writer, whose rendering of a very deep
-   * document would exhaust Node's stack before the reader is ever reached.
-   */
-  const deepTables = (depth: number) => {
-    const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
-    const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
-    const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    const body =
-      "<w:tbl><w:tr><w:tc>".repeat(depth) +
-      "<w:p><w:r><w:t>x</w:t></w:r></w:p>" +
-      "</w:tc></w:tr></w:tbl>".repeat(depth);
-    return bytes(
-      zipSync({
-        "_rels/.rels": strToU8(
-          `<Relationships xmlns="${PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="word/document.xml"/></Relationships>`,
-        ),
-        "word/document.xml": strToU8(`<w:document ${W}><w:body>${body}</w:body></w:document>`),
-      }),
-    );
-  };
 
   test("the default limit refuses very deep nesting", () => {
     const error = run(Effect.flip(makeDocxReader().read(deepTables(1500))));
@@ -201,6 +207,37 @@ describe("DOCX nesting limit (#110)", () => {
     expect(blocksToText(back.blocks)).toBe("x");
   });
 });
+
+/** A run of `text`, with `rPr` as its properties. */
+const r = (text: string, rPr = "") =>
+  `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
+/** A paragraph-like block's inlines (none for any other block). */
+const inlinesOf = (b: Block | undefined): ReadonlyArray<Inline> =>
+  b !== undefined &&
+  (Predicate.isTagged(b, "Para") ||
+    Predicate.isTagged(b, "Plain") ||
+    Predicate.isTagged(b, "Header"))
+    ? b.content
+    : [];
+/** Write `blocks`, and return a lookup of the package parts' text by path. */
+const parts = (blocks: ReadonlyArray<Block>) => {
+  const out = run(makeDocxWriter().write(doc(blocks)));
+  assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
+  const files = unzipSync(out.bytes);
+  return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
+};
+/** A list item of numbering 9 at `ilvl`. */
+const numbered9 = (t: string, ilvl: number) =>
+  `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="9"/></w:numPr></w:pPr>${r(t)}</w:p>`;
+/** A `ListParagraph` item of numbering 4 at `ilvl`. */
+const listParagraph4 = (t: string, ilvl: number) =>
+  `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="4"/></w:numPr></w:pPr>${r(t)}</w:p>`;
+/** A `ListParagraph` with no numbering, indented by the `ind` attributes. */
+const indented = (t: string, ind: string) =>
+  `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind ${ind}/></w:pPr>${r(t)}</w:p>`;
+/** Bookmark `name` (id `id`) around `inner`. */
+const bm = (id: number, name: string, inner: string) =>
+  `<w:bookmarkStart w:id="${id}" w:name="${name}"/>${inner}<w:bookmarkEnd w:id="${id}"/>`;
 
 describe("DOCX correctness (#72)", () => {
   const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
@@ -236,21 +273,6 @@ describe("DOCX correctness (#72)", () => {
   };
   const read = (body: string, numbering?: string, rels?: string) =>
     run(makeDocxReader().read(docxWith(body, numbering, rels)));
-  const r = (text: string, rPr = "") =>
-    `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
-  const inlinesOf = (b: Block | undefined): ReadonlyArray<Inline> =>
-    b !== undefined &&
-    (Predicate.isTagged(b, "Para") ||
-      Predicate.isTagged(b, "Plain") ||
-      Predicate.isTagged(b, "Header"))
-      ? b.content
-      : [];
-  const parts = (blocks: ReadonlyArray<Block>) => {
-    const out = run(makeDocxWriter().write(doc(blocks)));
-    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
-    const files = unzipSync(out.bytes);
-    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
-  };
 
   // ---- writer
 
@@ -382,9 +404,7 @@ describe("DOCX correctness (#72)", () => {
     const numbering =
       `<w:abstractNum w:abstractNumId="7"><w:lvl w:ilvl="0"><w:numFmt w:val="lowerRoman"/></w:lvl><w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>` +
       `<w:num w:numId="9"><w:abstractNumId w:val="7"/></w:num>`;
-    const li = (t: string, ilvl: number) =>
-      `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="9"/></w:numPr></w:pPr>${r(t)}</w:p>`;
-    const back = read(li("i", 0) + li("dot", 1), numbering);
+    const back = read(numbered9("i", 0) + numbered9("dot", 1), numbering);
     expect(back.blocks).toEqual([
       orderedList([[plainText("i"), bulletList([[plainText("dot")]])]]),
     ]);
@@ -395,13 +415,9 @@ describe("DOCX correctness (#72)", () => {
       `<w:abstractNum w:abstractNumId="3"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl>` +
       `<w:lvl w:ilvl="1"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:start="1080" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>` +
       `<w:num w:numId="4"><w:abstractNumId w:val="3"/></w:num>`;
-    const li = (t: string, ilvl: number) =>
-      `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="4"/></w:numPr></w:pPr>${r(t)}</w:p>`;
-    const indented = (t: string, ind: string) =>
-      `<w:p><w:pPr><w:pStyle w:val="ListParagraph"/><w:ind ${ind}/></w:pPr>${r(t)}</w:p>`;
     const back = read(
-      li("a", 0) +
-        li("a1", 1) +
+      listParagraph4("a", 0) +
+        listParagraph4("a1", 1) +
         indented("a1 more", `w:left="1080"`) +
         indented("a more", `w:start="360"`) +
         indented("not the list's", `w:left="2000"`),
@@ -483,8 +499,6 @@ describe("DOCX correctness (#72)", () => {
   });
 
   test("13c. other bookmarked text is a span with the bookmark as its id (#184)", () => {
-    const bm = (id: number, name: string, inner: string) =>
-      `<w:bookmarkStart w:id="${id}" w:name="${name}"/>${inner}<w:bookmarkEnd w:id="${id}"/>`;
     const back = read(
       [
         `<w:p>${r("See ")}${bm(1, "here", r("this"))}${r(".")}</w:p>`,

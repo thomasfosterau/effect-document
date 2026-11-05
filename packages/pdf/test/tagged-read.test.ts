@@ -265,14 +265,14 @@ describe("reading other generators' tags (#198)", () => {
   });
 });
 
-describe("the layout reader still reads untagged output (#198)", () => {
-  /** The writer's output read from the layout alone, ignoring its tags. */
-  const layoutOnly = (blocks: ReadonlyArray<Block>): ReadonlyArray<Block> => {
-    const c = Effect.runSync(makePdfWriter().write(trustAs<PdfFeature>(document(blocks))));
-    assert(Predicate.isTagged(c, "Bytes"));
-    return layoutBlocks(readPages(PdfFile.open(c.bytes)));
-  };
+/** The writer's output read from the layout alone, ignoring its tags. */
+const layoutOnly = (blocks: ReadonlyArray<Block>): ReadonlyArray<Block> => {
+  const c = Effect.runSync(makePdfWriter().write(trustAs<PdfFeature>(document(blocks))));
+  assert(Predicate.isTagged(c, "Bytes"));
+  return layoutBlocks(readPages(PdfFile.open(c.bytes)));
+};
 
+describe("the layout reader still reads untagged output (#198)", () => {
   test("a paragraph that runs over a page break is one paragraph", () => {
     const words = Array.from({ length: 900 }, (_, i) => `word${i}`).join(" ");
     const back = layoutOnly([para([str(words)])]);

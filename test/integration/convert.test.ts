@@ -12,7 +12,6 @@ import {
   text,
   trustAs,
   worksheet,
-  Worksheet,
 } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-csv";
 import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
@@ -32,7 +31,8 @@ describe("convert", () => {
 
     // sanity: the bytes are a real workbook we can read back
     const back = await run(makeXlsxReader().read(content));
-    const ws = back.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
+    const ws = back.blocks.find((b) => Predicate.isTagged(b, "Worksheet"));
+    assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"));
     const grid = denseRows(ws);
     assert(Result.isSuccess(grid));
     expect(grid.success[1]![1]).toMatchObject({

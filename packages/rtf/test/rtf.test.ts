@@ -24,6 +24,13 @@ const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 type RtfF = FeaturesOf<typeof Rtf>;
 const doc = (blocks: ReadonlyArray<Block>) => trustAs<RtfF>(document(blocks));
 
+/** Write blocks as RTF text. */
+const write = (blocks: ReadonlyArray<Block>, options?: RtfWriterOptions): string =>
+  contentToText(run(makeRtfWriter(options).write(doc(blocks))));
+
+/** A string's UTF-8 bytes, as a list to spread into a byte array. */
+const ascii = (s: string) => [...new TextEncoder().encode(s)];
+
 describe("RTF writer", () => {
   test("emits a valid RTF wrapper with paragraphs", () => {
     const out = run(makeRtfWriter().write(doc([para([str("hello")])])));
@@ -46,9 +53,6 @@ describe("RTF writer", () => {
     const out = contentToText(run(makeRtfWriter().write(doc([para([str("a{b}\\c")])]))));
     expect(out).toContain("a\\{b\\}\\\\c");
   });
-
-  const write = (blocks: ReadonlyArray<Block>, options?: RtfWriterOptions): string =>
-    contentToText(run(makeRtfWriter(options).write(doc(blocks))));
 
   test("astral characters are written as a signed surrogate pair, and round-trip", () => {
     const out = write([para([str("a\u{1f600}b￿")])]);
@@ -211,7 +215,6 @@ describe("RTF reader: character decoding", () => {
   });
 
   test("Bytes input is 7-bit RTF: 8-bit bytes go through the code page, not UTF-8", () => {
-    const ascii = (s: string) => [...new TextEncoder().encode(s)];
     const source = new Uint8Array([
       ...ascii("{\\rtf1\\ansi caf"),
       0xe9,

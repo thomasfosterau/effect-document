@@ -33,6 +33,17 @@ const sparse = new Worksheet({
   merges: [],
 });
 
+const grid = (ws: Worksheet, options?: Parameters<typeof denseRows>[1]) => {
+  const rows = denseRows(ws, options);
+  assert(Result.isSuccess(rows), "the grid fits its budget");
+  return rows.success;
+};
+
+const sheetJson = (rows: unknown) => ({
+  meta: {},
+  blocks: [{ _tag: "Worksheet", name: "S", columns: [], merges: [], rows }],
+});
+
 describe("sparse worksheet (#185)", () => {
   test("holds only the cells it has", () => {
     expect(sparse.rows.flatMap((r) => r.cells)).toHaveLength(2);
@@ -58,12 +69,6 @@ describe("sparse worksheet (#185)", () => {
     expect(json.length).toBeLessThan(500);
     expect(Schema.decodeUnknownSync(wire)(json)).toEqual(document([far]));
   });
-
-  const grid = (ws: Worksheet, options?: Parameters<typeof denseRows>[1]) => {
-    const rows = denseRows(ws, options);
-    assert(Result.isSuccess(rows), "the grid fits its budget");
-    return rows.success;
-  };
 
   test("denseRows derives the rectangular grid, gaps as blanks", () => {
     const rows = grid(sparse);
@@ -135,10 +140,6 @@ describe("sparse worksheet (#185)", () => {
   });
 
   const decode = Schema.decodeUnknownResult(Document);
-  const sheetJson = (rows: unknown) => ({
-    meta: {},
-    blocks: [{ _tag: "Worksheet", name: "S", columns: [], merges: [], rows }],
-  });
   const text = { _tag: "CellText", value: "v" };
 
   test("decodes rows and cells in ascending order", () => {

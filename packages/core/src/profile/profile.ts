@@ -179,11 +179,9 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   const conforms = (doc: Document): boolean => Arr.isReadonlyArrayEmpty(violations(doc));
   const is = (doc: Document): doc is Doc<F> => conforms(doc);
   const validate = (doc: Document): Effect.Effect<Doc<F>, ProfileViolation> =>
-    Arr.match(violations(doc), {
-      // SAFETY: the document uses no feature outside the profile's allow-set, and breaks none of its rules.
-      onEmpty: () => Effect.succeed(doc as Doc<F>),
-      onNonEmpty: (unsupported) => Effect.fail(new ProfileViolation({ profile: id, unsupported })),
-    });
+    is(doc)
+      ? Effect.succeed(doc)
+      : Effect.fail(new ProfileViolation({ profile: id, unsupported: violations(doc) }));
   const schema: Schema.Codec<Doc<F>, DocumentEncoded> = Document.pipe(
     Schema.refine(is, {
       identifier: `${id}Document`,
@@ -202,4 +200,5 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
  */
 export const trustAs = <F extends Feature>(doc: Document): Doc<F> =>
   // SAFETY: the caller guarantees the document was built within the profile `F`.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `trustAs` is the documented unchecked brand (core CLAUDE.md); a check here would be `validate`
   doc as Doc<F>;

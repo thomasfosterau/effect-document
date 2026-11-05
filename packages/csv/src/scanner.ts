@@ -18,6 +18,7 @@ import {
 } from "@thomasfosterau/effect-parse";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
@@ -247,8 +248,8 @@ const linesIn = (row: ReadonlyArray<string> | null): number => {
  * always starts at a row boundary.
  */
 const fromSyntaxError = (e: SyntaxError.ParseError, firstRow: number): ParseError => {
-  // SAFETY: every CSV grammar runs on string input, so its errors carry a string.
-  const { row, column } = positionAt(e.input as string, e.offset);
+  // every CSV grammar runs on string input, so its errors carry a string
+  const { row, column } = positionAt(Predicate.isString(e.input) ? e.input : "", e.offset);
   return new ParseError({
     format: "csv",
     reason: e.description ?? `expected ${SyntaxError.formatExpected(e.expected)}`,
@@ -530,10 +531,10 @@ export const scanCsvStream = <E, R>(
           const index = state.index + 1;
           if (opts.treatFirstRowAsHeader && state.index === 0) {
             const headers = state.headers ?? fields;
-            const validated = opts.validateHeaders
+            const checked = opts.validateHeaders
               ? checkHeaders(headers, state.headers ? undefined : row)
               : Effect.void;
-            return Effect.as(validated, [{ index, headers, width: headers.length }, []] as const);
+            return Effect.as(checked, [{ index, headers, width: headers.length }, []] as const);
           }
           const width = state.width ?? fields.length;
           if (!opts.allowVariableColumns && fields.length !== width) {

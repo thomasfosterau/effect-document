@@ -11,7 +11,6 @@
  */
 
 import * as Rec from "effect/Record";
-import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
@@ -76,8 +75,8 @@ import {
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { denseRows, sheetRow } from "../schema/sheet.ts";
-import { type Feature, ID_FEATURE, type IdNode } from "../schema/feature.ts";
-import { type Doc, type NotWithin, type Profile } from "./profile.ts";
+import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
+import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
 // ============================================================================
@@ -506,10 +505,12 @@ const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
   );
 };
 
+/** A prose table row's cells as text cells. */
+const rowToCells = (row: TableRow): SheetCell[] =>
+  row.cells.map((c) => new CellText({ value: blocksToText(c.content) }));
+
 const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
-  const toCells = (row: TableRow): SheetCell[] =>
-    row.cells.map((c) => new CellText({ value: blocksToText(c.content) }));
-  const rows = [...t.head, ...t.body, ...t.foot].map((r, index) => sheetRow(index, toCells(r)));
+  const rows = [...t.head, ...t.body, ...t.foot].map((r, index) => sheetRow(index, rowToCells(r)));
   ctx.rec.convert("block.table", "prose table converted to a worksheet");
   // Re-narrow: the produced Worksheet carries the table's attr and CellText
   // cells, which must themselves be checked against the target profile.
@@ -614,17 +615,7 @@ const narrowTable = (t: Table, ctx: Ctx): Table =>
 
 // ---- blocks ---------------------------------------------------------------
 
-const blockFeature = (tag: Block["_tag"]): Feature =>
-  Match.value(tag).pipe(
-    Match.when("Worksheet", (): Feature => "sheet.worksheet"),
-    Match.when("SlideShow", (): Feature => "deck.slideShow"),
-    Match.orElse(
-      (): Feature =>
-        // SAFETY: every other block tag `T` has the feature `block.<t>` (the
-        // tag with its first letter lower-cased); `feature.ts` lists them all.
-        `block.${tag.charAt(0).toLowerCase()}${tag.slice(1)}` as Feature,
-    ),
-  );
+const blockFeature = (tag: Block["_tag"]): Feature => TAG_FEATURE[tag];
 
 const narrowBlocks = (blocks: ReadonlyArray<Block>, ctx: Ctx): Block[] =>
   blocks.flatMap((b) => narrowBlock(b, ctx));
@@ -809,9 +800,9 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
   }
 
   const narrowed = narrowBlocks(blocks, ctx);
-  // SAFETY: `narrowBlocks` rebuilt every node through the `ctx.allowed` check,
-  // so the tree uses only the target profile's features.
-  const document = new Document({ meta: doc.meta, blocks: narrowed }) as Doc<To>;
+  // `narrowBlocks` rebuilt every node through the `ctx.allowed` check, so the
+  // tree uses only the target profile's features.
+  const document = trustAs<To>(new Document({ meta: doc.meta, blocks: narrowed }));
   return {
     document,
     loss: { entries: ctx.rec.entries, isLossless: Arr.isReadonlyArrayEmpty(ctx.rec.entries) },

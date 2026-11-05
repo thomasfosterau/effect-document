@@ -25,6 +25,21 @@ const zip = (files: Record<string, string | Uint8Array>) =>
     ),
   );
 
+/** `s` as UTF-16LE bytes (ASCII and Latin-1 only), with a BOM if `bom`. */
+const utf16le = (s: string, bom: boolean) => {
+  const out = new Uint8Array((bom ? 2 : 0) + s.length * 2);
+  if (bom) out.set([0xff, 0xfe]);
+  for (let i = 0; i < s.length; i++) out[(bom ? 2 : 0) + 2 * i] = s.charCodeAt(i);
+  return out;
+};
+
+/** A one-paragraph DOCX, written by our writer. */
+const docx = () => {
+  const out = Effect.runSync(makeDocxWriter().write(trustAs(document([para([str("hi")])]))));
+  assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
+  return out;
+};
+
 describe("OpcReader (#55)", () => {
   test("inflates parts lazily and matches part names case-insensitively", () => {
     const pkg = new OpcReader(
@@ -74,12 +89,6 @@ describe("OpcReader (#55)", () => {
   });
 
   test("decodes UTF-16 parts by BOM or by their first bytes", () => {
-    const utf16le = (s: string, bom: boolean) => {
-      const out = new Uint8Array((bom ? 2 : 0) + s.length * 2);
-      if (bom) out.set([0xff, 0xfe]);
-      for (let i = 0; i < s.length; i++) out[(bom ? 2 : 0) + 2 * i] = s.charCodeAt(i);
-      return out;
-    };
     expect(decodePart(utf16le("<a>é</a>", true))).toBe("<a>é</a>");
     expect(decodePart(utf16le(`<?xml version="1.0" encoding="UTF-16"?><a/>`, false))).toContain(
       "<a/>",
@@ -100,21 +109,13 @@ describe("OpcReader (#55)", () => {
 
   test("zip output is byte-deterministic", () => {
     expect(zipParts({ "a.xml": "<a/>" })).toEqual(zipParts({ "a.xml": "<a/>" }));
-    const doc = trustAs(document([worksheet("S", [[cell.number(1)]])]));
-    const write = () => Effect.runSync(makeXlsxWriter().write(doc as never));
+    const doc = document([worksheet("S", [[cell.number(1)]])]);
+    const write = () => Effect.runSync(makeXlsxWriter().write(trustAs(doc)));
     expect(write()).toEqual(write());
   });
 });
 
 describe("readers (#55)", () => {
-  const docx = () => {
-    const out = Effect.runSync(
-      makeDocxWriter().write(trustAs(document([para([str("hi")])])) as never),
-    );
-    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
-    return out;
-  };
-
   test("a package of the wrong type fails with WrongPackageType instead of reading empty", () => {
     const pptx = Effect.runSync(Effect.flip(makePptxReader().read(docx())));
     expect(pptx.reason).toContain("WrongPackageType");

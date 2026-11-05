@@ -194,7 +194,7 @@ describe("PDF round trip", () => {
       para([str("Call "), new Code({ text: "run()" }), str(" first.")]),
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Para", "Header", "Para"]);
-    const [h1, p, h2, p2] = back.blocks as [Block, Block, Block, Block];
+    const [h1, p, h2, p2] = back.blocks;
     expect(Predicate.isTagged(h1, "Header") && h1.level).toBe(1);
     expect(Predicate.isTagged(h2, "Header") && h2.level).toBe(2);
     expect(Predicate.isTagged(h1, "Header") && h1.content).toEqual([str("Annual Report")]);

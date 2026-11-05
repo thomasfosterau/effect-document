@@ -20,10 +20,9 @@ import { Document } from "../schema/document.ts";
 import { type Feature, featureOfTag, idFeatureOf } from "../schema/feature.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
-const attrOf = (n: unknown): Attributes | undefined =>
-  // SAFETY: called only on document nodes, every one of which declares `attr`
-  // (when it has one) as the `attrField` schema, i.e. `Attributes | undefined`.
-  (n as { readonly attr?: Attributes | undefined }).attr;
+/** A node's attributes: every node that has them declares `attr` as `Attributes | undefined`. */
+const attrOf = (n: Inline | Block | Shape): Attributes | undefined =>
+  "attr" in n ? n.attr : undefined;
 
 const addTag = (tag: string, acc: Set<Feature>): void => {
   const f = featureOfTag(tag);
@@ -31,8 +30,8 @@ const addTag = (tag: string, acc: Set<Feature>): void => {
 };
 
 /** A node's attribute facets, its id as the id facet of `node` (its tag) (#184). */
-const addAttr = (n: unknown, node: string, acc: Set<Feature>): void => {
-  for (const f of usedAttrFeatures(attrOf(n))) acc.add(f === "attr.id" ? idFeatureOf(node) : f);
+const addAttr = (attr: Attributes | undefined, node: string, acc: Set<Feature>): void => {
+  for (const f of usedAttrFeatures(attr)) acc.add(f === "attr.id" ? idFeatureOf(node) : f);
 };
 
 // Each walk adds a node's own features and pushes its children onto an
@@ -94,7 +93,7 @@ const INLINE_CHILDREN: Walk<Inline> = {
 
 const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
   addTag(n._tag, acc);
-  addAttr(n, n._tag, acc);
+  addAttr(attrOf(n), n._tag, acc);
   dispatchTag(INLINE_CHILDREN, n, acc, stack);
 };
 
@@ -103,7 +102,7 @@ const walkTable = (t: Table, acc: Set<Feature>, stack: Stack): void => {
   const rows = [...t.head, ...t.body, ...t.foot];
   for (const row of rows) {
     for (const cellNode of row.cells) {
-      addAttr(cellNode, "TableCell", acc);
+      addAttr(cellNode.attr, "TableCell", acc);
       pushBlocks(cellNode.content, stack);
     }
   }
@@ -131,13 +130,13 @@ const SHAPE_CHILDREN: Walk<Shape> = {
 
 const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
   addTag(s._tag, acc);
-  addAttr(s, s._tag, acc);
+  addAttr(attrOf(s), s._tag, acc);
   dispatchTag(SHAPE_CHILDREN, s, acc, stack);
 };
 
 const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
   for (const sl of d.slides) {
-    addAttr(sl, "Slide", acc);
+    addAttr(sl.attr, "Slide", acc);
     if (sl.notes !== undefined) {
       acc.add("deck.notes");
       pushBlocks(sl.notes, stack);
@@ -190,7 +189,7 @@ const BLOCK_CHILDREN: Walk<Block> = {
 
 const walkBlock = (b: Block, acc: Set<Feature>, stack: Stack): void => {
   addTag(b._tag, acc);
-  addAttr(b, b._tag, acc);
+  addAttr(attrOf(b), b._tag, acc);
   dispatchTag(BLOCK_CHILDREN, b, acc, stack);
 };
 

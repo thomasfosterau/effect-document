@@ -28,6 +28,19 @@ describe("collectFeatures", () => {
   });
 });
 
+const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => ({
+  meta: {},
+  blocks: [
+    {
+      _tag: "Worksheet",
+      name: "S",
+      columns: [],
+      merges: [],
+      rows: [{ index: 0, cells: [{ col: 0, cell: cellJson }] }],
+    },
+  ],
+});
+
 describe("profile conformance", () => {
   const csvDoc = document([worksheet("S", [[cell.text("a"), cell.number(1)]])]);
   const richDoc = document([
@@ -58,18 +71,6 @@ describe("profile conformance", () => {
   });
 
   test("profile.schema decodes a conforming document and rejects a rich one", () => {
-    const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => ({
-      meta: {},
-      blocks: [
-        {
-          _tag: "Worksheet",
-          name: "S",
-          columns: [],
-          merges: [],
-          rows: [{ index: 0, cells: [{ col: 0, cell: cellJson }] }],
-        },
-      ],
-    });
     const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(
       mkJson({ _tag: "CellText", value: "a" }),
     );

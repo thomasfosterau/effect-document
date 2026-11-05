@@ -420,6 +420,9 @@ const codeText = (group: ReadonlyArray<Line>): string => {
   return text.join("\n");
 };
 
+/** Whether a line ends a sentence (or a clause): a stop, maybe before a closing quote or bracket. */
+const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
+
 /**
  * Infer prose blocks from the text of a document's pages. A heading whose
  * text is an `outline` item's title takes its level from the item's depth
@@ -458,7 +461,6 @@ export const layoutBlocks = (
   const isFull = (l: Line): boolean =>
     l.x1 >= (rightEdge.get(l.page) ?? Number.POSITIVE_INFINITY) - body * 2;
   /** Ends at a sentence boundary, as a paragraph's last line usually does. */
-  const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
 
   // the usual distance between consecutive lines of one paragraph: the small
   // end of the gaps between body lines (paragraph breaks are the larger ones).

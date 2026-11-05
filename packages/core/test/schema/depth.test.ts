@@ -50,6 +50,15 @@ const emphasised = (n: number): Inline => {
   return i;
 };
 
+/** A document as deep as `wrap` can make it without exceeding `depth`. */
+const chain = (wrap: (b: Block) => Block, depth: number): Document => {
+  const base: Block = para([new Str({ text: "x" })]);
+  const start = blocksNestingDepth([base]);
+  const step = blocksNestingDepth([wrap(base)]) - start;
+  const levels = Math.floor((depth - start) / step);
+  return document([Array.from({ length: levels }).reduce<Block>((b) => wrap(b), base)]);
+};
+
 describe("deep nesting (#110)", () => {
   test("Profile.is and collectFeatures handle 20,000 levels", () => {
     const doc = document([quoted(DEEP), para([emphasised(DEEP)])]);
@@ -133,15 +142,6 @@ describe("deep nesting (#110)", () => {
         ]),
     ],
   ];
-
-  /** A document as deep as `wrap` can make it without exceeding `depth`. */
-  const chain = (wrap: (b: Block) => Block, depth: number): Document => {
-    const base: Block = para([new Str({ text: "x" })]);
-    const start = blocksNestingDepth([base]);
-    const step = blocksNestingDepth([wrap(base)]) - start;
-    const levels = Math.floor((depth - start) / step);
-    return document([Array.from({ length: levels }).reduce<Block>((b) => wrap(b), base)]);
-  };
 
   test.each(chains)(
     "%s at the readers' default limit encode, decode, narrow and validate",

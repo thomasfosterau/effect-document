@@ -140,23 +140,6 @@ export default defineConfig({
       // caches and identity-keyed cycle guards; plus the CSV compiled-parser
       // memo (a bounded cache keyed by the option string).
       "effect/avoid-native-object-helpers": "warn",
-      // ---- Oxlint categories: adoption allowances ---------------------------
-      // `suspicious` arrived with the @enfect/oxlint move (effect-document
-      // PR, Vite+ 1.4). The two rules below had too many sites to rework
-      // safely there; each stays reported at `warn`, a new site is a defect,
-      // and the line is deleted once its count reaches zero.
-      // 60 sites (src 14, tests 46): closures defined inside a function that
-      // capture nothing, mostly test helpers inside `describe` blocks.
-      "unicorn/consistent-function-scoping": "warn",
-      // 42 sites (src 39, tests 3): inner bindings that reuse an outer name
-      // (`el`, `ctx`, `i`) in the decoders' nested walks.
-      "eslint/no-shadow": "warn",
-      // ---- Type-aware rules: adoption allowance -----------------------------
-      // 43 sites (src 16, tests 27): narrowings a byte-level decoder needs
-      // (a decoded record to its schema type, a PDF object to its kind),
-      // the same sites `effect/casting-awareness` keeps visible. Reported at
-      // `warn`; a new site is a defect, and the line goes once it is zero.
-      "typescript/no-unsafe-type-assertion": "warn",
       // ---- Effect preset: rules this workspace's conventions cut across ----
       // `prefer-option-over-null` also fires on `?: T | undefined`, which is
       // the ONLY spelling of an optional member `exactOptionalPropertyTypes`

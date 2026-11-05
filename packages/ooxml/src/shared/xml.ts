@@ -118,7 +118,7 @@ const isNameChar = (ch: string): boolean => {
   const c = ch.charCodeAt(0);
   return isNameStartCode(c) || (c >= 48 && c <= 57) || c === 45 || c === 46 || c === 0xb7;
 };
-const name = Token.takeWhile(isNameChar, { min: 1 }).pipe(
+const xmlName = Token.takeWhile(isNameChar, { min: 1 }).pipe(
   Parser.filter((n) => isNameStart(n[0]!)),
   Parser.expected("name"),
 );
@@ -129,7 +129,7 @@ const quoted = (quote: string) =>
     Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote))),
   );
 const attribute = Parser.separatedPair(
-  name,
+  xmlName,
   Parser.seq(ws, Token.literal("="), ws),
   Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(
     Parser.expected("attribute value"),
@@ -182,7 +182,7 @@ const openTag: Parser.Parser<XmlToken, string> = Parser.preceded(
     Parser.map(
       Parser.seq(
         Parser.location,
-        name,
+        xmlName,
         attributes,
         ws,
         Parser.alt(Parser.as(Token.literal("/>"), true), Parser.as(Token.literal(">"), false)).pipe(
@@ -199,7 +199,7 @@ const closeTag: Parser.Parser<XmlToken> = Parser.map(
     Parser.location,
     Parser.delimited(
       Token.literal("</"),
-      Parser.cut(name),
+      Parser.cut(xmlName),
       Parser.cut(Parser.seq(ws, Token.literal(">"))),
     ),
   ),

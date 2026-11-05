@@ -124,6 +124,14 @@ const ok = <A, E>(r: Result.Result<A, E>): A => {
 
 const encoded = (doc: Document): DocumentEncoded => ok(encodeDocumentResult(doc));
 
+/** The error message the codec and the Schema codec give for an invalid input. */
+const failures = (input: unknown): readonly [string, string] => {
+  const ours = decodeDocumentResult(input);
+  const theirs = Schema.decodeUnknownResult(Document)(input);
+  assert(Result.isFailure(ours) && Result.isFailure(theirs));
+  return [ours.failure.message, theirs.failure.message];
+};
+
 describe("the stack-safe Document codec (#191)", () => {
   test.each(chains)("%s: agrees with the Schema codec at a shallow depth", (_, wrap) => {
     const doc = wrapped(wrap, 3);
@@ -177,14 +185,6 @@ describe("the stack-safe Document codec (#191)", () => {
     expect(error._tag).toBe("SchemaError");
   });
 
-  /** The error message the codec and the Schema codec give for an invalid input. */
-  const failures = (input: unknown): readonly [string, string] => {
-    const ours = decodeDocumentResult(input);
-    const theirs = Schema.decodeUnknownResult(Document)(input);
-    assert(Result.isFailure(ours) && Result.isFailure(theirs));
-    return [ours.failure.message, theirs.failure.message];
-  };
-
   test.each([
     [
       "a heading level out of range",
@@ -235,12 +235,11 @@ describe("the stack-safe Document codec (#191)", () => {
   });
 
   test("encoding fails on a node in the wrong position", () => {
-    // SAFETY: deliberately malformed (a plain object where a block belongs), built
-    // without the constructors, which would refuse it.
-    const bad = Object.assign(Object.create(Document.prototype), {
-      meta: {},
-      blocks: [{ _tag: "Para", content: [] }],
-    }) as Document;
+    // deliberately malformed: a plain object where a block belongs, put in
+    // after construction, since the constructors would refuse it
+    const bad = Object.defineProperty(document([]), "blocks", {
+      value: [{ _tag: "Para", content: [] }],
+    });
     expect(Result.isFailure(encodeDocumentResult(bad))).toBe(true);
     expect(Result.isFailure(Schema.encodeUnknownResult(Document)(bad))).toBe(true);
   });
