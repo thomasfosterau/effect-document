@@ -1,9 +1,9 @@
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { zipSync } from "fflate";
-import { blocksToText, bytes, type SlideShow } from "@thomasfosterau/effect-document";
+import { blocksToText, bytes } from "@thomasfosterau/effect-document";
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
 import { chunk, dechunk } from "../src/iwa.ts";
 import { parseMessage, readVarint } from "../src/protobuf.ts";
@@ -94,7 +94,8 @@ describe("Keynote reader (real .key fixture)", () => {
   test("extracts slide text into a conforming presentation document", () => {
     const doc = run(Keynote.makeKeynoteReader().read(bytes(fixture("simple-oneslide.key"))));
     expect(Keynote.Keynote.is(doc)).toBe(true);
-    const ss = doc.blocks.find((b) => Predicate.isTagged(b, "SlideShow")) as SlideShow;
+    const ss = doc.blocks.find((b) => Predicate.isTagged(b, "SlideShow"));
+    assert(ss !== undefined && Predicate.isTagged(ss, "SlideShow"));
     expect(ss.slides).toHaveLength(1);
     const text = blocksToText(doc.blocks);
     expect(text).toContain("Example Presentation");
@@ -108,9 +109,7 @@ describe("Numbers reader (real .numbers fixture, structure only)", () => {
   test("reads the sheet names into (empty) worksheets", () => {
     const doc = run(Numbers.makeNumbersReader().read(bytes(fixture("test-1.numbers"))));
     expect(Numbers.Numbers.is(doc)).toBe(true);
-    const names = doc.blocks
-      .filter((b) => Predicate.isTagged(b, "Worksheet"))
-      .map((b) => (b as { name: string }).name);
+    const names = doc.blocks.flatMap((b) => (Predicate.isTagged(b, "Worksheet") ? [b.name] : []));
     expect(names).toEqual(["ZZZ_Sheet_1", "ZZZ_Sheet_2"]);
   });
 });

@@ -210,15 +210,15 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
     Effect.gen(function* () {
       const { pkg, workbookPath, relationships } = yield* Effect.try({
         try: () => {
-          const pkg = new OpcReader(contentToBytes(input), options?.limits);
-          if (pkg.text("_rels/.rels") === null)
+          const opened = new OpcReader(contentToBytes(input), options?.limits);
+          if (opened.text("_rels/.rels") === null)
             throw new OpcError("MissingPart", "Missing required package part: _rels/.rels");
-          const workbookPath = pkg.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
-          pkg.expectMainPart(workbookPath, "xlsx", WORKBOOK_CONTENT_TYPES);
+          const mainPath = opened.rootTarget(REL_OFFICE_DOCUMENT_SUFFIX, "xl/workbook.xml");
+          opened.expectMainPart(mainPath, "xlsx", WORKBOOK_CONTENT_TYPES);
           return {
-            pkg,
-            workbookPath,
-            relationships: pkg.rels(workbookPath).filter((r) => !r.external),
+            pkg: opened,
+            workbookPath: mainPath,
+            relationships: opened.rels(mainPath).filter((r) => !r.external),
           };
         },
         catch: (cause) => ooxmlParseError("xlsx", cause),

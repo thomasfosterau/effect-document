@@ -203,40 +203,63 @@ const joinParts = (groups: ReadonlyArray<ReadonlyArray<TextPart>>, sep: string):
   return out;
 };
 
+/** A node's own `text`, as its only part. */
+const textPart = (n: { readonly text: string }): TextPart[] => [n.text];
+/** A node's inline `content`, as parts. */
+const contentParts = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
+  inlineParts(n.content);
+/** A space, as its only part. */
+const spacePart = (): TextPart[] => [" "];
+/** A cell's own `value`, as its only part. */
+const valuePart = (n: { readonly value: string }): TextPart[] => [n.value];
+/** A shape's blocks, one per line. */
+const proseParts = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] =>
+  joinParts(
+    n.content.map((b) => [{ b }]),
+    "\n",
+  );
+/** Blocks, one per line. */
+const blockParts = (bs: ReadonlyArray<Block>): TextPart[] =>
+  joinParts(
+    bs.map((b) => [{ b }]),
+    "\n",
+  );
+/** A container's blocks, one per line. */
+const nestedParts = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] =>
+  blockParts(n.content);
+/** A list's items, one per line. */
+const itemParts = (n: { readonly items: ReadonlyArray<ReadonlyArray<Block>> }): TextPart[] =>
+  joinParts(n.items.map(blockParts), "\n");
+
 const expandInline = (inline: Inline): TextPart[] => {
-  const text = (n: { readonly text: string }): TextPart[] => [n.text];
-  const content = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
-    inlineParts(n.content);
-  const space = (): TextPart[] => [" "];
   return Match.valueTags(inline, {
-    Str: text,
-    Code: text,
-    Math: text,
-    RawInline: text,
-    Space: space,
-    SoftBreak: space,
+    Str: textPart,
+    Code: textPart,
+    Math: textPart,
+    RawInline: textPart,
+    Space: spacePart,
+    SoftBreak: spacePart,
     LineBreak: () => ["\n"],
     Image: (n) => inlineParts(n.alt),
-    Emph: content,
-    Strong: content,
-    Underline: content,
-    Strikeout: content,
-    Superscript: content,
-    Subscript: content,
-    SmallCaps: content,
-    Quoted: content,
-    Cite: content,
-    Link: content,
-    Span: content,
+    Emph: contentParts,
+    Strong: contentParts,
+    Underline: contentParts,
+    Strikeout: contentParts,
+    Superscript: contentParts,
+    Subscript: contentParts,
+    SmallCaps: contentParts,
+    Quoted: contentParts,
+    Cite: contentParts,
+    Link: contentParts,
+    Span: contentParts,
     Note: () => [],
   });
 };
 
 const expandCell = (c: SheetCell): TextPart[] => {
-  const value = (n: { readonly value: string }): TextPart[] => [n.value];
   return Match.valueTags(c, {
-    CellText: value,
-    CellError: value,
+    CellText: valuePart,
+    CellError: valuePart,
     CellNumber: (n) => [String(n.value)],
     CellBoolean: (n) => [n.value ? "true" : "false"],
     CellDate: (n) => [n.value.toISOString()],
@@ -247,49 +270,33 @@ const expandCell = (c: SheetCell): TextPart[] => {
 };
 
 const expandShape = (shape: Shape): TextPart[] => {
-  const prose = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] =>
-    joinParts(
-      n.content.map((b) => [{ b }]),
-      "\n",
-    );
   return Match.valueTags(shape, {
     Picture: (n) => [n.alt ?? ""],
     TableShape: (n) => [{ b: n.table }],
-    TextBox: prose,
-    Placeholder: prose,
+    TextBox: proseParts,
+    Placeholder: proseParts,
   });
 };
 
 const expandBlock = (block: Block): TextPart[] => {
-  const blocks = (bs: ReadonlyArray<Block>) =>
-    joinParts(
-      bs.map((b) => [{ b }]),
-      "\n",
-    );
-  const inlines = (n: { readonly content: ReadonlyArray<Inline> }): TextPart[] =>
-    inlineParts(n.content);
-  const text = (n: { readonly text: string }): TextPart[] => [n.text];
-  const nested = (n: { readonly content: ReadonlyArray<Block> }): TextPart[] => blocks(n.content);
-  const items = (n: { readonly items: ReadonlyArray<ReadonlyArray<Block>> }): TextPart[] =>
-    joinParts(n.items.map(blocks), "\n");
   return Match.valueTags(block, {
-    Plain: inlines,
-    Para: inlines,
-    Header: inlines,
+    Plain: contentParts,
+    Para: contentParts,
+    Header: contentParts,
     LineBlock: (n) => joinParts(n.lines.map(inlineParts), "\n"),
-    CodeBlock: text,
-    RawBlock: text,
-    BlockQuote: nested,
-    Div: nested,
-    Figure: nested,
-    OrderedList: items,
-    BulletList: items,
+    CodeBlock: textPart,
+    RawBlock: textPart,
+    BlockQuote: nestedParts,
+    Div: nestedParts,
+    Figure: nestedParts,
+    OrderedList: itemParts,
+    BulletList: itemParts,
     DefinitionList: (n) =>
       joinParts(
         n.items.map((it) => [
           ...inlineParts(it.term),
           "\n",
-          ...joinParts(it.definitions.map(blocks), "\n"),
+          ...joinParts(it.definitions.map(blockParts), "\n"),
         ]),
         "\n",
       ),
@@ -298,7 +305,7 @@ const expandBlock = (block: Block): TextPart[] => {
       joinParts(
         [...n.head, ...n.body, ...n.foot].map((row) =>
           joinParts(
-            row.cells.map((cl) => blocks(cl.content)),
+            row.cells.map((cl) => blockParts(cl.content)),
             "\t",
           ),
         ),

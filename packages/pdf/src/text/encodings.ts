@@ -185,13 +185,17 @@ export const standardFont = (baseFont: string): StandardFont | undefined => {
 
 const widthTables = new Map<string, Map<string, number>>();
 
+/** Whether `key` names a family in {@link STANDARD_WIDTHS}. */
+const isWidthFamily = (key: string): key is keyof typeof STANDARD_WIDTHS => key in STANDARD_WIDTHS;
+
 /** A standard font's glyph widths (1/1000 em) by glyph name. */
 export const standardWidths = (font: StandardFont): ((glyph: string) => number | undefined) => {
   if (font.startsWith("Courier")) return () => 600;
-  // SAFETY: every non-Courier standard font, with "Oblique" and a trailing
-  // dash removed, is one of the STANDARD_WIDTHS families (Helvetica[-Bold],
-  // Times-*, Symbol, ZapfDingbats).
-  const key = font.replace("Oblique", "").replace(/-$/, "") as keyof typeof STANDARD_WIDTHS;
+  // every non-Courier standard font, with "Oblique" and a trailing dash
+  // removed, is one of the STANDARD_WIDTHS families (Helvetica[-Bold],
+  // Times-*, Symbol, ZapfDingbats)
+  const key = font.replace("Oblique", "").replace(/-$/, "");
+  if (!isWidthFamily(key)) return () => undefined;
   let table = widthTables.get(key);
   if (table === undefined) {
     table = new Map();

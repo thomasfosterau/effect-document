@@ -215,13 +215,13 @@ export const openBundle = (
         Effect.try({
           try: () => {
             // a fresh budget per read: in effect, only the entry-size limit applies
-            const budget: Budget = { limits, total: 0 };
-            const { files } = unzip(bytes, budget, (name, size) => {
+            const readBudget: Budget = { limits, total: 0 };
+            const read = unzip(bytes, readBudget, (name, size) => {
               if (name !== path) return false;
-              charge(budget, name, size);
+              charge(readBudget, name, size);
               return true;
             });
-            return files[path];
+            return read.files[path];
           },
           catch: toIworkError,
         }).pipe(
@@ -237,6 +237,10 @@ export const openBundle = (
   });
 };
 
+/** A `FileSystem` failure as an `Io` {@link IworkError}. */
+const io = (cause: { readonly message: string }) =>
+  new IworkError({ reason: "Io", detail: cause.message, cause });
+
 /**
  * Open an iWork package saved as a directory (e.g. a `.key` folder bundle),
  * reading only its `.iwa` components (or inner `Index.zip`) through the
@@ -251,8 +255,6 @@ export const openBundleDirectory = (
     const limits = resolveLimits(options);
     const root = path.replace(/[\\/]+$/, "");
     const join = (name: string) => `${root}/${name}`;
-    const io = (cause: { readonly message: string }) =>
-      new IworkError({ reason: "Io", detail: cause.message, cause });
 
     /** Read one file, after checking its size against the entry limit. */
     const readChecked = (name: string, budget: Budget) =>

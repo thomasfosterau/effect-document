@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import {
+  type Block,
   bytes,
   cell,
   cellToText,
@@ -28,8 +29,8 @@ import { Spreadsheet } from "@thomasfosterau/effect-document/profiles";
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 type SpreadsheetF = XlsxFeature;
 
-const worksheets = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet[] =>
-  doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet[];
+const worksheets = (doc: { blocks: ReadonlyArray<Block> }): Worksheet[] =>
+  doc.blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));
 
 /** A worksheet's dense grid, for positional assertions. */
 const grid = (ws: Worksheet) => {
@@ -165,13 +166,15 @@ describe("XLSX round-trip", () => {
   });
 });
 
-describe("XLSX reader sparse worksheets (#62, #185)", () => {
-  const extent = (ws: Worksheet) => {
-    const { rows, columns } = sheetExtent(ws);
-    return [rows, columns];
-  };
-  const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + r.cells.length, 0);
+/** A worksheet's extent, as `[rows, columns]`. */
+const extent = (ws: Worksheet) => {
+  const { rows, columns } = sheetExtent(ws);
+  return [rows, columns];
+};
+/** How many cells a worksheet holds. */
+const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + r.cells.length, 0);
 
+describe("XLSX reader sparse worksheets (#62, #185)", () => {
   test("empty rows and style-only cells are not kept", async () => {
     const xlsx = packageWith(
       sheetXml(
@@ -258,11 +261,13 @@ describe("XLSX reader sparse worksheets (#62, #185)", () => {
   });
 });
 
-describe("XLSX reader fixes (#60)", () => {
-  const readSheets = async (xlsx: ReturnType<typeof packageWith>) =>
-    worksheets(await run(makeXlsxReader().read(xlsx)));
-  const texts = (ws: Worksheet) => grid(ws).map((r) => r.map((c) => cellToText(c)));
+/** The worksheets read from a package. */
+const readSheets = async (xlsx: ReturnType<typeof packageWith>) =>
+  worksheets(await run(makeXlsxReader().read(xlsx)));
+/** A worksheet's dense grid, as text. */
+const cellTexts = (ws: Worksheet) => grid(ws).map((r) => r.map((c) => cellToText(c)));
 
+describe("XLSX reader fixes (#60)", () => {
   test("chartsheets, dialogsheets and macrosheets read as empty tagged sheets", async () => {
     const xlsx = packageWith([
       { name: "Data", xml: sheetXml(`<row r="1"><c r="A1"><v>1</v></c></row>`) },
@@ -292,7 +297,7 @@ describe("XLSX reader fixes (#60)", () => {
           `<row><c><v>3</v></c><c><v>4</v></c></row>`,
       ),
     );
-    expect(texts((await readSheets(xlsx))[0]!)).toEqual([
+    expect(cellTexts((await readSheets(xlsx))[0]!)).toEqual([
       ["", "", "1", "2"],
       ["3", "4", "", ""],
     ]);
@@ -320,7 +325,7 @@ describe("XLSX reader fixes (#60)", () => {
       sheetXml(`<row r="1"><c r="A1" t="s"><v>0</v></c></row>`),
       `<si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si>`,
     );
-    expect(texts((await readSheets(xlsx))[0]!)).toEqual([["東京"]]);
+    expect(cellTexts((await readSheets(xlsx))[0]!)).toEqual([["東京"]]);
   });
 
   test("_xHHHH_ escapes are decoded", async () => {
@@ -331,7 +336,7 @@ describe("XLSX reader fixes (#60)", () => {
       ),
       `<si><t>line_x000D_break</t></si>`,
     );
-    expect(texts((await readSheets(xlsx))[0]!)).toEqual([["line\rbreak", "tab\there _x0041_"]]);
+    expect(cellTexts((await readSheets(xlsx))[0]!)).toEqual([["line\rbreak", "tab\there _x0041_"]]);
   });
 
   test('t="d" cells read as dates', async () => {
@@ -346,16 +351,18 @@ describe("XLSX reader fixes (#60)", () => {
   });
 });
 
-describe("XLSX writer validity (#61)", () => {
-  const sheetDoc = (...sheets: Array<[string, SheetCell[][]]>) =>
-    trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
-  const parts = async (doc: Doc<SpreadsheetF>) => {
-    const out = await run(makeXlsxWriter().write(doc));
-    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
-    const files = unzipSync(out.bytes);
-    return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
-  };
+/** A spreadsheet document of named sheets. */
+const sheetDoc = (...sheets: Array<[string, SheetCell[][]]>) =>
+  trustAs<SpreadsheetF>(document(sheets.map(([name, rows]) => worksheet(name, rows))));
+/** Write `doc`, and return a lookup of its package parts' text by path. */
+const parts = async (doc: Doc<SpreadsheetF>) => {
+  const out = await run(makeXlsxWriter().write(doc));
+  assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
+  const files = unzipSync(out.bytes);
+  return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
+};
 
+describe("XLSX writer validity (#61)", () => {
   test("NaN and ±Infinity are written as #NUM! errors", async () => {
     const doc = sheetDoc(["S", [[cell.number(Number.NaN), cell.number(Infinity), cell.number(1)]]]);
     const part = await parts(doc);

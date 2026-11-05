@@ -8,6 +8,7 @@
  * `$`-anchored parts alone, as Excel does when filling a formula.
  */
 
+import * as Predicate from "effect/Predicate";
 import { colToIndex, indexToCol } from "./a1.ts";
 
 /** The largest 0-indexed column (XFD) and row (1048576) in a worksheet. */
@@ -41,10 +42,11 @@ const shiftRow = (absolute: string, digits: string, by: number): string | null =
  */
 export const translateFormula = (formula: string, rows: number, cols: number): string => {
   if (rows === 0 && cols === 0) return formula;
-  return formula.replace(TOKEN, (match, ...groups) => {
+  return formula.replace(TOKEN, (match: string, ...groups: unknown[]) => {
     if (match.startsWith('"') || match.startsWith("'")) return match;
-    // SAFETY: TOKEN has 12 capture groups, so `replace` passes the match offset 13th
-    const offset = groups[12] as number;
+    // TOKEN has 12 capture groups, so `replace` passes the match offset 13th
+    const offset = groups[12];
+    if (!Predicate.isNumber(offset)) return match;
     const before = formula[offset - 1];
     const after = formula[offset + match.length];
     // Part of a longer name, a function call ("LOG10("), a sheet prefix
@@ -59,10 +61,10 @@ export const translateFormula = (formula: string, rows: number, cols: number): s
       return match;
     }
 
-    // SAFETY: the first 12 replacer arguments after the match are TOKEN's capture groups
-    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups as Array<
-      string | undefined
-    >;
+    // the first 12 replacer arguments after the match are TOKEN's capture groups
+    const [ca, cl, ra, rd, c1a, c1, c2a, c2, r1a, r1, r2a, r2] = groups
+      .slice(0, 12)
+      .map((g) => (Predicate.isString(g) ? g : undefined));
     if (cl !== undefined) {
       if (colToIndex(cl.toUpperCase()) > MAX_COL || Number.parseInt(rd!, 10) - 1 > MAX_ROW) {
         return match;

@@ -1,3 +1,4 @@
+import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -15,6 +16,7 @@ import {
   header,
   type Inline,
   link,
+  type Meta,
   orderedList,
   para,
   plainText,
@@ -52,20 +54,15 @@ import {
 } from "../src/cos/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
-const doc = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}) =>
+const doc = (blocks: ReadonlyArray<Block>, meta: Meta = {}) =>
   trustAs<PdfFeature>(document(blocks, meta));
-const write = (
-  blocks: ReadonlyArray<Block>,
-  meta?: Record<string, unknown>,
-  options = {},
-): Uint8Array => {
+const write = (blocks: ReadonlyArray<Block>, meta?: Meta, options = {}): Uint8Array => {
   const c = run(makePdfWriter(options).write(doc(blocks, meta)));
   assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
   return c.bytes;
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
-const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) =>
-  read(write(blocks, meta));
+const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Meta) => read(write(blocks, meta));
 /** Reads one of the PDFs under `test/fixtures` (provenance: its README). */
 const fixture = (name: string): Promise<Uint8Array> =>
   Effect.runPromise(
@@ -193,7 +190,7 @@ describe("PDF round trip", () => {
       para([str("Call "), new Code({ text: "run()" }), str(" first.")]),
     ]);
     expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Para", "Header", "Para"]);
-    const [h1, p, h2, p2] = back.blocks as [Block, Block, Block, Block];
+    const [h1, p, h2, p2] = back.blocks;
     expect(Predicate.isTagged(h1, "Header") && h1.level).toBe(1);
     expect(Predicate.isTagged(h2, "Header") && h2.level).toBe(2);
     expect(Predicate.isTagged(h1, "Header") && h1.content).toEqual([str("Annual Report")]);
@@ -256,6 +253,14 @@ describe("PDF round trip", () => {
       { pageSize: [200, 400], margin: 20 },
     );
     expect(textOf(data)).toContain("well-known");
+  });
+
+  test("a tagged line ending in a plain hyphen keeps the space after it (#198)", () => {
+    // every line ends in "a-", and the writer wraps only at spaces
+    const text = Arr.makeBy(80, () => "a-").join(" ");
+    const back = roundTrip([para([str(text)])]);
+    expect(back.blocks.map((b) => b._tag)).toEqual(["Para"]);
+    expect(blocksToText(back.blocks).replace(/\s+/g, " ").trim()).toBe(text);
   });
 });
 

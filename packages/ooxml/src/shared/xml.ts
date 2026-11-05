@@ -18,6 +18,7 @@
 
 import * as Arr from "effect/Array";
 import { Compiler, ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
+import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
 
 // ============================================================================
@@ -118,7 +119,7 @@ const isNameChar = (ch: string): boolean => {
   const c = ch.charCodeAt(0);
   return isNameStartCode(c) || (c >= 48 && c <= 57) || c === 45 || c === 46 || c === 0xb7;
 };
-const name = Token.takeWhile(isNameChar, { min: 1 }).pipe(
+const xmlName = Token.takeWhile(isNameChar, { min: 1 }).pipe(
   Parser.filter((n) => isNameStart(n[0]!)),
   Parser.expected("name"),
 );
@@ -129,7 +130,7 @@ const quoted = (quote: string) =>
     Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote))),
   );
 const attribute = Parser.separatedPair(
-  name,
+  xmlName,
   Parser.seq(ws, Token.literal("="), ws),
   Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(
     Parser.expected("attribute value"),
@@ -141,8 +142,7 @@ const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(
     (pairs) =>
       `duplicate attribute "${pairs.find(([k], i) => pairs.findIndex(([j]) => j === k) !== i)?.[0]}"`,
   ),
-  // SAFETY: every pair is a [name, value] of strings, so the entries make a string record
-  Parser.map((pairs) => Object.fromEntries(pairs) as Record<string, string>),
+  Parser.map((pairs): Record<string, string> => Rec.fromEntries(pairs)),
 );
 
 /** `open ... close`, committed once `open` has matched. */
@@ -182,7 +182,7 @@ const openTag: Parser.Parser<XmlToken, string> = Parser.preceded(
     Parser.map(
       Parser.seq(
         Parser.location,
-        name,
+        xmlName,
         attributes,
         ws,
         Parser.alt(Parser.as(Token.literal("/>"), true), Parser.as(Token.literal(">"), false)).pipe(
@@ -199,7 +199,7 @@ const closeTag: Parser.Parser<XmlToken> = Parser.map(
     Parser.location,
     Parser.delimited(
       Token.literal("</"),
-      Parser.cut(name),
+      Parser.cut(xmlName),
       Parser.cut(Parser.seq(ws, Token.literal(">"))),
     ),
   ),

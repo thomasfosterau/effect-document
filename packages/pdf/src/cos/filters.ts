@@ -296,9 +296,9 @@ export const decodeFilters = (
   for (let i = 0; i < names.length; i++) {
     const name = names[i]!;
     const p = parms[i];
-    const dict = isDict(p) ? p : undefined;
-    if (IMAGE_FILTERS.has(name)) return { data: out, imageFilter: name, imageParms: dict };
-    out = applyFilter(name, out, dict);
+    const parm = isDict(p) ? p : undefined;
+    if (IMAGE_FILTERS.has(name)) return { data: out, imageFilter: name, imageParms: parm };
+    out = applyFilter(name, out, parm);
   }
   return { data: out };
 };

@@ -3,6 +3,7 @@ import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import {
+  type Block,
   blocksToText,
   bulletList,
   bytes,
@@ -32,16 +33,33 @@ const deckOf = (...slides: Slide[]) => trustAs<PptxF>(document([slideShow(slides
 const readBack = (slides: Slide[]) =>
   run(makePptxReader().read(run(makePptxWriter().write(deckOf(...slides)))));
 
-const firstSlideShow = (blocks: ReadonlyArray<{ _tag: string }>) =>
-  blocks.find((b) => Predicate.isTagged(b, "SlideShow")) as
-    | { _tag: "SlideShow"; slides: ReadonlyArray<Slide> }
-    | undefined;
+const firstSlideShow = (blocks: ReadonlyArray<Block>) =>
+  blocks.find((b) => Predicate.isTagged(b, "SlideShow"));
+
+/** The blocks of the first shape on the first slide of a deck read back from `blocks`. */
+const shapeBack = (blocks: Parameters<typeof textBox>[0]) => {
+  const ss = firstSlideShow(readBack([slide([textBox(blocks)])]).blocks);
+  const shape = ss?.slides[0]?.shapes[0];
+  assert(shape !== undefined && Predicate.isTagged(shape, "TextBox"), "expected a text box");
+  return shape.content;
+};
+
+const NS = `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"`;
+/** A slide shape holding `paras`, with `ph` in its `nvPr`. */
+const sp = (paras: string, ph = "") =>
+  `<p:sp><p:nvSpPr><p:cNvPr id="2" name="s"/><p:cNvSpPr/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
+  `<p:spPr/><p:txBody><a:bodyPr/>${paras}</p:txBody></p:sp>`;
+/** A one-run DrawingML paragraph. */
+const para1 = (text: string, rPr = "") => `<a:p><a:r><a:rPr ${rPr}/><a:t>${text}</a:t></a:r></a:p>`;
+/** A bulleted (or auto-numbered) paragraph at `lvl`. */
+const bu = (text: string, lvl: number, auto = false) =>
+  `<a:p><a:pPr lvl="${lvl}">${auto ? `<a:buAutoNum type="arabicPeriod"/>` : `<a:buChar char="-"/>`}</a:pPr><a:r><a:t>${text}</a:t></a:r></a:p>`;
 
 describe("PPTX round-trip", () => {
   test("produces a valid-looking package and reads slides back", () => {
-    const bytes = run(makePptxWriter().write(deckOf(slide([textBox([para([str("hi")])])]))));
-    expect(bytes._tag).toBe("Bytes");
-    const back = run(makePptxReader().read(bytes));
+    const out = run(makePptxWriter().write(deckOf(slide([textBox([para([str("hi")])])]))));
+    expect(out._tag).toBe("Bytes");
+    const back = run(makePptxReader().read(out));
     const ss = firstSlideShow(back.blocks);
     expect(ss?.slides).toHaveLength(1);
   });
@@ -75,14 +93,6 @@ describe("PPTX round-trip", () => {
     const back = readBack([slide([textBox([para([str("hello")])])])]);
     expect(Pptx.is(back)).toBe(true);
   });
-
-  /** The blocks of the first shape on the first slide of a deck read back from `blocks`. */
-  const shapeBack = (blocks: Parameters<typeof textBox>[0]) => {
-    const ss = firstSlideShow(readBack([slide([textBox(blocks)])]).blocks);
-    const shape = ss?.slides[0]?.shapes[0];
-    assert(shape !== undefined && Predicate.isTagged(shape, "TextBox"), "expected a text box");
-    return shape.content;
-  };
 
   test("a list item's later paragraphs stay in the item (#196)", () => {
     const blocks = [
@@ -123,28 +133,21 @@ describe("PPTX round-trip", () => {
   });
 });
 
+/** A writer-made deck whose first slide's shape tree is replaced by `tree`. */
+const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => void) => {
+  const out = run(makePptxWriter().write(deckOf(slide([]))));
+  assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
+  const files = unzipSync(out.bytes);
+  files["ppt/slides/slide1.xml"] = strToU8(
+    `<p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`,
+  );
+  edit?.(files);
+  return bytes(zipSync(files));
+};
+const shapesOf = (content: ReturnType<typeof deckWith>) =>
+  firstSlideShow(run(makePptxReader().read(content)).blocks)!.slides[0]!.shapes;
+
 describe("PPTX reader fixes (#81)", () => {
-  const NS = `xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"`;
-  const sp = (paras: string, ph = "") =>
-    `<p:sp><p:nvSpPr><p:cNvPr id="2" name="s"/><p:cNvSpPr/><p:nvPr>${ph}</p:nvPr></p:nvSpPr>` +
-    `<p:spPr/><p:txBody><a:bodyPr/>${paras}</p:txBody></p:sp>`;
-  const para1 = (text: string, rPr = "") =>
-    `<a:p><a:r><a:rPr ${rPr}/><a:t>${text}</a:t></a:r></a:p>`;
-
-  /** A writer-made deck whose first slide's shape tree is replaced by `tree`. */
-  const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => void) => {
-    const out = run(makePptxWriter().write(deckOf(slide([]))));
-    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
-    const files = unzipSync(out.bytes);
-    files["ppt/slides/slide1.xml"] = strToU8(
-      `<p:sld ${NS}><p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`,
-    );
-    edit?.(files);
-    return bytes(zipSync(files));
-  };
-  const shapesOf = (content: ReturnType<typeof deckWith>) =>
-    firstSlideShow(run(makePptxReader().read(content)).blocks)!.slides[0]!.shapes;
-
   test("shapes inside (nested) group shapes are read in order", () => {
     const tree =
       sp(para1("one")) +
@@ -160,10 +163,10 @@ describe("PPTX reader fixes (#81)", () => {
 
   test('b="true" and i="true" are recognised', () => {
     const [shape] = shapesOf(deckWith(sp(para1("x", `b="true" i="true"`))));
+    const first =
+      shape !== undefined && Predicate.isTagged(shape, "TextBox") ? shape.content[0] : undefined;
     const inline =
-      shape!._tag === "TextBox"
-        ? (shape!.content[0] as { content: ReadonlyArray<{ _tag: string }> }).content[0]
-        : undefined;
+      first !== undefined && Predicate.isTagged(first, "Para") ? first.content[0] : undefined;
     expect(inline?._tag).toBe("Strong");
   });
 
@@ -205,8 +208,6 @@ describe("PPTX reader fixes (#81)", () => {
   });
 
   test("lvl nests bullet lists, and nested lists round-trip", () => {
-    const bu = (text: string, lvl: number, auto = false) =>
-      `<a:p><a:pPr lvl="${lvl}">${auto ? `<a:buAutoNum type="arabicPeriod"/>` : `<a:buChar char="-"/>`}</a:pPr><a:r><a:t>${text}</a:t></a:r></a:p>`;
     const [shape] = shapesOf(
       deckWith(sp(bu("a", 0) + bu("a1", 1) + bu("a1i", 2, true) + bu("a2", 1) + bu("b", 0))),
     );

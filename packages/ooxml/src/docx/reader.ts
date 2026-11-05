@@ -465,11 +465,13 @@ const linkAnchors = (body: XmlElement): HashSet.HashSet<string> =>
  * hidden bookmarks (`_GoBack`, `_Toc…`, any name starting with `_`) are
  * skipped unless a link in the document goes to them.
  */
+/** Whether a paragraph child is content (a run, link, field…) rather than a marker. */
+const isParagraphContent = (el: XmlElement): boolean => PARAGRAPH_CONTENT.includes(el.name);
+
 const bookmarkId = (p: XmlElement, ctx: Ctx): string | undefined => {
   const kids = p.children;
-  const isContent = (el: XmlElement): boolean => PARAGRAPH_CONTENT.includes(el.name);
-  const first = kids.findIndex(isContent);
-  const last = kids.findLastIndex(isContent);
+  const first = kids.findIndex(isParagraphContent);
+  const last = kids.findLastIndex(isParagraphContent);
   // a heading's id bookmark encloses the whole paragraph: it starts before the
   // first content and ends after the last (or in a later paragraph); one that
   // covers only part of the heading is a span in it

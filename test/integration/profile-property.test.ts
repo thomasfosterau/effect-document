@@ -30,7 +30,6 @@ import { arbitraryDocument, type Family, type ShapeOptions } from "../arbitrary.
 import {
   mapBlockLists,
   mapBlocks,
-  mapTokens,
   type Normal,
   type NormalBlock,
   normalize,
@@ -103,11 +102,6 @@ const titleHeadings = (normal: Normal): Normal =>
       : b,
   );
 
-/** Whether `token` is a word ending in a hyphen. */
-const endsWithHyphen = (token: Token | undefined): boolean =>
-  token !== undefined && Predicate.isTagged(token, "Word") && token.text.endsWith("-");
-
-/** No space after a word ending in "-", and the words either side joined if their marks match. */
 /** The marks a token carries, as a list. */
 const marksOf = (t: Token): ReadonlyArray<string> =>
   Predicate.isTagged(t, "Word") || Predicate.isTagged(t, "Code")
@@ -144,13 +138,6 @@ const wholeSpanHeadings = (normal: Normal): Normal =>
     };
   });
 
-const hyphenatedWords = (normal: Normal): Normal =>
-  mapTokens(normal, (tokens) =>
-    normalizeTokens(
-      tokens.filter((t, i) => !(Predicate.isTagged(t, "Space") && endsWithHyphen(tokens[i - 1]))),
-    ),
-  );
-
 const CASES: ReadonlyArray<Case> = [
   // CSV carries a type per column, not per cell (#88).
   { format: Csv.format, family: "sheet", options: { columnTyped: true }, runs: 100 },
@@ -183,11 +170,8 @@ const CASES: ReadonlyArray<Case> = [
     family: "prose",
     // The writer tags its output and the reader takes the structure from the
     // tags (#198), so headings keep their levels, paragraphs and lists their
-    // breaks, and list items their paragraphs.
-    limits: [
-      // A line that ends in a hyphen is a word broken across lines.
-      { issue: "#198", erase: hyphenatedWords },
-    ],
+    // breaks, list items their paragraphs, and a line's trailing hyphen its
+    // space (only a soft hyphen joins a tagged word across lines).
     runs: 50,
   },
 ];

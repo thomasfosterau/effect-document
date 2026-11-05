@@ -229,8 +229,8 @@ const breakLines = (
   };
 
   for (let i = 0; i < toks.length; i++) {
-    // SAFETY: `i < toks.length`, so the element exists
-    const t = toks[i] as Tok;
+    const t = toks[i];
+    if (t === undefined) continue;
     if (t === null) {
       flush();
       continue;

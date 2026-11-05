@@ -22,10 +22,10 @@ export interface Bytes {
 export type Content = Text | Bytes;
 
 /** Construct textual content. */
-export const text = (text: string): Text => ({ _tag: "Text", text });
+export const text = (value: string): Text => ({ _tag: "Text", text: value });
 
 /** Construct binary content. */
-export const bytes = (bytes: Uint8Array): Bytes => ({ _tag: "Bytes", bytes });
+export const bytes = (data: Uint8Array): Bytes => ({ _tag: "Bytes", bytes: data });
 
 /** View any content as a string (bytes are decoded as UTF-8). */
 export const contentToText = (content: Content): string =>

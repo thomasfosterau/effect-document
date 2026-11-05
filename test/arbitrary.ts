@@ -12,6 +12,7 @@
  * property-testing work in #132.
  */
 
+import * as DateTime from "effect/DateTime";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Match from "effect/Match";
@@ -66,6 +67,9 @@ import {
   Worksheet,
   type Shape,
 } from "@thomasfosterau/effect-document";
+
+/** The first date the generated date cells count from. */
+const EPOCH_1990 = DateTime.makeUnsafe("1990-01-01T00:00:00.000Z");
 
 // ============================================================================
 // Primitive arbitraries
@@ -356,7 +360,8 @@ const cellOf = (feature: Feature): Arbitrary.Arbitrary<SheetCell> | undefined =>
     Match.when("cell.date", () =>
       Arbitrary.map(
         int(0, 20_000),
-        (days): SheetCell => new CellDate({ value: new Date(Date.UTC(1990, 0, 1 + days)) }),
+        (days): SheetCell =>
+          new CellDate({ value: DateTime.toDateUtc(DateTime.add(EPOCH_1990, { days })) }),
       ),
     ),
     Match.orElse(() => undefined),
@@ -483,6 +488,9 @@ const slideShowOf = (ctx: Ctx): Arbitrary.Arbitrary<Block> => {
 // Documents
 // ============================================================================
 
+/** A document of `blocks` with no metadata. */
+const documentOf = (content: ReadonlyArray<Block>) => new Document({ meta: {}, blocks: content });
+
 /** The kind of document a format holds. */
 export type Family = "prose" | "sheet" | "deck";
 
@@ -497,7 +505,6 @@ export const arbitraryDocument = (
 ): Arbitrary.Arbitrary<Document> => {
   const has = (f: Feature): boolean => profile.features.has(f);
   const ctx: Ctx = { has, options, rules: profile.notWithin };
-  const doc = (blocksOf: ReadonlyArray<Block>) => new Document({ meta: {}, blocks: blocksOf });
   // enough body text to outweigh any generated run of headings or code
   const body = (text: string): ReadonlyArray<Block> =>
     options.bodyContext === true
@@ -510,15 +517,15 @@ export const arbitraryDocument = (
   return Match.value(family).pipe(
     Match.when("prose", () =>
       Arbitrary.map(blocks(ctx, 2, 5), (generated) =>
-        doc([...body("Intro."), ...generated, ...body("Outro.")]),
+        documentOf([...body("Intro."), ...generated, ...body("Outro.")]),
       ),
     ),
-    Match.when("deck", () => Arbitrary.map(slideShowOf(ctx), (show) => doc([show]))),
+    Match.when("deck", () => Arbitrary.map(slideShowOf(ctx), (show) => documentOf([show]))),
     Match.when("sheet", () =>
       Arbitrary.flatMap(int(1, has("sheet.multiple") ? 3 : 1), (count) =>
         Arbitrary.map(
           Arbitrary.all(Arr.makeBy(count, (i) => sheetOf(`Sheet${i + 1}`, has, options))),
-          doc,
+          documentOf,
         ),
       ),
     ),

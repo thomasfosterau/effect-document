@@ -32,8 +32,8 @@ export type NestedNode = Block | Inline | Shape;
 export const DEFAULT_MAX_NESTING_DEPTH = 128;
 
 /** The blocks, inlines and shapes directly inside a node. */
-export const nestedChildren = (n: NestedNode): ReadonlyArray<NestedNode> => {
-  return Match.value(n).pipe(
+export const nestedChildren = (node: NestedNode): ReadonlyArray<NestedNode> => {
+  return Match.value(node).pipe(
     Match.tag(
       "Emph",
       "Strong",

@@ -5,6 +5,7 @@
  * (`validate/`, #134).
  */
 
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import {
@@ -149,7 +150,9 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
   "cell.text": [sheet("S", [[cell.text("x")]])],
   "cell.number": [sheet("S", [[cell.number(1.5)]])],
   "cell.boolean": [sheet("S", [[cell.boolean(true)]])],
-  "cell.date": [sheet("S", [[cell.date(new Date("2024-01-02T00:00:00Z"))]])],
+  "cell.date": [
+    sheet("S", [[cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2024-01-02T00:00:00Z")))]]),
+  ],
   "cell.error": [sheet("S", [[cell.error("#DIV/0!")]])],
   "cell.blank": [sheet("S", [[cell.text("x"), cell.blank(), cell.text("y")]])],
   "cell.formula": [sheet("S", [[cell.formula("1+1", "2")]])],

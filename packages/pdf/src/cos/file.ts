@@ -83,6 +83,9 @@ interface XrefSection {
   trailer: PdfDict;
 }
 
+/** Whether a byte is an ASCII digit. */
+const isDigit = (c: number | undefined): boolean => c !== undefined && c >= 0x30 && c <= 0x39;
+
 /** A parsed PDF file. */
 export class PdfFile {
   /** The header version (`1.7`), or the catalog's `/Version` when that is later. */
@@ -158,9 +161,11 @@ export class PdfFile {
 
   /** The document catalog (`/Root`). */
   get catalog(): PdfDict {
-    // SAFETY: the constructor refuses (or repairs) a file whose `/Root` does
-    // not resolve to a dictionary, and the trailer never changes after it.
-    return this.resolve(this.trailer.entries.get("Root")) as PdfDict;
+    // the constructor refuses (or repairs) a file whose `/Root` does not
+    // resolve to a dictionary, and the trailer never changes after it
+    const root = this.resolve(this.trailer.entries.get("Root"));
+    if (!isDict(root)) throw new PdfSyntaxError({ reason: "no document catalog", offset: 0 });
+    return root;
   }
 
   /** The document information dictionary (`/Info`), if any. */
@@ -439,7 +444,6 @@ export class PdfFile {
   private rebuild(): XrefChain {
     const bytes = this.bytes;
     const xref = new Map<number, XrefEntry>();
-    const isDigit = (c: number | undefined): boolean => c !== undefined && c >= 0x30 && c <= 0x39;
     for (let at = indexOf(bytes, OBJ); at >= 0; at = indexOf(bytes, OBJ, at + 3)) {
       // `obj` must end a token: `n g obj` followed by a delimiter
       const after = bytes[at + 3];

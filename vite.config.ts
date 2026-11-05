@@ -94,10 +94,6 @@ export default defineConfig({
             "The `Buffer` global is typed `any` wherever @cloudflare/workers-types is loaded. Use Uint8Array / TextEncoder / DataView.",
         },
       ],
-      // `casting-awareness` is an awareness prompt, not a defect rule — it
-      // fires on every `as`, including the narrowings a byte-level decoder
-      // structurally requires. Stays visible as a warning.
-      "effect/casting-awareness": "warn",
       // Hard-codes abbreviations (`Arr`, `P`, `R`, …) with no options, so it is
       // unsatisfiable under the full-name convention (`import * as Option from
       // "effect/Option"`) this family shares with its consumers.
@@ -140,23 +136,6 @@ export default defineConfig({
       // caches and identity-keyed cycle guards; plus the CSV compiled-parser
       // memo (a bounded cache keyed by the option string).
       "effect/avoid-native-object-helpers": "warn",
-      // ---- Oxlint categories: adoption allowances ---------------------------
-      // `suspicious` arrived with the @enfect/oxlint move (effect-document
-      // PR, Vite+ 1.4). The two rules below had too many sites to rework
-      // safely there; each stays reported at `warn`, a new site is a defect,
-      // and the line is deleted once its count reaches zero.
-      // 60 sites (src 14, tests 46): closures defined inside a function that
-      // capture nothing, mostly test helpers inside `describe` blocks.
-      "unicorn/consistent-function-scoping": "warn",
-      // 42 sites (src 39, tests 3): inner bindings that reuse an outer name
-      // (`el`, `ctx`, `i`) in the decoders' nested walks.
-      "eslint/no-shadow": "warn",
-      // ---- Type-aware rules: adoption allowance -----------------------------
-      // 43 sites (src 16, tests 27): narrowings a byte-level decoder needs
-      // (a decoded record to its schema type, a PDF object to its kind),
-      // the same sites `effect/casting-awareness` keeps visible. Reported at
-      // `warn`; a new site is a defect, and the line goes once it is zero.
-      "typescript/no-unsafe-type-assertion": "warn",
       // ---- Effect preset: rules this workspace's conventions cut across ----
       // `prefer-option-over-null` also fires on `?: T | undefined`, which is
       // the ONLY spelling of an optional member `exactOptionalPropertyTypes`
@@ -168,6 +147,8 @@ export default defineConfig({
       // value, a JSON metadata entry), and a PDF object is a union of
       // primitives that `typeof` discriminates. Each stays visible.
       "effect/no-unknown-parameters": "warn",
+      // One site: the stack-safe codec's `Own`, a node's own fields as the
+      // walker decodes them before the node class is built.
       "effect/no-unsafe-dictionary-type": "warn",
       "typescript/no-explicit-any": "off",
       "typescript/no-empty-object-type": "off",
@@ -247,10 +228,6 @@ export default defineConfig({
           "effect/avoid-ts-ignore": "off",
         },
       },
-      // Test fixtures are the seams under test, not domain code: a
-      // wall-clock `Date` standing in for a publication stamp, a `CI`
-      // variable toggled to drive a reporter. Each stays visible as a
-      // warning, because a fixture cannot be written another way.
       {
         files: ["**/test/**/*.ts"],
         rules: {
@@ -260,10 +237,6 @@ export default defineConfig({
           "effect/effect-run-in-body": "off",
           // ...and provides the layers the effect under test needs.
           "effecttsgo/strict-effect-provide": "off",
-          "effect/require-safety-comment-for-type-assertion": "warn",
-          "effect/use-clock-service": "warn",
-          "effect/avoid-process-env": "warn",
-          "effect/require-effect-concurrency": "warn",
           // Table-driven cases run one after another so a failure names its
           // case; a `Promise.all` over them would interleave the runs.
           "eslint/no-await-in-loop": "off",

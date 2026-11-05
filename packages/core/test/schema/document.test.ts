@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
@@ -81,7 +82,12 @@ describe("JSON round-trip via Schema", () => {
 
   test("encode then decode is identity (spreadsheet with a date)", async () => {
     const doc = document([
-      worksheet("S", [[cell.text("d"), cell.date(new Date("2026-06-26T00:00:00.000Z"))]]),
+      worksheet("S", [
+        [
+          cell.text("d"),
+          cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-06-26T00:00:00.000Z"))),
+        ],
+      ]),
     ]);
     const encoded = await run(Schema.encodeEffect(Document)(doc));
     const decoded = await run(Schema.decodeEffect(Document)(encoded));

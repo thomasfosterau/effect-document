@@ -210,15 +210,11 @@ const joinToken = (out: ReadonlyArray<Token>, token: Token): Token | "drop" | un
     Code: () => undefined,
   });
 
-type CodeToken = Extract<Token, { readonly _tag: "Code" }>;
-
 /** `a` and `token` as one code span, when both are code with the same marks. */
 const joinCode = (a: Token | undefined, token: Token): Option.Option<Token> =>
-  Option.fromUndefinedOr(a).pipe(
-    Option.filter((x): x is CodeToken => isCode(x) && isCode(token)),
-    Option.filter((x) => x.marks === (token as CodeToken).marks),
-    Option.map((x) => ({ ...x, text: `${x.text} ${(token as CodeToken).text}` })),
-  );
+  a !== undefined && isCode(a) && isCode(token) && a.marks === token.marks
+    ? Option.some({ ...a, text: `${a.text} ${token.text}` })
+    : Option.none();
 
 /** Inline code, a space and inline code with the same marks: one code span. */
 const pushCode = (merged: Array<Token>, token: Token): Array<Token> => {
@@ -377,16 +373,3 @@ export const mapBlockLists = (normal: Normal, f: (blocks: Normal) => Normal): No
 /** Rewrite every block in a normal form. */
 export const mapBlocks = (normal: Normal, f: (block: NormalBlock) => NormalBlock): Normal =>
   mapBlockLists(normal, (blocks) => blocks.map(f));
-
-/** Rewrite every run of inline tokens in a normal form. */
-export const mapTokens = (
-  normal: Normal,
-  f: (tokens: ReadonlyArray<Token>) => ReadonlyArray<Token>,
-): Normal =>
-  mapBlocks(normal, (b) =>
-    Match.value(b).pipe(
-      Match.tag("Para", "Header", (p): NormalBlock => ({ ...p, text: f(p.text) })),
-      Match.tag("Lines", (l): NormalBlock => ({ ...l, lines: l.lines.map(f) })),
-      Match.orElse((other) => other),
-    ),
-  );

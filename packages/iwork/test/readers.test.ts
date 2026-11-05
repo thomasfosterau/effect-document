@@ -1,17 +1,12 @@
 import * as Predicate from "effect/Predicate";
-import { describe, expect, test } from "vite-plus/test";
+import { assert, describe, expect, test } from "vite-plus/test";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { zipSync } from "fflate";
-import {
-  blocksToText,
-  bytes,
-  type ParseError,
-  type SlideShow,
-} from "@thomasfosterau/effect-document";
+import { blocksToText, bytes, type ParseError } from "@thomasfosterau/effect-document";
 import { ComponentPathOrder, openBundle } from "../src/bundle.ts";
-import type { IworkError } from "../src/errors.ts";
+import { isIworkError } from "../src/errors.ts";
 import { chunk } from "../src/iwa.ts";
 import * as Keynote from "../src/keynote.ts";
 import * as Numbers from "../src/numbers.ts";
@@ -27,7 +22,7 @@ const storageIwa = (id: number, text: string): Uint8Array =>
 /** The reason of the `IworkError` behind a reader's failure. */
 const failureReason = (read: Effect.Effect<unknown, ParseError>): string | undefined => {
   const r = Effect.runSync(Effect.result(read));
-  return Result.isFailure(r) ? (r.failure.cause as IworkError).reason : undefined;
+  return Result.isFailure(r) && isIworkError(r.failure.cause) ? r.failure.cause.reason : undefined;
 };
 
 const readers = [
@@ -78,7 +73,8 @@ describe("Keynote slide components", () => {
       "Index/MasterSlide-7880.iwa": storageIwa(7880, "Title Text"),
     });
     const doc = Effect.runSync(Keynote.makeKeynoteReader().read(bytes(deck)));
-    const show = doc.blocks[0] as SlideShow;
+    const show = doc.blocks[0];
+    assert(show !== undefined && Predicate.isTagged(show, "SlideShow"));
     expect(
       show.slides.map((slide) =>
         blocksToText(
@@ -104,11 +100,21 @@ describe("Keynote slide components", () => {
   });
 });
 
+/** A `TN.SheetArchive` object named `name`. */
+const sheetObject = (id: number, name: string) => ({
+  id,
+  type: 2,
+  payload: lenField(1, utf8(name)),
+});
+
 describe("Numbers sheet order", () => {
   test("follows TN.DocumentArchive.sheets, not component order", () => {
     // sheet 10 ("Second") is stored first; the document lists sheet 20 ("First") first
-    const sheet = (id: number, name: string) => ({ id, type: 2, payload: lenField(1, utf8(name)) });
-    const sheets = [sheet(10, "Second"), sheet(30, "Unlisted"), sheet(20, "First")];
+    const sheets = [
+      sheetObject(10, "Second"),
+      sheetObject(30, "Unlisted"),
+      sheetObject(20, "First"),
+    ];
     const documentArchive = [
       ...lenField(1, varintField(1, 20)),
       ...lenField(1, varintField(1, 10)),
@@ -119,10 +125,8 @@ describe("Numbers sheet order", () => {
     ];
     const workbook = zipSync({ "Index/Document.iwa": chunk(new Uint8Array(stream)) });
     const doc = Effect.runSync(Numbers.makeNumbersReader().read(bytes(workbook)));
-    expect(doc.blocks.map((b) => (b as { name: string }).name)).toEqual([
-      "First",
-      "Second",
-      "Unlisted",
-    ]);
+    expect(
+      doc.blocks.map((b) => (Predicate.isTagged(b, "Worksheet") ? b.name : undefined)),
+    ).toEqual(["First", "Second", "Unlisted"]);
   });
 });

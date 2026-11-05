@@ -8,16 +8,19 @@ import { pipe } from "effect/Function";
 import {
   cell,
   document,
+  type Document,
   type ParseError,
   type SheetCell,
   IndexedCell,
   SheetRow,
   sheetRow,
   text,
+  trustAs,
   Worksheet,
   worksheet,
 } from "@thomasfosterau/effect-document";
 import {
+  type CsvFeature,
   type CsvReaderOptions,
   type CsvWriterOptions,
   Rfc4180Dialect,
@@ -39,8 +42,34 @@ const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 /** A CSV row's cells: the reader writes every field, so they run from column 0 without gaps. */
 const cellsOf = (row: SheetRow) => row.cells.map((c) => c.cell);
 
-const firstWorksheet = (doc: { blocks: ReadonlyArray<{ _tag: string }> }): Worksheet =>
-  doc.blocks.find((b) => Predicate.isTagged(b, "Worksheet")) as Worksheet;
+/** A document's first worksheet; fails the test when it has none. */
+const firstWorksheet = (doc: Document): Worksheet => {
+  const ws = doc.blocks.find((b) => Predicate.isTagged(b, "Worksheet"));
+  assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"), "no worksheet");
+  return ws;
+};
+
+// value-by-value inference on headerless input, unless a test says otherwise
+const readValues = async (input: string, options?: CsvReaderOptions) =>
+  firstWorksheet(
+    await run(
+      makeCsvReader({ treatFirstRowAsHeader: false, inference: "cell", ...options }).read(
+        text(input),
+      ),
+    ),
+  ).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null)));
+
+/** The cell values the reader gives a small typed table under `options`. */
+const defaultValues = (options?: CsvReaderOptions) =>
+  run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
+    firstWorksheet(doc).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null))),
+  );
+
+/** The cell values the reader gives `input` under `options`, header sniffing included. */
+const sniffedValues = async (input: string, options?: CsvReaderOptions) =>
+  firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
+    cellsOf(r).map((c) => ("value" in c ? c.value : null)),
+  );
 
 describe("CSV reader", () => {
   test("infers number/boolean/blank cells", async () => {
@@ -77,16 +106,6 @@ describe("CSV reader", () => {
     expect(reader.profile.is(doc)).toBe(true);
   });
 
-  // value-by-value inference on headerless input, unless a test says otherwise
-  const cells = async (input: string, options?: CsvReaderOptions) =>
-    firstWorksheet(
-      await run(
-        makeCsvReader({ treatFirstRowAsHeader: false, inference: "cell", ...options }).read(
-          text(input),
-        ),
-      ),
-    ).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null)));
-
   test("reads only plain decimals as numbers", async () => {
     expect(inferCell("007")).toEqual(cell.text("007"));
     const values = [
@@ -107,7 +126,7 @@ describe("CSV reader", () => {
       "1000000000000000000000",
       "0.000123",
     ];
-    expect((await cells(values.join(",")))[0]).toEqual([
+    expect((await readValues(values.join(",")))[0]).toEqual([
       "007",
       "02134",
       "0x1F",
@@ -129,7 +148,7 @@ describe("CSV reader", () => {
 
   test("keeps a value a number only when a double holds its digits (#88)", async () => {
     const values = ["0.30000000000000004", "9007199254740992", "9007199254740993", "1e400", "7.10"];
-    expect((await cells(values.join(",")))[0]).toEqual([
+    expect((await readValues(values.join(",")))[0]).toEqual([
       0.30000000000000004,
       9007199254740992,
       "9007199254740993",
@@ -139,12 +158,14 @@ describe("CSV reader", () => {
   });
 
   test("booleans are case-insensitive and configurable", async () => {
-    expect(await cells("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
-    expect(await cells("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([["TRUE", true]]);
-    expect(await cells("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([
+    expect(await readValues("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
+    expect(await readValues("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([
+      ["TRUE", true],
+    ]);
+    expect(await readValues("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([
       [true, false, "true"],
     ]);
-    expect(await cells("true\n", { booleans: false })).toEqual([["true"]]);
+    expect(await readValues("true\n", { booleans: false })).toEqual([["true"]]);
   });
 
   test("decimalChar, groupChar and percent", async () => {
@@ -154,10 +175,10 @@ describe("CSV reader", () => {
       groupChar: ".",
       percent: true,
     };
-    expect(await cells("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
+    expect(await readValues("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
       [1234.56, 1234.5, 0.12, 0.07, "1.23,4", "12,34.5"],
     ]);
-    expect(await cells('"1,234.56",12%\n', { groupChar: "," })).toEqual([[1234.56, "12%"]]);
+    expect(await readValues('"1,234.56",12%\n', { groupChar: "," })).toEqual([[1234.56, "12%"]]);
   });
 
   test("nullValues become blank cells", async () => {
@@ -176,19 +197,19 @@ describe("CSV reader", () => {
 
   test("column inference types a column by all its values", async () => {
     const input = "1,true,a,1\n2,false,,x\n,TRUE,b,3\n";
-    expect(await cells(input, { inference: "column" })).toEqual([
+    expect(await readValues(input, { inference: "column" })).toEqual([
       [1, true, "a", "1"],
       [2, false, null, "x"],
       [null, true, "b", "3"],
     ]);
-    expect(await cells(input, { inference: "cell" })).toEqual([
+    expect(await readValues(input, { inference: "cell" })).toEqual([
       [1, true, "a", 1],
       [2, false, null, "x"],
       [null, true, "b", 3],
     ]);
     // the header row is excluded from inference
     expect(
-      await cells("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true }),
+      await readValues("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true }),
     ).toEqual([
       ["id", "ok"],
       [1, true],
@@ -196,57 +217,49 @@ describe("CSV reader", () => {
   });
 
   test("by default the header row is sniffed and each column is typed as a whole (#88)", async () => {
-    const values = (options?: CsvReaderOptions) =>
-      run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
-        firstWorksheet(doc).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null))),
-      );
     const expected = [
       ["id", "code", "n"],
       // `007` keeps the whole code column text, so `8` stays as written too
       [1, "007", 2.5],
       [2, "8", 3],
     ];
-    expect(await values()).toEqual(expected);
+    expect(await defaultValues()).toEqual(expected);
     // an optional forwarded as `undefined` still means the default
-    expect(await values({ treatFirstRowAsHeader: undefined, inference: undefined })).toEqual(
+    expect(await defaultValues({ treatFirstRowAsHeader: undefined, inference: undefined })).toEqual(
       expected,
     );
-    expect(await values({ inference: "cell" })).toEqual([
+    expect(await defaultValues({ inference: "cell" })).toEqual([
       ["id", "code", "n"],
       [1, "007", 2.5],
       [2, 8, 3],
     ]);
-    expect((await values({ treatFirstRowAsHeader: false }))[1]).toEqual(["1", "007", "2.5"]);
+    expect((await defaultValues({ treatFirstRowAsHeader: false }))[1]).toEqual(["1", "007", "2.5"]);
   });
 
   test("header sniffing: a typed first row is data, an all-text file has no header (#88)", async () => {
-    const values = async (input: string, options?: CsvReaderOptions) =>
-      firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
-        cellsOf(r).map((c) => ("value" in c ? c.value : null)),
-      );
     // no text first row: headerless numbers
-    expect(await values("1,2\n3,4\n")).toEqual([
+    expect(await sniffedValues("1,2\n3,4\n")).toEqual([
       [1, 2],
       [3, 4],
     ]);
     // every column text: nothing tells a header apart, so the first row is data
-    expect(await values("name,city\nalice,paris\n")).toEqual([
+    expect(await sniffedValues("name,city\nalice,paris\n")).toEqual([
       ["name", "city"],
       ["alice", "paris"],
     ]);
     // a blank in the first row: not a header, so the numbers make that column text
-    expect(await values("id,\n1,2\n")).toEqual([
+    expect(await sniffedValues("id,\n1,2\n")).toEqual([
       ["id", null],
       ["1", 2],
     ]);
     // one row: no data to compare against
-    expect(await values("a,b\n")).toEqual([["a", "b"]]);
+    expect(await sniffedValues("a,b\n")).toEqual([["a", "b"]]);
     // an explicit setting overrides the sniff either way
-    expect(await values("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
+    expect(await sniffedValues("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
       ["1", "2"],
       [3, 4],
     ]);
-    expect(await values("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
+    expect(await sniffedValues("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
       ["id", "n"],
       ["1", "2"],
     ]);
@@ -266,28 +279,28 @@ describe("CSV reader", () => {
   });
 });
 
-describe("CSV scanner", () => {
-  // the grammar under test, on headerless input unless a test says otherwise
-  const rows = (input: string, options?: Parameters<typeof scanCsv>[2]) =>
-    Effect.runSync(scanCsv(input, undefined, { treatFirstRowAsHeader: false, ...options })).rows;
+// the grammar under test, on headerless input unless a test says otherwise
+const scannedRows = (input: string, options?: Parameters<typeof scanCsv>[2]) =>
+  Effect.runSync(scanCsv(input, undefined, { treatFirstRowAsHeader: false, ...options })).rows;
 
+describe("CSV scanner", () => {
   test("quoted fields may contain separators, doubled quotes and line breaks", () => {
-    expect(rows('a,"b,""c""\nd"\ne,f')).toEqual([
+    expect(scannedRows('a,"b,""c""\nd"\ne,f')).toEqual([
       ["a", 'b,"c"\nd'],
       ["e", "f"],
     ]);
   });
 
   test("a wrapper inside an unquoted field is literal", () => {
-    expect(rows('12" pizza,3\n6" sub,2\n')).toEqual([
+    expect(scannedRows('12" pizza,3\n6" sub,2\n')).toEqual([
       ['12" pizza', "3"],
       ['6" sub', "2"],
     ]);
-    expect(rows('"a"b,c')).toEqual([["ab", "c"]]);
+    expect(scannedRows('"a"b,c')).toEqual([["ab", "c"]]);
   });
 
   test("quoteAnywhere: quoted and unquoted segments mix within a field", () => {
-    expect(rows('x"y,z"w,""', { quoteAnywhere: true })).toEqual([["xy,zw", ""]]);
+    expect(scannedRows('x"y,z"w,""', { quoteAnywhere: true })).toEqual([["xy,zw", ""]]);
   });
 
   test("an empty wrapper turns quoting off", () => {
@@ -308,14 +321,14 @@ describe("CSV scanner", () => {
   });
 
   test("skipRows counts CRLF, LF and bare CR line endings", () => {
-    expect(rows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([
+    expect(scannedRows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([
       ["a", "b"],
       ["c", "d"],
     ]);
   });
 
   test("trimWhitespace keeps whitespace inside quotes", () => {
-    expect(rows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
+    expect(scannedRows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
     expect(
       Effect.runSync(
         scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true, treatFirstRowAsHeader: false }),
@@ -334,11 +347,11 @@ describe("CSV scanner", () => {
   });
 
   test("ignores a leading byte order mark", () => {
-    expect(rows("﻿a,b\n")).toEqual([["a", "b"]]);
+    expect(scannedRows("﻿a,b\n")).toEqual([["a", "b"]]);
   });
 
   test("accepts LF, CRLF and bare CR line endings", () => {
-    expect(rows("a,b\r\nc,d\re,f\n")).toEqual([
+    expect(scannedRows("a,b\r\nc,d\re,f\n")).toEqual([
       ["a", "b"],
       ["c", "d"],
       ["e", "f"],
@@ -347,10 +360,10 @@ describe("CSV scanner", () => {
 
   test("skips blank and comment lines, trims, and skips leading rows", () => {
     const input = "title line\n# a comment\n  \n a , b \n";
-    expect(rows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true })).toEqual([
-      ["a", "b"],
-    ]);
-    expect(rows("a\n\nb\n", { filterEmpty: false })).toEqual([["a"], [""], ["b"]]);
+    expect(
+      scannedRows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true }),
+    ).toEqual([["a", "b"]]);
+    expect(scannedRows("a\n\nb\n", { filterEmpty: false })).toEqual([["a"], [""], ["b"]]);
   });
 
   test("uses the dialect separator", () => {
@@ -388,7 +401,7 @@ describe("CSV scanner", () => {
   test("without headers, rows must match the first row's width", () => {
     const r = Effect.runSync(Effect.result(scanCsv("a,b\nc\n")));
     expect(Result.isFailure(r) && r.failure.reason).toBe("Row 1 has 1 columns, expected 2");
-    expect(rows("a,b\nc\n", { allowVariableColumns: true })).toEqual([["a", "b"], ["c"]]);
+    expect(scannedRows("a,b\nc\n", { allowVariableColumns: true })).toEqual([["a", "b"], ["c"]]);
   });
 
   test("column-count errors report the source row", () => {
@@ -427,19 +440,34 @@ describe("CSV scanner", () => {
   });
 });
 
-describe("CSV stream scanner", () => {
-  const collect = (chunks: ReadonlyArray<string>, options?: Parameters<typeof scanCsvStream>[2]) =>
-    Effect.runPromise(
-      Effect.result(
-        Stream.runCollect(
-          scanCsvStream(Stream.fromIterable(chunks), undefined, {
-            treatFirstRowAsHeader: false,
-            ...options,
-          }),
-        ),
+const collect = (chunks: ReadonlyArray<string>, options?: Parameters<typeof scanCsvStream>[2]) =>
+  Effect.runPromise(
+    Effect.result(
+      Stream.runCollect(
+        scanCsvStream(Stream.fromIterable(chunks), undefined, {
+          treatFirstRowAsHeader: false,
+          ...options,
+        }),
       ),
-    );
+    ),
+  );
 
+const chunksOf = (source: string, size: number): ReadonlyArray<string> =>
+  Arr.makeBy(Math.ceil(source.length / size), (i) => source.slice(i * size, (i + 1) * size));
+/** A scan's rows, or its failure's reason and position. */
+const outcome = (
+  r: Result.Result<ReadonlyArray<ReadonlyArray<string>>, ParseError>,
+):
+  | { readonly rows: ReadonlyArray<ReadonlyArray<string>> }
+  | Pick<ParseError, "reason" | "position"> =>
+  Result.match(r, {
+    onSuccess: (rows) => ({ rows: [...rows] }),
+    onFailure: ({ reason, position }) => ({ reason, position }),
+  });
+const scanWhole = (source: string, options: Parameters<typeof scanCsv>[2]) =>
+  run(Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows)));
+
+describe("CSV stream scanner", () => {
   test("rows may be split across chunks anywhere", async () => {
     const r = await collect(['a,"b', '\n""c"', '""\r', "\nd,e"]);
     expect(Result.isSuccess(r) && [...r.success]).toEqual([
@@ -501,21 +529,6 @@ describe("CSV stream scanner", () => {
     expect(Result.isSuccess(r) && [...r.success]).toEqual([["1", "2"]]);
   });
 
-  const chunksOf = (source: string, size: number): ReadonlyArray<string> =>
-    Arr.makeBy(Math.ceil(source.length / size), (i) => source.slice(i * size, (i + 1) * size));
-  /** A scan's rows, or its failure's reason and position. */
-  const outcome = (
-    r: Result.Result<ReadonlyArray<ReadonlyArray<string>>, ParseError>,
-  ):
-    | { readonly rows: ReadonlyArray<ReadonlyArray<string>> }
-    | Pick<ParseError, "reason" | "position"> =>
-    Result.match(r, {
-      onSuccess: (rows) => ({ rows: [...rows] }),
-      onFailure: ({ reason, position }) => ({ reason, position }),
-    });
-  const scanWhole = (source: string, options: Parameters<typeof scanCsv>[2]) =>
-    run(Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows)));
-
   test("the compiled row grammar agrees with the whole-text scan at every chunk size", async () => {
     const source = ' a , "b ""q"" \r\nc" ,d\n# note\n\n e,"f",g \r1,"x\ny",3\n';
     const optionSets = [
@@ -552,6 +565,25 @@ describe("CSV stream scanner", () => {
   });
 });
 
+const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
+  trustAs<CsvFeature>(document([worksheet("Sheet1", rows)]));
+const written = async (
+  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+  options?: CsvWriterOptions,
+) => {
+  const out = await run(makeCsvWriter(options).write(sheet(rows)));
+  return Predicate.isTagged(out, "Text") ? out.text : "";
+};
+
+/** The reason the CSV writer fails `rows` under `options`, if it fails. */
+const failure = async (
+  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+  options: CsvWriterOptions,
+) => {
+  const r = await Effect.runPromise(Effect.result(makeCsvWriter(options).write(sheet(rows))));
+  return Result.isFailure(r) ? r.failure.reason : undefined;
+};
+
 describe("CSV writer", () => {
   test("round-trips through reader -> writer", async () => {
     const input = "product,price\nLaptop,999.99\nMouse,24.99\n";
@@ -564,7 +596,7 @@ describe("CSV writer", () => {
 
   test("round-trips fields containing quotes and line breaks", async () => {
     const doc = document([worksheet("Sheet1", [[cell.text('say "hi"\nthere'), cell.text("x")]])]);
-    const out = await run(makeCsvWriter().write(doc as never));
+    const out = await run(makeCsvWriter().write(trustAs<CsvFeature>(doc)));
     const back = await run(makeCsvReader().read(out));
     expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual([
       cell.text('say "hi"\nthere'),
@@ -582,10 +614,12 @@ describe("CSV writer", () => {
       ],
       merges: [],
     });
-    const out = await run(makeCsvWriter().write(document([ws]) as never));
+    const out = await run(makeCsvWriter().write(trustAs<CsvFeature>(document([ws]))));
     assert(Predicate.isTagged(out, "Text"));
     expect(out.text).toBe(",,c\n\n1\n");
-    const padded = await run(makeCsvWriter({ padRows: true }).write(document([ws]) as never));
+    const padded = await run(
+      makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([ws]))),
+    );
     assert(Predicate.isTagged(padded, "Text"));
     expect(padded.text).toBe(",,c\n,,\n1,,\n");
   });
@@ -604,13 +638,15 @@ describe("CSV writer", () => {
     });
     // ragged: a million empty lines and 16 384 fields fit the default budget
     const error = await run(
-      Effect.flip(makeCsvWriter({ maxFields: 1_000_000 }).write(document([far]) as never)),
+      Effect.flip(
+        makeCsvWriter({ maxFields: 1_000_000 }).write(trustAs<CsvFeature>(document([far]))),
+      ),
     );
     expect(error).toMatchObject({ _tag: "WriteError", format: "csv" });
     expect(error.reason).toContain("maxFields");
     // padded to a rectangle it is 17 billion fields, past the default
     const padded = await run(
-      Effect.flip(makeCsvWriter({ padRows: true }).write(document([far]) as never)),
+      Effect.flip(makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([far])))),
     );
     expect(padded.reason).toContain("maxFields");
   });
@@ -631,16 +667,6 @@ describe("CSV writer", () => {
     assert(Predicate.isTagged(out, "Text"));
     expect(out.text).toBe('a,"b,c"\n');
   });
-
-  const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
-    document([worksheet("Sheet1", rows)]) as never;
-  const written = async (
-    rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-    options?: CsvWriterOptions,
-  ) => {
-    const out = await run(makeCsvWriter(options).write(sheet(rows)));
-    return Predicate.isTagged(out, "Text") ? out.text : "";
-  };
 
   test("keeps rows holding a single blank cell", async () => {
     const rows = ["a", "", "b", "", "c"].map((v) => [v === "" ? cell.blank() : cell.text(v)]);
@@ -735,14 +761,6 @@ describe("CSV writer", () => {
     expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual(tricky);
   });
 
-  const failure = async (
-    rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-    options: CsvWriterOptions,
-  ) => {
-    const r = await Effect.runPromise(Effect.result(makeCsvWriter(options).write(sheet(rows))));
-    return Result.isFailure(r) ? r.failure.reason : undefined;
-  };
-
   test("escapeChar fails on a field holding the escape character (#89)", async () => {
     // `x\` would close as `"x\"`, which an escape-aware reader leaves unclosed
     const values = ["x\\", 'a\\"b', "C:\\tmp"];
@@ -833,14 +851,14 @@ describe("synthesizeDocument", () => {
   });
 });
 
-describe("validateHeaders (#87)", () => {
-  const scan = (text: string, options: Parameters<typeof scanCsv>[2]) =>
-    Effect.runSync(Effect.result(scanCsv(text, undefined, options)));
-  const stream = (text: string, options: Parameters<typeof scanCsvStream>[2]) =>
-    Effect.runPromise(
-      Effect.result(Stream.runCollect(scanCsvStream(Stream.make(text), undefined, options))),
-    );
+const scan = (input: string, options: Parameters<typeof scanCsv>[2]) =>
+  Effect.runSync(Effect.result(scanCsv(input, undefined, options)));
+const stream = (input: string, options: Parameters<typeof scanCsvStream>[2]) =>
+  Effect.runPromise(
+    Effect.result(Stream.runCollect(scanCsvStream(Stream.make(input), undefined, options))),
+  );
 
+describe("validateHeaders (#87)", () => {
   test("is off by default: duplicate and empty names are kept", () => {
     const r = scan(",a,a\n1,2,3\n", { treatFirstRowAsHeader: true });
     expect(Result.isSuccess(r) && r.success.headers).toEqual(["", "a", "a"]);

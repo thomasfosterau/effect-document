@@ -16,6 +16,13 @@ import {
   unescapeXml,
 } from "../../src/xlsx/index.ts";
 
+/** The failure of parsing `xml`, which must fail. */
+const failure = (xml: string) => {
+  const r = parseXmlResult(xml);
+  assert(Result.isFailure(r), "expected a parse failure");
+  return r.failure;
+};
+
 describe("escaping", () => {
   test("escapes text content", () => {
     expect(escapeXml("a < b & c > d")).toBe("a &lt; b &amp; c &gt; d");
@@ -111,12 +118,6 @@ describe("parseXml", () => {
     const root = parseXml('\uFEFF<?xml version="1.0"?>\n<t>a <![CDATA[<b> & c]]></t>');
     expect(root.text).toBe("a <b> & c");
   });
-
-  const failure = (xml: string) => {
-    const r = parseXmlResult(xml);
-    assert(Result.isFailure(r), "expected a parse failure");
-    return r.failure;
-  };
 
   test("reports mismatched closing tags at the element", () => {
     const e = failure("<a>\n  <b></a>");
