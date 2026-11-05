@@ -61,9 +61,13 @@ catalog:
   "@thomasfosterau/effect-parse": ^0.4.0
   "@types/node": ^26.6.5
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
-  # The leading JavaScript library for each format, which `vp run bench`
-  # measures our readers and writers against. Dev-only, in the private
-  # `bench` workspace package.
+  # The leading actively maintained JavaScript library for each format, which
+  # `vp run bench` measures our readers and writers against: each published a
+  # release within the last two years (or since the oldest supported Node line
+  # came out), so an unmaintained library is replaced or dropped rather than
+  # kept. Dev-only, in the private `bench` workspace package.
+  # pdf-lib's maintained fork (pdf-lib itself was last published in 2021).
+  "@cantoo/pdf-lib": ^2.11.1
   "@types/d3-dsv": ^3.0.7
   "@types/papaparse": ^5.5.2
   csv-parse: ^7.0.3
@@ -73,13 +77,11 @@ catalog:
   exceljs: ^4.4.0
   mammoth: ^1.12.0
   papaparse: ^5.5.3
-  pdf-lib: ^1.17.1
   pdfjs-dist: ^6.5.0
   pptxgenjs: ^4.0.1
+  read-excel-file: ^9.3.14
   udsv: ^0.7.3
-  # SheetJS's npm release is frozen at 0.18.5 (later builds ship from its CDN
-  # only), which is still the most widely installed XLSX library.
-  xlsx: ^0.18.5
+  write-excel-file: ^4.1.1
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.0.5
@@ -152,14 +154,3 @@ minimumReleaseAge: 480
 minimumReleaseAgeExclude:
   # @thomasfosterau/* is first-party — exempt so our own releases install immediately.
   - "@thomasfosterau/*"
-
-auditConfig:
-  ignoreGhsas:
-    # SheetJS (`xlsx`, bench/ only — the private benchmark package, never
-    # published): prototype pollution and a ReDoS when reading crafted
-    # workbooks, fixed in 0.19.3 / 0.20.2, which SheetJS publishes only to its
-    # own CDN (cdn.sheetjs.com), not to npm. The benchmarks read only
-    # workbooks our own writer produced. Drop both once the catalog moves to a
-    # fixed SheetJS build.
-    - GHSA-4r6h-8v6p-xvw6
-    - GHSA-5pgg-2g8v-p4x9

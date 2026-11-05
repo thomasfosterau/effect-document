@@ -7,6 +7,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@cantoo/pdf-lib": "catalog:",
     "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-document": "workspace:*",
     "@thomasfosterau/effect-iwork": "workspace:*",
@@ -23,10 +24,10 @@
     "exceljs": "catalog:",
     "mammoth": "catalog:",
     "papaparse": "catalog:",
-    "pdf-lib": "catalog:",
     "pdfjs-dist": "catalog:",
     "pptxgenjs": "catalog:",
+    "read-excel-file": "catalog:",
     "udsv": "catalog:",
-    "xlsx": "catalog:"
+    "write-excel-file": "catalog:"
   }
 }

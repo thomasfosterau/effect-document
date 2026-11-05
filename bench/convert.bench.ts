@@ -1,8 +1,11 @@
 /**
  * `convert` between formats: read, narrow to the target's profile, write.
- * CSV ↔ XLSX is measured against SheetJS doing the same (`XLSX.read` of the
- * source, then `XLSX.write` / `sheet_to_csv`); DOCX → RTF and DOCX → PDF on
- * their own, as no other JavaScript library converts between them.
+ * CSV ↔ XLSX is measured against maintained libraries doing the same: Papa
+ * Parse (typing values) into write-excel-file, and read-excel-file into Papa
+ * Parse's `unparse` (no maintained library converts between them on its own:
+ * SheetJS, which does, has not been updated on npm since 2022). DOCX → RTF
+ * and DOCX → PDF on their own, as no other JavaScript library converts
+ * between them.
  *
  * Run with `vp run bench:convert` (builds first).
  */
@@ -12,7 +15,10 @@ import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
 import * as Pdf from "@thomasfosterau/effect-pdf";
 import * as Rtf from "@thomasfosterau/effect-rtf";
 import * as Effect from "effect/Effect";
-import * as XLSX from "xlsx";
+import Papa from "papaparse";
+import { Buffer } from "node:buffer";
+import { readSheet } from "read-excel-file/node";
+import writeXlsxFile from "write-excel-file/node";
 import { type Group, rng, runGroups } from "./harness.ts";
 import { proseDocument } from "./prose.ts";
 
@@ -46,13 +52,14 @@ const groups: Array<Group> = [
         run: () => run(convert({ from: Csv.format, to: Xlsx.format, input: text(csv) })),
       },
       {
-        name: "SheetJS read + write",
+        name: "Papa Parse + write-excel-file",
         run: () =>
-          XLSX.write(XLSX.read(csv, { type: "string" }), {
-            type: "array",
-            bookType: "xlsx",
-            compression: true,
-          }),
+          writeXlsxFile(
+            Papa.parse<Array<string | number | boolean>>(csv, {
+              dynamicTyping: true,
+              skipEmptyLines: true,
+            }).data,
+          ).toBuffer(),
       },
     ],
   },
@@ -65,12 +72,8 @@ const groups: Array<Group> = [
         run: () => run(convert({ from: Xlsx.format, to: Csv.format, input: bytes(xlsx) })),
       },
       {
-        name: "SheetJS read + sheet_to_csv",
-        run: () => {
-          const book = XLSX.read(xlsx, { type: "array" });
-          const sheet = book.Sheets[book.SheetNames[0] ?? ""];
-          return sheet === undefined ? "" : XLSX.utils.sheet_to_csv(sheet);
-        },
+        name: "read-excel-file + Papa Parse unparse",
+        run: async () => Papa.unparse(await readSheet(Buffer.from(xlsx))),
       },
     ],
   },

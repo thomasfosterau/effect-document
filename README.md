@@ -78,7 +78,7 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 
 ## Performance
 
-`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from runs on a 4-core cloud VM with Node 22, each case timed on its own; each figure is the other library's time divided by ours, so above 1× means we are faster:
+`vp run bench` measures every reader and writer against the leading actively maintained JavaScript libraries for its format (`bench/`; each has published a release within the last two years, so SheetJS, frozen on npm since 2022, and pdf-lib, since 2021, are replaced by maintained alternatives). Medians from runs on a 4-core cloud VM with Node 22, each case timed on its own; each figure is the other library's time divided by ours, so above 1× means we are faster:
 
 | Task | Input | Compared with |
 | --- | --- | --- |
@@ -90,11 +90,11 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 | CSV read, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.88× / 0.91–0.98× / 0.5–0.9×, d3-dsv 1.83× / 1.40× / 1.04×, Papa Parse 3.6× / 3.0× / 3.1× |
 | CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 2.2×, csv-parse's 2.6× |
 | CSV write | 8 MB mixed / 2.7 MB quoted | from a document: Papa Parse (from rows) 1.73× / 1.55×; `renderTable` (from rows): d3-dsv 1.07× / 1.30× |
-| XLSX read / write | 160k cells / 4k cells | read: SheetJS 1.21× / 0.95×, ExcelJS 1.39× / 1.39× (the document 7.5 MB against SheetJS's 19 MB); write: SheetJS 1.31×, ExcelJS 2.0× |
+| XLSX read / write | 160k cells / 4k cells | read: ExcelJS 1.44× / 1.40×, read-excel-file 0.73× / 0.98× (it returns rows of plain values, not a document); write: ExcelJS 1.74× / 2.20×, write-excel-file 1.33× / 1.53× |
 | DOCX read / write | 500 sections | mammoth `extractRawText` 1.88× / `docx` 0.79× (it writes no lists or tables) |
 | PPTX write | 200 slides | PptxGenJS 1.35× |
-| PDF read / write | 200 sections | pdf.js text extraction 1.01× / pdf-lib 1.23× |
-| CSV → XLSX / XLSX → CSV | 20k rows | SheetJS 1.23× / 0.87× |
+| PDF read / write | 200 sections | pdf.js text extraction 0.86× / @cantoo/pdf-lib (pdf-lib's maintained fork) 1.17× |
+| CSV → XLSX / XLSX → CSV | 20k rows | Papa Parse + write-excel-file 1.44× / read-excel-file + Papa Parse 0.83× |
 
 `readCsvRows` returns what the CSV libraries return, rows of plain values, with `read`'s header handling and type inference; `read` builds a document. A row's cells are positional and a plain number, string or boolean is its bare value (#226), so a document of plain values holds about what the libraries' arrays do (a row of numbers is an array of unboxed doubles: `readCsvRows` holds 10.5 MB for the numbers table, as uDSV does, and `read` 15.3 MB with its row nodes) and `read` costs little more than `readCsvRows`. The libraries keep a number whatever its digits; both of our readers keep a number only when its double holds the digits it is written with (`12345678901234567890` stays text). Medians on this VM vary by up to ±40% between runs, so the typed-rows numbers and floats figures come from comparisons run in one process with 40 or more rounds a case; the order of the libraries does not change between runs.
 

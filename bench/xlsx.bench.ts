@@ -1,13 +1,17 @@
 /**
- * The XLSX reader and writer against SheetJS (`xlsx`) and ExcelJS, the two
- * most used JavaScript workbook libraries, on one sheet of mixed cells.
+ * The XLSX reader and writer against ExcelJS (the most used actively
+ * maintained workbook library) and read-excel-file / write-excel-file (the
+ * leading maintained reader and writer of plain sheets), on one sheet of
+ * mixed cells. SheetJS (`xlsx`) is left out: its npm release has not been
+ * updated since 2022 (newer builds ship from its own CDN only), and the
+ * benchmarks compare against maintained libraries only.
  *
  * - **read**: workbook bytes to cells (`makeXlsxReader().read`, against
- *   `XLSX.read` and ExcelJS's `xlsx.load`). Every library reads the same
- *   file, written by our writer.
+ *   ExcelJS's `xlsx.load` and read-excel-file's `readSheet`). Every library
+ *   reads the same file, written by our writer.
  * - **write**: cells to workbook bytes (`makeXlsxWriter().write` from a
- *   document, against `XLSX.write` from an array of rows and ExcelJS's
- *   `xlsx.writeBuffer` from a worksheet).
+ *   document, against ExcelJS's `xlsx.writeBuffer` from a worksheet and
+ *   write-excel-file from an array of rows).
  *
  * Run with `vp run bench:xlsx` (builds first).
  */
@@ -24,7 +28,9 @@ import { Xlsx } from "@thomasfosterau/effect-ooxml";
 import ExcelJS from "exceljs";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
-import * as XLSX from "xlsx";
+import { Buffer } from "node:buffer";
+import { readSheet } from "read-excel-file/node";
+import writeXlsxFile from "write-excel-file/node";
 import { type Group, rng, runGroups } from "./harness.ts";
 
 const random = rng(2026);
@@ -63,11 +69,7 @@ const groups = (name: string, rows: number): Array<Group> => {
   );
   const written = run(writer.write(doc));
   const file = contentToBytes(written);
-  const sheetjsBook = () => {
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(data), "Sheet1");
-    return book;
-  };
+  const buffer = Buffer.from(file);
   const exceljsBook = () => {
     const book = new ExcelJS.Workbook();
     book.addWorksheet("Sheet1").addRows(data);
@@ -79,11 +81,11 @@ const groups = (name: string, rows: number): Array<Group> => {
       bytes: file.length,
       cases: [
         { name: "effect-ooxml read", run: () => run(reader.read(bytes(file))) },
-        { name: "SheetJS XLSX.read", run: () => XLSX.read(file, { type: "array", dense: true }) },
         {
           name: "ExcelJS xlsx.load",
           run: () => new ExcelJS.Workbook().xlsx.load(file.slice().buffer),
         },
+        { name: "read-excel-file readSheet", run: () => readSheet(buffer) },
       ],
     },
     {
@@ -91,12 +93,8 @@ const groups = (name: string, rows: number): Array<Group> => {
       bytes: file.length,
       cases: [
         { name: "effect-ooxml write (document)", run: () => run(writer.write(doc)) },
-        {
-          name: "SheetJS XLSX.write (rows)",
-          run: () =>
-            XLSX.write(sheetjsBook(), { type: "array", bookType: "xlsx", compression: true }),
-        },
         { name: "ExcelJS writeBuffer (rows)", run: () => exceljsBook().xlsx.writeBuffer() },
+        { name: "write-excel-file (rows)", run: () => writeXlsxFile(data).toBuffer() },
       ],
     },
   ];

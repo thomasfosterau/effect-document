@@ -124,8 +124,7 @@ updates:
         update-types: ["major", "minor", "patch"]
       # The libraries the benchmarks (bench/, private) measure against: one
       # PR, since a baseline moving changes the comparison, not our code.
-      # SheetJS (`xlsx`) is frozen at 0.18.5 on npm; its fixes ship from its
-      # CDN only (see `auditConfig` in pnpm-workspace.yaml).
+      # Only actively maintained libraries (a release in the last two years).
       bench-baselines:
         applies-to: version-updates
         patterns:
@@ -136,12 +135,13 @@ updates:
           - "d3-dsv"
           - "@types/d3-dsv"
           - "udsv"
-          - "xlsx"
           - "exceljs"
           - "mammoth"
           - "docx"
           - "pptxgenjs"
-          - "pdf-lib"
+          - "@cantoo/pdf-lib"
+          - "read-excel-file"
+          - "write-excel-file"
           - "pdfjs-dist"
         update-types: ["major", "minor", "patch"]
       minor-and-patch:

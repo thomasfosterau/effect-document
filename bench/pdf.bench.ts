@@ -1,6 +1,7 @@
 /**
  * The PDF reader and writer against pdf.js (Mozilla's, the reference PDF
- * reader in JavaScript) and pdf-lib (the most used PDF writer), on prose
+ * reader in JavaScript) and @cantoo/pdf-lib (the maintained fork of pdf-lib,
+ * the most used PDF writer, which has not been published since 2021), on prose
  * documents of headings, styled paragraphs and lists (`prose.ts`, narrowed
  * to what the PDF writer encodes).
  *
@@ -10,7 +11,7 @@
  *   only), all reading the file our writer wrote, and the LibreOffice and
  *   ReportLab fixtures.
  * - **write**: content to PDF bytes (`makePdfWriter().write`, which lays the
- *   document out, against pdf-lib drawing the same paragraphs a line at a
+ *   document out, against @cantoo/pdf-lib drawing the same paragraphs a line at a
  *   time, wrapped by hand, in a standard font).
  *
  * Run with `vp run bench:pdf` (builds first).
@@ -19,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { bytes, contentToBytes, narrow } from "@thomasfosterau/effect-document";
 import { makePdfReader, makePdfWriter, PdfWrite } from "@thomasfosterau/effect-pdf";
 import * as Effect from "effect/Effect";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import { type Case, type Group, runGroups } from "./harness.ts";
 import { proseDocument, proseParagraphs } from "./prose.ts";
@@ -93,7 +94,7 @@ const groups = (name: string, sections: number): Array<Group> => {
       bytes: file.length,
       cases: [
         { name: "effect-pdf write (document)", run: () => run(writer.write(doc)) },
-        { name: "pdf-lib drawText (paragraphs)", run: () => pdfLibWrite(paragraphs) },
+        { name: "@cantoo/pdf-lib drawText (paragraphs)", run: () => pdfLibWrite(paragraphs) },
       ],
     },
   ];

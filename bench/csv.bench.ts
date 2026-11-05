@@ -7,9 +7,7 @@
  *   string-array parse).
  * - **read**: text to typed values (`makeCsvReader().read`, which also infers
  *   column types and builds the document, and `readCsvRows`, the same
- *   inference into rows of plain values, against each library's typed parse,
- *   and against SheetJS reading the text into a workbook of cell objects, the
- *   nearest to our document model).
+ *   inference into rows of plain values, against each library's typed parse).
  * - **stream**: the same text in 64 KiB chunks (`scanCsvStream` against
  *   Papa Parse's and csv-parse's Node streaming parsers).
  * - **write**: rows to text (`makeCsvWriter().write` from a document, and
@@ -34,7 +32,6 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import type { Duplex } from "node:stream";
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 import { inferSchema, initParser } from "udsv";
 import { type Case, type Group, type GroupSource, rng, runGroups } from "./harness.ts";
 
@@ -195,8 +192,6 @@ const readCases = (csv: string): Array<Case> => {
       name: "csv-parse/sync cast",
       run: () => csvParse(csv, { skip_empty_lines: true, cast: true }),
     },
-    // a workbook of cell objects, the nearest to our document model
-    { name: "SheetJS read (workbook)", run: () => XLSX.read(csv, { type: "string", dense: true }) },
   ];
 };
 
