@@ -26,6 +26,8 @@ import {
   type FeaturesOf,
   makeWriterTag,
   type SheetRow,
+  rowCellsOf,
+  rowIndexes,
   sheetExtent,
   text,
   type Worksheet,
@@ -440,6 +442,38 @@ const checkOptions = (
 };
 
 /**
+ * Render a worksheet's rows, one line per row from 0 to its last (a row it
+ * does not hold is an empty line), onto `lines`, numbered from `first`:
+ * `lines`, or the first row's failure.
+ */
+const renderRows = (
+  sheet: Worksheet,
+  first: number,
+  width: number,
+  ctx: RowContext,
+  lines: Array<string>,
+): Array<string> | WriteError => {
+  const count = sheetExtent(sheet).rows;
+  // the rows are in ascending index order, so one cursor walks them
+  const indexes = rowIndexes(sheet);
+  let next = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per row written, beside the field loop in `renderSheetRow`; it stops at the first row that fails
+  for (let index = 0; index < count; index++) {
+    const row = indexes[next] === index ? sheet.rows[next] : undefined;
+    if (row !== undefined) next++;
+    const line = renderSheetRow(
+      row === undefined ? [] : rowCellsOf(row),
+      first + index,
+      width,
+      ctx,
+    );
+    if (!Predicate.isString(line)) return line;
+    lines.push(line);
+  }
+  return lines;
+};
+
+/**
  * Render a worksheet (or none) to CSV text: one line per row from 0 to its
  * last, after the BOM and header row the options ask for, within the field
  * budget.
@@ -465,7 +499,7 @@ const renderSheet = (
       let width = 0;
       if (options.padRows) {
         width = headers?.length ?? 0;
-        width = rows.reduce((w, row) => Math.max(w, rowWidth(row.cells)), width);
+        width = rows.reduce((w, row) => Math.max(w, rowWidth(rowCellsOf(row))), width);
       }
       const lines: Array<string> = [];
       if (headers) {
@@ -473,22 +507,11 @@ const renderSheet = (
         if (!Predicate.isString(line)) return Effect.fail(line);
         lines.push(line);
       }
-      const first = headers ? 1 : 0;
-      const count = Option.match(ws, {
-        onNone: () => 0,
-        onSome: (sheet) => sheetExtent(sheet).rows,
+      const failed = Option.match(ws, {
+        onNone: () => lines,
+        onSome: (sheet) => renderRows(sheet, headers ? 1 : 0, width, ctx, lines),
       });
-      // the rows are in ascending index order, so one cursor walks them
-      let next = 0;
-      // oxlint-disable-next-line effect/imperative-loops -- once per row written, beside the field loop in `renderSheetRow`; it stops at the first row that fails
-      for (let index = 0; index < count; index++) {
-        const row = rows[next];
-        const held = row?.index === index;
-        if (held) next++;
-        const line = renderSheetRow(held ? row.cells : [], first + index, width, ctx);
-        if (!Predicate.isString(line)) return Effect.fail(line);
-        lines.push(line);
-      }
+      if (failed instanceof WriteError) return Effect.fail(failed);
       const body = Arr.isReadonlyArrayNonEmpty(lines)
         ? lines.join(dialect.linebreak) + dialect.linebreak
         : "";

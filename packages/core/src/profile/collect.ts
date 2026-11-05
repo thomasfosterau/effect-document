@@ -17,7 +17,7 @@ import {
   type SlideShow,
 } from "../schema/ast.ts";
 import { Document } from "../schema/document.ts";
-import { cellOf } from "../schema/sheet.ts";
+import { cellOf, rowCellsOf } from "../schema/sheet.ts";
 import { type Feature, featureOfTag, idFeatureOf } from "../schema/feature.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
@@ -120,7 +120,7 @@ const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
   for (const col of w.columns) if (col.style !== undefined) acc.add("cell.style");
   for (const row of w.rows)
-    for (const position of row.cells) {
+    for (const position of rowCellsOf(row)) {
       const c = cellOf(position);
       if (c !== undefined) walkCell(c, acc, stack);
     }

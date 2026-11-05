@@ -32,8 +32,9 @@ import {
   ParseError,
   type Reader,
   type SheetCell,
-  type SheetRow,
-  sparseRow,
+  sheetRowOf,
+  worksheetFromRows,
+  type WorksheetRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -93,11 +94,19 @@ export const DEFAULT_MAX_CELLS = 5_000_000;
 // OOXML package navigation
 // ============================================================================
 
-/** A required part, parsed; failures keep the part name and XML position. */
-const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, ParseError> =>
+/**
+ * A required part, parsed; failures keep the part name and XML position.
+ * `fastContentOf` names an element whose content is read by the XML layer's
+ * fast scanner (a worksheet's `sheetData`).
+ */
+const parsePart = (
+  pkg: OpcReader,
+  path: string,
+  fastContentOf?: string,
+): Effect.Effect<XmlElement, ParseError> =>
   Effect.try({
     try: () => {
-      const root = pkg.xml(path);
+      const root = pkg.xml(path, fastContentOf);
       if (root === null)
         throw new OpcError("MissingPart", `Missing required package part: ${path}`);
       return root;
@@ -113,7 +122,7 @@ const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
   findChildren(root, "si").map(collectText);
 
 type WorksheetRows =
-  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
+  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<WorksheetRow>; readonly cells: number }
   | { readonly _tag: "TooLarge"; readonly cells: number };
 
 /**
@@ -131,19 +140,42 @@ const plainOrCell = (c: SheetCell): SheetCell | PlainCell =>
 
 /** A row's valued cells by column as they are read, and its width so far. */
 interface RowCellsSoFar {
-  readonly cells: Map<number, SheetCell | PlainCell>;
-  width: number;
+  /** The row's cells by position (its width is their length), gaps `undefined`. */
+  readonly cells: Array<SheetCell | PlainCell | undefined>;
 }
 
+/** The positions a row grows by to take a cell at `col` (0 when it is already wider). */
+const widen = (row: RowCellsSoFar, col: number): number =>
+  col < row.cells.length ? 0 : col + 1 - row.cells.length;
+
 /**
- * Widen a row's width to take a cell at `col`: the positions that adds (0
- * when the row is already wider).
+ * Put a cell at `col` of a row, filling any columns before it with gaps (a
+ * later cell at a position replaces an earlier one, as in SpreadsheetML).
  */
-const widen = (row: RowCellsSoFar, col: number): number => {
-  if (col < row.width) return 0;
-  const added = col + 1 - row.width;
-  row.width = col + 1;
-  return added;
+const place = (row: RowCellsSoFar, col: number, value: SheetCell | PlainCell): void => {
+  const { cells } = row;
+  // oxlint-disable-next-line effect/imperative-loops -- once per gap a row's cells leave, beside the per-cell loop
+  while (cells.length < col) cells.push(undefined);
+  if (col === cells.length) cells.push(value);
+  else cells[col] = value;
+};
+
+/** Rows by index, as worksheet rows in ascending order. */
+const byIndex = Order.mapInput(Order.Number, ([index]: readonly [number, unknown]) => index);
+
+/**
+ * The rows read, ascending by index (each row's cells are positional
+ * already). Rows may arrive in any order, but writers emit them in order, so
+ * the sort is skipped when it would change nothing. A row right after the one
+ * before it is a plain row (#227: its cells alone, no node); one after a gap
+ * is a `SheetRow` carrying its index.
+ */
+const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<WorksheetRow> => {
+  const all = Array.from(cellMap);
+  const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
+  return (sorted ? all : Arr.sort(all, byIndex)).map(([index, { cells }], i, rows) =>
+    index === (i === 0 ? 0 : (rows[i - 1]?.[0] ?? -2) + 1) ? cells : sheetRowOf(index, cells),
+  );
 };
 
 /**
@@ -209,28 +241,15 @@ const parseWorksheetRows = (
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
-      rowCells = { cells: new Map<number, SheetCell | PlainCell>(), width: 0 };
+      rowCells = { cells: [] };
       cellMap.set(row, rowCells);
     }
     count += widen(rowCells, col);
     if (count > maxCells) return { _tag: "TooLarge", cells: count };
-    rowCells.cells.set(col, plainOrCell(value));
+    place(rowCells, col, plainOrCell(value));
   }
 
-  // Rows and cells may arrive in any order; the worksheet holds them ascending.
-  const byPosition = Order.mapInput(
-    Order.Number,
-    ([position]: readonly [number, unknown]) => position,
-  );
-  // Writers emit rows and cells in order, so the sort is skipped when it
-  // would change nothing (it runs once per row, and its comparator per cell).
-  const ascending = <A>(entries: Iterable<readonly [number, A]>) => {
-    const all = Array.from(entries);
-    const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
-    return sorted ? all : Arr.sort(all, byPosition);
-  };
-  const rows = ascending(cellMap).map(([index, { cells }]) => sparseRow(index, ascending(cells)));
-  return { _tag: "Rows", rows, cells: count };
+  return { _tag: "Rows", rows: rowsInOrder(cellMap), cells: count };
 };
 
 // ============================================================================
@@ -310,7 +329,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
 
-            const worksheetRoot = yield* parsePart(pkg, target);
+            const worksheetRoot = yield* parsePart(pkg, target, "sheetData");
             const remaining = maxCells - allocated;
             const parsed = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
             if (Predicate.isTagged(parsed, "TooLarge")) {
@@ -322,7 +341,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            return new Worksheet({ name, columns: [], rows: parsed.rows, merges: [] });
+            return worksheetFromRows(name, parsed.rows);
           }),
         { concurrency: 1 },
       );

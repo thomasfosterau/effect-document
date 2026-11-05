@@ -26,15 +26,14 @@ import {
   type ParseError,
   type Reader,
   type SheetCell,
-  type SheetRow,
-  sheetRowOf,
+  type PlainRow,
   trustAs,
-  worksheetFromRows,
+  worksheetOfTrustedRows,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.ts";
-import { decimalAt, exactDigits } from "./decimal.ts";
+import { decimalAt, decimalInText, exactDigits } from "./decimal.ts";
 import { fastPlan, type FastPlan } from "./fast.ts";
 import {
   asCells,
@@ -79,6 +78,15 @@ export interface CsvInferenceOptions {
   readonly percent?: boolean | undefined;
   /** Values read as blank cells, matched exactly (defaults to `[""]`). */
   readonly nullValues?: ReadonlyArray<string> | undefined;
+  /**
+   * Whether a number must hold the digits it is written with (the default,
+   * `true`): a decimal a double cannot hold, such as a 20-digit ID or
+   * `0.10000000000000001`, stays text rather than silently changing. `false`
+   * reads every value the number grammar matches as `Number` of it, whatever
+   * its digits, as d3-dsv's `autoType` and uDSV do: faster on full-precision
+   * floats, which then need no check, and lossy for digits past a double's.
+   */
+  readonly exactNumbers?: boolean | undefined;
 }
 
 /** Options for the CSV reader: the dialect, the scan options and type inference. */
@@ -253,6 +261,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
   // matched value is a JavaScript numeric literal, so `Number` reads it as is.
   const plain = groups === undefined && decimalChar === ".";
   const fast = plain && !options.percent;
+  const exactNumbers = options.exactNumbers ?? true;
   /** The general path: the grammar as a regular expression, then the digits check. */
   const general = (raw: string): number | undefined => {
     const m = number.exec(raw);
@@ -265,7 +274,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
         ? Number(raw)
         : Number(`${sign}${int}.${frac || "0"}e${Number(exp ?? "0") - (pct ? 2 : 0)}`);
     const exact = exp === undefined && int.length + frac.length <= exactDigits;
-    return exact || holdsDigits(value, int + frac) ? value : undefined;
+    return !exactNumbers || exact || holdsDigits(value, int + frac) ? value : undefined;
   };
   // In the common case a plain decimal of at most `exactDigits` digits is a
   // number with no need to build it, and a value known to be one is
@@ -280,6 +289,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
     // float, say) holds its digits: the general check would agree
     return (
       digits <= exactDigits ||
+      !exactNumbers ||
       !Number.isNaN(decimalAt(raw, 0, raw.length)) ||
       general(raw) !== undefined
     );
@@ -287,12 +297,16 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
   const numberOf = (raw: string): number => (fast ? Number(raw) : (general(raw) ?? Number.NaN));
   const numberValue = (raw: string): number => {
     if (fast) {
-      const quick = decimalAt(raw, 0, raw.length);
+      const quick = decimalAt(raw, 0, raw.length, exactNumbers);
       if (!Number.isNaN(quick)) return quick;
     }
     return isNumber(raw) ? numberOf(raw) : Number.NaN;
   };
-  const numberAt = fast ? decimalAt : () => Number.NaN;
+  const numberAt = !fast
+    ? () => Number.NaN
+    : exactNumbers
+      ? decimalInText
+      : (text: string, start: number, end: number) => decimalInText(text, start, end, false);
   return { isNumber, numberOf, numberValue, numberAt };
 };
 
@@ -389,16 +403,15 @@ const sniffHeader = (
  * per value after its first text value.
  */
 /**
- * The rows of typed cells, as worksheet rows from `first` on. Each row is
- * built whole as soon as its cells are, so a row's intermediate cell array
- * dies young (and costs the collector nothing) instead of living until every
- * row is typed.
+ * The rows of typed cells, as plain worksheet rows (#227: a row's cells
+ * alone, standing for the row after the one before it). Each row is typed
+ * whole as soon as its cells are, so the strings it came from die young (and
+ * cost the collector nothing) instead of living until every row is typed.
  */
-const sheetRows = (
+const plainRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
-  first: number,
   cellAt: (raw: string, col: number) => RowCell,
-): Array<SheetRow> => rows.map((row, r) => sheetRowOf(first + r, row.map(cellAt)));
+): Array<PlainRow> => rows.map((row) => row.map(cellAt));
 
 /** How each value becomes a cell: typed by column or by cell, or (off) text as written. */
 const cellMaker = (
@@ -542,8 +555,10 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
 
   // the one-pass read (fused.ts), for the options it covers
   const fused = fusedRead(dialect, options ?? {}, classifier, fusedRows);
-  const asDocument = (rows: ReadonlyArray<SheetRow>): Doc<CsvFeature> =>
-    trustAs<CsvFeature>(document([worksheetFromRows(sheetName, rows)]));
+  // the reader typed every cell itself (plain cells, finite numbers, blanks
+  // as nodes): its rows are taken unchecked, as its profile is by `trustAs`
+  const asDocument = (rows: ReadonlyArray<PlainRow>): Doc<CsvFeature> =>
+    trustAs<CsvFeature>(document([worksheetOfTrustedRows(sheetName, rows)]));
 
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     Effect.suspend(() => {
@@ -562,14 +577,12 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
     pipe(
       scanTable(source, dialect, options ?? {}, classifier),
       Effect.map(({ headers, rows }) => {
-        const header = headers === null ? [] : [sheetRowOf(0, headers.slice())];
-        const body = sheetRows(
-          rows,
-          header.length,
-          cellMaker(rows, { ...options, inferTypes }, classifier),
-        );
+        const header = headers === null ? [] : [headers.slice()];
+        const body = plainRows(rows, cellMaker(rows, { ...options, inferTypes }, classifier));
         return trustAs<CsvFeature>(
-          document([worksheetFromRows(sheetName, headers === null ? body : [...header, ...body])]),
+          document([
+            worksheetOfTrustedRows(sheetName, headers === null ? body : [...header, ...body]),
+          ]),
         );
       }),
     );

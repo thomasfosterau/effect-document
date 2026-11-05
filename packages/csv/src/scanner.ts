@@ -334,10 +334,44 @@ const checkHeaders = (error: Option.Option<ParseError>): Effect.Effect<void, Par
 interface Records {
   readonly fields: ReadonlyArray<ReadonlyArray<string>>;
   readonly rowOf: (i: number) => number;
+  /**
+   * The first record, when the scan held it apart (it is the header, and
+   * `fields` the records after it): so the data rows need no copy without it.
+   */
+  readonly first: Option.Option<ReadonlyArray<string>>;
 }
 
 const splitHeaders = (
-  { fields, rowOf }: Records,
+  { fields, rowOf, first }: Records,
+  options: CsvScanOptions,
+): Effect.Effect<ScannedTable, ParseError> =>
+  Option.match(first, {
+    onNone: () => splitAll(fields, rowOf, options),
+    onSome: (header) => splitAfterHeader(header, fields, rowOf, options),
+  });
+
+/** {@link splitHeaders} of the records after a header row the scan held apart. */
+const splitAfterHeader = (
+  header: ReadonlyArray<string>,
+  fields: ReadonlyArray<ReadonlyArray<string>>,
+  rowOf: (i: number) => number,
+  options: CsvScanOptions,
+): Effect.Effect<ScannedTable, ParseError> => {
+  const provided = options.providedHeaders;
+  const headers = provided ?? header;
+  const validated = options.validateHeaders
+    ? checkHeaders(headerError(headers, provided ? undefined : rowOf(0)))
+    : Effect.void;
+  // record `i` of `fields` is record `i + 1` of the text
+  return Effect.flatMap(validated, () =>
+    splitRows(headers, fields, 0, (i) => rowOf(i + 1), options),
+  );
+};
+
+/** {@link splitHeaders} of every record, the header (if any) among them. */
+const splitAll = (
+  fields: ReadonlyArray<ReadonlyArray<string>>,
+  rowOf: (i: number) => number,
   options: CsvScanOptions,
 ): Effect.Effect<ScannedTable, ParseError> => {
   if (Arr.isReadonlyArrayEmpty(fields)) return Effect.succeed({ headers: null, rows: [] });
@@ -492,15 +526,19 @@ export const scanCsv = (
   const opts = defaults(options);
   const source = stripBom(text);
   // the hand-written scan for the common dialects (fast.ts), else the grammar
-  const fast = Option.flatMap(fastPlan(dialect, opts), (plan) => fastScan(source, plan));
-  if (Option.isSome(fast))
-    return splitHeaders({ fields: fast.value, rowOf: rowsOf(source, dialect, opts) }, opts);
+  // a header row is held apart as it is scanned, so the data rows need no copy
+  const holdFirst = !!opts.treatFirstRowAsHeader;
+  const fast = Option.flatMap(fastPlan(dialect, opts), (plan) => fastScan(source, plan, holdFirst));
+  if (Option.isSome(fast)) {
+    const { first, rows } = fast.value;
+    return splitHeaders({ fields: rows, rowOf: rowsOf(source, dialect, opts), first }, opts);
+  }
   const result = Parser.parse(tableParser(dialect, opts), source);
   if (Result.isFailure(result)) return Effect.fail(fromSyntaxError(result.failure, 0));
   const parsed = result.success;
   // blank and comment lines scan as null
   const fields = parsed.filter((record): record is ReadonlyArray<string> => record !== null);
-  return splitHeaders({ fields, rowOf: rowsOf(source, dialect, opts) }, opts);
+  return splitHeaders({ fields, rowOf: rowsOf(source, dialect, opts), first: Option.none() }, opts);
 };
 
 /**

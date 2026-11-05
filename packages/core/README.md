@@ -229,6 +229,8 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `PlainCell` | const | A finite number, string or boolean standing in a row for its unstyled cell node. |
 | `RowCell` | const | One position of a row: its cell (a node or a plain cell), or `undefined` for a gap (`null` in JSON). |
 | `SheetRow` | class | A spreadsheet row: its 0-based `index` and its cells by position (`undefined` a gap, the last a cell). |
+| `PlainRow` | schema | A row's cells alone, standing in a worksheet's `rows` for the row one past the one before it, with no height (#227); a bare array in JSON. |
+| `isPlainRow` | function | Whether a worksheet row is a plain row rather than a `SheetRow`. |
 | `MergeRange` | class | A rectangular merged-cell range (0-based, inclusive). |
 | `Worksheet` | class | A spreadsheet worksheet: a named, sparse grid of typed cells. |
 | `TextBox` | class | A text box shape. |
@@ -276,6 +278,11 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `sheetRowFrom` | function | A dense row built from any values, the cell at column `n` being `toCell(items[n], n)`. |
 | `sheetRowOf` | function | A row holding the array of cells it is given (not copied): for readers that build one per line. |
 | `rowEntries` | function | The cells a row holds with their columns, as nodes, gaps left out. |
+| `rowsOf` | function | A worksheet's rows as `SheetRow` nodes (a plain row's built on demand). |
+| `rowIndexes` | function | The index of each of a worksheet's rows, explicit or implied, in one array. |
+| `rowCellsOf` | function | A worksheet row's cells, `SheetRow` or plain, without building a node. |
+| `worksheetOfTrustedRows` | function | A worksheet of rows its caller built valid itself, taken unchecked: the escape hatch for a reader's own output (`worksheetFromRows` checks every cell). |
+| `sheetRowOfNumbers` | function | `sheetRowOf` for a row of plain numbers, checked without boxing them. |
 | `cellOf` | function | The cell node a row position holds (a plain cell's unstyled node), or `undefined` for a gap. |
 | `cellAt` | function | The cell node at a column of a row, or `undefined` where it has none. |
 | `sparseRow` | function | A row from its cells' `[column, cell]` entries, in strictly ascending column order (each column between a gap): the readers' constructor for rows whose cells skip columns. |

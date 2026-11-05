@@ -5,16 +5,20 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Equivalence from "effect/Equivalence";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import {
   cell,
   document,
-  type Document,
+  Document,
   encodeDocument,
   type ParseError,
   type SheetCell,
   SheetRow,
+  type WorksheetRow,
+  isPlainRow,
+  rowCellsOf,
   rowEntries,
   sheetRow,
   sparseRow,
@@ -59,7 +63,7 @@ const nudged = (s: string): Array<string> => {
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
 /** A CSV row's cells as nodes: the reader writes every field, so a row has no gaps. */
-const cellsOf = (row: SheetRow) => rowEntries(row).map(([, c]) => c);
+const cellsOf = (row: WorksheetRow) => rowEntries(row).map(([, c]) => c);
 
 /** A document's first worksheet; fails the test when it has none. */
 const firstWorksheet = (doc: Document): Worksheet => {
@@ -178,10 +182,41 @@ describe("CSV reader", () => {
       }),
     );
     const nearTwo53 = Arr.makeBy(2000, (i) => String(2 ** 53 + i - 1000));
-    const mismatches = [...long, ...nearTwo53, "0.10000000000000001", "9007199254740993"].filter(
-      (raw) => !Equal.equals(inferCell(raw), reference(raw)),
+    // powers of two and the doubles either side of them, where the gap to the
+    // next double up is twice the gap down (decimal.ts's ulpOf)
+    const nearPowers = Arr.makeBy(140, (i) => 2 ** (i - 70)).flatMap((p) =>
+      [p, p * (1 + 2 ** -52), p * (1 - 2 ** -53), p * 3, p * (3 + 2 ** -51)].map(String),
     );
+    const mismatches = [
+      ...long,
+      ...nearTwo53,
+      ...nearPowers,
+      "0.10000000000000001",
+      "9007199254740993",
+    ].filter((raw) => !Equal.equals(inferCell(raw), reference(raw)));
     expect(mismatches.slice(0, 5)).toEqual([]);
+    // with exactNumbers off, whatever the grammar matches is `Number` of it,
+    // its digits held or not; anything else is as before
+    const lossy = (raw: string): SheetCell =>
+      grammar.test(raw) ? cell.number(Number(raw)) : reference(raw);
+    const lossyMismatches = [...samples, ...long, ...nearTwo53, "0.10000000000000001"].filter(
+      (raw) => !Equal.equals(inferCell(raw, { exactNumbers: false }), lossy(raw)),
+    );
+    expect(lossyMismatches.slice(0, 5)).toEqual([]);
+  });
+
+  test("exactNumbers: false reads digits a double cannot hold as numbers", async () => {
+    const csv = "id,x\n12345678901234567890,0.10000000000000001\n";
+    expect(await run(readCsvRows(csv, { treatFirstRowAsHeader: true }))).toEqual({
+      headers: ["id", "x"],
+      rows: [["12345678901234567890", "0.10000000000000001"]],
+    });
+    expect(
+      await run(readCsvRows(csv, { exactNumbers: false, treatFirstRowAsHeader: true })),
+    ).toEqual({
+      headers: ["id", "x"],
+      rows: [[Number("12345678901234567890"), 0.1]],
+    });
   });
 
   test("types a column as every non-null value in it is typed, else as text", async () => {
@@ -620,9 +655,17 @@ describe("CSV scanner fast path", () => {
     return seed % n;
   };
   const alphabet = ["a", "b", ",", ";", "\t", '"', "'", "\r", "\n", " ", "\r\n", "é"];
-  const samples = Arr.makeBy(4000, () =>
-    Arr.makeBy(next(24), () => alphabet[next(alphabet.length)] ?? "").join(""),
-  );
+  const samples = [
+    ...Arr.makeBy(4000, () =>
+      Arr.makeBy(next(24), () => alphabet[next(alphabet.length)] ?? "").join(""),
+    ),
+    // records about as wide as the widest row literal (src/row.ts), and wider
+    ...Arr.makeBy(200, () =>
+      Arr.makeBy(3, () => Arr.makeBy(28 + next(8), () => "a").join(",")).join(
+        alphabet[7 + next(2)] ?? "\n",
+      ),
+    ),
+  ];
   test.each([true, false])("agrees with the grammar (filterEmpty: %s)", (filterEmpty) => {
     const options = { allowVariableColumns: true, filterEmpty };
     const disagreements = dialects.flatMap((dialect) =>
@@ -692,9 +735,12 @@ describe("CSV reader fast path", () => {
     ["1", "2", "x"],
     ["", ""],
     ["true", "1"],
+    ["0.14285714285714285", "0.10000000000000001", "12345678901234567890", "1.50000000000000000"],
   ];
   const table = (): string => {
-    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    // now and then a table wider than the widest row literal (src/row.ts)
+    const width = next(10) === 0 ? 30 + next(6) : 1 + next(4);
+    const columns = Arr.makeBy(width, () => pools[next(pools.length)] ?? []);
     const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
     const rows = Arr.makeBy(next(6), () => {
       const row = columns.map((pool) => pool[next(pool.length)] ?? "");
@@ -712,7 +758,35 @@ describe("CSV reader fast path", () => {
     { inferTypes: false, treatFirstRowAsHeader: true },
     { allowVariableColumns: true },
     { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
+    { exactNumbers: false },
+    { exactNumbers: false, inference: "cell", treatFirstRowAsHeader: false },
   ];
+  const decodeJson = Schema.decodeResult(Document);
+  const toJson = Schema.encodeSync(Document);
+  test("its documents, taken unchecked (worksheetOfTrustedRows), are what the schema accepts", () => {
+    // the reader builds its rows unchecked, so a row the schema would reject
+    // would pass silently: a decode of each document's encoding checks every
+    // cell, on both paths
+    const tables = Arr.makeBy(400, table);
+    const docs = optionSets.flatMap((options) =>
+      tables.flatMap((csv) =>
+        [csv, `junk\n${csv}`].flatMap((source, i) =>
+          Result.match(
+            Effect.runSync(
+              Effect.result(
+                makeCsvReader(i === 0 ? options : { ...options, skipRows: 1 }).read(text(source)),
+              ),
+            ),
+            { onSuccess: (doc) => [doc], onFailure: () => [] },
+          ),
+        ),
+      ),
+    );
+    expect(docs.length).toBeGreaterThan(1000);
+    const rejected = docs.filter((doc) => Result.isFailure(decodeJson(toJson(doc))));
+    expect(rejected).toEqual([]);
+  });
+
   test("gives the general path's document or failure", () => {
     const tables = Arr.makeBy(1500, table);
     const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
@@ -742,7 +816,32 @@ const rowsOutcome = (options: CsvReaderOptions, csv: string) =>
     onFailure: (e) => ({ reason: e.reason }),
   });
 
+/** Four rows of `w` numbers, integers and halves among them. */
+const numberRows = (w: number) =>
+  Arr.makeBy(4, (r) => Arr.makeBy(w, (c) => (r * 41 + c) / 4 + (c % 2 === 0 ? 0 : 0.5)));
+
 describe("readCsvRows", () => {
+  // the scan copies a row by a literal of its width up to 32, and slices a
+  // wider one (src/row.ts); rows of numbers have literals of their own
+  test.each(Arr.makeBy(40, (i) => i + 1))("copies a row of width %i out of the scan", async (w) => {
+    // rows of numbers, then a wider one and a narrower one
+    const expected = [
+      ...numberRows(w),
+      [...Arr.makeBy(w, () => 1.25), 7],
+      Arr.makeBy(w - 1, (c) => c + 0.75),
+    ].filter(Arr.isArrayNonEmpty);
+    const csv = expected.map((row) => row.join(",")).join("\n");
+    const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
+    expect((await run(readCsvRows(csv, options))).rows).toEqual(expected);
+    const doc = await run(makeCsvReader(options).read(text(csv)));
+    expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
+    // a CSV document's rows are plain rows (#227)
+    expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
+    const words = Arr.makeBy(w, (c) => `w${c}`);
+    const scanned = await run(scanCsv(`${words.join(",")}\n${words.join(",")}\n`));
+    expect(scanned.rows).toEqual([words, words]);
+  });
+
   test("reads a header and typed values", async () => {
     expect(await run(readCsvRows("name,age,member\nada,36,true\nbob,,false\n"))).toEqual({
       headers: ["name", "age", "member"],
@@ -819,7 +918,9 @@ describe("readCsvRows", () => {
     ["9007199254740993", "12", "1.50"],
   ];
   const table = (): string => {
-    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    // now and then a table wider than the widest row literal (src/row.ts)
+    const width = next(10) === 0 ? 30 + next(6) : 1 + next(4);
+    const columns = Arr.makeBy(width, () => pools[next(pools.length)] ?? []);
     const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
     const rows = Arr.makeBy(next(6), () => {
       const row = columns.map((pool) => pool[next(pool.length)] ?? "");
@@ -837,6 +938,8 @@ describe("readCsvRows", () => {
     { allowVariableColumns: true },
     { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
     { providedHeaders: ["p", "q", "r", "s"], allowVariableColumns: true },
+    { exactNumbers: false },
+    { exactNumbers: false, inference: "cell" },
   ];
   test("gives read's values, by its one-pass path and its general one", () => {
     const tables = Arr.makeBy(1500, table);

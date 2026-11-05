@@ -10,6 +10,8 @@
  * alive so the engine cannot drop the work.
  */
 
+// oxlint-disable-next-line effect/use-command-executor-service -- the harness is plain Node, no Effect runtime around the timing (see above); a child per case is spawned between timings
+import { spawnSync } from "node:child_process";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
@@ -85,18 +87,20 @@ const pad = (s: string, n: number) => s.padEnd(n);
 const padL = (s: string, n: number) => s.padStart(n);
 
 /**
- * Time one case: a few warm-up runs, then samples for at least `minRounds`
- * runs and until `budget` ms have passed (at most 1000). Each case is sampled
- * on its own, not interleaved with the others: interleaved, a case is charged
- * for the collections the garbage of the case before it brings on, which
- * penalises whichever allocates most.
+ * Time one block of a case: a few warm-up runs (the first block only), then
+ * samples for at least `minRounds` runs and until `budget` ms have passed (at
+ * most 1000). Each block runs one case on its own, not interleaved run by run
+ * with the others: interleaved, a case is charged for the collections the
+ * garbage of the case before it brings on, which penalises whichever
+ * allocates most.
  */
 const sampleCase = async (
   c: Case,
   minRounds: number,
   caseBudget: number,
+  warm: boolean,
 ): Promise<Array<number>> => {
-  for (let i = 0; i < 3; i++) await time(c.run);
+  if (warm) for (let i = 0; i < 3; i++) await time(c.run);
   const samples: Array<number> = [];
   const deadline = performance.now() + caseBudget;
   while (samples.length < minRounds || (performance.now() < deadline && samples.length < 1000))
@@ -105,13 +109,33 @@ const sampleCase = async (
   return samples;
 };
 
+/**
+ * How many blocks each case is sampled in (`BENCH_BLOCKS`, default 5). A
+ * machine's speed drifts over a run (a shared VM's by a third or more), and
+ * a case sampled in one block takes whatever speed its block ran at: in
+ * several short blocks, the cases taking turns (in reverse order every other
+ * round, so none always follows the same one), every case meets the drift
+ * alike.
+ */
+const blocks = Math.max(1, Number(process.env["BENCH_BLOCKS"] ?? 5));
+
 /** Every case's samples, the group's time shared between them. */
 const sampleGroup = async (
   cases: ReadonlyArray<Case>,
   minRounds: number,
+  groupBudget = budget,
 ): Promise<Array<Array<number>>> => {
-  const out: Array<Array<number>> = [];
-  for (const c of cases) out.push(await sampleCase(c, minRounds, budget / cases.length));
+  const out: Array<Array<number>> = cases.map(() => []);
+  const perBlock = Math.ceil(minRounds / blocks);
+  for (let round = 0; round < blocks; round++) {
+    const order = round % 2 === 0 ? cases.keys() : [...cases.keys()].toReversed();
+    for (const i of order) {
+      const c = cases[i]!;
+      out[i]!.push(
+        ...(await sampleCase(c, perBlock, groupBudget / cases.length / blocks, round === 0)),
+      );
+    }
+  }
   return out;
 };
 
@@ -144,21 +168,24 @@ const printTable = (
 ): void => {
   const medians = samples.map(median);
   const fastest = Math.min(...medians);
+  // the best run is the least disturbed by a noisy machine; its ratio is the steadier one
+  const bests = samples.map((s) => Math.min(...s));
+  const fastestBest = Math.min(...bests);
   const mb = group.bytes / 1e6;
   const runs = samples.map((s) => s.length);
   console.log(
     `## ${group.name} (${mb.toFixed(2)} MB, ${Math.min(...runs)}–${Math.max(...runs)} runs a case)\n`,
   );
   console.log(
-    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("result MB", 9)} |`,
+    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("best vs best", 12)} | ${padL("result MB", 9)} |`,
   );
   console.log(
-    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(8)}: |`,
+    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(11)}: | ${"-".repeat(8)}: |`,
   );
   group.cases.forEach((c, i) => {
     const m = medians[i]!;
     console.log(
-      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(Math.min(...samples[i]!).toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(megabytes(heaps[i]), 9)} |`,
+      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(bests[i]!.toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(`${(bests[i]! / fastestBest).toFixed(2)}x`, 12)} | ${padL(megabytes(heaps[i]), 9)} |`,
     );
   });
   console.log("");
@@ -174,16 +201,102 @@ export type GroupSource = Group | { readonly name: string; readonly build: () =>
 
 const build = (source: GroupSource): Group => ("build" in source ? source.build() : source);
 
-/** Run each group's cases interleaved for {@link budget} ms and print a table. */
+/**
+ * Whether each case runs in a process of its own (`BENCH_ISOLATE`, on unless
+ * `0`). In one process, a case's speed depends on the cases before it: the
+ * type feedback they left on code they share with it (every configuration of
+ * a reader runs the same scanner), and the garbage they left in the old
+ * generation, both of which this harness measured as a third of a CSV read's
+ * time. A fresh process per case is how an application meets one library.
+ */
+const isolate = process.env["BENCH_ISOLATE"] !== "0";
+/** In a child process: the group (among the filtered ones) and case it runs, as `group:case`. */
+const child = process.env["BENCH_CHILD"];
+/** The prefix of the line a child reports its results on. */
+const RESULT = "BENCH_RESULT ";
+
+/** One case's results, as a child process reports them. */
+interface CaseResult {
+  readonly samples: ReadonlyArray<number>;
+  /** The bytes its result holds, or -1 where they cannot be measured (JSON holds no `undefined`). */
+  readonly heap: number;
+}
+
+/** Run case `index` of a group in a process of its own, sampled for its share of the group's time. */
+const runIsolated = (groupIndex: number, index: number, cases: number): CaseResult => {
+  const result = spawnSync(process.execPath, [...process.execArgv, process.argv[1] ?? ""], {
+    env: { ...process.env, BENCH_CHILD: `${groupIndex}:${index}`, BENCH_SHARE: String(cases) },
+    encoding: "utf8",
+    maxBuffer: 1 << 26,
+  });
+  const line = result.stdout.split("\n").find((l) => l.startsWith(RESULT));
+  if (line === undefined)
+    // oxlint-disable-next-line effect/avoid-untagged-errors -- a failed benchmark run ends the script: plain Node, no Effect runtime here
+    throw new Error(`benchmark case ${groupIndex}:${index} failed:\n${result.stderr}`);
+  // oxlint-disable-next-line effect/avoid-direct-json, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: the line is the child's own `JSON.stringify` of a CaseResult, below
+  return JSON.parse(line.slice(RESULT.length)) as CaseResult;
+};
+
+/**
+ * How many processes each case runs in (`BENCH_PROCESSES`, default 3). The
+ * cases take turns, a process each, in reverse order every other round, and
+ * a case's samples are pooled over its processes: a machine's speed drifts
+ * over minutes, and one process a case would give each the speed of its own
+ * minute.
+ */
+const processes = Math.max(1, Number(process.env["BENCH_PROCESSES"] ?? 3));
+
+/** Every case of a group run in {@link processes} processes each, its samples pooled. */
+const isolatedRounds = (groupIndex: number, cases: number): ReadonlyArray<CaseResult> => {
+  const pooled = Arr.makeBy(cases, () => ({ samples: Arr.empty<number>(), heap: -1 }));
+  const indexes = Arr.makeBy(cases, (i) => i);
+  for (let round = 0; round < processes; round++)
+    for (const i of round % 2 === 0 ? indexes : indexes.toReversed()) {
+      // each process takes its share of the case's time
+      const result = runIsolated(groupIndex, i, cases * processes);
+      const into = pooled[i]!;
+      into.samples.push(...result.samples);
+      if (into.heap < 0) into.heap = result.heap;
+    }
+  return pooled;
+};
+
+/** In a child process: run its one case and report it on stdout. */
+const runChild = async (groups: ReadonlyArray<GroupSource>, which: string): Promise<void> => {
+  const [g, c] = which.split(":").map(Number);
+  const source = groups[g ?? 0];
+  const group = source === undefined ? undefined : build(source);
+  const one = group?.cases[c ?? 0];
+  // oxlint-disable-next-line effect/avoid-untagged-errors -- as above
+  if (group === undefined || one === undefined) throw new Error(`no benchmark case ${which}`);
+  const share = Number(process.env["BENCH_SHARE"] ?? 1);
+  const [samples = []] = await sampleGroup([one], group.minRounds ?? 15, budget / share);
+  const [heap] = await memory([one]);
+  // oxlint-disable-next-line effect/avoid-direct-json -- the report to the parent process, read back above
+  console.log(RESULT + JSON.stringify({ samples, heap: heap ?? -1 }));
+};
+
+/** Run each group's cases for {@link budget} ms, each in its own process (see {@link isolate}), and print a table. */
 export const runGroups = async (
   title: string,
   groups: ReadonlyArray<GroupSource>,
 ): Promise<void> => {
+  const chosen = groups.filter((g) => g.name.includes(filter));
+  if (child !== undefined) return runChild(chosen, child);
   console.log(`\n# ${title}\n`);
-  for (const source of groups.filter((g) => g.name.includes(filter))) {
+  for (const [groupIndex, source] of chosen.entries()) {
     const group = build(source);
-    const samples = await sampleGroup(group.cases, group.minRounds ?? 15);
-    printTable(group, samples, await memory(group.cases));
+    if (isolate) {
+      const results = isolatedRounds(groupIndex, group.cases.length);
+      printTable(
+        group,
+        results.map((r) => r.samples),
+        results.map((r) => (r.heap < 0 ? undefined : r.heap)),
+      );
+    } else {
+      const samples = await sampleGroup(group.cases, group.minRounds ?? 15);
+      printTable(group, samples, await memory(group.cases));
+    }
   }
   return void sink;
 };

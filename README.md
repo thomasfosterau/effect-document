@@ -85,18 +85,18 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 | CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.87×, Papa Parse 1.03×, d3-dsv 1.04×, csv-parse 3.5× |
 | CSV scan, every field quoted / all numbers / full-precision floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.94× / 0.85× / 0.76×, d3-dsv 1.31× / 1.15× / 1.24×, Papa Parse 2.3× / 2.3× / 2.2× |
 | CSV typed rows (`readCsvRows`: text → rows of values) | 8 MB mixed | uDSV (inferring its schema) 1.14×, Papa Parse `dynamicTyping` 2.1×, d3-dsv `autoType` 2.5× |
-| CSV typed rows, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.94× / 0.99× / 0.71×, d3-dsv 1.96× / 2.2× / 1.54×, Papa Parse 3.9× / 3.5× / 3.1× |
+| CSV typed rows, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.94× / 1.04× / 0.98×, d3-dsv 1.96× / 2.2× / 1.54×, Papa Parse 3.9× / 3.5× / 3.1× |
 | CSV read (text → typed document) | 8 MB mixed / 80 KB | uDSV 0.86× / 1.09×, Papa Parse 1.61× / 2.9×, d3-dsv 1.87× / 3.6× |
-| CSV read, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.88× / 0.83× / 0.64×, d3-dsv 1.83× / 1.89× / 1.13×, Papa Parse 3.6× / 3.0× / 2.7× |
+| CSV read, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.88× / 0.91–0.98× / 0.5–0.9×, d3-dsv 1.83× / 1.40× / 1.04×, Papa Parse 3.6× / 3.0× / 3.1× |
 | CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 2.2×, csv-parse's 2.6× |
 | CSV write | 8 MB mixed / 2.7 MB quoted | from a document: Papa Parse (from rows) 1.73× / 1.55×; `renderTable` (from rows): d3-dsv 1.07× / 1.30× |
-| XLSX read / write | 160k cells | SheetJS 0.77× / 1.31×, ExcelJS 1.01× / 2.0× (the read's document 6 MB against SheetJS's 19 MB) |
+| XLSX read / write | 160k cells / 4k cells | read: SheetJS 1.21× / 0.95×, ExcelJS 1.39× / 1.39× (the document 7.5 MB against SheetJS's 19 MB); write: SheetJS 1.31×, ExcelJS 2.0× |
 | DOCX read / write | 500 sections | mammoth `extractRawText` 1.88× / `docx` 0.79× (it writes no lists or tables) |
 | PPTX write | 200 slides | PptxGenJS 1.35× |
 | PDF read / write | 200 sections | pdf.js text extraction 1.01× / pdf-lib 1.23× |
 | CSV → XLSX / XLSX → CSV | 20k rows | SheetJS 1.23× / 0.87× |
 
-`readCsvRows` returns what the CSV libraries return, rows of plain values, with `read`'s header handling and type inference; `read` builds a document. A row's cells are positional and a plain number, string or boolean is its bare value (#226), so a document of plain values holds about what the libraries' arrays do and `read` costs little more than `readCsvRows`. The libraries keep a number whatever its digits; both of our readers keep a number only when its double holds the digits it is written with (`12345678901234567890` stays text). Medians on this VM vary by up to ±40% between runs; the order of the libraries does not.
+`readCsvRows` returns what the CSV libraries return, rows of plain values, with `read`'s header handling and type inference; `read` builds a document. A row's cells are positional and a plain number, string or boolean is its bare value (#226), so a document of plain values holds about what the libraries' arrays do (a row of numbers is an array of unboxed doubles: `readCsvRows` holds 10.5 MB for the numbers table, as uDSV does, and `read` 15.3 MB with its row nodes) and `read` costs little more than `readCsvRows`. The libraries keep a number whatever its digits; both of our readers keep a number only when its double holds the digits it is written with (`12345678901234567890` stays text). Medians on this VM vary by up to ±40% between runs, so the typed-rows numbers and floats figures come from comparisons run in one process with 40 or more rounds a case; the order of the libraries does not change between runs.
 
 ## Development
 
