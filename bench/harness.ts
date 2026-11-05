@@ -168,21 +168,24 @@ const printTable = (
 ): void => {
   const medians = samples.map(median);
   const fastest = Math.min(...medians);
+  // the best run is the least disturbed by a noisy machine; its ratio is the steadier one
+  const bests = samples.map((s) => Math.min(...s));
+  const fastestBest = Math.min(...bests);
   const mb = group.bytes / 1e6;
   const runs = samples.map((s) => s.length);
   console.log(
     `## ${group.name} (${mb.toFixed(2)} MB, ${Math.min(...runs)}–${Math.max(...runs)} runs a case)\n`,
   );
   console.log(
-    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("result MB", 9)} |`,
+    `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("best vs best", 12)} | ${padL("result MB", 9)} |`,
   );
   console.log(
-    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(8)}: |`,
+    `| ${"-".repeat(34)} | ${"-".repeat(9)}: | ${"-".repeat(8)}: | ${"-".repeat(7)}: | ${"-".repeat(9)}: | ${"-".repeat(11)}: | ${"-".repeat(8)}: |`,
   );
   group.cases.forEach((c, i) => {
     const m = medians[i]!;
     console.log(
-      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(Math.min(...samples[i]!).toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(megabytes(heaps[i]), 9)} |`,
+      `| ${pad(c.name, 34)} | ${padL(m.toFixed(2), 10)} | ${padL(bests[i]!.toFixed(2), 9)} | ${padL((mb / (m / 1000)).toFixed(1), 8)} | ${padL(`${(m / fastest).toFixed(2)}x`, 10)} | ${padL(`${(bests[i]! / fastestBest).toFixed(2)}x`, 12)} | ${padL(megabytes(heaps[i]), 9)} |`,
     );
   });
   console.log("");
@@ -234,6 +237,30 @@ const runIsolated = (groupIndex: number, index: number, cases: number): CaseResu
   return JSON.parse(line.slice(RESULT.length)) as CaseResult;
 };
 
+/**
+ * How many processes each case runs in (`BENCH_PROCESSES`, default 3). The
+ * cases take turns, a process each, in reverse order every other round, and
+ * a case's samples are pooled over its processes: a machine's speed drifts
+ * over minutes, and one process a case would give each the speed of its own
+ * minute.
+ */
+const processes = Math.max(1, Number(process.env["BENCH_PROCESSES"] ?? 3));
+
+/** Every case of a group run in {@link processes} processes each, its samples pooled. */
+const isolatedRounds = (groupIndex: number, cases: number): ReadonlyArray<CaseResult> => {
+  const pooled = Arr.makeBy(cases, () => ({ samples: Arr.empty<number>(), heap: -1 }));
+  const indexes = Arr.makeBy(cases, (i) => i);
+  for (let round = 0; round < processes; round++)
+    for (const i of round % 2 === 0 ? indexes : indexes.toReversed()) {
+      // each process takes its share of the case's time
+      const result = runIsolated(groupIndex, i, cases * processes);
+      const into = pooled[i]!;
+      into.samples.push(...result.samples);
+      if (into.heap < 0) into.heap = result.heap;
+    }
+  return pooled;
+};
+
 /** In a child process: run its one case and report it on stdout. */
 const runChild = async (groups: ReadonlyArray<GroupSource>, which: string): Promise<void> => {
   const [g, c] = which.split(":").map(Number);
@@ -260,7 +287,7 @@ export const runGroups = async (
   for (const [groupIndex, source] of chosen.entries()) {
     const group = build(source);
     if (isolate) {
-      const results = group.cases.map((_, i) => runIsolated(groupIndex, i, group.cases.length));
+      const results = isolatedRounds(groupIndex, group.cases.length);
       printTable(
         group,
         results.map((r) => r.samples),
