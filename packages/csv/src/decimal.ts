@@ -42,26 +42,22 @@ const twoProduct = (a: number, b: number): number => {
   return p;
 };
 
-/** A double's bits, for {@link ulpOf}. */
-const bits = /*#__PURE__*/ new Float64Array(1);
-const words = /*#__PURE__*/ new Uint32Array(bits.buffer);
-/** The index of the low 32 bits of a double in {@link words}. */
-const LOW = /*#__PURE__*/ new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 0 : 1;
+/** 2^-53: half the gap between 1 and the next double up. */
+const HALF_EPSILON = 2 ** -53;
 
 /**
  * The gap from a positive normal double to the next one up, when it is also
- * the gap to the next one down; `NaN` otherwise (a power of two, whose gap
- * below is half the one above) and across a word boundary, for the caller
- * to leave to `Number`.
+ * the gap to the next one down; 0 otherwise (a power of two, whose gap below
+ * is half the one above), for the caller to leave to `Number`.
+ *
+ * `c * 2^-53` is exact and lies in [ulp/2, ulp), at ulp/2 only when `c` is
+ * a power of two: so `c` plus it rounds up to the next double, a gap of one
+ * ulp, except for a power of two, where the tie rounds to `c` (its last bit
+ * is even) and the gap is 0. Arithmetic, where reading and writing the
+ * double's bits through a typed array cost a tenth of a long decimal's
+ * reading (bench/csv.bench.ts's floats table).
  */
-const ulpOf = (c: number): number => {
-  bits[0] = c;
-  const low = words[LOW] ?? 0;
-  const high = words[1 - LOW] ?? 0;
-  if (low === 0xff_ff_ff_ff || (low === 0 && (high & 0xf_ff_ff) === 0)) return Number.NaN;
-  words[LOW] = low + 1;
-  return (bits[0] ?? c) - c;
-};
+const ulpOf = (c: number): number => c + c * HALF_EPSILON - c;
 
 /**
  * The double a long plain decimal reads as, when a double holds its digits

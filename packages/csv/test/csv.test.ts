@@ -178,9 +178,18 @@ describe("CSV reader", () => {
       }),
     );
     const nearTwo53 = Arr.makeBy(2000, (i) => String(2 ** 53 + i - 1000));
-    const mismatches = [...long, ...nearTwo53, "0.10000000000000001", "9007199254740993"].filter(
-      (raw) => !Equal.equals(inferCell(raw), reference(raw)),
+    // powers of two and the doubles either side of them, where the gap to the
+    // next double up is twice the gap down (decimal.ts's ulpOf)
+    const nearPowers = Arr.makeBy(140, (i) => 2 ** (i - 70)).flatMap((p) =>
+      [p, p * (1 + 2 ** -52), p * (1 - 2 ** -53), p * 3, p * (3 + 2 ** -51)].map(String),
     );
+    const mismatches = [
+      ...long,
+      ...nearTwo53,
+      ...nearPowers,
+      "0.10000000000000001",
+      "9007199254740993",
+    ].filter((raw) => !Equal.equals(inferCell(raw), reference(raw)));
     expect(mismatches.slice(0, 5)).toEqual([]);
     // with exactNumbers off, whatever the grammar matches is `Number` of it,
     // its digits held or not; anything else is as before
