@@ -78,20 +78,22 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 
 ## Performance
 
-`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from one run on a 4-core cloud VM with Node 22; each figure is the other library's time divided by ours, so above 1× means we are faster:
+`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from one run on a 4-core cloud VM with Node 22, each case timed on its own; each figure is the other library's time divided by ours, so above 1× means we are faster:
 
 | Task | Input | Compared with |
 | --- | --- | --- |
-| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.71×, d3-dsv 0.90×, Papa Parse 0.95×, csv-parse 3.0× |
-| CSV read (text → typed document) | same | SheetJS (text → workbook) 2.7×; uDSV typed arrays 0.32× |
-| CSV stream (64 KiB chunks) | same | Papa Parse's Node stream 1.9×, csv-parse's 2.7× |
-| CSV write (document → text) | same | Papa Parse (from rows) 0.82×, d3-dsv (from rows) 0.52×; `renderTable` (from rows) 0.78× d3-dsv |
-| XLSX read / write | 160k cells | SheetJS 0.89× / 1.16×, ExcelJS 1.0× / 1.96× |
-| DOCX read / write | 500 sections | mammoth `extractRawText` 1.67× / `docx` 0.81× (it writes no lists or tables) |
-| PPTX write | 200 slides | PptxGenJS 1.04× |
-| PDF read / write | 200 sections | pdf.js text extraction 1.08× / pdf-lib 1.27× |
+| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.80×, Papa Parse 0.99×, d3-dsv 1.16×, csv-parse 4.4× |
+| CSV scan, every field quoted | 2.7 MB | uDSV 0.86×, d3-dsv 1.32×, Papa Parse 2.05× |
+| CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.86× / 1.19×, d3-dsv 0.79× / 1.13×, SheetJS (text → workbook) 3.0× / 5.1× |
+| CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 1.7×, csv-parse's 2.6× |
+| CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.32×; `renderTable` (from rows): d3-dsv 0.97× |
+| XLSX read / write | 160k cells | SheetJS 0.82× / 1.14×, ExcelJS 0.89× / 1.85× |
+| DOCX read / write | 500 sections | mammoth `extractRawText` 1.96× / `docx` 0.79× (it writes no lists or tables) |
+| PPTX write | 200 slides | PptxGenJS 1.02× |
+| PDF read / write | 200 sections | pdf.js text extraction 0.97× / pdf-lib 1.13× |
+| CSV → XLSX / XLSX → CSV | 20k rows | SheetJS 1.17× / 0.97× |
 
-A CSV document holds about 3.5× the memory of the string arrays the CSV libraries return (each cell is an object in the document tree), which is most of the gap to uDSV's typed arrays.
+A CSV document holds about 3× the memory of the arrays the CSV libraries return: every value is a cell object in the document tree, plus its column position. That, and the collection time it brings, is most of what separates `read` from uDSV's typed arrays and, on large inputs, from d3-dsv and Papa Parse.
 
 ## Development
 

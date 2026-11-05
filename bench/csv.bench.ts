@@ -34,7 +34,7 @@ import type { Duplex } from "node:stream";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { inferSchema, initParser } from "udsv";
-import { type Case, type Group, rng, runGroups } from "./harness.ts";
+import { type Case, type Group, type GroupSource, rng, runGroups } from "./harness.ts";
 
 const random = rng(2026);
 const pick = <A>(xs: ReadonlyArray<A>): A => xs[Math.floor(random() * xs.length)]!;
@@ -218,11 +218,24 @@ const writeCases = (csv: string): Array<Case> => {
   ];
 };
 
-const groups: Array<Group> = inputs.flatMap(({ name, csv, minRounds }) => [
-  { name: `scan: ${name}`, bytes: bytes(csv), cases: scanCases(csv), minRounds },
-  { name: `read: ${name}`, bytes: bytes(csv), cases: readCases(csv), minRounds },
-  { name: `stream: ${name}`, bytes: bytes(csv), cases: streamCases(csv), minRounds },
-  { name: `write: ${name}`, bytes: bytes(csv), cases: writeCases(csv), minRounds },
-]);
+// each group built when it runs, so no group's inputs weigh on another's
+const groups: Array<GroupSource> = inputs.flatMap(({ name, csv, minRounds }) =>
+  (
+    [
+      ["scan", scanCases],
+      ["read", readCases],
+      ["stream", streamCases],
+      ["write", writeCases],
+    ] as const
+  ).map(([kind, cases]) => ({
+    name: `${kind}: ${name}`,
+    build: (): Group => ({
+      name: `${kind}: ${name}`,
+      bytes: bytes(csv),
+      cases: cases(csv),
+      minRounds,
+    }),
+  })),
+);
 
 await runGroups("CSV", groups);

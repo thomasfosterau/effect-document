@@ -24,6 +24,7 @@ import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import { ParseError } from "@thomasfosterau/effect-document";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
+import { fastPlan, fastScan } from "./fast.ts";
 
 /** How the scanner splits CSV text into rows: headers, row limits and the like (shared by the reader). */
 export interface CsvScanOptions {
@@ -490,20 +491,33 @@ export const scanCsv = (
 ): Effect.Effect<ScannedTable, ParseError> => {
   const opts = defaults(options);
   const source = stripBom(text);
+  // the hand-written scan for the common dialects (fast.ts), else the grammar
+  const fast = Option.flatMap(fastPlan(dialect, opts), (plan) => fastScan(source, plan));
+  if (Option.isSome(fast))
+    return splitHeaders({ fields: fast.value, rowOf: rowsOf(source, dialect, opts) }, opts);
   const result = Parser.parse(tableParser(dialect, opts), source);
   if (Result.isFailure(result)) return Effect.fail(fromSyntaxError(result.failure, 0));
   const parsed = result.success;
   // blank and comment lines scan as null
   const fields = parsed.filter((record): record is ReadonlyArray<string> => record !== null);
-  // Positions are needed only to report an error, so they are found then,
-  // by scanning again with offsets (#177).
+  return splitHeaders({ fields, rowOf: rowsOf(source, dialect, opts) }, opts);
+};
+
+/**
+ * Record `i`'s source row, for an error. Positions are needed only to report
+ * one, so they are found then, by scanning again with offsets (#177).
+ */
+const rowsOf = (
+  source: string,
+  dialect: CsvDialect,
+  opts: CsvScanOptions,
+): ((i: number) => number) => {
   let rows = Option.none<ReadonlyArray<number>>();
-  const rowOf = (i: number): number => {
+  return (i) => {
     const known = Option.getOrElse(rows, () => recordRows(source, dialect, opts));
     rows = Option.some(known);
     return known[i] ?? 0;
   };
-  return splitHeaders({ fields, rowOf }, opts);
 };
 
 /**

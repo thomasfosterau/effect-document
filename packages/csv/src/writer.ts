@@ -234,6 +234,12 @@ interface RowContext {
   readonly dialect: CsvDialect;
   /** {@link breaksSyntax} for `dialect`. */
   readonly breaks: (value: string) => boolean;
+  /**
+   * The default options: `minimal` quoting, no escape character, no formula
+   * escaping and no comment marker, under which a field can never fail and
+   * its quoting depends on its text alone (the fast path of `renderSheetRow`).
+   */
+  readonly plain: boolean;
   readonly options: RowOptions;
   readonly escapeChar: Option.Option<string>;
   readonly formatNumber: (value: number) => string;
@@ -245,7 +251,20 @@ const rowContext = (options: CsvWriterOptions): RowContext => ({
   options,
   escapeChar: Option.fromNullishOr(options.escapeChar),
   formatNumber: options.formatNumber ?? formatCsvNumber,
+  plain:
+    (options.quoting ?? "minimal") === "minimal" &&
+    options.escapeChar === undefined &&
+    !options.escapeFormulae &&
+    !options.lineCommentMarker,
 });
+
+/**
+ * A field under the `minimal` quoting the plain options use: quoted only if
+ * it would not read back without (see {@link renderOneField}, which agrees
+ * for those options).
+ */
+const minimalField = (value: string, ctx: RowContext): string =>
+  ctx.breaks(value) || hasEdgeSpace(value) ? wrapField(value, ctx.dialect) : value;
 
 /** Whether a field must be quoted under a quoting mode other than `none`. */
 const needsQuotes = (
@@ -331,6 +350,7 @@ const renderSheetRow = (
   if (n === 1 && (only === undefined || cellField(only.cell, ctx) === "")) {
     return loneEmptyField(index, ctx);
   }
+  if (ctx.plain) return renderPlainRow(cells, n, ctx);
   let line = "";
   // the cells are in ascending column order, so one cursor walks them
   let next = 0;
@@ -348,11 +368,31 @@ const renderSheetRow = (
   return line;
 };
 
+/** {@link renderSheetRow} under the plain options: every field quoted as `minimal` does, joined. */
+const renderPlainRow = (cells: ReadonlyArray<IndexedCell>, n: number, ctx: RowContext): string => {
+  const fields: Array<string> = [];
+  let next = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
+  for (let col = 0; col < n; col++) {
+    const entry = cells[next];
+    if (entry?.col === col) {
+      next++;
+      fields.push(minimalField(cellField(entry.cell, ctx), ctx));
+    } else fields.push("");
+  }
+  return fields.join(ctx.dialect.separator);
+};
+
 const isNumberCell = (c: SheetCell): c is CellNumber => Predicate.isTagged(c, "CellNumber");
 
 /** A cell's field before quoting: a number in the write's number format, anything else its text. */
 const cellField = (c: SheetCell, ctx: RowContext): string =>
-  isNumberCell(c) ? ctx.formatNumber(c.value) : cellToText(c);
+  // text first: the most common cell, and one tag check for it
+  Predicate.isTagged(c, "CellText")
+    ? c.value
+    : isNumberCell(c)
+      ? ctx.formatNumber(c.value)
+      : cellToText(c);
 
 const tooManyFields = (fields: number, max: number) =>
   new WriteError({
@@ -439,18 +479,13 @@ export const renderTable = (
   dialect: CsvDialect = StandardDialect,
 ): string => {
   const breaks = syntaxTest(dialect);
-  const lines = rows.map((row) => {
-    if (row.length === 1 && row[0] === "") return wrapField("", dialect);
-    let line = "";
-    let first = true;
-    // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
-    for (const value of row) {
-      const field = breaks(value) || hasEdgeSpace(value) ? wrapField(value, dialect) : value;
-      line = first ? field : line + dialect.separator + field;
-      first = false;
-    }
-    return line;
-  });
+  const field = (value: string): string =>
+    breaks(value) || hasEdgeSpace(value) ? wrapField(value, dialect) : value;
+  const lines = rows.map((row) =>
+    row.length === 1 && row[0] === ""
+      ? wrapField("", dialect)
+      : row.map(field).join(dialect.separator),
+  );
   return Arr.isReadonlyArrayNonEmpty(rows) ? lines.join(dialect.linebreak) + dialect.linebreak : "";
 };
 

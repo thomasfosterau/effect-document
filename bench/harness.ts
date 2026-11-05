@@ -1,7 +1,7 @@
 /**
- * The shared benchmark harness: runs every case of a group many times,
- * interleaved so that GC pressure and JIT warm-up fall on each case alike,
- * and reports the median and best time per run, the throughput over the
+ * The shared benchmark harness: runs every case of a group many times, one
+ * case after another (each warmed up, then sampled for its share of the
+ * group's time), and reports the median and best time per run, the throughput over the
  * input's size, each case's ratio to the fastest, and the heap its result
  * holds.
  *
@@ -40,6 +40,9 @@ const gc = globalThis.gc;
 let sink: unknown;
 
 const time = async (run: () => unknown): Promise<number> => {
+  // drop the previous case's result first: kept alive, it would be copied by
+  // the collections this case triggers, charging one case for another's output
+  sink = undefined;
   const start = performance.now();
   const value = run();
   sink = value instanceof Promise ? await value : value;
@@ -78,27 +81,35 @@ const median = (xs: ReadonlyArray<number>): number => {
 const pad = (s: string, n: number) => s.padEnd(n);
 const padL = (s: string, n: number) => s.padStart(n);
 
-/** Run every case a few times, so the timed rounds start warm. */
-const warmUp = async (cases: ReadonlyArray<Case>): Promise<void> => {
-  for (let i = 0; i < 3; i++) for (const c of cases) await time(c.run);
+/**
+ * Time one case: a few warm-up runs, then samples for at least `minRounds`
+ * runs and until `budget` ms have passed (at most 1000). Each case is sampled
+ * on its own, not interleaved with the others: interleaved, a case is charged
+ * for the collections the garbage of the case before it brings on, which
+ * penalises whichever allocates most.
+ */
+const sampleCase = async (
+  c: Case,
+  minRounds: number,
+  caseBudget: number,
+): Promise<Array<number>> => {
+  for (let i = 0; i < 3; i++) await time(c.run);
+  const samples: Array<number> = [];
+  const deadline = performance.now() + caseBudget;
+  while (samples.length < minRounds || (performance.now() < deadline && samples.length < 1000))
+    samples.push(await time(c.run));
+  sink = undefined;
+  return samples;
 };
 
-/**
- * Time the cases in rounds, every case once a round, for at least
- * `minRounds` rounds and until {@link budget} ms have passed (at most 1000).
- */
-const sampleRounds = async (
+/** Every case's samples, the group's time shared between them. */
+const sampleGroup = async (
   cases: ReadonlyArray<Case>,
   minRounds: number,
-): Promise<{ readonly samples: Array<Array<number>>; readonly rounds: number }> => {
-  const samples = cases.map((): Array<number> => []);
-  const deadline = performance.now() + budget;
-  let rounds = 0;
-  while (rounds < minRounds || (performance.now() < deadline && rounds < 1000)) {
-    for (let i = 0; i < cases.length; i++) samples[i]!.push(await time(cases[i]!.run));
-    rounds++;
-  }
-  return { samples, rounds };
+): Promise<Array<Array<number>>> => {
+  const out: Array<Array<number>> = [];
+  for (const c of cases) out.push(await sampleCase(c, minRounds, budget / cases.length));
+  return out;
 };
 
 /** Each case's result's memory, measured one case at a time. */
@@ -116,12 +127,14 @@ const printTable = (
   group: Group,
   samples: ReadonlyArray<ReadonlyArray<number>>,
   heaps: ReadonlyArray<number | undefined>,
-  rounds: number,
 ): void => {
   const medians = samples.map(median);
   const fastest = Math.min(...medians);
   const mb = group.bytes / 1e6;
-  console.log(`## ${group.name} (${mb.toFixed(2)} MB, ${rounds} rounds)\n`);
+  const runs = samples.map((s) => s.length);
+  console.log(
+    `## ${group.name} (${mb.toFixed(2)} MB, ${Math.min(...runs)}–${Math.max(...runs)} runs a case)\n`,
+  );
   console.log(
     `| ${pad("case", 34)} | ${padL("median ms", 10)} | ${padL("best ms", 9)} | ${padL("MB/s", 8)} | ${padL("vs fastest", 10)} | ${padL("result MB", 9)} |`,
   );
@@ -137,13 +150,26 @@ const printTable = (
   console.log("");
 };
 
+/**
+ * A group, or how to build it. A built group's inputs stay alive while every
+ * later group runs, and a large live heap slows the collections that
+ * allocation-heavy cases trigger; a group built only when it runs (and
+ * dropped after) measures each case against its own inputs only.
+ */
+export type GroupSource = Group | { readonly name: string; readonly build: () => Group };
+
+const build = (source: GroupSource): Group => ("build" in source ? source.build() : source);
+
 /** Run each group's cases interleaved for {@link budget} ms and print a table. */
-export const runGroups = async (title: string, groups: ReadonlyArray<Group>): Promise<void> => {
+export const runGroups = async (
+  title: string,
+  groups: ReadonlyArray<GroupSource>,
+): Promise<void> => {
   console.log(`\n# ${title}\n`);
-  for (const group of groups.filter((g) => g.name.includes(filter))) {
-    await warmUp(group.cases);
-    const { samples, rounds } = await sampleRounds(group.cases, group.minRounds ?? 15);
-    printTable(group, samples, await memory(group.cases), rounds);
+  for (const source of groups.filter((g) => g.name.includes(filter))) {
+    const group = build(source);
+    const samples = await sampleGroup(group.cases, group.minRounds ?? 15);
+    printTable(group, samples, await memory(group.cases));
   }
   return void sink;
 };

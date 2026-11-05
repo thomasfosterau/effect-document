@@ -22,6 +22,7 @@
  * @internal
  */
 
+import * as Option from "effect/Option";
 import type * as Types from "effect/Types";
 import {
   CellBlank,
@@ -47,12 +48,51 @@ export const trustedStr = (text: string): Str => {
   return node;
 };
 
+/** A value built on its first use and shared after: nodes are immutable, so one serves every place. */
+const shared = <A>(make: () => A): (() => A) => {
+  let value = Option.none<A>();
+  return () =>
+    Option.getOrElse(value, () => {
+      const made = make();
+      value = Option.some(made);
+      return made;
+    });
+};
+
+/*
+ * Constructor functions for the two nodes there is one of per cell. An object
+ * built by `new` gets exactly the slots its constructor stores, where one
+ * built by `Object.create` plus stores gets V8's default slack: 40 bytes a
+ * node rather than 56, a sixth of a CSV document's memory (and of the time
+ * collecting it). Their prototypes are the classes' own, set on first use.
+ */
+function TextCell(this: { _tag: string; value: string }, value: string): void {
+  this._tag = "CellText";
+  this.value = value;
+}
+function Indexed(this: { col: number; cell: SheetCell }, col: number, cell: SheetCell): void {
+  this.col = col;
+  this.cell = cell;
+}
+
+interface Constructors {
+  readonly text: new (value: string) => CellText;
+  readonly indexed: new (col: number, cell: SheetCell) => IndexedCell;
+}
+
+const constructors = /*#__PURE__*/ shared((): Constructors => {
+  TextCell.prototype = CellText.prototype;
+  Indexed.prototype = IndexedCell.prototype;
+  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: a function with the class's prototype that stores exactly the class's fields builds what the class's constructor builds once its struct has accepted them (see the module comment)
+  const text = TextCell as unknown as Constructors["text"];
+  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
+  const indexed = Indexed as unknown as Constructors["indexed"];
+  return { text, indexed };
+});
+
 /** A text cell whose `value` is a string. */
 export const trustedText = (value: string): CellText => {
-  const c: Types.Mutable<CellText> = Object.create(CellText.prototype);
-  c._tag = "CellText";
-  c.value = value;
-  return c;
+  return new (constructors().text)(value);
 };
 
 /** A number cell whose `value` is a number (`Schema.Number` accepts every one). */
@@ -64,19 +104,33 @@ export const trustedNumber = (value: number): CellNumber => {
 };
 
 /** A boolean cell whose `value` is a boolean. */
-export const trustedBoolean = (value: boolean): CellBoolean => {
+const makeBoolean = (value: boolean): CellBoolean => {
   const c: Types.Mutable<CellBoolean> = Object.create(CellBoolean.prototype);
   c._tag = "CellBoolean";
   c.value = value;
   return c;
 };
 
+const sharedTrue = /*#__PURE__*/ shared(() => makeBoolean(true));
+const sharedFalse = /*#__PURE__*/ shared(() => makeBoolean(false));
+
+/**
+ * An unstyled boolean cell: one shared instance per value, since every
+ * `true` cell is the same immutable node (a column of booleans would
+ * otherwise allocate one per row).
+ */
+export const trustedBoolean = (value: boolean): CellBoolean =>
+  value ? sharedTrue() : sharedFalse();
+
 /** An unstyled blank cell. */
-export const trustedBlank = (): CellBlank => {
+const sharedBlank = /*#__PURE__*/ shared((): CellBlank => {
   const c: Types.Mutable<CellBlank> = Object.create(CellBlank.prototype);
   c._tag = "CellBlank";
   return c;
-};
+});
+
+/** The unstyled blank cell: one shared instance, as every one is the same immutable node. */
+export const trustedBlank = (): CellBlank => sharedBlank();
 
 /**
  * Whether a value is an instance of one of the cell classes, so the
@@ -95,10 +149,7 @@ export const isCellInstance = (value: unknown): value is SheetCell =>
 
 /** A cell at column `col`, a non-negative integer. */
 const trustedIndexedCell = (col: number, cell: SheetCell): IndexedCell => {
-  const c: Types.Mutable<IndexedCell> = Object.create(IndexedCell.prototype);
-  c.col = col;
-  c.cell = cell;
-  return c;
+  return new (constructors().indexed)(col, cell);
 };
 
 /**

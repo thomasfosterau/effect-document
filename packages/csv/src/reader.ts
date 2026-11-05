@@ -177,10 +177,14 @@ const plainDigits = (raw: string): number => {
 };
 
 /** A set of inference options, resolved: the value classifier and its null test. */
-interface Classifier {
+interface Classifier extends NumberTest {
   readonly classify: (raw: string) => Inferred;
+  /** A value's kind (`blank` for a null spelling), without building its value. */
+  readonly kind: (raw: string) => ColumnKind;
   /** Whether a value is one of the null spellings. */
   readonly isNull: (raw: string) => boolean;
+  /** The boolean a (non-null) value spells, if any. */
+  readonly asBoolean: (raw: string) => boolean | undefined;
 }
 
 /** The null test for a set of inference options. */
@@ -208,8 +212,22 @@ const makeBooleanTest = (options: CsvInferenceOptions): ((raw: string) => boolea
   };
 };
 
-/** The number a value spells under the options, or `undefined` for any other value. */
-const makeNumberTest = (options: CsvInferenceOptions): ((raw: string) => number | undefined) => {
+/** How a set of inference options reads numbers. */
+interface NumberTest {
+  /** Whether a value spells a number, without building the number when it can tell. */
+  readonly isNumber: (raw: string) => boolean;
+  /** The number a value known to spell one spells (see {@link isNumber}). */
+  readonly numberOf: (raw: string) => number;
+}
+
+/** Whether a value can be a number: it starts with a digit or a minus sign. */
+const mayBeNumber = (raw: string): boolean => {
+  const first = raw.charCodeAt(0);
+  return first === 45 || (first >= 48 && first <= 57);
+};
+
+/** How a set of inference options reads numbers. */
+const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
   const decimalChar = options.decimalChar ?? ".";
   const group = options.groupChar ? escapeRegExp(options.groupChar) : undefined;
   const integer =
@@ -236,26 +254,38 @@ const makeNumberTest = (options: CsvInferenceOptions): ((raw: string) => number 
     const exact = exp === undefined && int.length + frac.length <= exactDigits;
     return exact || holdsDigits(value, int + frac) ? value : undefined;
   };
-  return (raw) => {
-    // a number starts with a digit or a minus sign
-    const first = raw.charCodeAt(0);
-    if (first !== 45 && (first < 48 || first > 57)) return undefined;
-    if (!fast) return general(raw);
-    // the common case, matched without allocating
+  // In the common case a plain decimal of at most `exactDigits` digits is a
+  // number with no need to build it, and a value known to be one is
+  // `Number(raw)` (what `general` computes for it too).
+  const isNumber = (raw: string): boolean => {
+    if (!mayBeNumber(raw)) return false;
+    if (!fast) return general(raw) !== undefined;
     const digits = plainDigits(raw);
-    if (digits === -1) return undefined;
-    return digits !== WITH_EXPONENT && digits <= exactDigits ? Number(raw) : general(raw);
+    if (digits === -1) return false;
+    return (digits !== WITH_EXPONENT && digits <= exactDigits) || general(raw) !== undefined;
   };
+  const numberOf = (raw: string): number => (fast ? Number(raw) : (general(raw) ?? Number.NaN));
+  return { isNumber, numberOf };
 };
 
 /** Build the value classifier for a set of inference options. */
 const makeClassifier = (options: CsvInferenceOptions): Classifier => {
   const isNull = makeNullTest(options);
   const asBoolean = makeBooleanTest(options);
-  const asNumber = makeNumberTest(options);
+  const numbers = makeNumberTest(options);
   const classify = (raw: string): Inferred =>
-    isNull(raw) ? null : (asBoolean(raw) ?? asNumber(raw));
-  return { classify, isNull };
+    isNull(raw)
+      ? null
+      : (asBoolean(raw) ?? (numbers.isNumber(raw) ? numbers.numberOf(raw) : undefined));
+  const kind = (raw: string): ColumnKind =>
+    isNull(raw)
+      ? "blank"
+      : asBoolean(raw) !== undefined
+        ? "boolean"
+        : numbers.isNumber(raw)
+          ? "number"
+          : "text";
+  return { ...numbers, classify, kind, isNull, asBoolean };
 };
 
 const toCell = (raw: string, value: Inferred): SheetCell =>
@@ -301,10 +331,6 @@ const sniffHeader = (
 /** A column's type so far: `blank` while it holds only blanks. */
 type ColumnKind = "number" | "boolean" | "text" | "blank";
 
-/** The kind of a classified value other than a blank. */
-const kindOf = (value: Inferred): ColumnKind =>
-  Predicate.isNumber(value) ? "number" : Predicate.isBoolean(value) ? "boolean" : "text";
-
 /**
  * Type rows of raw values, by column or by cell.
  *
@@ -317,63 +343,64 @@ const inferRows = (
   options: CsvInferenceOptions,
   classifier: Classifier,
 ): Array<Array<SheetCell>> => {
-  const byCell = options.inference === "cell";
-  const { values, columns } = classifyRows(rows, byCell, classifier);
-  let next = 0;
-  return rows.map((row) => {
-    const n = row.length;
-    const out: Array<SheetCell> = [];
-    // oxlint-disable-next-line effect/imperative-loops -- once per value of the file, as in `classifyRows`
-    for (let c = 0; c < n; c++) {
-      const value = values[next++];
-      const typed = byCell || value === null || columns[c] !== "text" ? value : undefined;
-      out.push(toCell(row[c] ?? "", typed));
-    }
-    return out;
-  });
+  const { classify } = classifier;
+  // `map` sizes each row's array exactly (one grown by `push` reserves more)
+  if (options.inference === "cell")
+    return rows.map((row) => row.map((raw) => toCell(raw, classify(raw))));
+  // By column: a first pass finds each column's kind, and a value's cell then
+  // follows from its column's kind alone (a null spelling is blank, anything
+  // else is read as its column's type), so no value is kept between passes.
+  const kinds = columnKinds(rows, classifier);
+  const cellOf = kinds.map((kind) => columnCell(kind, classifier));
+  const asText = columnCell("text", classifier);
+  return rows.map((row) => row.map((raw, c) => (cellOf[c] ?? asText)(raw)));
 };
 
-/** Every row's values, classified, in one array row after row, and each column's kind. */
-interface ClassifiedRows {
-  readonly values: ReadonlyArray<Inferred>;
-  /** Each column's kind, by column only (empty by cell). */
-  readonly columns: ReadonlyArray<ColumnKind>;
-}
-
-/**
- * Every row's values, classified, in one array row after row, and each
- * column's kind (by column only).
- */
-const classifyRows = (
+/** Each column's kind: the type every non-null value in it has, else text. */
+const columnKinds = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
-  byCell: boolean,
-  classifier: Classifier,
-): ClassifiedRows => {
+  { kind }: Classifier,
+): ReadonlyArray<ColumnKind> => {
   const columns: Array<ColumnKind> = [];
-  const values: Array<Inferred> = [];
   // oxlint-disable-next-line effect/imperative-loops -- once per row of the file, beside the per-value loop in `classifyRow`
-  for (const row of rows) classifyRow(row, byCell, classifier, columns, values);
-  return { values, columns };
+  for (const row of rows) classifyRow(row, kind, columns);
+  return columns;
 };
 
-/** Classify one row's values onto `values`, updating each column's kind (by column only). */
+/** Merge one row's values into each column's kind. */
 const classifyRow = (
   row: ReadonlyArray<string>,
-  byCell: boolean,
-  { classify, isNull }: Classifier,
+  kindOfValue: (raw: string) => ColumnKind,
   columns: Array<ColumnKind>,
-  values: Array<Inferred>,
 ): void => {
   // oxlint-disable-next-line effect/imperative-loops -- once per value of the file: the measured hot path (bench/csv.bench.ts), where a callback per value costs
   for (let c = 0; c < row.length; c++) {
-    const raw = row[c] ?? "";
     const column = columns[c] ?? "blank";
-    // a text column stays text: only a null still needs telling apart
-    const text = !byCell && column === "text";
-    const value = text ? (isNull(raw) ? null : undefined) : classify(raw);
-    values.push(value);
-    if (!byCell && !text && value !== null) columns[c] = merge(column, kindOf(value));
+    // a text column stays text whatever follows
+    if (column === "text") continue;
+    const kind = kindOfValue(row[c] ?? "");
+    if (kind !== "blank") columns[c] = merge(column, kind);
   }
+};
+
+/**
+ * The cell for a value of a column of `kind`: blank for a null spelling, else
+ * the column's type (every non-null value of a number or boolean column is
+ * one, so the reading is defined). (Sharing one cell per distinct value was
+ * measured: the string hashing a lookup needs costs more than the cells it
+ * saves.)
+ */
+const columnCell = (
+  kind: ColumnKind,
+  { isNull, asBoolean, numberOf }: Classifier,
+): ((raw: string) => SheetCell) => {
+  const typed =
+    kind === "number"
+      ? (raw: string) => cell.number(numberOf(raw))
+      : kind === "boolean"
+        ? (raw: string) => cell.boolean(asBoolean(raw) ?? false)
+        : (raw: string) => cell.text(raw);
+  return (raw) => (isNull(raw) ? cell.blank() : typed(raw));
 };
 
 /** A column's kind once it also holds a value of `kind`. */

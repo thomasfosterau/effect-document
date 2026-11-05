@@ -2,6 +2,7 @@ import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Equivalence from "effect/Equivalence";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
@@ -20,7 +21,9 @@ import {
   worksheet,
 } from "@thomasfosterau/effect-document";
 import {
+  type CsvDialect,
   type CsvFeature,
+  type ScannedTable,
   type CsvReaderOptions,
   type CsvWriterOptions,
   Rfc4180Dialect,
@@ -141,6 +144,43 @@ describe("CSV reader", () => {
     for (const raw of [...samples, "-", "-0", "0.0", "1e", "1e+", "1e-5", "-0e0", "9".repeat(16)]) {
       expect(inferCell(raw), raw).toEqual(reference(raw));
     }
+  });
+
+  test("types a column as every non-null value in it is typed, else as text", async () => {
+    // a reference from per-cell inference: a column keeps a type only if all
+    // its non-null values have it; a text column keeps nulls as blanks
+    const pools = [
+      ["1", "-2", "3.5", "1e3", "0", "", "12345678901234567890"],
+      ["true", "false", "TRUE", ""],
+      ["a", "b", "", "1"],
+      ["", ""],
+      ["7", "8", "9"],
+    ];
+    let seed = 11;
+    const next = (n: number) => {
+      seed = (seed * 48271) % 2147483647;
+      return seed % n;
+    };
+    const rows = Arr.makeBy(300, () => pools.map((pool) => pool[next(pool.length)] ?? ""));
+    const csv = ["c0,c1,c2,c3,c4", ...rows.map((r) => r.join(","))].join("\n") + "\n";
+    const doc = await run(makeCsvReader({ treatFirstRowAsHeader: true }).read(text(csv)));
+    const read = firstWorksheet(doc)
+      .rows.slice(1)
+      .map((row) => cellsOf(row));
+    const kinds = pools.map((_, c) => {
+      const tags = Arr.dedupe(
+        rows.map((r) => inferCell(r[c] ?? "")._tag).filter((tag) => tag !== "CellBlank"),
+      );
+      return tags.length === 1 ? tags[0] : "CellText";
+    });
+    const expected = rows.map((r) =>
+      r.map((raw, c) => {
+        const inferred = inferCell(raw);
+        if (Predicate.isTagged(inferred, "CellBlank")) return inferred;
+        return kinds[c] === "CellText" ? cell.text(raw) : inferred;
+      }),
+    );
+    expect(read).toEqual(expected);
   });
 
   test("reads only plain decimals as numbers", async () => {
@@ -503,6 +543,73 @@ const outcome = (
   });
 const scanWhole = (source: string, options: Parameters<typeof scanCsv>[2]) =>
   run(Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows)));
+
+/** A scan's rows, or its failure's reason. */
+const scanOutcome = (r: Result.Result<ScannedTable, ParseError>) =>
+  Result.match(r, {
+    onSuccess: (t): Result.Result<ReadonlyArray<ReadonlyArray<string>>, string> =>
+      Result.succeed(t.rows),
+    onFailure: (e) => Result.fail(e.reason),
+  });
+
+const sameRows = Arr.makeEquivalence(Arr.makeEquivalence(Equivalence.String));
+
+/** Whether two scans have the same rows, or fail for the same reason. */
+const sameOutcome = (
+  a: Result.Result<ReadonlyArray<ReadonlyArray<string>>, string>,
+  b: Result.Result<ReadonlyArray<ReadonlyArray<string>>, string>,
+): boolean =>
+  Result.isSuccess(a) && Result.isSuccess(b)
+    ? sameRows(a.success, b.success)
+    : Result.isFailure(a) && Result.isFailure(b) && a.failure === b.failure;
+
+describe("CSV scanner fast path", () => {
+  // `scanCsv` scans common dialects by hand (src/fast.ts) and anything else
+  // with the grammar. `skipRows: 1` after a junk first line forces the
+  // grammar on the same rows, so the two must agree: the same rows, or the
+  // same failure.
+  const dialects: ReadonlyArray<CsvDialect> = [
+    StandardDialect,
+    TsvDialect,
+    { ...StandardDialect, separator: ";" },
+    { ...StandardDialect, wrapper: "'", doubleWrapper: "''" },
+    { ...StandardDialect, wrapper: "", doubleWrapper: "" },
+  ];
+  // a Lehmer generator, so the inputs are the same on every run
+  let seed = 7;
+  const next = (n: number) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % n;
+  };
+  const alphabet = ["a", "b", ",", ";", "\t", '"', "'", "\r", "\n", " ", "\r\n", "é"];
+  const samples = Arr.makeBy(4000, () =>
+    Arr.makeBy(next(24), () => alphabet[next(alphabet.length)] ?? "").join(""),
+  );
+  test.each([true, false])("agrees with the grammar (filterEmpty: %s)", (filterEmpty) => {
+    const options = { allowVariableColumns: true, filterEmpty };
+    const disagreements = dialects.flatMap((dialect) =>
+      samples.flatMap((source) => {
+        const fast = scanOutcome(Effect.runSync(Effect.result(scanCsv(source, dialect, options))));
+        const grammar = scanOutcome(
+          Effect.runSync(
+            Effect.result(scanCsv(`junk\n${source}`, dialect, { ...options, skipRows: 1 })),
+          ),
+        );
+        return sameOutcome(fast, grammar)
+          ? []
+          : [{ dialect: dialect.separator + dialect.wrapper, source, fast, grammar }];
+      }),
+    );
+    expect(disagreements.slice(0, 3)).toEqual([]);
+  });
+
+  test("an unclosed quote still fails where the grammar says", async () => {
+    const r = await run(Effect.result(scanCsv('a,b\n"open,c\n')));
+    // the grammar's position: the end of the input, where the closing quote was due
+    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 2, column: 0 });
+    expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
+  });
+});
 
 describe("CSV stream scanner", () => {
   test("rows may be split across chunks anywhere", async () => {
