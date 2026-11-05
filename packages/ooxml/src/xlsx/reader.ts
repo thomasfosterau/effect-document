@@ -32,8 +32,9 @@ import {
   ParseError,
   type Reader,
   type SheetCell,
-  type SheetRow,
   sheetRowOf,
+  worksheetFromRows,
+  type WorksheetRow,
   trustAs,
   Worksheet,
 } from "@thomasfosterau/effect-document";
@@ -121,7 +122,7 @@ const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
   findChildren(root, "si").map(collectText);
 
 type WorksheetRows =
-  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
+  | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<WorksheetRow>; readonly cells: number }
   | { readonly _tag: "TooLarge"; readonly cells: number };
 
 /**
@@ -165,13 +166,15 @@ const byIndex = Order.mapInput(Order.Number, ([index]: readonly [number, unknown
 /**
  * The rows read, ascending by index (each row's cells are positional
  * already). Rows may arrive in any order, but writers emit them in order, so
- * the sort is skipped when it would change nothing.
+ * the sort is skipped when it would change nothing. A row right after the one
+ * before it is a plain row (#227: its cells alone, no node); one after a gap
+ * is a `SheetRow` carrying its index.
  */
-const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<SheetRow> => {
+const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<WorksheetRow> => {
   const all = Array.from(cellMap);
   const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
-  return (sorted ? all : Arr.sort(all, byIndex)).map(([index, { cells }]) =>
-    sheetRowOf(index, cells),
+  return (sorted ? all : Arr.sort(all, byIndex)).map(([index, { cells }], i, rows) =>
+    index === (i === 0 ? 0 : (rows[i - 1]?.[0] ?? -2) + 1) ? cells : sheetRowOf(index, cells),
   );
 };
 
@@ -338,7 +341,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            return new Worksheet({ name, columns: [], rows: parsed.rows, merges: [] });
+            return worksheetFromRows(name, parsed.rows);
           }),
         { concurrency: 1 },
       );

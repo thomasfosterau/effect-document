@@ -56,6 +56,8 @@ import {
   SheetColumn,
   type RowCell,
   SheetRow,
+  isPlainRow,
+  type WorksheetRow,
   Slide,
   SlideShow,
   SmallCaps,
@@ -74,7 +76,7 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
-import { cellOf, denseRows, sheetRow } from "../schema/sheet.ts";
+import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
@@ -466,12 +468,15 @@ const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
   return narrowed === node ? position : narrowed;
 };
 
-/** A row with its cells narrowed: the row itself when every cell is kept unchanged. */
-const narrowRow = (r: SheetRow, ctx: Ctx): SheetRow => {
-  const cells = r.cells.map((c) => narrowPosition(c, ctx));
-  return cells.every((c, i) => c === r.cells[i])
-    ? r
-    : new SheetRow({ index: r.index, cells, height: r.height });
+/**
+ * A row with its cells narrowed: the row itself when every cell is kept
+ * unchanged, and a plain row stays a plain row (#227).
+ */
+const narrowRow = (r: WorksheetRow, ctx: Ctx): WorksheetRow => {
+  const old = rowCellsOf(r);
+  const cells = old.map((c) => narrowPosition(c, ctx));
+  if (cells.every((c, i) => c === old[i])) return r;
+  return isPlainRow(r) ? cells : new SheetRow({ index: r.index, cells, height: r.height });
 };
 
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {

@@ -17,6 +17,14 @@ export const exactDigits = 15;
 /** Powers of ten that a double holds exactly: 10^0 to 10^22. */
 const EXACT_POWERS_OF_TEN = Array.from({ length: 23 }, (_, k) => 10 ** k);
 
+/**
+ * Their reciprocals, rounded: {@link longDecimal} multiplies by one where a
+ * division would stand (a division's latency was a third of a long
+ * decimal's reading). Its estimate need not be correctly rounded, as the
+ * exact residual that follows decides whether it is.
+ */
+const INVERSE_POWERS_OF_TEN = EXACT_POWERS_OF_TEN.map((p) => 1 / p);
+
 /** Veltkamp's splitter for doubles: 2^27 + 1. */
 const SPLITTER = 134_217_729;
 
@@ -42,26 +50,22 @@ const twoProduct = (a: number, b: number): number => {
   return p;
 };
 
-/** A double's bits, for {@link ulpOf}. */
-const bits = /*#__PURE__*/ new Float64Array(1);
-const words = /*#__PURE__*/ new Uint32Array(bits.buffer);
-/** The index of the low 32 bits of a double in {@link words}. */
-const LOW = /*#__PURE__*/ new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 0 : 1;
+/** 2^-53: half the gap between 1 and the next double up. */
+const HALF_EPSILON = 2 ** -53;
 
 /**
  * The gap from a positive normal double to the next one up, when it is also
- * the gap to the next one down; `NaN` otherwise (a power of two, whose gap
- * below is half the one above) and across a word boundary, for the caller
- * to leave to `Number`.
+ * the gap to the next one down; 0 otherwise (a power of two, whose gap below
+ * is half the one above), for the caller to leave to `Number`.
+ *
+ * `c * 2^-53` is exact and lies in [ulp/2, ulp), at ulp/2 only when `c` is
+ * a power of two: so `c` plus it rounds up to the next double, a gap of one
+ * ulp, except for a power of two, where the tie rounds to `c` (its last bit
+ * is even) and the gap is 0. Arithmetic, where reading and writing the
+ * double's bits through a typed array cost a tenth of a long decimal's
+ * reading (bench/csv.bench.ts's floats table).
  */
-const ulpOf = (c: number): number => {
-  bits[0] = c;
-  const low = words[LOW] ?? 0;
-  const high = words[1 - LOW] ?? 0;
-  if (low === 0xff_ff_ff_ff || (low === 0 && (high & 0xf_ff_ff) === 0)) return Number.NaN;
-  words[LOW] = low + 1;
-  return (bits[0] ?? c) - c;
-};
+const ulpOf = (c: number): number => c + c * HALF_EPSILON - c;
 
 /**
  * The double a long plain decimal reads as, when a double holds its digits
@@ -97,16 +101,18 @@ const longDecimal = (
   scale: number,
   negative: boolean,
   exact: boolean,
+  last: number,
 ): number => {
   if (scale > 22 || total > 24) return Number.NaN;
   const power = EXACT_POWERS_OF_TEN[scale] ?? 1;
+  const inverse = INVERSE_POWERS_OF_TEN[scale] ?? 1;
   const highPart = twoProduct(high, EXACT_POWERS_OF_TEN[total - 9] ?? 1);
   const highError = scratch.error;
-  let c = (highPart + low) / power;
+  let c = (highPart + low) * inverse;
   let r = twoProduct(c, power) - highPart - low + (scratch.error - highError);
   let halfUlp = (ulpOf(c) * power) / 2;
   if (!(Math.abs(r) < halfUlp * (1 - 1e-9))) {
-    c -= r / power;
+    c -= r * inverse;
     r = twoProduct(c, power) - highPart - low + (scratch.error - highError);
     halfUlp = (ulpOf(c) * power) / 2;
   }
@@ -118,7 +124,6 @@ const longDecimal = (
   // the decimals one digit shorter either side are whole tens of units from
   // the digits, at `r + last` below the double and `10 - last - r` above it:
   // one of them reads back as the double when within half its ulp
-  const last = low % 10;
   const margin = halfUlp * (1 + 1e-9);
   if (r + last < margin || 10 - last - r < margin) return Number.NaN;
   return negative ? -c : c;
@@ -213,7 +218,7 @@ const decimalFrom = (
   const quick =
     exact && text.charCodeAt(end - 1) === 48
       ? Number.NaN
-      : longDecimal(high, low, total, scale, negative, exact);
+      : longDecimal(high, low, total, scale, negative, exact, text.charCodeAt(end - 1) - 48);
   if (!Number.isNaN(quick)) return quick;
   const raw = text.slice(start, end);
   return exact ? longValue(raw) : Number(raw);

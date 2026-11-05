@@ -13,6 +13,7 @@ import {
   cell,
   sheetRow,
   sheetRowOf,
+  sheetRowOfNumbers,
   sheetRowFrom,
   sparseRow,
   str,
@@ -73,6 +74,22 @@ describe("constructors without the schema pass", () => {
     expect(sheetRowOf(4, cells)).toStrictEqual(built);
     expect(sheetRowOf(4, cells).cells).toBe(cells);
     expect(() => sheetRowOf(-1, cells)).toThrow(INVALID);
+  });
+
+  test("sheetRowOfNumbers is sheetRowOf, for rows of numbers and anything else", () => {
+    // an array of doubles, as a reader of a table of numbers builds
+    const numbers = [1.5, 2, -3.25];
+    const built = new SheetRow({ index: 2, cells: numbers, height: undefined });
+    expect(shape(sheetRowOfNumbers(2, numbers), built)).toEqual(SAME);
+    expect(sheetRowOfNumbers(2, numbers)).toStrictEqual(built);
+    expect(sheetRowOfNumbers(2, numbers).cells).toBe(numbers);
+    // anything but finite numbers goes to sheetRowOf, which takes it or fails as it does
+    const mixed = [1, cell.text("a"), undefined, "b"];
+    expect(sheetRowOfNumbers(0, mixed)).toStrictEqual(sheetRowOf(0, mixed));
+    expect(sheetRowOfNumbers(0, [])).toStrictEqual(sheetRowOf(0, []));
+    expect(() => sheetRowOfNumbers(0, [1, Number.NaN])).toThrow(INVALID);
+    expect(() => sheetRowOfNumbers(0, [1, undefined])).toThrow(INVALID);
+    expect(() => sheetRowOfNumbers(-1, numbers)).toThrow(INVALID);
   });
 
   test("sheetRowFrom is sheetRow of the mapped cells", () => {
