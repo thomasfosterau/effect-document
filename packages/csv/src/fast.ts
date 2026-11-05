@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type { CsvDialect } from "./dialect.ts";
 import type { CsvScanOptions } from "./scanner.ts";
+import { copyRow } from "./row.ts";
 
 /** What the fast path needs of a dialect, resolved to character codes. */
 export interface FastPlan {
@@ -106,24 +107,24 @@ const textEnd = (text: string, p: number, separator: number): number => {
  * (each found with `indexOf`, a native search, and searched for again only
  * once the scan has passed it: one search per field for the separator, one
  * per line for the line break, and for a file without CRs one in all), and
- * the row of the previous record's width that each record's fields start as
- * a copy of (exactly as long as the row and packed, where an array grown by
- * `push` reserves 17 slots on its first push).
+ * the scratch arrays each record's fields are read into before the record
+ * is copied out by a literal of its width (`row.ts`).
  */
 interface Scan<T> {
   separator: number;
   lf: number;
   cr: number;
-  template: Array<T>;
+  /** The array a record's fields are read into, reused from record to record. */
+  scratch: Array<T>;
   /**
-   * A copy of the last row whose fields were all numbers, while rows keep
-   * being so: a row started as a copy of it is a packed array of doubles in
-   * V8, each number held unboxed (8 bytes, no heap number for the collector
-   * to copy), where one started from {@link template} boxes every number
-   * that is not a small integer (bench/csv.bench.ts, a table of numbers).
+   * The scratch for records of numbers, while rows keep being all numbers:
+   * a packed array of doubles in V8, each number held unboxed, so the row
+   * copied from it is one too (8 bytes a number, no heap number for the
+   * collector to copy), where {@link scratch} boxes every number that is not
+   * a small integer (bench/csv.bench.ts, a table of numbers).
    */
   numbers: Option.Option<Array<T>>;
-  /** Whether the record being read started from the number template. */
+  /** Whether the record being read is in the number scratch. */
   doubles: boolean;
   /** Whether the quoted field just read holds a doubled wrapper. */
   doubled: boolean;
@@ -225,7 +226,7 @@ export interface FieldReader<T> {
   readonly inPlace: boolean;
   readonly unquoted: (text: string, start: number, end: number, n: number) => T;
   readonly quoted: (value: string, n: number) => T;
-  /** What a record's array is filled with before its fields are read. */
+  /** A placeholder field: the scan's field before the first is read. */
   readonly fill: T;
 }
 
@@ -297,18 +298,18 @@ const readRecord: RecordReader = (text, start, plan, scan, reader, onRow) => {
     if (text.charCodeAt(p) !== plan.separator) break;
     p++;
   }
-  return endRecord(text, p, scan, fields, n, allNumbers, reader.fill, onRow);
+  return endRecord(text, p, scan, fields, n, allNumbers, onRow);
 };
 
 /**
- * A record's array, before its fields are read: a copy of the number
- * template while rows are all numbers (so it holds doubles), else of the
- * template. A branch, not `Option.getOrElse`: its thunk would be a closure a row.
+ * The scratch array a record's fields are read into: the number scratch
+ * while rows are all numbers (so it holds doubles), else the scratch. A
+ * branch, not `Option.getOrElse`: its thunk would be a closure a row.
  */
 const startRecord = <T>(scan: Scan<T>): Array<T> => {
   const numbers = scan.numbers;
   scan.doubles = Option.isSome(numbers);
-  return (Option.isSome(numbers) ? numbers.value : scan.template).slice();
+  return Option.isSome(numbers) ? numbers.value : scan.scratch;
 };
 
 /** Put field `n` of a record (see {@link storeNumber}): whether it is a number. */
@@ -320,9 +321,10 @@ const place = <T>(scan: Scan<T>, fields: Array<T>, n: number, value: T): boolean
 };
 
 /**
- * Finish a record of `n` fields ending at `p` (its line break): fit the
- * templates to it, hand it to `onRow`, and return the index past its line
- * break, or {@link STOPPED}.
+ * Finish a record of `n` fields ending at `p` (its line break): copy it out
+ * of the scratch (see `row.ts`), keep or drop the number scratch, hand the
+ * row to `onRow`, and return the index past its line break, or
+ * {@link STOPPED}.
  */
 const endRecord = <T>(
   text: string,
@@ -331,11 +333,11 @@ const endRecord = <T>(
   fields: Array<T>,
   n: number,
   allNumbers: boolean,
-  fill: T,
   onRow: (fields: Array<T>) => boolean,
 ): number => {
-  keepNumbers(scan, fields, allNumbers, fitTemplate(scan, fields, n, fill));
-  return onRow(fields) ? afterLineBreak(text, p) : STOPPED;
+  const row = copyRow(fields, n, allNumbers && scan.doubles);
+  keepNumbers(scan, fields, n, allNumbers);
+  return onRow(row) ? afterLineBreak(text, p) : STOPPED;
 };
 
 /** Set field `n` of a record's array (growing it by one when `n` is its length). */
@@ -345,7 +347,7 @@ const store = <T>(fields: Array<T>, n: number, value: T): void => {
 };
 
 /**
- * {@link store} for a number into a record started from the number template:
+ * {@link store} for a number into the number scratch:
  * a store site of its own, which only ever meets arrays of doubles and
  * numbers, so V8 keeps it storing doubles. Shared with the generic store, it
  * learns from generic arrays and turns these to generic ones too.
@@ -356,45 +358,29 @@ const storeNumber = <T>(fields: Array<T>, n: number, value: T): void => {
 };
 
 /**
- * Keep or drop the number template after a row: dropped when the row held
- * anything but numbers, made from the row when it held only numbers and
- * there was none (or the width changed).
+ * Keep or drop the number scratch after a row: dropped when the row held
+ * anything but numbers (it may then hold other values), made from the row
+ * when it held only numbers and there was none.
  */
-const keepNumbers = <T>(
-  scan: Scan<T>,
-  fields: Array<T>,
-  allNumbers: boolean,
-  resized: boolean,
-): void => {
+const keepNumbers = <T>(scan: Scan<T>, fields: Array<T>, n: number, allNumbers: boolean): void => {
   const doubles = Option.isSome(scan.numbers);
   if (!allNumbers) {
     if (doubles) scan.numbers = Option.none();
   }
-  // a template of doubles, not of the row's own values: a row of small
+  // a scratch of doubles, not of the row's own values: a row of small
   // integers would give an array of small integers, which each later row
   // leaves (`map` builds its array by kind; `slice` would copy a generic one)
-  else if (resized || !doubles) scan.numbers = Option.some(fields.map(doubleFill));
+  else if (!doubles) scan.numbers = Option.some(fields.slice(0, n).map(doubleFill));
 };
 
 /**
- * A placeholder the number template is filled with: a double that is not a
- * small integer, so the template's array holds doubles.
+ * A placeholder the number scratch is filled with: a double that is not a
+ * small integer, so the scratch's array holds doubles.
  */
 const doubleFill = <T>(value: T): T =>
   // SAFETY: only a value that is a number is replaced, so T holds numbers; the placeholder is overwritten before the row is read
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
   Predicate.isNumber(value) ? (0.5 as T & number) : value;
-
-/**
- * Trim a record read into a copy of the template to its `n` fields, and size
- * the template to it (a record of another width): whether the width changed.
- */
-const fitTemplate = <T>(scan: Scan<T>, fields: Array<T>, n: number, fill: T): boolean => {
-  if (n === scan.template.length) return false;
-  fields.length = n;
-  scan.template = fields.map(() => fill);
-  return true;
-};
 
 /**
  * {@link readRecord} for text with no wrapper in it (quoting off): no field
@@ -417,7 +403,7 @@ const plainRecord: RecordReader = (text, start, plan, scan, reader, onRow) => {
     if (text.charCodeAt(end) !== plan.separator) break;
     p++;
   }
-  return endRecord(text, p, scan, fields, n, allNumbers, reader.fill, onRow);
+  return endRecord(text, p, scan, fields, n, allNumbers, onRow);
 };
 
 /**
@@ -432,7 +418,7 @@ const stringRecord = (
   scan: Scan<string>,
   onRow: (fields: Array<string>) => boolean,
 ): number => {
-  const fields = scan.template.slice();
+  const fields = scan.scratch;
   let p = start;
   let n = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
@@ -444,8 +430,7 @@ const stringRecord = (
     if (text.charCodeAt(end) !== plan.separator) break;
     p++;
   }
-  fitTemplate(scan, fields, n, "");
-  return onRow(fields) ? afterLineBreak(text, p) : STOPPED;
+  return onRow(copyRow(fields, n, false)) ? afterLineBreak(text, p) : STOPPED;
 };
 
 /** A fresh scan state, its fields placeholders `fill`. */
@@ -453,7 +438,7 @@ const newScan = <T>(fill: T): Scan<T> => ({
   separator: -1,
   lf: -1,
   cr: -1,
-  template: [],
+  scratch: [],
   numbers: Option.none(),
   doubles: false,
   doubled: false,

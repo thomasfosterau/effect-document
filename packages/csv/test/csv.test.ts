@@ -642,9 +642,17 @@ describe("CSV scanner fast path", () => {
     return seed % n;
   };
   const alphabet = ["a", "b", ",", ";", "\t", '"', "'", "\r", "\n", " ", "\r\n", "é"];
-  const samples = Arr.makeBy(4000, () =>
-    Arr.makeBy(next(24), () => alphabet[next(alphabet.length)] ?? "").join(""),
-  );
+  const samples = [
+    ...Arr.makeBy(4000, () =>
+      Arr.makeBy(next(24), () => alphabet[next(alphabet.length)] ?? "").join(""),
+    ),
+    // records about as wide as the widest row literal (src/row.ts), and wider
+    ...Arr.makeBy(200, () =>
+      Arr.makeBy(3, () => Arr.makeBy(28 + next(8), () => "a").join(",")).join(
+        alphabet[7 + next(2)] ?? "\n",
+      ),
+    ),
+  ];
   test.each([true, false])("agrees with the grammar (filterEmpty: %s)", (filterEmpty) => {
     const options = { allowVariableColumns: true, filterEmpty };
     const disagreements = dialects.flatMap((dialect) =>
@@ -717,7 +725,9 @@ describe("CSV reader fast path", () => {
     ["0.14285714285714285", "0.10000000000000001", "12345678901234567890", "1.50000000000000000"],
   ];
   const table = (): string => {
-    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    // now and then a table wider than the widest row literal (src/row.ts)
+    const width = next(10) === 0 ? 30 + next(6) : 1 + next(4);
+    const columns = Arr.makeBy(width, () => pools[next(pools.length)] ?? []);
     const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
     const rows = Arr.makeBy(next(6), () => {
       const row = columns.map((pool) => pool[next(pool.length)] ?? "");
@@ -767,7 +777,30 @@ const rowsOutcome = (options: CsvReaderOptions, csv: string) =>
     onFailure: (e) => ({ reason: e.reason }),
   });
 
+/** Four rows of `w` numbers, integers and halves among them. */
+const numberRows = (w: number) =>
+  Arr.makeBy(4, (r) => Arr.makeBy(w, (c) => (r * 41 + c) / 4 + (c % 2 === 0 ? 0 : 0.5)));
+
 describe("readCsvRows", () => {
+  // the scan copies a row by a literal of its width up to 32, and slices a
+  // wider one (src/row.ts); rows of numbers have literals of their own
+  test.each(Arr.makeBy(40, (i) => i + 1))("copies a row of width %i out of the scan", async (w) => {
+    // rows of numbers, then a wider one and a narrower one
+    const expected = [
+      ...numberRows(w),
+      [...Arr.makeBy(w, () => 1.25), 7],
+      Arr.makeBy(w - 1, (c) => c + 0.75),
+    ].filter(Arr.isArrayNonEmpty);
+    const csv = expected.map((row) => row.join(",")).join("\n");
+    const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
+    expect((await run(readCsvRows(csv, options))).rows).toEqual(expected);
+    const doc = await run(makeCsvReader(options).read(text(csv)));
+    expect(firstWorksheet(doc).rows.map((row) => row.cells)).toEqual(expected);
+    const words = Arr.makeBy(w, (c) => `w${c}`);
+    const scanned = await run(scanCsv(`${words.join(",")}\n${words.join(",")}\n`));
+    expect(scanned.rows).toEqual([words, words]);
+  });
+
   test("reads a header and typed values", async () => {
     expect(await run(readCsvRows("name,age,member\nada,36,true\nbob,,false\n"))).toEqual({
       headers: ["name", "age", "member"],
@@ -844,7 +877,9 @@ describe("readCsvRows", () => {
     ["9007199254740993", "12", "1.50"],
   ];
   const table = (): string => {
-    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    // now and then a table wider than the widest row literal (src/row.ts)
+    const width = next(10) === 0 ? 30 + next(6) : 1 + next(4);
+    const columns = Arr.makeBy(width, () => pools[next(pools.length)] ?? []);
     const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
     const rows = Arr.makeBy(next(6), () => {
       const row = columns.map((pool) => pool[next(pool.length)] ?? "");
