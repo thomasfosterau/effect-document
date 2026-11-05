@@ -23,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Order from "effect/Order";
 import {
+  type PlainCell,
   type Content,
   contentToBytes,
   type Doc,
@@ -115,9 +116,22 @@ type WorksheetRows =
   | { readonly _tag: "Rows"; readonly rows: ReadonlyArray<SheetRow>; readonly cells: number }
   | { readonly _tag: "TooLarge"; readonly cells: number };
 
+/**
+ * The plain cell an unstyled text, number or boolean cell is written as (a
+ * row holds the bare value, one object fewer a cell); any other cell as it is.
+ */
+const plainOrCell = (c: SheetCell): SheetCell | PlainCell =>
+  c.style !== undefined
+    ? c
+    : Predicate.isTagged(c, "CellText") || Predicate.isTagged(c, "CellBoolean")
+      ? c.value
+      : Predicate.isTagged(c, "CellNumber") && Number.isFinite(c.value)
+        ? c.value
+        : c;
+
 /** A row's valued cells by column as they are read, and its width so far. */
 interface RowCellsSoFar {
-  readonly cells: Map<number, SheetCell>;
+  readonly cells: Map<number, SheetCell | PlainCell>;
   width: number;
 }
 
@@ -195,12 +209,12 @@ const parseWorksheetRows = (
 
     let rowCells = cellMap.get(row);
     if (rowCells === undefined) {
-      rowCells = { cells: new Map<number, SheetCell>(), width: 0 };
+      rowCells = { cells: new Map<number, SheetCell | PlainCell>(), width: 0 };
       cellMap.set(row, rowCells);
     }
     count += widen(rowCells, col);
     if (count > maxCells) return { _tag: "TooLarge", cells: count };
-    rowCells.cells.set(col, value);
+    rowCells.cells.set(col, plainOrCell(value));
   }
 
   // Rows and cells may arrive in any order; the worksheet holds them ascending.

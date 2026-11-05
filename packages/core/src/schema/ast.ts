@@ -308,10 +308,10 @@ export interface SheetColumnEncoded {
   readonly width?: number | undefined;
   readonly style?: StyleE | undefined;
 }
-/** The JSON (encoded) form of {@link SheetRow}: a gap between cells is `null`. */
+/** The JSON (encoded) form of {@link SheetRow}: a plain cell is its bare value, a gap `null`. */
 export interface SheetRowEncoded {
   readonly index: number;
-  readonly cells: ReadonlyArray<SheetCellEncoded | null>;
+  readonly cells: ReadonlyArray<SheetCellEncoded | number | string | boolean | null>;
   readonly height?: number | undefined;
 }
 /** The JSON (encoded) form of {@link MergeRange}. */
@@ -795,25 +795,35 @@ const strictlyAscending = <A>(
   );
 
 /**
- * One position of a row: its cell, or `undefined` for a gap (a column the
- * row has no cell in), written `null` in JSON. A {@link CellBlank} is kept
- * only when a format has something to say about an empty cell, such as its
- * style.
+ * A plain cell: a finite number, a string or a boolean, standing in a row for
+ * the unstyled {@link CellNumber}, {@link CellText} or {@link CellBoolean} of
+ * that value. It is how a reader writes the common cell without a node for it
+ * (one object fewer per value); `cellOf` gives the node it stands for.
  */
-export const RowCell = Schema.NullOr(SheetCell).pipe(
+export const PlainCell = Schema.Union([Schema.Finite, Schema.String, Schema.Boolean]);
+/** A plain cell, as a type: a finite number, a string or a boolean. */
+export type PlainCell = typeof PlainCell.Type;
+
+/**
+ * One position of a row: its cell (a node, or a {@link PlainCell} standing for
+ * an unstyled one), or `undefined` for a gap (a column the row has no cell
+ * in), written `null` in JSON. A {@link CellBlank} is kept only when a format
+ * has something to say about an empty cell, such as its style.
+ */
+export const RowCell = Schema.NullOr(Schema.Union([PlainCell, SheetCell])).pipe(
   Schema.decodeTo(
-    Schema.UndefinedOr(Schema.toType(SheetCell)),
+    Schema.UndefinedOr(Schema.Union([PlainCell, Schema.toType(SheetCell)])),
     SchemaTransformation.transform({
       decode: (cell) => cell ?? undefined,
       encode: (cell) => cell ?? null,
     }),
   ),
 );
-/** One position of a row, as a type: a cell, or `undefined` for a gap. */
+/** One position of a row, as a type: a cell, a plain cell, or `undefined` for a gap. */
 export type RowCell = typeof RowCell.Type;
 
 /** A filter requiring a row's last position to hold a cell, so each row has one form. */
-const endsWithCell = Schema.makeFilter<ReadonlyArray<SheetCell | undefined>>(
+const endsWithCell = Schema.makeFilter<ReadonlyArray<RowCell>>(
   (cells) =>
     Arr.isReadonlyArrayEmpty(cells) || cells.at(-1) !== undefined
       ? []
@@ -829,8 +839,11 @@ const endsWithCell = Schema.makeFilter<ReadonlyArray<SheetCell | undefined>>(
 /**
  * A spreadsheet row: its 0-based `index` and its cells by position, the
  * cell at array position `n` being in column `n` and `undefined` a gap (a
- * column with no cell). The last position holds a cell, so `cells.length`
- * is the row's width. A worksheet holds only the rows it has, so a row with
+ * column with no cell). A position holds a cell node or a {@link PlainCell}
+ * (a bare number, string or boolean standing for its unstyled node; the two
+ * spellings are the same cell, though not `Equal`): read cells through
+ * `cellOf`, `cellAt` or `rowEntries`, which always give the node. The last
+ * position holds a cell, so `cells.length` is the row's width. A worksheet holds only the rows it has, so a row with
  * no cells exists only to carry a `height`. See `denseRows` for a grid and
  * `rowEntries` for the cells a row holds with their columns.
  */

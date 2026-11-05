@@ -3,6 +3,7 @@ import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import {
   cell,
+  cellAt,
   CodeBlock,
   DefinitionItem,
   DefinitionList,
@@ -55,10 +56,9 @@ describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
     expect(worksheets).toHaveLength(1);
 
     // the date became text, the formula became its cached result
-    const firstRow = worksheets[0]!.rows[0]!.cells;
-    expect(firstRow[1]!._tag).toBe("CellText");
-    const secondRow = worksheets[0]!.rows[1]!.cells;
-    expect(secondRow[0]).toMatchObject({ _tag: "CellText", value: "cached" });
+    const [firstRow, secondRow] = worksheets[0]!.rows;
+    expect(cellAt(firstRow!, 1)?._tag).toBe("CellText");
+    expect(cellAt(secondRow!, 0)).toMatchObject({ _tag: "CellText", value: "cached" });
 
     // the loss report names exactly what changed
     const features = loss.entries.map((e) => e.feature);

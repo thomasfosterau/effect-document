@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import {
+  type RowCell,
   cell,
   type Content,
   contentToText,
@@ -26,7 +27,6 @@ import {
   type Reader,
   type SheetCell,
   type SheetRow,
-  sheetRow,
   sheetRowOf,
   trustAs,
   worksheetFromRows,
@@ -337,6 +337,16 @@ const toCell = (raw: string, value: Inferred): SheetCell =>
         ? cell.number(value)
         : cell.boolean(value);
 
+/** A value typed on its own as a row's cell: {@link toCell}'s, a plain cell where one stands for it. */
+const toRowCell = (raw: string, value: Inferred): RowCell =>
+  value === null
+    ? cell.blank()
+    : value === undefined
+      ? raw
+      : Predicate.isNumber(value)
+        ? asCells.number(value)
+        : value;
+
 /** A value typed on its own: what {@link toCell}'s cell holds (`null` for a blank, the text for text). */
 const valueOf = (raw: string, value: Inferred): CsvValue => (value === undefined ? raw : value);
 
@@ -387,7 +397,7 @@ const sniffHeader = (
 const sheetRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   first: number,
-  cellAt: (raw: string, col: number) => SheetCell,
+  cellAt: (raw: string, col: number) => RowCell,
 ): Array<SheetRow> => rows.map((row, r) => sheetRowOf(first + r, row.map(cellAt)));
 
 /** How each value becomes a cell: typed by column or by cell, or (off) text as written. */
@@ -395,10 +405,10 @@ const cellMaker = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   options: CsvReaderOptions,
   classifier: Classifier,
-): ((raw: string, col: number) => SheetCell) => {
-  if (options.inferTypes === false) return (raw) => cell.text(raw);
+): ((raw: string, col: number) => RowCell) => {
+  if (options.inferTypes === false) return (raw) => raw;
   const { classify } = classifier;
-  if (options.inference === "cell") return (raw) => toCell(raw, classify(raw));
+  if (options.inference === "cell") return (raw) => toRowCell(raw, classify(raw));
   // By column: a first pass finds each column's kind, and a value's cell then
   // follows from its column's kind alone (a null spelling is blank, anything
   // else is read as its column's type), so no value is kept between passes.
@@ -487,7 +497,7 @@ const fusedRead = <A>(
   };
   const typing: Typing = {
     ...classifier,
-    cellOf: (raw) => toCell(raw, classifier.classify(raw)),
+    cellOf: (raw) => toRowCell(raw, classifier.classify(raw)),
     valueOf: (raw) => valueOf(raw, classifier.classify(raw)),
     booleanOf: (raw) => classifier.asBoolean(raw) ?? false,
     isBoolean: (raw) => classifier.asBoolean(raw) !== undefined,
@@ -552,15 +562,7 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
     pipe(
       scanTable(source, dialect, options ?? {}, classifier),
       Effect.map(({ headers, rows }) => {
-        const header =
-          headers === null
-            ? []
-            : [
-                sheetRow(
-                  0,
-                  headers.map((h) => cell.text(h)),
-                ),
-              ];
+        const header = headers === null ? [] : [sheetRowOf(0, headers.slice())];
         const body = sheetRows(
           rows,
           header.length,

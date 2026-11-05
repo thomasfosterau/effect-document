@@ -15,6 +15,7 @@ import {
   type ParseError,
   type SheetCell,
   SheetRow,
+  rowEntries,
   sheetRow,
   sparseRow,
   text,
@@ -57,8 +58,8 @@ const nudged = (s: string): Array<string> => {
 /** A number's significant digits: from the first non-zero digit to the last. */
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
-/** A CSV row's cells: the reader writes every field, so a row has no gaps. */
-const cellsOf = (row: SheetRow) => row.cells.flatMap((c) => (c === undefined ? [] : [c]));
+/** A CSV row's cells as nodes: the reader writes every field, so a row has no gaps. */
+const cellsOf = (row: SheetRow) => rowEntries(row).map(([, c]) => c);
 
 /** A document's first worksheet; fails the test when it has none. */
 const firstWorksheet = (doc: Document): Worksheet => {

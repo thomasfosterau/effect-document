@@ -16,7 +16,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import {
-  type CellNumber,
+  type RowCell,
+  type SheetCell,
   cellToText,
   type Content,
   DEFAULT_MAX_DENSE_CELLS,
@@ -24,7 +25,6 @@ import {
   type Doc,
   type FeaturesOf,
   makeWriterTag,
-  type SheetCell,
   type SheetRow,
   sheetExtent,
   text,
@@ -190,8 +190,27 @@ const changesMeaning = (value: string, options: RowOptions): boolean =>
   hasEdgeSpace(value) ||
   (!!options.lineCommentMarker && value.startsWith(options.lineCommentMarker));
 
-const wrapField = (value: string, dialect: CsvDialect): string =>
-  dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
+/**
+ * A field quoted, each wrapper in it doubled. Most quoted fields hold no
+ * wrapper (they hold a separator or a line break), so a native search skips
+ * the doubling for them; one that does is joined from the slices between its
+ * wrappers, about twice as fast as `replaceAll` (bench/csv.bench.ts, every
+ * field quoted).
+ */
+const wrapField = (value: string, dialect: CsvDialect): string => {
+  const { wrapper, doubleWrapper } = dialect;
+  let at = wrapper === "" ? -1 : value.indexOf(wrapper);
+  if (at === -1) return wrapper + value + wrapper;
+  let out = wrapper;
+  let from = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
+  while (at !== -1) {
+    out += value.slice(from, at) + doubleWrapper;
+    from = at + wrapper.length;
+    at = value.indexOf(wrapper, from);
+  }
+  return out + value.slice(from) + wrapper;
+};
 
 /**
  * Quote a field, escaping the wrapper with `escape` if set, else doubling it.
@@ -331,7 +350,7 @@ const renderTextRow = (
 };
 
 /** One past a row's last cell's column: the number of fields it is written as. */
-const rowWidth = (cells: ReadonlyArray<SheetCell | undefined>): number => cells.length;
+const rowWidth = (cells: ReadonlyArray<RowCell>): number => cells.length;
 
 /**
  * Render row `index` from a sparse sheet row's cells (none, for a row the
@@ -339,7 +358,7 @@ const rowWidth = (cells: ReadonlyArray<SheetCell | undefined>): number => cells.
  * its last cell, each gap an empty field, then empty fields to `width`.
  */
 const renderSheetRow = (
-  cells: ReadonlyArray<SheetCell | undefined>,
+  cells: ReadonlyArray<RowCell>,
   index: number,
   width: number,
   ctx: RowContext,
@@ -365,11 +384,7 @@ const renderSheetRow = (
 };
 
 /** {@link renderSheetRow} under the plain options: every field quoted as `minimal` does, joined. */
-const renderPlainRow = (
-  cells: ReadonlyArray<SheetCell | undefined>,
-  n: number,
-  ctx: RowContext,
-): string => {
+const renderPlainRow = (cells: ReadonlyArray<RowCell>, n: number, ctx: RowContext): string => {
   const fields: Array<string> = [];
   // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
   for (let col = 0; col < n; col++) {
@@ -379,14 +394,26 @@ const renderPlainRow = (
   return fields.join(ctx.dialect.separator);
 };
 
-const isNumberCell = (c: SheetCell): c is CellNumber => Predicate.isTagged(c, "CellNumber");
+/** Whether a row position is a number: a plain one or a `CellNumber`. */
+const isNumberCell = (c: Exclude<RowCell, undefined>): boolean =>
+  Predicate.isNumber(c) || Predicate.isTagged(c, "CellNumber");
 
 /** A cell's field before quoting: a number in the write's number format, anything else its text. */
-const cellField = (c: SheetCell, ctx: RowContext): string =>
-  // text first: the most common cell, and one tag check for it
+const cellField = (c: Exclude<RowCell, undefined>, ctx: RowContext): string =>
+  // plain text first: the most common cell a reader writes
+  Predicate.isString(c)
+    ? c
+    : Predicate.isNumber(c)
+      ? ctx.formatNumber(c)
+      : Predicate.isBoolean(c)
+        ? String(c)
+        : nodeField(c, ctx);
+
+/** {@link cellField} of a node: a number in the write's number format, anything else its text. */
+const nodeField = (c: SheetCell, ctx: RowContext): string =>
   Predicate.isTagged(c, "CellText")
     ? c.value
-    : isNumberCell(c)
+    : Predicate.isTagged(c, "CellNumber")
       ? ctx.formatNumber(c.value)
       : cellToText(c);
 

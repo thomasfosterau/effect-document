@@ -34,6 +34,8 @@ import {
   CellNumber,
   CellRichText,
   CellText,
+  type PlainCell,
+  type RowCell,
   type SheetCell,
   SheetRow,
   Str,
@@ -155,12 +157,12 @@ export const isCellInstance = (value: unknown): value is SheetCell => {
 
 /**
  * A row at `index` (a non-negative integer) holding `cells` as its array: cell
- * instances by column, `undefined` for a gap, the last a cell. `height` is
+ * instances or plain cells by column, `undefined` for a gap, the last a cell. `height` is
  * kept as an own property even when undefined, as `new SheetRow` keeps it.
  */
 export const trustedRowOf = (
   index: number,
-  cells: ReadonlyArray<SheetCell | undefined>,
+  cells: ReadonlyArray<RowCell>,
   height?: number,
 ): SheetRow => {
   const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
@@ -178,7 +180,7 @@ export const trustedRowOf = (
  */
 export const trustedSparseRow = (
   index: number,
-  entries: ReadonlyArray<readonly [number, SheetCell]>,
+  entries: ReadonlyArray<readonly [number, SheetCell | PlainCell]>,
   height?: number,
 ): SheetRow => {
   const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
@@ -195,9 +197,9 @@ export const trustedSparseRow = (
  * (never a hole) at each column without an entry.
  */
 export const positional = (
-  entries: ReadonlyArray<readonly [number, SheetCell]>,
-): Array<SheetCell | undefined> => {
-  const cells: Array<SheetCell | undefined> = Array.from(
+  entries: ReadonlyArray<readonly [number, SheetCell | PlainCell]>,
+): Array<RowCell> => {
+  const cells: Array<RowCell> = Array.from(
     { length: (entries.at(-1)?.[0] ?? -1) + 1 },
     () => undefined,
   );

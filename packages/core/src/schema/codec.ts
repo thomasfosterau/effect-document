@@ -63,6 +63,7 @@ import {
   RawBlock,
   RawInline,
   Shape,
+  PlainCell,
   SheetCell,
   SheetRow,
   Slide,
@@ -324,13 +325,22 @@ const ABSENT: unique symbol = Symbol("absent");
  */
 type Template =
   | number
-  | ReadonlyArray<number>
+  | ReadonlyArray<number | Literal>
   | ReadonlyArray<ReadonlyArray<number>>
   | typeof ABSENT
   | undefined;
 
 /** A gap's place in a template: no node is walked for it. */
 const GAP = -1;
+
+/** A plain cell's place in a row's template: its value, carried through as it is. */
+interface Literal {
+  readonly plain: PlainCell;
+}
+
+/** Whether a row position is a plain cell's value (a number, a string or a boolean). */
+const isPlainValue = (value: unknown): value is PlainCell =>
+  Predicate.isString(value) || Predicate.isNumber(value) || Predicate.isBoolean(value);
 
 /** A node met by the walk: its kind, where it sits, its own fields and a template per recursive field. */
 interface Frame {
@@ -371,7 +381,7 @@ type Filled =
   | Built
   | undefined
   | typeof ABSENT
-  | ReadonlyArray<Built | null | undefined>
+  | ReadonlyArray<Built | PlainCell | null | undefined>
   | ReadonlyArray<ReadonlyArray<Built | undefined>>;
 
 /**
@@ -400,6 +410,18 @@ const walk = (
       ? value
       : fail(at(path, new SchemaIssue.InvalidType(Schema.Array(refSchema(ref)).ast, value)));
 
+  /**
+   * A row position's template entry: a gap, a plain cell carried through (a
+   * number must be finite, as `PlainCell` requires), or a node to walk.
+   */
+  const position = (value: unknown, ref: Ref, path: Path): number | Literal => {
+    if (value === direction.gapIn) return GAP;
+    if (!isPlainValue(value)) return queue(value, ref, path);
+    if (Predicate.isNumber(value) && !Number.isFinite(value))
+      fail(at(path, new SchemaIssue.InvalidType(PlainCell.ast, value)));
+    return { plain: value };
+  };
+
   /** Queue one recursive field's nodes, returning its template. */
   const field = (node: Own, child: Child, path: Path): Template => {
     const fieldPath = down(path, child.key);
@@ -412,7 +434,9 @@ const walk = (
     if (outer === undefined) return undefined;
     if (child.depth === 1)
       return outer.map((v, i) =>
-        child.gaps && v === direction.gapIn ? GAP : queue(v, child.ref, down(fieldPath, i)),
+        child.gaps
+          ? position(v, child.ref, down(fieldPath, i))
+          : queue(v, child.ref, down(fieldPath, i)),
       );
     return outer.map((inner, i) => {
       const vs = array(inner, child.ref, down(fieldPath, i)) ?? [];
@@ -454,7 +478,9 @@ const walk = (
               ? u === GAP
                 ? direction.gapOut
                 : built[u]
-              : u.map((v) => built[v]),
+              : "plain" in u
+                ? u.plain
+                : u.map((v) => built[v]),
           );
   Arr.unfold(frames.length - 1, (i) => {
     const frame = frames[i];

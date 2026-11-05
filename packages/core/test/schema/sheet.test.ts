@@ -8,6 +8,8 @@ import {
   Worksheet,
   blocksToText,
   cell,
+  cellAt,
+  cellOf,
   DEFAULT_MAX_DENSE_CELLS,
   DenseGridTooLarge,
   denseRows,
@@ -112,6 +114,38 @@ describe("sparse worksheet (#185)", () => {
     expect(row.index).toBe(2);
     expect(row.height).toBe(18);
     expect(row.cells).toEqual([cell.text("x"), cell.blank(), cell.number(1)]);
+  });
+
+  test("a plain cell stands for its unstyled node, and is its bare value in JSON", () => {
+    const row = sheetRow(0, ["a", 1.5, true, cell.number(2), undefined, false]);
+    expect(rowEntries(row)).toEqual([
+      [0, cell.text("a")],
+      [1, cell.number(1.5)],
+      [2, cell.boolean(true)],
+      [3, cell.number(2)],
+      [5, cell.boolean(false)],
+    ]);
+    expect(cellAt(row, 4)).toBeUndefined();
+    expect(cellOf("x")).toStrictEqual(cell.text("x"));
+    const encoded = Schema.encodeSync(SheetRow)(row);
+    expect(encoded.cells).toEqual(["a", 1.5, true, { _tag: "CellNumber", value: 2 }, null, false]);
+    expect(Schema.decodeSync(SheetRow)(encoded)).toEqual(row);
+    // a plain number is finite: JSON holds no other (a node carries NaN and ±Infinity)
+    expect(() => sheetRow(0, [Number.NaN])).toThrow("Schema validation failed");
+    expect(cellAt(sheetRow(0, [cell.number(Number.NaN)]), 0)).toStrictEqual(
+      cell.number(Number.NaN),
+    );
+    // a sheet of plain cells narrows and lays out as the same sheet of nodes
+    const plain = new Worksheet({ name: "P", columns: [], rows: [row], merges: [] });
+    expect(narrow(document([plain]), Profiles.Csv).loss.entries).toEqual([]);
+    expect(grid(plain)[0]).toEqual([
+      cell.text("a"),
+      cell.number(1.5),
+      cell.boolean(true),
+      cell.number(2),
+      cell.blank(),
+      cell.boolean(false),
+    ]);
   });
 
   test("a row's cells are positional: a gap is undefined, and the last position holds a cell", () => {

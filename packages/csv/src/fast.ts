@@ -155,7 +155,14 @@ const closingWrapper = (
   return i;
 };
 
-/** A quoted field's value: its content, each doubled wrapper halved if it has any. */
+/**
+ * A quoted field's value: its content, each doubled wrapper halved if it has
+ * any. The halved value is joined from the slices between the doubled
+ * wrappers (a native search each), about twice as fast as `replaceAll` over
+ * the content's slice (bench/csv.bench.ts, every field quoted). Every
+ * doubled wrapper before `close` is an escape: `close` is the first wrapper
+ * not doubled.
+ */
 const unquote = (
   text: string,
   start: number,
@@ -163,8 +170,17 @@ const unquote = (
   plan: FastPlan,
   doubled: boolean,
 ): string => {
-  const raw = text.slice(start, close);
-  return doubled ? raw.replaceAll(plan.doubledWrapper, plan.wrapper) : raw;
+  if (!doubled) return text.slice(start, close);
+  let value = "";
+  let from = start;
+  let at = text.indexOf(plan.doubledWrapper, from);
+  // oxlint-disable-next-line effect/imperative-loops -- one native search per doubled wrapper in the field
+  while (at !== -1 && at < close) {
+    value += text.slice(from, at + 1);
+    from = at + 2;
+    at = text.indexOf(plan.doubledWrapper, from);
+  }
+  return value + text.slice(from, close);
 };
 
 /**
@@ -260,7 +276,7 @@ export type FastScanEnd = "done" | "unclosed" | "stopped";
  * false to stop. `"unclosed"` if a quoted field is never closed (the grammar
  * reports where).
  */
-export const fastEachRow = (
+const fastEachRow = (
   text: string,
   plan: FastPlan,
   onRow: (fields: Array<string>) => boolean,

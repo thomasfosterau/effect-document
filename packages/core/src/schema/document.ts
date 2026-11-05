@@ -7,6 +7,7 @@ import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  type RowCell,
   Block,
   BulletList,
   CellBlank,
@@ -39,7 +40,7 @@ import {
   TextBox,
   Worksheet,
 } from "./ast.ts";
-import { sheetRow } from "./sheet.ts";
+import { rowEntries, sheetRow } from "./sheet.ts";
 import {
   trustedBlank,
   trustedBoolean,
@@ -164,7 +165,7 @@ export const cell = {
  */
 export const worksheet = (
   name: string,
-  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+  rows: ReadonlyArray<ReadonlyArray<RowCell>>,
   headers?: ReadonlyArray<string>,
 ): Worksheet => {
   const allRows = headers === undefined ? rows : [headers.map((h) => cell.text(h)), ...rows];
@@ -359,7 +360,7 @@ const expandBlock = (block: Block): TextPart[] => {
       joinParts(
         n.rows.map((row) =>
           joinParts(
-            row.cells.flatMap((c) => (c === undefined ? [] : [[{ c }]])),
+            rowEntries(row).map(([, c]) => [{ c }]),
             "\t",
           ),
         ),
