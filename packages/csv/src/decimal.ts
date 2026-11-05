@@ -96,6 +96,7 @@ const longDecimal = (
   total: number,
   scale: number,
   negative: boolean,
+  exact: boolean,
 ): number => {
   if (scale > 22 || total > 24) return Number.NaN;
   const power = EXACT_POWERS_OF_TEN[scale] ?? 1;
@@ -109,8 +110,11 @@ const longDecimal = (
     r = twoProduct(c, power) - highPart - low + (scratch.error - highError);
     halfUlp = (ulpOf(c) * power) / 2;
   }
-  // `c` is the correctly rounded value, and the decimal the nearest of its length to it
-  if (!(Math.abs(r) < halfUlp * (1 - 1e-9)) || !(Math.abs(r) < 0.5 - 1e-9)) return Number.NaN;
+  // `c` is the correctly rounded value: `Number`'s, which is all a lossy read asks
+  if (!(Math.abs(r) < halfUlp * (1 - 1e-9))) return Number.NaN;
+  if (!exact) return negative ? -c : c;
+  // and the decimal the nearest of its length to it
+  if (!(Math.abs(r) < 0.5 - 1e-9)) return Number.NaN;
   // the decimals one digit shorter either side are whole tens of units from
   // the digits, at `r + last` below the double and `10 - last - r` above it:
   // one of them reads back as the double when within half its ulp
@@ -198,15 +202,21 @@ const decimalFrom = (
   text: string,
   start: number,
   end: number,
+  exact: boolean,
 ): number => {
   if (total <= exactDigits) {
     const value = total <= 9 ? high : high * (EXACT_POWERS_OF_TEN[total - 9] ?? 1) + low;
     const magnitude = scale === 0 ? value : value / (EXACT_POWERS_OF_TEN[scale] ?? 1);
     return negative ? -magnitude : magnitude;
   }
+  // a trailing zero only matters to whether the digits print back
   const quick =
-    text.charCodeAt(end - 1) === 48 ? Number.NaN : longDecimal(high, low, total, scale, negative);
-  return Number.isNaN(quick) ? longValue(text.slice(start, end)) : quick;
+    exact && text.charCodeAt(end - 1) === 48
+      ? Number.NaN
+      : longDecimal(high, low, total, scale, negative, exact);
+  if (!Number.isNaN(quick)) return quick;
+  const raw = text.slice(start, end);
+  return exact ? longValue(raw) : Number(raw);
 };
 
 /**
@@ -222,16 +232,17 @@ const longValue = (raw: string): number => {
 /**
  * The plain decimal from `start` to `end` of a string, when it is one a
  * double holds the digits of; else `NaN` (not a plain decimal, or one the
- * reader's general path must judge). For a value already sliced from the
+ * reader's general path must judge). With `exact` off, any plain decimal is
+ * `Number` of it, its digits held or not (the reader's `exactNumbers: false`). For a value already sliced from the
  * text: {@link decimalInText} reads one in place.
  */
-export const decimalAt = (text: string, start: number, end: number): number => {
+export const decimalAt = (text: string, start: number, end: number, exact = true): number => {
   const negative = text.charCodeAt(start) === 45;
   const from = negative ? start + 1 : start;
   if (!scanDecimal(text, from, end) || !isPlain(text, from, end)) return Number.NaN;
   const { high, low, total, point } = scan;
   const scale = point === -1 ? 0 : end - point - 1;
-  return decimalFrom(high, low, total, scale, negative, text, start, end);
+  return decimalFrom(high, low, total, scale, negative, text, start, end, exact);
 };
 
 /** {@link digitsInText}'s running digits, as {@link scan} holds {@link scanDecimal}'s. */
@@ -269,7 +280,7 @@ const digitsInText = (text: string, from: number, end: number): number => {
  * The plain decimal from `start` to `end` of the source text, read in place,
  * as {@link decimalAt} reads it from a string: `NaN` for anything else.
  */
-export const decimalInText = (text: string, start: number, end: number): number => {
+export const decimalInText = (text: string, start: number, end: number, exact = true): number => {
   const negative = text.charCodeAt(start) === 45;
   const from = negative ? start + 1 : start;
   inText.high = 0;
@@ -285,5 +296,15 @@ export const decimalInText = (text: string, start: number, end: number): number 
   // digits after a point, and nothing after them
   if ((point && last === intEnd + 1) || last !== end) return Number.NaN;
   const { high, low, total } = inText;
-  return decimalFrom(high, low, total, point ? end - intEnd - 1 : 0, negative, text, start, end);
+  return decimalFrom(
+    high,
+    low,
+    total,
+    point ? end - intEnd - 1 : 0,
+    negative,
+    text,
+    start,
+    end,
+    exact,
+  );
 };

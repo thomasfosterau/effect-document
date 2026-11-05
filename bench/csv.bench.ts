@@ -133,6 +133,7 @@ const encoder = new TextEncoder();
 const bytes = (s: string) => encoder.encode(s).length;
 
 const reader = makeCsvReader({ treatFirstRowAsHeader: true });
+const lossyReader = makeCsvReader({ treatFirstRowAsHeader: true, exactNumbers: false });
 const writer = makeCsvWriter();
 
 const chunks = (s: string, size: number): Array<string> => {
@@ -170,6 +171,15 @@ const readCases = (csv: string): Array<Case> => {
     {
       name: "effect-csv readCsvRows",
       run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true })),
+    },
+    // numbers as `Number` reads them, digits held or not: the libraries' rule
+    {
+      name: "effect-csv readCsvRows (lossy)",
+      run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true, exactNumbers: false })),
+    },
+    {
+      name: "effect-csv read (lossy)",
+      run: () => run(lossyReader.read(text(csv))),
     },
     {
       name: "uDSV inferSchema + typedArrs",

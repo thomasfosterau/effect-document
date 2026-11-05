@@ -79,6 +79,15 @@ export interface CsvInferenceOptions {
   readonly percent?: boolean | undefined;
   /** Values read as blank cells, matched exactly (defaults to `[""]`). */
   readonly nullValues?: ReadonlyArray<string> | undefined;
+  /**
+   * Whether a number must hold the digits it is written with (the default,
+   * `true`): a decimal a double cannot hold, such as a 20-digit ID or
+   * `0.10000000000000001`, stays text rather than silently changing. `false`
+   * reads every value the number grammar matches as `Number` of it, whatever
+   * its digits, as d3-dsv's `autoType` and uDSV do: faster on full-precision
+   * floats, which then need no check, and lossy for digits past a double's.
+   */
+  readonly exactNumbers?: boolean | undefined;
 }
 
 /** Options for the CSV reader: the dialect, the scan options and type inference. */
@@ -253,6 +262,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
   // matched value is a JavaScript numeric literal, so `Number` reads it as is.
   const plain = groups === undefined && decimalChar === ".";
   const fast = plain && !options.percent;
+  const exactNumbers = options.exactNumbers ?? true;
   /** The general path: the grammar as a regular expression, then the digits check. */
   const general = (raw: string): number | undefined => {
     const m = number.exec(raw);
@@ -265,7 +275,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
         ? Number(raw)
         : Number(`${sign}${int}.${frac || "0"}e${Number(exp ?? "0") - (pct ? 2 : 0)}`);
     const exact = exp === undefined && int.length + frac.length <= exactDigits;
-    return exact || holdsDigits(value, int + frac) ? value : undefined;
+    return !exactNumbers || exact || holdsDigits(value, int + frac) ? value : undefined;
   };
   // In the common case a plain decimal of at most `exactDigits` digits is a
   // number with no need to build it, and a value known to be one is
@@ -280,6 +290,7 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
     // float, say) holds its digits: the general check would agree
     return (
       digits <= exactDigits ||
+      !exactNumbers ||
       !Number.isNaN(decimalAt(raw, 0, raw.length)) ||
       general(raw) !== undefined
     );
@@ -287,12 +298,16 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
   const numberOf = (raw: string): number => (fast ? Number(raw) : (general(raw) ?? Number.NaN));
   const numberValue = (raw: string): number => {
     if (fast) {
-      const quick = decimalAt(raw, 0, raw.length);
+      const quick = decimalAt(raw, 0, raw.length, exactNumbers);
       if (!Number.isNaN(quick)) return quick;
     }
     return isNumber(raw) ? numberOf(raw) : Number.NaN;
   };
-  const numberAt = fast ? decimalInText : () => Number.NaN;
+  const numberAt = !fast
+    ? () => Number.NaN
+    : exactNumbers
+      ? decimalInText
+      : (text: string, start: number, end: number) => decimalInText(text, start, end, false);
   return { isNumber, numberOf, numberValue, numberAt };
 };
 

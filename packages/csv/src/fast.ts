@@ -274,18 +274,22 @@ const readRecord = <T>(
   onRow: (fields: Array<T>) => boolean,
 ): number => {
   const numbers = scan.numbers;
-  const fields = Option.getOrElse(numbers, () => scan.template).slice();
+  const doubles = Option.isSome(numbers);
+  // a branch, not `Option.getOrElse`: its thunk would be a closure a row
+  const fields = (doubles ? numbers.value : scan.template).slice();
   let p = start;
   let n = 0;
-  let allNumbers = true;
+  // only a reader that reads fields in place makes numbers: the string scan
+  // skips the tracking (6 of its 40 ms on bench/csv.bench.ts's floats table)
+  let allNumbers = reader.inPlace;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
     p = readField(text, p, plan, scan, reader, n);
     if (p === UNCLOSED) return UNCLOSED;
     const value = scan.field;
-    if (Option.isSome(numbers) && Predicate.isNumber(value)) storeNumber(fields, n, value);
+    if (doubles && Predicate.isNumber(value)) storeNumber(fields, n, value);
     else store(fields, n, value);
-    allNumbers &&= Predicate.isNumber(value);
+    if (allNumbers) allNumbers = Predicate.isNumber(value);
     n++;
     if (text.charCodeAt(p) !== plan.separator) break;
     p++;
@@ -296,11 +300,7 @@ const readRecord = <T>(
     fields.length = n;
     scan.template = fields.map(() => reader.fill);
   }
-  if (!allNumbers) scan.numbers = Option.none();
-  // a template of doubles, not of the row's own values: a row of small
-  // integers would give an array of small integers, which each later row
-  // leaves (`map` builds its array by kind; `slice` would copy a generic one)
-  else if (resized || Option.isNone(numbers)) scan.numbers = Option.some(fields.map(doubleFill));
+  keepNumbers(scan, fields, allNumbers, resized);
   if (!onRow(fields)) return STOPPED;
   return afterLineBreak(text, p);
 };
@@ -323,6 +323,27 @@ const storeNumber = <T>(fields: Array<T>, n: number, value: T): void => {
 };
 
 /**
+ * Keep or drop the number template after a row: dropped when the row held
+ * anything but numbers, made from the row when it held only numbers and
+ * there was none (or the width changed).
+ */
+const keepNumbers = <T>(
+  scan: Scan<T>,
+  fields: Array<T>,
+  allNumbers: boolean,
+  resized: boolean,
+): void => {
+  const doubles = Option.isSome(scan.numbers);
+  if (!allNumbers) {
+    if (doubles) scan.numbers = Option.none();
+  }
+  // a template of doubles, not of the row's own values: a row of small
+  // integers would give an array of small integers, which each later row
+  // leaves (`map` builds its array by kind; `slice` would copy a generic one)
+  else if (resized || !doubles) scan.numbers = Option.some(fields.map(doubleFill));
+};
+
+/**
  * A placeholder the number template is filled with: a double that is not a
  * small integer, so the template's array holds doubles.
  */
@@ -335,6 +356,14 @@ const doubleFill = <T>(value: T): T =>
 const UNCLOSED = -1;
 /** {@link readRecord}: the row callback stopped the scan. */
 const STOPPED = -2;
+
+/**
+ * The plan for `text`: quoting off when the text holds no wrapper at all, so
+ * no field is tested for one (one native search a file; most files of
+ * numbers quote nothing).
+ */
+const unquotedPlan = (text: string, plan: FastPlan): FastPlan =>
+  plan.quote === -1 || text.includes(plan.wrapper) ? plan : { ...plan, quote: -1 };
 
 /** How a {@link fastEachRow} scan ended. */
 export type FastScanEnd = "done" | "unclosed" | "stopped";
@@ -355,10 +384,11 @@ const fastEachRow = (
 /** {@link fastEachRow}, each field made by `reader`. */
 export const fastEachRecord = <T>(
   text: string,
-  plan: FastPlan,
+  given: FastPlan,
   reader: FieldReader<T>,
   onRow: (fields: Array<T>) => boolean,
 ): FastScanEnd => {
+  const plan = unquotedPlan(text, given);
   const scan: Scan<T> = {
     separator: -1,
     lf: -1,

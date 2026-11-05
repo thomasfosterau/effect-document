@@ -182,6 +182,28 @@ describe("CSV reader", () => {
       (raw) => !Equal.equals(inferCell(raw), reference(raw)),
     );
     expect(mismatches.slice(0, 5)).toEqual([]);
+    // with exactNumbers off, whatever the grammar matches is `Number` of it,
+    // its digits held or not; anything else is as before
+    const lossy = (raw: string): SheetCell =>
+      grammar.test(raw) ? cell.number(Number(raw)) : reference(raw);
+    const lossyMismatches = [...samples, ...long, ...nearTwo53, "0.10000000000000001"].filter(
+      (raw) => !Equal.equals(inferCell(raw, { exactNumbers: false }), lossy(raw)),
+    );
+    expect(lossyMismatches.slice(0, 5)).toEqual([]);
+  });
+
+  test("exactNumbers: false reads digits a double cannot hold as numbers", async () => {
+    const csv = "id,x\n12345678901234567890,0.10000000000000001\n";
+    expect(await run(readCsvRows(csv, { treatFirstRowAsHeader: true }))).toEqual({
+      headers: ["id", "x"],
+      rows: [["12345678901234567890", "0.10000000000000001"]],
+    });
+    expect(
+      await run(readCsvRows(csv, { exactNumbers: false, treatFirstRowAsHeader: true })),
+    ).toEqual({
+      headers: ["id", "x"],
+      rows: [[Number("12345678901234567890"), 0.1]],
+    });
   });
 
   test("types a column as every non-null value in it is typed, else as text", async () => {
@@ -692,6 +714,7 @@ describe("CSV reader fast path", () => {
     ["1", "2", "x"],
     ["", ""],
     ["true", "1"],
+    ["0.14285714285714285", "0.10000000000000001", "12345678901234567890", "1.50000000000000000"],
   ];
   const table = (): string => {
     const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
@@ -712,6 +735,8 @@ describe("CSV reader fast path", () => {
     { inferTypes: false, treatFirstRowAsHeader: true },
     { allowVariableColumns: true },
     { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
+    { exactNumbers: false },
+    { exactNumbers: false, inference: "cell", treatFirstRowAsHeader: false },
   ];
   test("gives the general path's document or failure", () => {
     const tables = Arr.makeBy(1500, table);
@@ -837,6 +862,8 @@ describe("readCsvRows", () => {
     { allowVariableColumns: true },
     { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
     { providedHeaders: ["p", "q", "r", "s"], allowVariableColumns: true },
+    { exactNumbers: false },
+    { exactNumbers: false, inference: "cell" },
   ];
   test("gives read's values, by its one-pass path and its general one", () => {
     const tables = Arr.makeBy(1500, table);
