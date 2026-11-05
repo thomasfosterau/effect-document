@@ -9,7 +9,14 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { CellBlank, IndexedCell, type SheetCell, SheetRow, type Worksheet } from "./ast.ts";
-import { isCellInstance, trustedDenseRow, trustedRowFrom, trustedSparseRow } from "./trusted.ts";
+import {
+  isCellInstance,
+  trustedDenseRow,
+  trustedIndexedCell,
+  trustedRowFrom,
+  trustedRowOf,
+  trustedSparseRow,
+} from "./trusted.ts";
 
 /** A worksheet's extent: one past its last row index and one past its last column. */
 export interface SheetExtent {
@@ -168,6 +175,41 @@ export const sheetRowFrom = <A>(
   toCell: (item: A, col: number) => SheetCell,
 ): SheetRow =>
   isPosition(index) ? trustedRowFrom(index, items, toCell) : sheetRow(index, items.map(toCell));
+
+/**
+ * A cell at its 0-based column: `new IndexedCell({ col, cell })` without the
+ * schema pass when `col` is a position and `cell` an instance of a cell
+ * class. Nodes are immutable, so a reader may place the same indexed cell in
+ * many rows (a column's repeated value).
+ *
+ * @example
+ * ```ts
+ * import { cell, indexedCell } from "@thomasfosterau/effect-document"
+ *
+ * indexedCell(2, cell.text("a"))
+ * ```
+ */
+export const indexedCell = (col: number, cell: SheetCell): IndexedCell =>
+  isPosition(col) && isCellInstance(cell)
+    ? trustedIndexedCell(col, cell)
+    : new IndexedCell({ col, cell });
+
+/**
+ * A row from indexed cells in strictly ascending column order (see
+ * `indexedCell`), kept as given; anything else fails as `new SheetRow` does.
+ *
+ * @example
+ * ```ts
+ * import { cell, indexedCell, sheetRowOf } from "@thomasfosterau/effect-document"
+ *
+ * sheetRowOf(0, [indexedCell(0, cell.text("a")), indexedCell(3, cell.number(1))])
+ * ```
+ */
+export const sheetRowOf = (index: number, cells: ReadonlyArray<IndexedCell>): SheetRow =>
+  isPosition(index) &&
+  cells.every((c, i) => c instanceof IndexedCell && (i === 0 || c.col > (cells[i - 1]?.col ?? -1)))
+    ? trustedRowOf(index, cells)
+    : new SheetRow({ index, cells, height: undefined });
 
 /**
  * A sparse row from its cells' `[column, cell]` entries, in strictly

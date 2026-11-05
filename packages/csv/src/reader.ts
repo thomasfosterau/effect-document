@@ -223,7 +223,55 @@ interface NumberTest {
   readonly isNumber: (raw: string) => boolean;
   /** The number a value known to spell one spells (see {@link isNumber}). */
   readonly numberOf: (raw: string) => number;
+  /** The number a value spells, or `NaN` if it spells none (no value spells `NaN`). */
+  readonly numberValue: (raw: string) => number;
 }
+
+/** Powers of ten that a double holds exactly: 10^0 to 10^22. */
+const EXACT_POWERS_OF_TEN = Array.from({ length: 23 }, (_, k) => 10 ** k);
+
+/**
+ * The value of a plain decimal (`-?(0|[1-9]\d*)(\.\d+)?`) of at most
+ * {@link exactDigits} digits, read in one scan, or `NaN` for anything else
+ * (an exponent, more digits, not a number), which the general path then
+ * reads. Its digits as an integer are below 2^53 and the power of ten it is
+ * divided by is exact, so the one correctly rounded division gives exactly
+ * what `Number(raw)` does (Clinger's fast path).
+ */
+/** {@link digitsFrom}'s running value, read back by its caller (no allocation per call). */
+const scratch = { value: 0 };
+
+/**
+ * The index past the digits of `raw` from `i`, with `scratch.value` set to
+ * `value` extended by them (`value * 10 + digit` for each).
+ */
+const digitsFrom = (raw: string, i: number, value: number): number => {
+  let j = i;
+  let v = value;
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per value of a number column: the measured hot path (bench/csv.bench.ts)
+  for (; j < raw.length; j++) {
+    const c = raw.charCodeAt(j);
+    if (c < 48 || c > 57) break;
+    v = v * 10 + (c - 48);
+  }
+  scratch.value = v;
+  return j;
+};
+
+const plainValue = (raw: string): number => {
+  const negative = raw.charCodeAt(0) === 45;
+  const start = negative ? 1 : 0;
+  const intEnd = digitsFrom(raw, start, 0);
+  const intDigits = intEnd - start;
+  // an integer part of `0` alone, or of digits not led by `0`
+  if (intDigits === 0 || (intDigits > 1 && raw.charCodeAt(start) === 48)) return Number.NaN;
+  const end = raw.charCodeAt(intEnd) === 46 ? digitsFrom(raw, intEnd + 1, scratch.value) : intEnd;
+  const scale = end === intEnd ? 0 : end - intEnd - 1;
+  if (end !== intEnd && scale === 0) return Number.NaN;
+  if (end !== raw.length || intDigits + scale > exactDigits) return Number.NaN;
+  const magnitude = scale === 0 ? scratch.value : scratch.value / (EXACT_POWERS_OF_TEN[scale] ?? 1);
+  return negative ? -magnitude : magnitude;
+};
 
 /** Whether a value can be a number: it starts with a digit or a minus sign. */
 const mayBeNumber = (raw: string): boolean => {
@@ -270,7 +318,14 @@ const makeNumberTest = (options: CsvInferenceOptions): NumberTest => {
     return (digits !== WITH_EXPONENT && digits <= exactDigits) || general(raw) !== undefined;
   };
   const numberOf = (raw: string): number => (fast ? Number(raw) : (general(raw) ?? Number.NaN));
-  return { isNumber, numberOf };
+  const numberValue = (raw: string): number => {
+    if (fast) {
+      const quick = plainValue(raw);
+      if (!Number.isNaN(quick)) return quick;
+    }
+    return isNumber(raw) ? numberOf(raw) : Number.NaN;
+  };
+  return { isNumber, numberOf, numberValue };
 };
 
 /** Build the value classifier for a set of inference options. */
@@ -278,10 +333,13 @@ const makeClassifier = (options: CsvInferenceOptions): Classifier => {
   const isNull = makeNullTest(options);
   const asBoolean = makeBooleanTest(options);
   const numbers = makeNumberTest(options);
-  const classify = (raw: string): Inferred =>
-    isNull(raw)
-      ? null
-      : (asBoolean(raw) ?? (numbers.isNumber(raw) ? numbers.numberOf(raw) : undefined));
+  const classify = (raw: string): Inferred => {
+    if (isNull(raw)) return null;
+    const bool = asBoolean(raw);
+    if (bool !== undefined) return bool;
+    const value = numbers.numberValue(raw);
+    return Number.isNaN(value) ? undefined : value;
+  };
   const kind = (raw: string): ColumnKind =>
     isNull(raw)
       ? "blank"
@@ -450,6 +508,7 @@ const fusedRead = (
     ...classifier,
     cellOf: (raw) => toCell(raw, classifier.classify(raw)),
     booleanOf: (raw) => classifier.asBoolean(raw) ?? false,
+    isBoolean: (raw) => classifier.asBoolean(raw) !== undefined,
   };
   return Option.map(
     fastPlan(dialect, options),

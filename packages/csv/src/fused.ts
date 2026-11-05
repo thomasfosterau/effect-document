@@ -21,10 +21,12 @@
 import * as Option from "effect/Option";
 import {
   cell,
+  type IndexedCell,
+  indexedCell,
   type SheetCell,
   type SheetRow,
   sheetRow,
-  sheetRowFrom,
+  sheetRowOf,
 } from "@thomasfosterau/effect-document";
 import { fastEachRow, type FastPlan } from "./fast.ts";
 
@@ -40,6 +42,10 @@ export interface Typing {
   readonly booleanOf: (raw: string) => boolean;
   /** The number a value of kind `number` spells. */
   readonly numberOf: (raw: string) => number;
+  /** The number a value spells, or `NaN` if it spells none. */
+  readonly numberValue: (raw: string) => number;
+  /** Whether a value spells a boolean. */
+  readonly isBoolean: (raw: string) => boolean;
   /** A cell typed on its own (`inference: "cell"`). */
   readonly cellOf: (raw: string) => SheetCell;
 }
@@ -77,11 +83,105 @@ class ColumnGuess {
   cell(raw: string, c: number): SheetCell {
     const column = this.kinds[c] ?? "blank";
     if (column === "text") return this.typing.isNull(raw) ? cell.blank() : cell.text(raw);
+    if (column === "number") return this.numberCell(raw);
     const kind = this.typing.kind(raw);
     if (kind === "blank") return cell.blank();
     if (column === "blank") this.kinds[c] = kind;
     else if (kind !== column) this.contradicted = true;
     return typedCell(raw, kind, this.typing);
+  }
+
+  /**
+   * A value's cell in a column of numbers: its number read in the same scan
+   * that finds it is one; anything else non-null contradicts the column (a
+   * boolean spelling first, as `kind` decides).
+   */
+  private numberCell(raw: string): SheetCell {
+    const typing = this.typing;
+    if (typing.isNull(raw)) return cell.blank();
+    const value = typing.isBoolean(raw) ? Number.NaN : typing.numberValue(raw);
+    if (!Number.isNaN(value)) return cell.number(value);
+    this.contradicted = true;
+    return cell.text(raw);
+  }
+}
+
+/** Values a column's dictionary is first judged after. */
+const TRIAL = 256;
+/**
+ * The smallest text that dictionaries are used for: below it the document is
+ * small enough that the collector's copying costs less than the lookups.
+ */
+const DICTIONARY_MIN_TEXT = 256 * 1024;
+/** The most values a column's dictionary holds. */
+const MAX_VALUES = 8192;
+
+/**
+ * One column's cells, as a dictionary of its values: a value seen before in
+ * the column gets the very indexed cell (and cell) it got then. Nodes are
+ * immutable, so sharing them is invisible, and columns repeat values
+ * (categories, flags, small numbers, dates): each repeat is two objects the
+ * document does not hold and the collector does not copy. Looking a fresh
+ * string up hashes it, which costs about what a cell does, so a column whose
+ * values mostly do not repeat (IDs, free text) turns its dictionary off after
+ * its first {@link TRIAL} values.
+ */
+class ColumnCells {
+  // oxlint-disable-next-line effect/avoid-native-object-helpers -- a lookup per value of the file; a `HashMap` hashes through `Equal`, the cost this dictionary exists to beat (bench/csv.bench.ts)
+  private readonly known = new Map<string, IndexedCell>();
+  private on = true;
+  private lookups = 0;
+  private hits = 0;
+  private readonly col: number;
+  private readonly make: (raw: string) => SheetCell;
+
+  constructor(col: number, make: (raw: string) => SheetCell, on: boolean) {
+    this.col = col;
+    this.make = make;
+    this.on = on;
+  }
+
+  /** The indexed cell for `raw` in this column. */
+  get(raw: string): IndexedCell {
+    if (!this.on) return indexedCell(this.col, this.make(raw));
+    this.lookups++;
+    const shared = this.known.get(raw);
+    if (shared !== undefined) {
+      this.hits++;
+      return shared;
+    }
+    const made = indexedCell(this.col, this.make(raw));
+    if (this.lookups >= TRIAL && this.hits * 2 < this.lookups) {
+      // mostly distinct values: the lookups cost more than they save
+      this.on = false;
+      this.known.clear();
+    } else if (this.known.size < MAX_VALUES) this.known.set(raw, made);
+    return made;
+  }
+}
+
+/** Each column's {@link ColumnCells}, made as rows reach it. */
+class RowCells {
+  private readonly columns: Array<ColumnCells> = [];
+  private readonly cellAt: (raw: string, col: number) => SheetCell;
+  private readonly dictionaries: boolean;
+
+  constructor(cellAt: (raw: string, col: number) => SheetCell, dictionaries: boolean) {
+    this.cellAt = cellAt;
+    this.dictionaries = dictionaries;
+  }
+
+  /** The row at `index` of these values. */
+  row(index: number, fields: ReadonlyArray<string>): SheetRow {
+    return sheetRowOf(
+      index,
+      fields.map((raw, c) => (this.columns[c] ??= this.column(c)).get(raw)),
+    );
+  }
+
+  private column(c: number): ColumnCells {
+    const cellAt = this.cellAt;
+    return new ColumnCells(c, (raw) => cellAt(raw, c), this.dictionaries);
   }
 }
 
@@ -130,6 +230,7 @@ export const fusedRows = (
   let first = Option.none<ReadonlyArray<string>>();
   let width = -1;
   const rows: Array<SheetRow> = [];
+  const cells = new RowCells(cellAt, text.length >= DICTIONARY_MIN_TEXT);
   const end = fastEachRow(text, plan, (fields) => {
     // every row must be as wide as the first, header or not
     if (width === -1) width = fields.length;
@@ -138,7 +239,7 @@ export const fusedRows = (
       first = Option.some(fields);
       return true;
     }
-    rows.push(sheetRowFrom(rows.length + (hold ? 1 : 0), fields, cellAt));
+    rows.push(cells.row(rows.length + (hold ? 1 : 0), fields));
     return !guess.contradicted;
   });
   if (end !== "done" || guess.contradicted) return Option.none();
@@ -149,7 +250,7 @@ export const fusedRows = (
         options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
       if (isHeader) return Option.some([headerRow(fields), ...rows]);
       // a data row after all: typed under the kinds the others settled
-      const row = sheetRowFrom(0, fields, cellAt);
+      const row = cells.row(0, fields);
       return guess.contradicted ? Option.none() : Option.some([row, ...rows]);
     },
   });

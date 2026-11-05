@@ -11,7 +11,9 @@ import {
   Str,
   Worksheet,
   cell,
+  indexedCell,
   sheetRow,
+  sheetRowOf,
   sheetRowFrom,
   sparseRow,
   str,
@@ -65,6 +67,19 @@ describe("constructors without the schema pass", () => {
     expect(shape(trusted, built)).toEqual(SAME);
     expect(trusted).toStrictEqual(built);
     expect(trusted.cells[1]).toStrictEqual(built.cells[1]);
+  });
+
+  test("indexedCell and sheetRowOf are `new IndexedCell` and `new SheetRow`", () => {
+    const a = indexedCell(0, cell.text("a"));
+    const b = indexedCell(2, cell.number(1));
+    expect(shape(a, new IndexedCell({ col: 0, cell: cell.text("a") }))).toEqual(SAME);
+    const built = new SheetRow({ index: 4, cells: [a, b], height: undefined });
+    expect(shape(sheetRowOf(4, [a, b]), built)).toEqual(SAME);
+    expect(sheetRowOf(4, [a, b])).toStrictEqual(built);
+    // a shared indexed cell may sit in several rows
+    expect(sheetRowOf(5, [a]).cells[0]).toBe(a);
+    expect(() => sheetRowOf(0, [b, a])).toThrow(INVALID);
+    expect(() => indexedCell(-1, cell.text("a"))).toThrow(INVALID);
   });
 
   test("sheetRowFrom is sheetRow of the mapped cells", () => {

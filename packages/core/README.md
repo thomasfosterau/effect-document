@@ -273,6 +273,8 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `sheetRow` | function | A sparse row from a dense array of cells. |
 | `worksheetFromRows` | function | A worksheet of finished rows, for readers that build each row as they go (`sheetRow`, `sparseRow`). |
 | `sheetRowFrom` | function | A dense row built from any values, the cell at column `n` being `toCell(items[n], n)`: `sheetRow` without the array of cells in between. |
+| `indexedCell` | function | A cell at its 0-based column, without the schema pass for valid input; one may sit in many rows (a column's repeated value). |
+| `sheetRowOf` | function | A row from indexed cells in strictly ascending column order, kept as given. |
 | `sparseRow` | function | A sparse row from its cells' `[column, cell]` entries, in strictly ascending column order: the readers' constructor for rows whose cells skip columns. |
 | `NestedNode` | type | A node that counts as one level of nesting. |
 | `DEFAULT_MAX_NESTING_DEPTH` | const | The default maximum nesting depth readers accept. |

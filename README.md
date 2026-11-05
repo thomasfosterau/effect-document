@@ -82,18 +82,19 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 
 | Task | Input | Compared with |
 | --- | --- | --- |
-| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.96×, Papa Parse 1.09×, d3-dsv 1.15×, csv-parse 4.0× |
-| CSV scan, every field quoted / all numbers | 2.7 MB / 4.2 MB | uDSV 1.02× / 0.98×, d3-dsv 1.76× / 1.41×, Papa Parse 2.08× |
-| CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.78× / 1.33×, d3-dsv 0.94× / 1.31×, SheetJS (text → workbook) 3.7× / 4.1× |
-| CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 1.75×, csv-parse's 2.6× |
-| CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.30×; `renderTable` (from rows): d3-dsv 0.98× |
+| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.96×, Papa Parse 1.06×, d3-dsv 1.25×, csv-parse 4.2× |
+| CSV scan, every field quoted / all numbers | 2.7 MB / 4.2 MB | uDSV 0.96× / 0.85×, d3-dsv 1.50× / 1.06×, Papa Parse 2.31× / 1.95× |
+| CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.93× / 1.07×, d3-dsv 1.08× / 1.0×, SheetJS (text → workbook) 4.3× / 4.2× |
+| CSV read, every field quoted / all numbers | 2.7 MB / 4.2 MB | Papa Parse 1.17× / 1.10×, d3-dsv 0.82× / 0.61× |
+| CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 1.57×, csv-parse's 2.7× |
+| CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.61×; `renderTable` (from rows): d3-dsv 1.07× |
 | XLSX read / write | 160k cells | SheetJS 0.79× / 1.30×, ExcelJS 0.91× / 2.0× |
 | DOCX read / write | 500 sections | mammoth `extractRawText` 1.88× / `docx` 0.79× (it writes no lists or tables) |
 | PPTX write | 200 slides | PptxGenJS 1.35× |
 | PDF read / write | 200 sections | pdf.js text extraction 1.01× / pdf-lib 1.23× |
 | CSV → XLSX / XLSX → CSV | 20k rows | SheetJS 1.23× / 0.87× |
 
-A CSV document holds about 3× the memory of the arrays the CSV libraries return: every value is a cell object in the document tree, plus its column position (each node at V8's minimum of 40 bytes). Copying that out of the young generation is about a third of `read` on a large file, and is what separates it from uDSV's typed arrays and, on large inputs, from d3-dsv and Papa Parse; on small ones it is level with them.
+Every value in a CSV document is a cell object plus its column position. A column's repeated values share both (nodes are immutable), so a typical table holds about twice the memory of the arrays the CSV libraries return; a table of unique numbers holds several times as much, which is the gap that remains to d3-dsv there (#226 proposes a lighter dense row).
 
 ## Development
 

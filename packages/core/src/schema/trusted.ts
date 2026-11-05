@@ -157,7 +157,7 @@ export const isCellInstance = (value: unknown): value is SheetCell => {
 };
 
 /** A cell at column `col`, a non-negative integer. */
-const trustedIndexedCell = (col: number, cell: SheetCell): IndexedCell => {
+export const trustedIndexedCell = (col: number, cell: SheetCell): IndexedCell => {
   return new (constructors().indexed)(col, cell);
 };
 
@@ -175,6 +175,18 @@ export const trustedDenseRow = (
   row.index = index;
   row.cells = cells.map((cell, col) => trustedIndexedCell(col, cell));
   row.height = height;
+  return row;
+};
+
+/**
+ * A row at `index` (a non-negative integer) of indexed cells in strictly
+ * ascending column order, kept as given.
+ */
+export const trustedRowOf = (index: number, cells: ReadonlyArray<IndexedCell>): SheetRow => {
+  const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
+  row.index = index;
+  row.cells = cells;
+  row.height = undefined;
   return row;
 };
 
