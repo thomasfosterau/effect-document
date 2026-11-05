@@ -2,6 +2,7 @@ import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Equivalence from "effect/Equivalence";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -34,6 +35,7 @@ import {
   inferCell,
   makeCsvReader,
   makeCsvWriter,
+  readCsvRows,
   renderCsvStream,
   renderField,
   renderTable,
@@ -43,6 +45,14 @@ import {
 } from "../src/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
+
+/** A printed number with its last digit nudged each way: decimals that no longer print as written. */
+const nudged = (s: string): Array<string> => {
+  const last = s.charCodeAt(s.length - 1) - 48;
+  return [last - 1, last + 1, last + 2]
+    .filter((d) => d >= 1 && d <= 9)
+    .map((d) => s.slice(0, -1) + String(d));
+};
 
 /** A number's significant digits: from the first non-zero digit to the last. */
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
@@ -145,6 +155,32 @@ describe("CSV reader", () => {
     for (const raw of [...samples, "-", "-0", "0.0", "1e", "1e+", "1e-5", "-0e0", "9".repeat(16)]) {
       expect(inferCell(raw), raw).toEqual(reference(raw));
     }
+    // long decimals (16 digits and more), which the classifier reads from
+    // their digits without `Number`: printed doubles at every magnitude, the
+    // same with a last digit nudged or a digit added (no longer the shortest
+    // form), random digit strings, and integers about 2^53
+    const unit = () => next(2147483647) / 2147483647;
+    const randomDigits = (): string => {
+      const n = 15 + next(4);
+      const digits = String(1 + next(9)) + Arr.makeBy(n - 1, () => String(next(10))).join("");
+      const point = next(n + 1);
+      return point === n
+        ? digits
+        : point === 0
+          ? `0.${"0".repeat(next(4))}${digits}`
+          : `${digits.slice(0, point)}.${digits.slice(point)}`;
+    };
+    const long = Arr.flatten(
+      Arr.makeBy(12000, () => {
+        const printed = String((next(2) === 0 ? -1 : 1) * unit() * 10 ** (next(34) - 12));
+        return [printed, ...nudged(printed), `${printed}1`, `${printed}0`, randomDigits()];
+      }),
+    );
+    const nearTwo53 = Arr.makeBy(2000, (i) => String(2 ** 53 + i - 1000));
+    const mismatches = [...long, ...nearTwo53, "0.10000000000000001", "9007199254740993"].filter(
+      (raw) => !Equal.equals(inferCell(raw), reference(raw)),
+    );
+    expect(mismatches.slice(0, 5)).toEqual([]);
   });
 
   test("types a column as every non-null value in it is typed, else as text", async () => {
@@ -627,9 +663,10 @@ const readOutcome = (options: CsvReaderOptions, csv: string) =>
   );
 
 /** A general-path outcome with the junk line's offset taken out of its row numbers. */
-const unshift = (o: ReturnType<typeof readOutcome>) =>
-  "reason" in o
+const unshift = <O extends object>(o: O): O =>
+  "reason" in o && Predicate.isString(o.reason)
     ? {
+        ...o,
         reason: o.reason.replace(
           /^Row (\d+)/,
           (_match: string, n: string) => `Row ${Number(n) - 1}`,
@@ -683,6 +720,133 @@ describe("CSV reader fast path", () => {
       unshift(readOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`)),
     );
     expect(fast).toEqual(general);
+  });
+});
+
+/** A read's rows as plain values (a blank's `null`, a cell's value), or its failure's reason. */
+const readValuesOutcome = (options: CsvReaderOptions, csv: string) =>
+  Result.match(Effect.runSync(Effect.result(makeCsvReader(options).read(text(csv)))), {
+    onSuccess: (doc) => ({
+      rows: firstWorksheet(doc).rows.map((r) =>
+        cellsOf(r).map((c) => ("value" in c ? c.value : null)),
+      ),
+    }),
+    onFailure: (e) => ({ reason: e.reason }),
+  });
+
+/** `readCsvRows`' header and rows as one list of rows, or its failure's reason. */
+const rowsOutcome = (options: CsvReaderOptions, csv: string) =>
+  Result.match(Effect.runSync(Effect.result(readCsvRows(csv, options))), {
+    onSuccess: ({ headers, rows }) => ({ rows: headers === null ? rows : [headers, ...rows] }),
+    onFailure: (e) => ({ reason: e.reason }),
+  });
+
+describe("readCsvRows", () => {
+  test("reads a header and typed values", async () => {
+    expect(await run(readCsvRows("name,age,member\nada,36,true\nbob,,false\n"))).toEqual({
+      headers: ["name", "age", "member"],
+      rows: [
+        ["ada", 36, true],
+        ["bob", null, false],
+      ],
+    });
+  });
+
+  test("keeps every value a string with inferTypes off", async () => {
+    expect(
+      await run(readCsvRows("a,b\n1,\n", { inferTypes: false, treatFirstRowAsHeader: true })),
+    ).toEqual({ headers: ["a", "b"], rows: [["1", ""]] });
+  });
+
+  test("types a column as read does: a column with text in it is text", async () => {
+    expect(await run(readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false }))).toEqual({
+      headers: null,
+      rows: [["1"], ["2"], ["x"]],
+    });
+    expect(
+      await run(readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false, inference: "cell" })),
+    ).toEqual({ headers: null, rows: [[1], [2], ["x"]] });
+  });
+
+  test("takes provided headers and the reader's null and boolean spellings", async () => {
+    expect(
+      await run(
+        readCsvRows("1,yes\nNA,no\n", {
+          providedHeaders: ["n", "ok"],
+          nullValues: ["NA"],
+          booleans: ["yes", "no"],
+        }),
+      ),
+    ).toEqual({
+      headers: ["n", "ok"],
+      rows: [
+        [1, true],
+        [null, false],
+      ],
+    });
+  });
+
+  test("reads full-precision floats, and keeps text a double cannot hold", async () => {
+    const { rows } = await run(
+      readCsvRows("x,y\n0.14285714285714285,1\n0.30000000000000004,12345678901234567890\n"),
+    );
+    expect(rows).toEqual([
+      [0.14285714285714285, "1"],
+      [0.30000000000000004, "12345678901234567890"],
+    ]);
+  });
+
+  test("fails as read does", async () => {
+    const r = await run(Effect.result(readCsvRows('a,b\n"open\n')));
+    expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
+  });
+
+  // the same tables and options as the reader's fast-path test, with long decimals among them
+  let seed = 23;
+  const next = (n: number) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % n;
+  };
+  const pools = [
+    ["1", "2.5", "-3", "", "1e2"],
+    ["true", "false", ""],
+    ["a", "b c", '"q, r"', ""],
+    ["1", "2", "x"],
+    ["", ""],
+    ["true", "1"],
+    ["0.14285714285714285", "0.10000000000000001", "-71.42857142857143", ""],
+    ["9007199254740993", "12", "1.50"],
+  ];
+  const table = (): string => {
+    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
+    const rows = Arr.makeBy(next(6), () => {
+      const row = columns.map((pool) => pool[next(pool.length)] ?? "");
+      return next(12) === 0 ? row.slice(1) : row;
+    });
+    return [...header, ...rows].map((r) => r.join(",")).join(next(2) === 0 ? "\n" : "\r\n");
+  };
+  const optionSets: ReadonlyArray<CsvReaderOptions> = [
+    {},
+    { treatFirstRowAsHeader: true },
+    { treatFirstRowAsHeader: false },
+    { inference: "cell" },
+    { inferTypes: false },
+    { inferTypes: false, treatFirstRowAsHeader: true },
+    { allowVariableColumns: true },
+    { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
+    { providedHeaders: ["p", "q", "r", "s"], allowVariableColumns: true },
+  ];
+  test("gives read's values, by its one-pass path and its general one", () => {
+    const tables = Arr.makeBy(1500, table);
+    const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
+    const rows = cases.map(({ options, csv }) => rowsOutcome(options, csv));
+    expect(rows).toEqual(cases.map(({ options, csv }) => readValuesOutcome(options, csv)));
+    // `skipRows: 1` after a junk line forces the general path on the same rows
+    const general = cases.map(({ options, csv }) =>
+      unshift(rowsOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`)),
+    );
+    expect(general).toEqual(rows);
   });
 });
 

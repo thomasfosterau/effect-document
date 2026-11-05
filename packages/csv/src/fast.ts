@@ -73,6 +73,8 @@ const isBlank = (c: number, plan: FastPlan): boolean =>
 
 /** The index of the line break (or the end) ending a blank line at `p`, else -1. */
 const blankLineEnd = (text: string, p: number, plan: FastPlan): number => {
+  // a line starting past the space character is no blank line: almost every one
+  if (text.charCodeAt(p) > 32) return -1;
   let q = p;
   // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per line
   while (q < text.length && isBlank(text.charCodeAt(q), plan)) q++;
@@ -107,11 +109,11 @@ const textEnd = (text: string, p: number, separator: number): number => {
  * a copy of (exactly as long as the row and packed, where an array grown by
  * `push` reserves 17 slots on its first push).
  */
-interface Scan {
+interface Scan<T> {
   separator: number;
   lf: number;
   cr: number;
-  template: Array<string>;
+  template: Array<T>;
   /** Whether the quoted field just read holds a doubled wrapper. */
   doubled: boolean;
   /** The value of the quoted field just read. */
@@ -125,7 +127,7 @@ const find = (text: string, c: string, p: number): number => {
 };
 
 /** The end of unquoted text at `p`: the next separator or line break, or the end. */
-const unquotedEnd = (text: string, p: number, plan: FastPlan, scan: Scan): number => {
+const unquotedEnd = (text: string, p: number, plan: FastPlan, scan: Scan<unknown>): number => {
   if (scan.separator < p) scan.separator = find(text, plan.separatorChar, p);
   if (scan.lf < p) scan.lf = find(text, "\n", p);
   if (scan.cr < p) scan.cr = find(text, "\r", p);
@@ -137,7 +139,12 @@ const unquotedEnd = (text: string, p: number, plan: FastPlan, scan: Scan): numbe
  * The index of the wrapper closing a quoted field whose content starts at
  * `from`: the first one not doubled. -1 if the field is never closed.
  */
-const closingWrapper = (text: string, from: number, plan: FastPlan, scan: Scan): number => {
+const closingWrapper = (
+  text: string,
+  from: number,
+  plan: FastPlan,
+  scan: Scan<unknown>,
+): number => {
   let i = text.indexOf(plan.wrapper, from);
   scan.doubled = false;
   // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
@@ -165,7 +172,7 @@ const unquote = (
  * wrappers halved, then any text after the closing wrapper as written. The
  * index past it, or -1 if it is never closed.
  */
-const readQuoted = (text: string, p: number, plan: FastPlan, scan: Scan): number => {
+const readQuoted = (text: string, p: number, plan: FastPlan, scan: Scan<unknown>): number => {
   const close = closingWrapper(text, p + 1, plan, scan);
   if (close === -1) return -1;
   const value = unquote(text, p + 1, close, plan, scan.doubled);
@@ -175,31 +182,52 @@ const readQuoted = (text: string, p: number, plan: FastPlan, scan: Scan): number
 };
 
 /**
+ * How a scan makes its fields: from the text an unquoted field spans, or from
+ * a quoted field's value, each given its index in the record. The string
+ * scan slices; a typed one can read a number from the text it spans without
+ * making the string first.
+ */
+export interface FieldReader<T> {
+  readonly unquoted: (text: string, start: number, end: number, n: number) => T;
+  readonly quoted: (value: string, n: number) => T;
+  /** What a record's array is filled with before its fields are read. */
+  readonly fill: T;
+}
+
+/** The string scan's fields: the text each spans. */
+const STRINGS: FieldReader<string> = {
+  unquoted: (text, start, end) => text.slice(start, end),
+  quoted: (value) => value,
+  fill: "",
+};
+
+/**
  * Read the record at `p` and hand it to `onRow`, as the grammar reads it:
  * fields up to the line break, a quoted one with any text after its closing
  * wrapper kept as written. The index past its line break, {@link UNCLOSED}
  * on an unclosed quote, or {@link STOPPED} when `onRow` returns false.
  */
-const readRecord = (
+const readRecord = <T>(
   text: string,
   start: number,
   plan: FastPlan,
-  scan: Scan,
-  onRow: (fields: Array<string>) => boolean,
+  scan: Scan<T>,
+  reader: FieldReader<T>,
+  onRow: (fields: Array<T>) => boolean,
 ): number => {
   const fields = scan.template.slice();
   let p = start;
   let n = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
-    let value: string;
+    let value: T;
     if (text.charCodeAt(p) === plan.quote) {
       p = readQuoted(text, p, plan, scan);
       if (p === -1) return UNCLOSED;
-      value = scan.quoted;
+      value = reader.quoted(scan.quoted, n);
     } else {
       const end = unquotedEnd(text, p, plan, scan);
-      value = text.slice(p, end);
+      value = reader.unquoted(text, p, end, n);
       p = end;
     }
     if (n < fields.length) fields[n] = value;
@@ -211,7 +239,7 @@ const readRecord = (
   // a record of another width: trim the copy, and size the next one to it
   if (n !== scan.template.length) {
     fields.length = n;
-    scan.template = fields.map(() => "");
+    scan.template = fields.map(() => reader.fill);
   }
   if (!onRow(fields)) return STOPPED;
   return afterLineBreak(text, p);
@@ -236,13 +264,28 @@ export const fastEachRow = (
   text: string,
   plan: FastPlan,
   onRow: (fields: Array<string>) => boolean,
+): FastScanEnd => fastEachRecord(text, plan, STRINGS, onRow);
+
+/** {@link fastEachRow}, each field made by `reader`. */
+export const fastEachRecord = <T>(
+  text: string,
+  plan: FastPlan,
+  reader: FieldReader<T>,
+  onRow: (fields: Array<T>) => boolean,
 ): FastScanEnd => {
-  const scan: Scan = { separator: -1, lf: -1, cr: -1, template: [], doubled: false, quoted: "" };
+  const scan: Scan<T> = {
+    separator: -1,
+    lf: -1,
+    cr: -1,
+    template: [],
+    doubled: false,
+    quoted: "",
+  };
   let p = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
   while (p < text.length) {
     const blank = plan.filterEmpty ? blankLineEnd(text, p, plan) : -1;
-    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, onRow);
+    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, reader, onRow);
     if (p === UNCLOSED) return "unclosed";
     if (p === STOPPED) return "stopped";
   }

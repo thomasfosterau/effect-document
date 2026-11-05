@@ -62,11 +62,14 @@ const heapAndBuffers = (): number => {
  */
 const retained = async (run: () => unknown): Promise<number | undefined> => {
   if (gc === undefined) return undefined;
+  // twice each time: one collection can leave the previous one's work unfinished
   sink = undefined;
+  gc();
   gc();
   const before = heapAndBuffers();
   const value = run();
   sink = value instanceof Promise ? await value : value;
+  gc();
   gc();
   const after = heapAndBuffers();
   sink = undefined;
@@ -112,10 +115,21 @@ const sampleGroup = async (
   return out;
 };
 
-/** Each case's result's memory, measured one case at a time. */
+/**
+ * Each case's result's memory, measured one case at a time: the median of
+ * three readings, as a collection finishing work left by an earlier case can
+ * shrink the heap under one reading.
+ */
 const memory = async (cases: ReadonlyArray<Case>): Promise<Array<number | undefined>> => {
   const out: Array<number | undefined> = [];
-  for (const c of cases) out.push(await retained(c.run));
+  for (const c of cases) {
+    const readings: Array<number> = [];
+    for (let i = 0; i < 3; i++) {
+      const bytes = await retained(c.run);
+      if (bytes !== undefined) readings.push(bytes);
+    }
+    out.push(Arr.match(readings, { onEmpty: () => undefined, onNonEmpty: median }));
+  }
   return out;
 };
 

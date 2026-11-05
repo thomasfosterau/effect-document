@@ -6,7 +6,8 @@
  * - **scan**: text to rows of strings (`scanCsv` against each library's
  *   string-array parse).
  * - **read**: text to typed values (`makeCsvReader().read`, which also infers
- *   column types and builds the document, against each library's typed parse,
+ *   column types and builds the document, and `readCsvRows`, the same
+ *   inference into rows of plain values, against each library's typed parse,
  *   and against SheetJS reading the text into a workbook of cell objects, the
  *   nearest to our document model).
  * - **stream**: the same text in 64 KiB chunks (`scanCsvStream` against
@@ -19,6 +20,7 @@
 import {
   makeCsvReader,
   makeCsvWriter,
+  readCsvRows,
   renderTable,
   scanCsv,
   scanCsvStream,
@@ -99,6 +101,18 @@ const numeric = (rows: number): string => {
 };
 
 /**
+ * Computed floats at full precision (17 significant digits, as JavaScript
+ * prints a double): past the digits every double holds, so a lossless reader
+ * must check each one reads back as written.
+ */
+const floats = (rows: number): string => {
+  const out = ["id,label,ratio,score"];
+  for (let i = 0; i < rows; i++)
+    out.push(`${i},item${i},${String(i / 7)},${String(random() * 100)}`);
+  return out.join("\n") + "\n";
+};
+
+/**
  * `BENCH_LARGE=1` adds a 100 MB table, run three rounds (a few minutes, and
  * a few GB of heap: `NODE_OPTIONS=--max-old-space-size=8192`).
  */
@@ -108,6 +122,7 @@ const inputs = [
   { name: "mixed, 100k rows", csv: mixed(100_000), minRounds: 15 },
   { name: "quoted, 50k rows", csv: quoted(50_000), minRounds: 15 },
   { name: "numeric, 100k rows", csv: numeric(100_000), minRounds: 15 },
+  { name: "floats, 100k rows", csv: floats(100_000), minRounds: 15 },
   { name: "mixed, 1k rows", csv: mixed(1_000), minRounds: 15 },
   ...(large ? [{ name: "mixed, 1.2M rows", csv: mixed(1_200_000), minRounds: 3 }] : []),
 ];
@@ -150,6 +165,11 @@ const readCases = (csv: string): Array<Case> => {
       name: "effect-csv read (inferTypes off)",
       run: () =>
         run(makeCsvReader({ treatFirstRowAsHeader: true, inferTypes: false }).read(text(csv))),
+    },
+    // typed rows rather than a document: like with like against the libraries below
+    {
+      name: "effect-csv readCsvRows",
+      run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true })),
     },
     {
       name: "uDSV inferSchema + typedArrs",

@@ -78,23 +78,25 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 
 ## Performance
 
-`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from one run on a 4-core cloud VM with Node 22, each case timed on its own; each figure is the other library's time divided by ours, so above 1× means we are faster:
+`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from runs on a 4-core cloud VM with Node 22, each case timed on its own; each figure is the other library's time divided by ours, so above 1× means we are faster:
 
 | Task | Input | Compared with |
 | --- | --- | --- |
-| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.96×, Papa Parse 1.06×, d3-dsv 1.25×, csv-parse 4.2× |
-| CSV scan, every field quoted / all numbers | 2.7 MB / 4.2 MB | uDSV 0.96× / 0.85×, d3-dsv 1.50× / 1.06×, Papa Parse 2.31× / 1.95× |
-| CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.93× / 1.07×, d3-dsv 1.08× / 1.0×, SheetJS (text → workbook) 4.3× / 4.2× |
-| CSV read, every field quoted / all numbers | 2.7 MB / 4.2 MB | Papa Parse 1.39× / 1.17×, d3-dsv 1.0× / 0.45× |
-| CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 1.57×, csv-parse's 2.7× |
-| CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.61×; `renderTable` (from rows): d3-dsv 1.07× |
+| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.87×, Papa Parse 1.03×, d3-dsv 1.04×, csv-parse 3.5× |
+| CSV scan, every field quoted / all numbers / full-precision floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 0.94× / 0.85× / 0.76×, d3-dsv 1.31× / 1.15× / 1.24×, Papa Parse 2.3× / 2.3× / 2.2× |
+| CSV typed rows (`readCsvRows`: text → rows of values) | 8 MB mixed / 80 KB | uDSV (inferring its schema) 0.92× / 1.13×, Papa Parse `dynamicTyping` 1.67× / 2.2×, d3-dsv `autoType` 2.1× / 2.3× |
+| CSV typed rows, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | uDSV 1.30× / 0.93× / 0.66×, d3-dsv 2.2× / 2.7× / 1.7×, Papa Parse 3.4× / 3.8× / 3.7× |
+| CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.72× / 0.88×, d3-dsv 0.90× / 0.91×, SheetJS (text → workbook) 3.3× / 5.0× |
+| CSV read, quoted / numbers / floats | 2.7 MB / 4.2 MB / 5 MB | Papa Parse 1.98× / 0.92× / 1.32×, d3-dsv 1.31× / 0.65× / 0.62×, SheetJS 3.8× / 0.68× / 1.5× |
+| CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 2.2×, csv-parse's 2.6× |
+| CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.73×; `renderTable` (from rows): d3-dsv 1.07× |
 | XLSX read / write | 160k cells | SheetJS 0.79× / 1.30×, ExcelJS 0.91× / 2.0× |
 | DOCX read / write | 500 sections | mammoth `extractRawText` 1.88× / `docx` 0.79× (it writes no lists or tables) |
 | PPTX write | 200 slides | PptxGenJS 1.35× |
 | PDF read / write | 200 sections | pdf.js text extraction 1.01× / pdf-lib 1.23× |
 | CSV → XLSX / XLSX → CSV | 20k rows | SheetJS 1.23× / 0.87× |
 
-Every value in a CSV document is a cell object plus its column position. A column's repeated values share both (nodes are immutable), so a typical table holds about twice the memory of the arrays the CSV libraries return; a table of unique numbers holds several times as much, which is the gap that remains to d3-dsv there (#226 proposes a lighter dense row).
+`readCsvRows` returns what the CSV libraries return, rows of plain values, with `read`'s header handling and type inference; `read` builds a document, in which every value is a cell object plus its column position. A column's repeated values share both (nodes are immutable), so a typical table holds about twice the memory of the arrays the libraries return; a table of unique numbers holds several times as much, which is what `read` trails d3-dsv by there (#226 proposes a lighter dense row). The libraries keep a number whatever its digits; both of our readers keep a number only when its double holds the digits it is written with (`12345678901234567890` stays text), and checking that for each full-precision float is what the floats case trails uDSV by.
 
 ## Development
 

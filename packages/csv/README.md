@@ -28,6 +28,13 @@ const program = Effect.gen(function* () {
 
 By default the reader sniffs the header row: the first row is the header when every value in it is text and some column below it is all numbers or booleans. Pass `treatFirstRowAsHeader: true` or `false` to decide instead (an all-text file needs `true` for its first row to be a header). Each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text.
 
+For rows rather than a document, `Csv.readCsvRows(text, options)` takes the same options and returns `{ headers, rows }`: the header (or `null`) and each row's values as plain strings, numbers, booleans and `null` (a null spelling), typed exactly as `read` types its cells. It is the like-for-like counterpart of d3-dsv's `autoType` and Papa Parse's `dynamicTyping`, and the cheaper choice when the table goes straight into code (see the performance table in the repository README).
+
+```ts
+const { headers, rows } = yield * Csv.readCsvRows("name,age\nalice,30\nbob,\n");
+// headers: ["name", "age"]; rows: [["alice", 30], ["bob", null]]
+```
+
 `Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
 
 The writer quotes only the fields that need it (`quoting: "minimal"`); `quoting` also takes `"all"`, `"nonNumeric"` and `"none"`, after Python's `csv.QUOTE_*`. It doubles a wrapper inside a quoted field, as RFC 4180 specifies, or escapes it with `escapeChar` (`"\\"`, say) instead; a field holding the escape character itself fails the write, and the reader has no escape-character option yet. Rows end with the dialect's `linebreak`: LF in `StandardDialect`, CRLF in `Rfc4180Dialect`. Set `bom: true` for Excel to detect UTF-8, `headers` to write a header row first, and `padRows` to pad short rows into a rectangle. Numbers are written as shortest round-trip decimals with no exponent form (`formatNumber` overrides it). `renderCsvStream` renders a `Stream` of rows one chunk per row. A worksheet is sparse, so the writer writes each gap between cells as an empty field and each row the sheet does not hold as an empty line; `maxFields` (default `DEFAULT_MAX_FIELDS`, five million) bounds how far those gaps may expand, and a write past it fails with a `WriteError`.
@@ -80,6 +87,9 @@ const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, 
 | `CsvInferenceOptions` | interface | How raw strings become typed values. |
 | `CsvReaderOptions` | interface | Options for the CSV reader. |
 | `inferCell` | function | Infer a typed cell from a raw CSV string value, on its own. |
+| `CsvValue` | type | A typed CSV value, as `readCsvRows` returns it: `null` for a null spelling. |
+| `CsvRows` | interface | A CSV table of typed values: its header row (or `null`) and its data rows. |
+| `readCsvRows` | function | Read CSV text into rows of typed values, typed as `read` types its cells. |
 | `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
 | `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
 | `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |

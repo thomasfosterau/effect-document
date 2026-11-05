@@ -18,7 +18,9 @@
  * @internal
  */
 
+import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import {
   cell,
   type IndexedCell,
@@ -28,7 +30,13 @@ import {
   sheetRow,
   sheetRowOf,
 } from "@thomasfosterau/effect-document";
-import { fastEachRow, type FastPlan } from "./fast.ts";
+import {
+  fastEachRecord,
+  fastEachRow,
+  type FastPlan,
+  type FastScanEnd,
+  type FieldReader,
+} from "./fast.ts";
 
 /** A column's type so far: `blank` while it holds only blanks. */
 export type ColumnKind = "number" | "boolean" | "text" | "blank";
@@ -48,6 +56,15 @@ export interface Typing {
   readonly isBoolean: (raw: string) => boolean;
   /** A cell typed on its own (`inference: "cell"`). */
   readonly cellOf: (raw: string) => SheetCell;
+  /** A value typed on its own (`inference: "cell"`): the value of its `cellOf` cell. */
+  readonly valueOf: (raw: string) => FusedValue;
+  /**
+   * The number the text from `start` to `end` spells, read from the text in
+   * place, when it is one that a column of numbers takes as one (neither a
+   * null nor a boolean spelling), or `NaN` when the slice must be judged as
+   * a string.
+   */
+  readonly numberAt: (text: string, start: number, end: number) => number;
 }
 
 /** What shapes the fused pass, from the reader's options. */
@@ -59,50 +76,76 @@ export interface FusedOptions {
   readonly checkWidths: boolean;
 }
 
-/** A value's cell under its column's kind (`kind` is the value's own, not blank). */
-const typedCell = (raw: string, kind: ColumnKind, typing: Typing): SheetCell =>
-  kind === "number"
-    ? cell.number(typing.numberOf(raw))
-    : kind === "boolean"
-      ? cell.boolean(typing.booleanOf(raw))
-      : cell.text(raw);
+/** How a guessed column's values are built: as cells, or as plain values. */
+export interface Build<A> {
+  readonly blank: () => A;
+  readonly number: (value: number) => A;
+  readonly boolean: (value: boolean) => A;
+  readonly text: (raw: string) => A;
+}
+
+/** Values built as worksheet cells. */
+export const asCells: Build<SheetCell> = {
+  blank: () => cell.blank(),
+  number: (value) => cell.number(value),
+  boolean: (value) => cell.boolean(value),
+  text: (raw) => cell.text(raw),
+};
+
+/** A typed CSV value: `null` for a null spelling. */
+export type FusedValue = string | number | boolean | null;
+
+/** Values built as plain values. */
+export const asValues: Build<FusedValue> = {
+  blank: () => null,
+  number: (value) => value,
+  boolean: (value) => value,
+  text: (raw) => raw,
+};
 
 /** Types rows by column, guessing each column's kind from its first non-null value. */
-class ColumnGuess {
+class ColumnGuess<A> {
   readonly kinds: Array<ColumnKind> = [];
   /** Set once a value contradicts its column's guess: the general path must decide. */
   contradicted = false;
 
   private readonly typing: Typing;
+  private readonly build: Build<A>;
 
-  constructor(typing: Typing) {
+  constructor(typing: Typing, build: Build<A>) {
     this.typing = typing;
+    this.build = build;
   }
 
-  /** One value's cell, guessing or keeping its column's kind. */
-  cell(raw: string, c: number): SheetCell {
+  /** One value, guessing or keeping its column's kind. */
+  value(raw: string, c: number): A {
+    const { build, typing } = this;
     const column = this.kinds[c] ?? "blank";
-    if (column === "text") return this.typing.isNull(raw) ? cell.blank() : cell.text(raw);
-    if (column === "number") return this.numberCell(raw);
-    const kind = this.typing.kind(raw);
-    if (kind === "blank") return cell.blank();
+    if (column === "text") return typing.isNull(raw) ? build.blank() : build.text(raw);
+    if (column === "number") return this.numberValue(raw);
+    const kind = typing.kind(raw);
+    if (kind === "blank") return build.blank();
     if (column === "blank") this.kinds[c] = kind;
     else if (kind !== column) this.contradicted = true;
-    return typedCell(raw, kind, this.typing);
+    return kind === "number"
+      ? build.number(typing.numberOf(raw))
+      : kind === "boolean"
+        ? build.boolean(typing.booleanOf(raw))
+        : build.text(raw);
   }
 
   /**
-   * A value's cell in a column of numbers: its number read in the same scan
-   * that finds it is one; anything else non-null contradicts the column (a
+   * A value in a column of numbers: its number read in the same scan that
+   * finds it is one; anything else non-null contradicts the column (a
    * boolean spelling first, as `kind` decides).
    */
-  private numberCell(raw: string): SheetCell {
-    const typing = this.typing;
-    if (typing.isNull(raw)) return cell.blank();
+  private numberValue(raw: string): A {
+    const { build, typing } = this;
+    if (typing.isNull(raw)) return build.blank();
     const value = typing.isBoolean(raw) ? Number.NaN : typing.numberValue(raw);
-    if (!Number.isNaN(value)) return cell.number(value);
+    if (!Number.isNaN(value)) return build.number(value);
     this.contradicted = true;
-    return cell.text(raw);
+    return build.text(raw);
   }
 }
 
@@ -207,6 +250,50 @@ const sniffed = (
   first.every((raw) => raw.trim() !== "" && typing.kind(raw) === "text") &&
   first.some((_, c) => kinds[c] === "number" || kinds[c] === "boolean");
 
+/** What one fused pass read: the held first row, if any, and the other rows built. */
+interface Pass<F, R> {
+  readonly first: Option.Option<ReadonlyArray<F>>;
+  readonly rows: Array<R>;
+}
+
+/**
+ * Scan `text`, building each row with `rowOf` as it is read (the first held
+ * back raw when it may be the header), or none when the general path must
+ * read it: a quote unclosed, a row's width off while widths are checked, or
+ * a value contradicting its column's guess.
+ */
+const fusedPass = <F, R>(
+  scan: (onRow: (fields: Array<F>) => boolean) => FastScanEnd,
+  options: FusedOptions,
+  guess: ColumnGuess<unknown>,
+  rowOf: (index: number, fields: Array<F>) => R,
+  onFirst: () => void = () => {},
+): Option.Option<Pass<F, R>> => {
+  // the first row waits when it may be the header: row 0 is kept for it
+  const hold = options.header !== "data";
+  let first = Option.none<ReadonlyArray<F>>();
+  let width = -1;
+  const rows: Array<R> = [];
+  if (!hold) onFirst();
+  const end = scan((fields) => {
+    // every row must be as wide as the first, header or not
+    if (width === -1) width = fields.length;
+    else if (options.checkWidths && fields.length !== width) return false;
+    if (hold && Option.isNone(first)) {
+      first = Option.some(fields);
+      onFirst();
+      return true;
+    }
+    rows.push(rowOf(rows.length + (hold ? 1 : 0), fields));
+    return !guess.contradicted;
+  });
+  return end !== "done" || guess.contradicted ? Option.none() : Option.some({ first, rows });
+};
+
+/** Whether a fused pass can read under these options: a sniffed header needs column kinds. */
+const fusable = (options: FusedOptions): boolean =>
+  options.header !== "sniff" || (options.inferTypes && !options.byCell);
+
 /**
  * The worksheet's rows from `text` in one pass, or none when the general path
  * must read it (see the module comment).
@@ -217,41 +304,133 @@ export const fusedRows = (
   options: FusedOptions,
   typing: Typing,
 ): Option.Option<ReadonlyArray<SheetRow>> => {
-  // a sniffed header needs the column kinds, which only column typing has
-  if (options.header === "sniff" && (!options.inferTypes || options.byCell)) return Option.none();
-  const guess = new ColumnGuess(typing);
+  if (!fusable(options)) return Option.none();
+  const guess = new ColumnGuess(typing, asCells);
   const cellAt = !options.inferTypes
     ? (raw: string) => cell.text(raw)
     : options.byCell
       ? typing.cellOf
-      : (raw: string, c: number) => guess.cell(raw, c);
-  // the first row waits when it may be the header: row 0 is kept for it
-  const hold = options.header !== "data";
-  let first = Option.none<ReadonlyArray<string>>();
-  let width = -1;
-  const rows: Array<SheetRow> = [];
+      : (raw: string, c: number) => guess.value(raw, c);
   const cells = new RowCells(cellAt, text.length >= DICTIONARY_MIN_TEXT);
-  const end = fastEachRow(text, plan, (fields) => {
-    // every row must be as wide as the first, header or not
-    if (width === -1) width = fields.length;
-    else if (options.checkWidths && fields.length !== width) return false;
-    if (hold && Option.isNone(first)) {
-      first = Option.some(fields);
-      return true;
-    }
-    rows.push(cells.row(rows.length + (hold ? 1 : 0), fields));
-    return !guess.contradicted;
-  });
-  if (end !== "done" || guess.contradicted) return Option.none();
-  return Option.match(first, {
-    onNone: () => Option.some(rows),
-    onSome: (fields) => {
-      const isHeader =
-        options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
-      if (isHeader) return Option.some([headerRow(fields), ...rows]);
-      // a data row after all: typed under the kinds the others settled
-      const row = cells.row(0, fields);
-      return guess.contradicted ? Option.none() : Option.some([row, ...rows]);
-    },
-  });
+  return Option.flatMap(
+    fusedPass<string, SheetRow>(
+      (onRow) => fastEachRow(text, plan, onRow),
+      options,
+      guess,
+      (index, fields) => cells.row(index, fields),
+    ),
+    ({ first, rows }) =>
+      Option.match(first, {
+        onNone: () => Option.some(rows),
+        onSome: (fields) => {
+          const isHeader =
+            options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
+          if (isHeader) return Option.some([headerRow(fields), ...rows]);
+          // a data row after all: typed under the kinds the others settled
+          const row = cells.row(0, fields);
+          return guess.contradicted ? Option.none() : Option.some([row, ...rows]);
+        },
+      }),
+  );
 };
+
+/** A table of typed values: its header (or `null`) and its rows. */
+export interface FusedTable {
+  readonly headers: ReadonlyArray<string> | null;
+  readonly rows: ReadonlyArray<ReadonlyArray<FusedValue>>;
+}
+
+/**
+ * The typed values of `text` in one pass, as `fusedRows` reads its cells
+ * (each value is the cell's), or none when the general path must read it.
+ * Each row is typed in the array the scanner read it into.
+ */
+export const fusedValues = (
+  text: string,
+  plan: FastPlan,
+  options: FusedOptions,
+  typing: Typing,
+): Option.Option<FusedTable> => {
+  if (!fusable(options)) return Option.none();
+  const guess = new ColumnGuess(typing, asValues);
+  const typed: (raw: string, c: number) => FusedValue = !options.inferTypes
+    ? (raw) => raw
+    : options.byCell
+      ? typing.valueOf
+      : (raw, c) => guess.value(raw, c);
+  const reader = new ValueReader(
+    guess,
+    typed,
+    typing.numberAt,
+    options.inferTypes && !options.byCell,
+  );
+  const typeRow = (fields: ReadonlyArray<string>): Array<FusedValue> =>
+    fields.map((raw, c) => typed(raw, c));
+  return Option.flatMap(
+    fusedPass<FusedValue, ReadonlyArray<FusedValue>>(
+      (onRow) => fastEachRecord(text, plan, reader, onRow),
+      options,
+      guess,
+      (_, fields) => fields,
+      () => reader.start(),
+    ),
+    ({ first, rows }) =>
+      Option.match(first, {
+        onNone: () => Option.some({ headers: null, rows }),
+        onSome: (fields) => {
+          // held back untyped, so its fields are all strings: the filter keeps every one
+          const strings = Arr.filter(fields, Predicate.isString);
+          const isHeader =
+            options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
+          if (isHeader) return Option.some({ headers: strings, rows });
+          const row = typeRow(strings);
+          return guess.contradicted
+            ? Option.none()
+            : Option.some({ headers: null, rows: [row, ...rows] });
+        },
+      }),
+  );
+};
+
+/**
+ * The typed scan's fields: each typed as it is read once {@link start} is
+ * called (the first row, which may be the header, is read as strings), a
+ * field of a column guessed to hold numbers read from the text in place.
+ */
+class ValueReader implements FieldReader<FusedValue> {
+  readonly fill: FusedValue = null;
+  private typing = false;
+  private readonly guess: ColumnGuess<FusedValue>;
+  private readonly typed: (raw: string, c: number) => FusedValue;
+  private readonly numberAt: (text: string, start: number, end: number) => number;
+  private readonly byColumn: boolean;
+
+  constructor(
+    guess: ColumnGuess<FusedValue>,
+    typed: (raw: string, c: number) => FusedValue,
+    numberAt: (text: string, start: number, end: number) => number,
+    byColumn: boolean,
+  ) {
+    this.guess = guess;
+    this.typed = typed;
+    this.numberAt = numberAt;
+    this.byColumn = byColumn;
+  }
+
+  /** Type every field from here on. */
+  start(): void {
+    this.typing = true;
+  }
+
+  readonly unquoted = (text: string, start: number, end: number, c: number): FusedValue => {
+    if (this.byColumn && this.guess.kinds[c] === "number") {
+      const value = this.numberAt(text, start, end);
+      if (!Number.isNaN(value)) return value;
+    }
+    const raw = text.slice(start, end);
+    return this.typing ? this.typed(raw, c) : raw;
+  };
+
+  readonly quoted = (value: string, c: number): FusedValue =>
+    this.typing ? this.typed(value, c) : value;
+}
