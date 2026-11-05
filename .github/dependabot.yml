@@ -26,6 +26,8 @@
 #   `changesets`, `fallow`, `pack-lint` (`publint` and
 #   `@arethetypeswrong/cli`, the `check:pack` tarball linters): tooling that
 #   moves as a unit.
+# - `bench-baselines`: the libraries `vp run bench` measures against
+#   (private `bench/` package only), so a baseline moves in one PR.
 # - `minor-and-patch`: everything else, minor and patch only; a major of an
 #   ungrouped dependency arrives on its own.
 #
@@ -119,6 +121,29 @@ updates:
         patterns:
           - "publint"
           - "@arethetypeswrong/*"
+        update-types: ["major", "minor", "patch"]
+      # The libraries the benchmarks (bench/, private) measure against: one
+      # PR, since a baseline moving changes the comparison, not our code.
+      # Only actively maintained libraries (a release in the last two years).
+      bench-baselines:
+        applies-to: version-updates
+        patterns:
+          - "papaparse"
+          - "@types/papaparse"
+          - "csv-parse"
+          - "csv-stringify"
+          - "d3-dsv"
+          - "@types/d3-dsv"
+          - "udsv"
+          - "exceljs"
+          - "mammoth"
+          - "docx"
+          - "pptxgenjs"
+          - "pdfkit"
+          - "@types/pdfkit"
+          - "read-excel-file"
+          - "write-excel-file"
+          - "pdfjs-dist"
         update-types: ["major", "minor", "patch"]
       minor-and-patch:
         applies-to: version-updates

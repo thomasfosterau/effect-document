@@ -48,7 +48,6 @@ import {
   Header,
   HorizontalRule,
   Image,
-  IndexedCell,
   Inline,
   LineBlock,
   LineBreak,
@@ -64,6 +63,7 @@ import {
   RawBlock,
   RawInline,
   Shape,
+  PlainCell,
   SheetCell,
   SheetRow,
   Slide,
@@ -109,6 +109,13 @@ interface Child {
   readonly depth: 0 | 1 | 2;
   readonly ref: Ref;
   readonly optional: boolean;
+  /** Whether the array may hold gaps (a row's cells): `undefined`, written `null`. */
+  readonly gaps: boolean;
+  /**
+   * Whether an entry may be a plain row (a worksheet's rows, #227): an array
+   * of a row's positions in place of a node.
+   */
+  readonly plainRows: boolean;
 }
 
 /** A node class, the struct of its own (non-recursive) fields, and its recursive fields. */
@@ -127,14 +134,34 @@ interface Kind {
   readonly order: ReadonlyArray<readonly [string, number]>;
 }
 
-const one = (key: string, ref: Ref): Child => ({ key, depth: 0, ref, optional: false });
+const one = (key: string, ref: Ref): Child => ({
+  key,
+  depth: 0,
+  ref,
+  optional: false,
+  gaps: false,
+  plainRows: false,
+});
 const many = (key: string, ref: Ref, optional = false): Child => ({
   key,
   depth: 1,
   ref,
   optional,
+  gaps: false,
+  plainRows: false,
 });
-const manyMany = (key: string, ref: Ref): Child => ({ key, depth: 2, ref, optional: false });
+const manyMany = (key: string, ref: Ref): Child => ({
+  key,
+  depth: 2,
+  ref,
+  optional: false,
+  gaps: false,
+  plainRows: false,
+});
+/** An array whose positions may be gaps (a row's cells). */
+const positions = (key: string, ref: Ref): Child => ({ ...many(key, ref), gaps: true });
+/** A worksheet's rows: each a row node, or a plain row's positions (#227). */
+const sheetRows = (key: string, ref: Ref): Child => ({ ...many(key, ref), plainRows: true });
 
 const inlines = (key: string): Child => many(key, "Inline");
 const blocks = (key: string): Child => many(key, "Block");
@@ -178,8 +205,7 @@ const TABLE = kind(Table, [
   many("body", TABLE_ROW),
   many("foot", TABLE_ROW),
 ]);
-const INDEXED_CELL = kind(IndexedCell, [one("cell", "SheetCell")]);
-const SHEET_ROW = kind(SheetRow, [many("cells", INDEXED_CELL)]);
+const SHEET_ROW = kind(SheetRow, [positions("cells", "SheetCell")]);
 const SLIDE = kind(Slide, [many("shapes", "Shape"), many("notes", "Block", true)]);
 const DOCUMENT = kind(Document, [blocks("blocks")]);
 
@@ -221,7 +247,7 @@ const BLOCK_KINDS: ReadonlyArray<Kind> = [
   kind(Figure, [blocks("caption"), blocks("content")]),
   kind(Div, [blocks("content")]),
   TABLE,
-  kind(Worksheet, [many("rows", SHEET_ROW)]),
+  kind(Worksheet, [sheetRows("rows", SHEET_ROW)]),
   kind(SlideShow, [many("slides", SLIDE)]),
 ];
 
@@ -303,15 +329,33 @@ const ABSENT: unique symbol = Symbol("absent");
 
 /**
  * Where a recursive field's nodes go: the index of each node in the walk
- * (shaped like the field: one, an array or an array of arrays), {@link ABSENT},
- * or `undefined` for an optional field present as `undefined`.
+ * (shaped like the field: one, an array or an array of arrays; {@link GAP} for
+ * a gap in a row's cells), {@link ABSENT}, or `undefined` for an optional
+ * field present as `undefined`.
  */
 type Template =
   | number
-  | ReadonlyArray<number>
+  | ReadonlyArray<number | Literal | PlainRowTemplate>
   | ReadonlyArray<ReadonlyArray<number>>
   | typeof ABSENT
   | undefined;
+
+/** A gap's place in a template: no node is walked for it. */
+const GAP = -1;
+
+/** A plain cell's place in a row's template: its value, carried through as it is. */
+interface Literal {
+  readonly plain: PlainCell;
+}
+
+/** A plain row's place in a worksheet's rows template: its positions' entries. */
+interface PlainRowTemplate {
+  readonly row: ReadonlyArray<number | Literal>;
+}
+
+/** Whether a row position is a plain cell's value (a number, a string or a boolean). */
+const isPlainValue = (value: unknown): value is PlainCell =>
+  Predicate.isString(value) || Predicate.isNumber(value) || Predicate.isBoolean(value);
 
 /** A node met by the walk: its kind, where it sits, its own fields and a template per recursive field. */
 interface Frame {
@@ -323,6 +367,10 @@ interface Frame {
 
 /** How a walk reads and builds one node, encoding or decoding. */
 interface Direction {
+  /** A gap as this direction reads it (`null` in JSON, `undefined` in a node). */
+  readonly gapIn: null | undefined;
+  /** A gap as this direction writes it. */
+  readonly gapOut: null | undefined;
   /** The kind of a value in a `ref` position, or the issue when it isn't one. */
   readonly kindOf: (value: unknown, ref: Ref) => Kind | SchemaIssue.Issue;
   /** The node's own fields, encoded or decoded. */
@@ -343,12 +391,15 @@ interface WalkState {
 /** A finished node: a class instance when decoding, a JSON record when encoding. */
 type Built = object;
 
+/** A finished position of a row: a node, a plain cell, or a gap (`null` or `undefined`). */
+type FilledPosition = Built | PlainCell | null | undefined;
+
 /** A recursive field's finished value, shaped like its template. */
 type Filled =
   | Built
   | undefined
   | typeof ABSENT
-  | ReadonlyArray<Built | undefined>
+  | ReadonlyArray<FilledPosition | ReadonlyArray<FilledPosition>>
   | ReadonlyArray<ReadonlyArray<Built | undefined>>;
 
 /**
@@ -377,6 +428,18 @@ const walk = (
       ? value
       : fail(at(path, new SchemaIssue.InvalidType(Schema.Array(refSchema(ref)).ast, value)));
 
+  /**
+   * A row position's template entry: a gap, a plain cell carried through (a
+   * number must be finite, as `PlainCell` requires), or a node to walk.
+   */
+  const position = (value: unknown, ref: Ref, path: Path): number | Literal => {
+    if (value === direction.gapIn) return GAP;
+    if (!isPlainValue(value)) return queue(value, ref, path);
+    if (Predicate.isNumber(value) && !Number.isFinite(value))
+      fail(at(path, new SchemaIssue.InvalidType(PlainCell.ast, value)));
+    return { plain: value };
+  };
+
   /** Queue one recursive field's nodes, returning its template. */
   const field = (node: Own, child: Child, path: Path): Template => {
     const fieldPath = down(path, child.key);
@@ -387,7 +450,14 @@ const walk = (
     if (child.depth === 0) return queue(value, child.ref, fieldPath);
     const outer = array(value, child.ref, fieldPath);
     if (outer === undefined) return undefined;
-    if (child.depth === 1) return outer.map((v, i) => queue(v, child.ref, down(fieldPath, i)));
+    if (child.depth === 1)
+      return outer.map((v, i) =>
+        child.gaps
+          ? position(v, child.ref, down(fieldPath, i))
+          : child.plainRows && Arr.isArray(v)
+            ? { row: v.map((c, j) => position(c, "SheetCell", down(fieldPath, i, j))) }
+            : queue(v, child.ref, down(fieldPath, i)),
+      );
     return outer.map((inner, i) => {
       const vs = array(inner, child.ref, down(fieldPath, i)) ?? [];
       return vs.map((v, j) => queue(v, child.ref, down(fieldPath, i, j)));
@@ -423,7 +493,19 @@ const walk = (
       ? t
       : Predicate.isNumber(t)
         ? built[t]
-        : t.map((u) => (Predicate.isNumber(u) ? built[u] : u.map((v) => built[v])));
+        : t.map((u) =>
+            Predicate.isNumber(u)
+              ? u === GAP
+                ? direction.gapOut
+                : built[u]
+              : "plain" in u
+                ? u.plain
+                : "row" in u
+                  ? u.row.map((p) =>
+                      Predicate.isNumber(p) ? (p === GAP ? direction.gapOut : built[p]) : p.plain,
+                    )
+                  : u.map((v) => built[v]),
+          );
   Arr.unfold(frames.length - 1, (i) => {
     const frame = frames[i];
     if (frame === undefined || state.failure !== undefined) return Option.none();
@@ -446,6 +528,8 @@ const constructorIssue = (e: unknown): SchemaIssue.Issue =>
     : new SchemaIssue.InvalidValue({ message: String(e) });
 
 const decoding: Direction = {
+  gapIn: null,
+  gapOut: undefined,
   kindOf: (value, ref) => {
     if (!Predicate.isString(ref)) return ref;
     const k = Predicate.isObject(value) ? memberOf(ref, value["_tag"]) : undefined;
@@ -474,6 +558,8 @@ const decoding: Direction = {
 };
 
 const encoding: Direction = {
+  gapIn: undefined,
+  gapOut: null,
   kindOf: (value, ref) => {
     // as Schema's encode does: the value must be an instance of its position's class
     const k = Predicate.isString(ref)

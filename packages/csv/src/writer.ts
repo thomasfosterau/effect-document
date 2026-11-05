@@ -14,9 +14,10 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import {
+  type RowCell,
+  type SheetCell,
   cellToText,
   type Content,
   DEFAULT_MAX_DENSE_CELLS,
@@ -25,6 +26,8 @@ import {
   type FeaturesOf,
   makeWriterTag,
   type SheetRow,
+  rowCellsOf,
+  rowIndexes,
   sheetExtent,
   text,
   type Worksheet,
@@ -129,20 +132,36 @@ export const formatCsvNumber = (value: number): string => {
   return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 };
 
-/** A field to render, and whether it came from a number cell. */
-interface Field {
-  readonly value: string;
-  readonly numeric: boolean;
-}
-
 /** The writer options that shape each row. */
 type RowOptions = Omit<
   CsvWriterOptions,
   "dialect" | "formatNumber" | "bom" | "headers" | "padRows"
 >;
 
-const formulaStart = /^[=+\-@\t\r]/;
-const edgeSpace = /^\s|\s$/;
+/** Whether a character code is one `\s` matches in a regular expression. */
+const isSpace = (c: number): boolean =>
+  c === 32 ||
+  (c >= 9 && c <= 13) ||
+  (c >= 0xa0 &&
+    (c === 0xa0 ||
+      c === 0x1680 ||
+      (c >= 0x2000 && c <= 0x200a) ||
+      c === 0x2028 ||
+      c === 0x2029 ||
+      c === 0x202f ||
+      c === 0x205f ||
+      c === 0x3000 ||
+      c === 0xfeff));
+
+/** Whether a field starts or ends with whitespace (`/^\s|\s$/`), which a trimming reader drops. */
+const hasEdgeSpace = (value: string): boolean =>
+  value !== "" && (isSpace(value.charCodeAt(0)) || isSpace(value.charCodeAt(value.length - 1)));
+
+/** Whether a field starts as a formula does (`=`, `+`, `-`, `@`, a tab or a CR). */
+const startsFormula = (value: string): boolean => {
+  const c = value.charCodeAt(0);
+  return c === 61 || c === 43 || c === 45 || c === 64 || c === 9 || c === 13;
+};
 
 /** Fields that can't be read back at all without quotes. */
 const breaksSyntax = (value: string, dialect: CsvDialect): boolean =>
@@ -151,13 +170,49 @@ const breaksSyntax = (value: string, dialect: CsvDialect): boolean =>
   value.includes("\n") ||
   value.includes("\r");
 
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * {@link breaksSyntax} as one test, for a whole write: a single native scan
+ * of each field rather than four. An empty separator is in every field.
+ */
+const syntaxTest = (dialect: CsvDialect): ((value: string) => boolean) => {
+  if (dialect.separator === "") return () => true;
+  const pattern = new RegExp(
+    [dialect.separator, dialect.wrapper, "\n", "\r"]
+      .filter((s) => s !== "")
+      .map(escapeRegExp)
+      .join("|"),
+  );
+  return (value) => pattern.test(value);
+};
+
 /** Fields that read back changed without quotes, by a reader that trims or skips comments. */
 const changesMeaning = (value: string, options: RowOptions): boolean =>
-  edgeSpace.test(value) ||
+  hasEdgeSpace(value) ||
   (!!options.lineCommentMarker && value.startsWith(options.lineCommentMarker));
 
-const wrapField = (value: string, dialect: CsvDialect): string =>
-  dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
+/**
+ * A field quoted, each wrapper in it doubled. Most quoted fields hold no
+ * wrapper (they hold a separator or a line break), so a native search skips
+ * the doubling for them; one that does is joined from the slices between its
+ * wrappers, about twice as fast as `replaceAll` (bench/csv.bench.ts, every
+ * field quoted).
+ */
+const wrapField = (value: string, dialect: CsvDialect): string => {
+  const { wrapper, doubleWrapper } = dialect;
+  let at = wrapper === "" ? -1 : value.indexOf(wrapper);
+  if (at === -1) return wrapper + value + wrapper;
+  let out = wrapper;
+  let from = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
+  while (at !== -1) {
+    out += value.slice(from, at) + doubleWrapper;
+    from = at + wrapper.length;
+    at = value.indexOf(wrapper, from);
+  }
+  return out + value.slice(from) + wrapper;
+};
 
 /**
  * Quote a field, escaping the wrapper with `escape` if set, else doubling it.
@@ -183,7 +238,7 @@ const badEscape = (escape: string, dialect: CsvDialect): Option.Option<string> =
 
 /** Render a single field, quoting it if necessary (as the `minimal` mode does). */
 export const renderField = (value: string, dialect: CsvDialect): string =>
-  breaksSyntax(value, dialect) || edgeSpace.test(value) ? wrapField(value, dialect) : value;
+  breaksSyntax(value, dialect) || hasEdgeSpace(value) ? wrapField(value, dialect) : value;
 
 const unquotable = (row: number, reason: string): WriteError =>
   new WriteError({
@@ -191,101 +246,178 @@ const unquotable = (row: number, reason: string): WriteError =>
     reason: `Row ${row} ${reason} and cannot be written without quoting`,
   });
 
+/**
+ * Everything that shapes how a field is rendered, resolved once per write
+ * rather than once per field.
+ */
+interface RowContext {
+  readonly dialect: CsvDialect;
+  /** {@link breaksSyntax} for `dialect`. */
+  readonly breaks: (value: string) => boolean;
+  /**
+   * The default options: `minimal` quoting, no escape character, no formula
+   * escaping and no comment marker, under which a field can never fail and
+   * its quoting depends on its text alone (the fast path of `renderSheetRow`).
+   */
+  readonly plain: boolean;
+  readonly options: RowOptions;
+  readonly escapeChar: Option.Option<string>;
+  readonly formatNumber: (value: number) => string;
+}
+
+const rowContext = (options: CsvWriterOptions): RowContext => ({
+  dialect: options.dialect ?? StandardDialect,
+  breaks: syntaxTest(options.dialect ?? StandardDialect),
+  options,
+  escapeChar: Option.fromNullishOr(options.escapeChar),
+  formatNumber: options.formatNumber ?? formatCsvNumber,
+  plain:
+    (options.quoting ?? "minimal") === "minimal" &&
+    options.escapeChar === undefined &&
+    !options.escapeFormulae &&
+    !options.lineCommentMarker,
+});
+
+/**
+ * A field under the `minimal` quoting the plain options use: quoted only if
+ * it would not read back without (see {@link renderOneField}, which agrees
+ * for those options).
+ */
+const minimalField = (value: string, ctx: RowContext): string =>
+  ctx.breaks(value) || hasEdgeSpace(value) ? wrapField(value, ctx.dialect) : value;
+
 /** Whether a field must be quoted under a quoting mode other than `none`. */
 const needsQuotes = (
   value: string,
   numeric: boolean,
   formula: boolean,
-  dialect: CsvDialect,
-  options: RowOptions,
+  { breaks, options }: RowContext,
 ): boolean =>
   options.quoting === "all" ||
   (options.quoting === "nonNumeric" && !numeric) ||
   formula ||
-  breaksSyntax(value, dialect) ||
+  breaks(value) ||
   changesMeaning(value, options);
 
-/** Render one field of row `index`, or the error that stops the row. */
+/**
+ * Render one field of row `index`, or the error that stops the row. A plain
+ * string or a `WriteError`, so the common case allocates nothing but the
+ * field.
+ */
 const renderOneField = (
-  { value: raw, numeric }: Field,
+  raw: string,
+  numeric: boolean,
   index: number,
-  dialect: CsvDialect,
-  options: RowOptions,
-  escapeChar: Option.Option<string>,
-): Result.Result<string, WriteError> => {
-  const formula = !!options.escapeFormulae && !numeric && formulaStart.test(raw);
+  ctx: RowContext,
+): string | WriteError => {
+  const { dialect, options, escapeChar, breaks } = ctx;
+  const formula = !!options.escapeFormulae && !numeric && startsFormula(raw);
   const value = formula ? `'${raw}` : raw;
-  if (Option.exists(escapeChar, (e) => value.includes(e)))
-    return Result.fail(
-      new WriteError({
-        format: "csv",
-        reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
-      }),
-    );
+  if (Option.isSome(escapeChar) && value.includes(escapeChar.value))
+    return new WriteError({
+      format: "csv",
+      reason: `Row ${index} has a field holding the escape character, which cannot be written unambiguously`,
+    });
   if (options.quoting === "none")
-    return breaksSyntax(value, dialect)
-      ? Result.fail(unquotable(index, "has a field that needs quotes"))
-      : Result.succeed(value);
-  return Result.succeed(
-    needsQuotes(value, numeric, formula, dialect, options)
-      ? quoteField(value, dialect, escapeChar)
-      : value,
-  );
+    return breaks(value) ? unquotable(index, "has a field that needs quotes") : value;
+  return needsQuotes(value, numeric, formula, ctx) ? quoteField(value, dialect, escapeChar) : value;
 };
 
-/** Render one row, without its line break. `index` numbers it in errors. */
-const renderRow = (
-  fields: ReadonlyArray<Field>,
-  index: number,
-  dialect: CsvDialect,
-  options: RowOptions,
-): Effect.Effect<string, WriteError> => {
-  const escapeChar = Option.fromNullishOr(options.escapeChar);
-  // a lone empty field would be an empty line, which readers skip
-  if (fields.length === 1 && fields[0]!.value === "") {
-    if (options.quoting === "none")
-      return Effect.fail(unquotable(index, "is a single empty field"));
-    return Effect.succeed(wrapField("", dialect));
-  }
-  const out: Array<string> = [];
-  for (const field of fields) {
-    const rendered = renderOneField(field, index, dialect, options, escapeChar);
-    if (Result.isFailure(rendered)) return Effect.fail(rendered.failure);
-    out.push(rendered.success);
-  }
-  return Effect.succeed(out.join(dialect.separator));
-};
-
-const textFields = (values: ReadonlyArray<string>): ReadonlyArray<Field> =>
-  values.map((value) => ({ value, numeric: false }));
-
-const pad = (fields: ReadonlyArray<Field>, width: number): ReadonlyArray<Field> =>
-  fields.length >= width
-    ? fields
-    : [
-        ...fields,
-        ...Array.from({ length: width - fields.length }, () => ({ value: "", numeric: false })),
-      ];
-
-const EMPTY_FIELD: Field = { value: "", numeric: false };
+/** A row of exactly one empty field, which unquoted would be an empty line readers skip. */
+const loneEmptyField = (index: number, ctx: RowContext): string | WriteError =>
+  ctx.options.quoting === "none"
+    ? unquotable(index, "is a single empty field")
+    : wrapField("", ctx.dialect);
 
 /**
- * A sparse row's fields from column 0 to its last cell, each gap the shared
- * empty field (no cell is allocated for it).
+ * Render row `index` from header strings, without its line break, padded
+ * with empty fields to `width`.
  */
-const rowFields = (row: SheetRow, options: CsvWriterOptions): ReadonlyArray<Field> => {
-  const format = options.formatNumber ?? formatCsvNumber;
-  // The cells are in ascending column order, so one cursor walks them.
-  let next = 0;
-  return Array.from({ length: (row.cells.at(-1)?.col ?? -1) + 1 }, (_, col) => {
-    const entry = row.cells[next];
-    if (entry?.col !== col) return EMPTY_FIELD;
-    next += 1;
-    return Predicate.isTagged(entry.cell, "CellNumber")
-      ? { value: format(entry.cell.value), numeric: true }
-      : { value: cellToText(entry.cell), numeric: false };
-  });
+const renderTextRow = (
+  values: ReadonlyArray<string>,
+  index: number,
+  width: number,
+  ctx: RowContext,
+): string | WriteError => {
+  const n = Math.max(values.length, width);
+  if (n === 1 && (values[0] ?? "") === "") return loneEmptyField(index, ctx);
+  let line = "";
+  // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
+  for (let col = 0; col < n; col++) {
+    const field = renderOneField(values[col] ?? "", false, index, ctx);
+    if (!Predicate.isString(field)) return field;
+    line = col === 0 ? field : line + ctx.dialect.separator + field;
+  }
+  return line;
 };
+
+/** One past a row's last cell's column: the number of fields it is written as. */
+const rowWidth = (cells: ReadonlyArray<RowCell>): number => cells.length;
+
+/**
+ * Render row `index` from a sparse sheet row's cells (none, for a row the
+ * sheet does not hold), without its line break: a field per column from 0 to
+ * its last cell, each gap an empty field, then empty fields to `width`.
+ */
+const renderSheetRow = (
+  cells: ReadonlyArray<RowCell>,
+  index: number,
+  width: number,
+  ctx: RowContext,
+): string | WriteError => {
+  const n = Math.max(rowWidth(cells), width);
+  const only = cells[0];
+  if (n === 1 && (only === undefined || cellField(only, ctx) === "")) {
+    return loneEmptyField(index, ctx);
+  }
+  if (ctx.plain) return renderPlainRow(cells, n, ctx);
+  let line = "";
+  // oxlint-disable-next-line effect/imperative-loops -- once per field written: the measured hot path (bench/csv.bench.ts), where a Field object and a Result per field cost most of the write
+  for (let col = 0; col < n; col++) {
+    const held = cells[col];
+    const field =
+      held === undefined
+        ? renderOneField("", false, index, ctx)
+        : renderOneField(cellField(held, ctx), isNumberCell(held), index, ctx);
+    if (!Predicate.isString(field)) return field;
+    line = col === 0 ? field : line + ctx.dialect.separator + field;
+  }
+  return line;
+};
+
+/** {@link renderSheetRow} under the plain options: every field quoted as `minimal` does, joined. */
+const renderPlainRow = (cells: ReadonlyArray<RowCell>, n: number, ctx: RowContext): string => {
+  const fields: Array<string> = [];
+  // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
+  for (let col = 0; col < n; col++) {
+    const held = cells[col];
+    fields.push(held === undefined ? "" : minimalField(cellField(held, ctx), ctx));
+  }
+  return fields.join(ctx.dialect.separator);
+};
+
+/** Whether a row position is a number: a plain one or a `CellNumber`. */
+const isNumberCell = (c: Exclude<RowCell, undefined>): boolean =>
+  Predicate.isNumber(c) || Predicate.isTagged(c, "CellNumber");
+
+/** A cell's field before quoting: a number in the write's number format, anything else its text. */
+const cellField = (c: Exclude<RowCell, undefined>, ctx: RowContext): string =>
+  // plain text first: the most common cell a reader writes
+  Predicate.isString(c)
+    ? c
+    : Predicate.isNumber(c)
+      ? ctx.formatNumber(c)
+      : Predicate.isBoolean(c)
+        ? String(c)
+        : nodeField(c, ctx);
+
+/** {@link cellField} of a node: a number in the write's number format, anything else its text. */
+const nodeField = (c: SheetCell, ctx: RowContext): string =>
+  Predicate.isTagged(c, "CellText")
+    ? c.value
+    : Predicate.isTagged(c, "CellNumber")
+      ? ctx.formatNumber(c.value)
+      : cellToText(c);
 
 const tooManyFields = (fields: number, max: number) =>
   new WriteError({
@@ -294,26 +426,6 @@ const tooManyFields = (fields: number, max: number) =>
       `the worksheet expands to ${fields} fields with its gaps written out, ` +
       `more than the ${max}-field limit (maxFields)`,
   });
-
-/** A worksheet's lines, one per row from 0 to its last, within the field budget. */
-const sheetFields = (
-  ws: Worksheet,
-  options: CsvWriterOptions,
-): Result.Result<ReadonlyArray<ReadonlyArray<Field>>, WriteError> => {
-  const max = options.maxFields ?? DEFAULT_MAX_FIELDS;
-  const fields = denseSize(ws, { rectangular: options.padRows ?? false });
-  if (fields > max) return Result.fail(tooManyFields(fields, max));
-  // The rows are in ascending index order, so one cursor walks them.
-  let next = 0;
-  return Result.succeed(
-    Array.from({ length: sheetExtent(ws).rows }, (_, index) => {
-      const row = ws.rows[next];
-      if (row?.index !== index) return [];
-      next += 1;
-      return rowFields(row, options);
-    }),
-  );
-};
 
 /** Fail when the options can't be used with the dialect. */
 const checkOptions = (
@@ -329,36 +441,99 @@ const checkOptions = (
   });
 };
 
-/** Render rows of fields, with the header row, padding and BOM the options ask for. */
+/**
+ * Render a worksheet's rows, one line per row from 0 to its last (a row it
+ * does not hold is an empty line), onto `lines`, numbered from `first`:
+ * `lines`, or the first row's failure.
+ */
 const renderRows = (
-  body: ReadonlyArray<ReadonlyArray<Field>>,
+  sheet: Worksheet,
+  first: number,
+  width: number,
+  ctx: RowContext,
+  lines: Array<string>,
+): Array<string> | WriteError => {
+  const count = sheetExtent(sheet).rows;
+  // the rows are in ascending index order, so one cursor walks them
+  const indexes = rowIndexes(sheet);
+  let next = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per row written, beside the field loop in `renderSheetRow`; it stops at the first row that fails
+  for (let index = 0; index < count; index++) {
+    const row = indexes[next] === index ? sheet.rows[next] : undefined;
+    if (row !== undefined) next++;
+    const line = renderSheetRow(
+      row === undefined ? [] : rowCellsOf(row),
+      first + index,
+      width,
+      ctx,
+    );
+    if (!Predicate.isString(line)) return line;
+    lines.push(line);
+  }
+  return lines;
+};
+
+/**
+ * Render a worksheet (or none) to CSV text: one line per row from 0 to its
+ * last, after the BOM and header row the options ask for, within the field
+ * budget.
+ */
+const renderSheet = (
+  ws: Option.Option<Worksheet>,
   options: CsvWriterOptions,
 ): Effect.Effect<string, WriteError> =>
-  Effect.gen(function* () {
-    const dialect = options.dialect ?? StandardDialect;
-    yield* checkOptions(options, dialect);
-    const rows = options.headers ? [textFields(options.headers), ...body] : body;
-    const width = options.padRows ? Math.max(0, ...rows.map((r) => r.length)) : 0;
-    const lines = yield* Effect.forEach(
-      rows,
-      (row, i) => renderRow(pad(row, width), i, dialect, options),
-      { concurrency: 1 },
-    );
-    return (options.bom ? "﻿" : "") + lines.map((line) => line + dialect.linebreak).join("");
+  Effect.suspend(() => {
+    const ctx = rowContext(options);
+    const { dialect } = ctx;
+    const max = options.maxFields ?? DEFAULT_MAX_FIELDS;
+    const fields = Option.match(ws, {
+      onNone: () => 0,
+      onSome: (sheet) => denseSize(sheet, { rectangular: options.padRows ?? false }),
+    });
+    if (fields > max) return Effect.fail(tooManyFields(fields, max));
+    return Effect.flatMap(checkOptions(options, dialect), () => {
+      const headers = options.headers;
+      const rows = Option.match(ws, { onNone: () => [], onSome: (sheet) => sheet.rows });
+      // a loop, not `Math.max(...widths)`: a spread of every row overflows
+      // the stack on a large sheet
+      let width = 0;
+      if (options.padRows) {
+        width = headers?.length ?? 0;
+        width = rows.reduce((w, row) => Math.max(w, rowWidth(rowCellsOf(row))), width);
+      }
+      const lines: Array<string> = [];
+      if (headers) {
+        const line = renderTextRow(headers, 0, width, ctx);
+        if (!Predicate.isString(line)) return Effect.fail(line);
+        lines.push(line);
+      }
+      const failed = Option.match(ws, {
+        onNone: () => lines,
+        onSome: (sheet) => renderRows(sheet, headers ? 1 : 0, width, ctx, lines),
+      });
+      if (failed instanceof WriteError) return Effect.fail(failed);
+      const body = Arr.isReadonlyArrayNonEmpty(lines)
+        ? lines.join(dialect.linebreak) + dialect.linebreak
+        : "";
+      return Effect.succeed((options.bom ? "\ufeff" : "") + body);
+    });
   });
 
 /** Render rows of string fields to CSV text (with trailing newline). */
 export const renderTable = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
   dialect: CsvDialect = StandardDialect,
-): string =>
-  rows
-    .map((row) =>
-      row.length === 1 && row[0] === ""
-        ? wrapField("", dialect)
-        : row.map((f) => renderField(f, dialect)).join(dialect.separator),
-    )
-    .join(dialect.linebreak) + (Arr.isReadonlyArrayNonEmpty(rows) ? dialect.linebreak : "");
+): string => {
+  const breaks = syntaxTest(dialect);
+  const field = (value: string): string =>
+    breaks(value) || hasEdgeSpace(value) ? wrapField(value, dialect) : value;
+  const lines = rows.map((row) =>
+    row.length === 1 && row[0] === ""
+      ? wrapField("", dialect)
+      : row.map(field).join(dialect.separator),
+  );
+  return Arr.isReadonlyArrayNonEmpty(rows) ? lines.join(dialect.linebreak) + dialect.linebreak : "";
+};
 
 /** Where a streamed render is: the next row's index and the width rows are padded to. */
 interface RowState {
@@ -379,7 +554,8 @@ export const renderCsvStream = <E, R>(
   rows: Stream.Stream<SheetRow, E, R>,
   options: CsvWriterOptions = {},
 ): Stream.Stream<string, E | WriteError, R> => {
-  const dialect = options.dialect ?? StandardDialect;
+  const ctx = rowContext(options);
+  const { dialect } = ctx;
   const headers = options.headers;
   const start = headers ? 1 : 0;
   const body = Stream.mapAccumEffect(
@@ -387,22 +563,26 @@ export const renderCsvStream = <E, R>(
     (): RowState => ({ index: start, width: headers?.length ?? null }),
     (state, row) => {
       const max = options.maxFields ?? DEFAULT_MAX_FIELDS;
-      const rowWidth = (row.cells.at(-1)?.col ?? -1) + 1;
-      if (rowWidth > max) return Effect.fail(tooManyFields(rowWidth, max));
-      const fields = rowFields(row, options);
-      const width = state.width ?? fields.length;
-      return Effect.map(
-        renderRow(options.padRows ? pad(fields, width) : fields, state.index, dialect, options),
-        (line) => [{ index: state.index + 1, width }, [line + dialect.linebreak]] as const,
-      );
+      const fields = rowWidth(row.cells);
+      if (fields > max) return Effect.fail(tooManyFields(fields, max));
+      const width = state.width ?? fields;
+      const line = renderSheetRow(row.cells, state.index, options.padRows ? width : 0, ctx);
+      return Predicate.isString(line)
+        ? Effect.succeed([{ index: state.index + 1, width }, [line + dialect.linebreak]] as const)
+        : Effect.fail(line);
     },
   );
   const head = headers
-    ? Stream.fromEffect(renderRow(textFields(headers), 0, dialect, options)).pipe(
-        Stream.map((line) => line + dialect.linebreak),
+    ? Stream.fromEffect(
+        Effect.suspend(() => {
+          const line = renderTextRow(headers, 0, 0, ctx);
+          return Predicate.isString(line)
+            ? Effect.succeed(line + dialect.linebreak)
+            : Effect.fail(line);
+        }),
       )
     : Stream.empty;
-  const all = Stream.concat(options.bom ? Stream.concat(Stream.make("﻿"), head) : head, body);
+  const all = Stream.concat(options.bom ? Stream.concat(Stream.make("\ufeff"), head) : head, body);
   // invalid options fail the stream before its first chunk
   return Stream.unwrap(Effect.as(checkOptions(options, dialect), all));
 };
@@ -420,9 +600,7 @@ export const makeCsvWriter = (options?: CsvWriterOptions): Writer<CsvFeature> =>
       const ws = doc.blocks.find((b): b is Worksheet => Predicate.isTagged(b, "Worksheet"));
       // one line per row from the first to the last, each up to its own last
       // cell; a row the sheet does not hold is an empty line
-      const rows = ws === undefined ? Result.succeed([]) : sheetFields(ws, opts);
-      if (Result.isFailure(rows)) return Effect.fail(rows.failure);
-      return Effect.map(renderRows(rows.success, opts), text);
+      return Effect.map(renderSheet(Option.fromNullishOr(ws), opts), text);
     });
 
   return { format: "csv", profile: Csv, write };

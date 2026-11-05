@@ -19,6 +19,8 @@ packages:
   - packages/*
   # Private: the README's runnable examples (`vp run examples`).
   - examples
+  # Private: the benchmarks against other libraries (`vp run bench`).
+  - bench
 
 catalogMode: strict
 
@@ -58,6 +60,29 @@ catalog:
   # against (first-party; exempt from the release-age hold below).
   "@thomasfosterau/effect-parse": ^0.4.0
   "@types/node": ^26.6.5
+  # ---- Benchmark baselines (bench/ only; never a published dependency) ----
+  # The leading actively maintained JavaScript library for each format, which
+  # `vp run bench` measures our readers and writers against: each published a
+  # release within the last two years (or since the oldest supported Node line
+  # came out), so an unmaintained library is replaced or dropped rather than
+  # kept. Dev-only, in the private `bench` workspace package.
+  "@types/d3-dsv": ^3.0.7
+  "@types/papaparse": ^5.5.2
+  "@types/pdfkit": ^0.17.7
+  csv-parse: ^7.0.3
+  csv-stringify: ^6.9.0
+  d3-dsv: ^3.0.1
+  docx: ^9.5.1
+  exceljs: ^4.4.0
+  mammoth: ^1.12.0
+  papaparse: ^5.5.3
+  pdfjs-dist: ^6.5.0
+  # the most used maintained PDF writer (pdf-lib was last published in 2021)
+  pdfkit: ^0.20.2
+  pptxgenjs: ^4.0.1
+  read-excel-file: ^9.3.14
+  udsv: ^0.7.3
+  write-excel-file: ^4.1.1
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.0.5
@@ -104,6 +129,11 @@ overrides:
   effect: "catalog:"
   vite@*: "catalog:"
   vitest@*: "catalog:"
+  # PptxGenJS (bench/ only) pins image-size ^1, every release of which has
+  # the high-severity parser denials of service fixed only in 2.0.3. The
+  # benchmarks add no images, so the parser is never reached; the override
+  # keeps `pnpm audit --audit-level high` clean.
+  pptxgenjs>image-size: ^2.0.4
 nodeLinker: hoisted
 allowBuilds:
   esbuild: true

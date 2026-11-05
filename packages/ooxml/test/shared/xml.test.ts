@@ -3,6 +3,8 @@
  */
 
 import { assert, describe, expect, test } from "vite-plus/test";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import {
   escapeAttr,
@@ -194,5 +196,94 @@ describe("hardening (#55)", () => {
     expect(Result.isFailure(parseXmlResult(`<1a/>`))).toBe(true);
     const dup = parseXmlResult(`<a x="1" x="2"/>`);
     expect(Result.isFailure(dup) && dup.failure.message).toContain(`duplicate attribute "x"`);
+    // the first name given twice is the one named
+    const twice = parseXmlResult(`<a y="1" x="1" y="2" x="2"/>`);
+    expect(Result.isFailure(twice) && twice.failure.message).toContain(`duplicate attribute "y"`);
+  });
+
+  test("an attribute named __proto__ is an own attribute, not the record's prototype", () => {
+    const root = parseXml(`<a __proto__="p" b="q"/>`);
+    expect(Object.getPrototypeOf(root.attrs)).toBe(Object.prototype);
+    expect(Object.entries(root.attrs)).toEqual([
+      ["__proto__", "p"],
+      ["b", "q"],
+    ]);
+  });
+
+  test("a structural error after a later tokenizing error still reports the tokenizing one", () => {
+    // `</b>` mismatches first, but the `<1` after it does not tokenize: as
+    // when every token was read before the tree, the tokenizing error wins
+    const r = parseXmlResult(`<a></b><1/></a>`);
+    expect(Result.isFailure(r) && r.failure.message).not.toContain("does not match");
+  });
+});
+
+/** A parse's tree, or its failure's message, with the fast scanner or without it. */
+const outcome = (xml: string, fast: boolean) => {
+  const r = fast ? parseXmlResult(xml, "sheetData") : parseXmlResult(xml);
+  return Result.isSuccess(r) ? { tree: r.success } : { error: r.failure.message };
+};
+
+describe("the fast content scanner (parseXmlResult with fastContentOf)", () => {
+  // a Lehmer generator, so the inputs are the same on every run
+  let seed = 31;
+  const next = (n: number) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % n;
+  };
+  const pick = <A>(xs: Arr.NonEmptyReadonlyArray<A>): A =>
+    Option.getOrElse(Arr.get(xs, next(xs.length)), () => xs[0]);
+  const NS = `xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"`;
+  // markup the scanner reads, and markup it must leave to the parser
+  const plain: Arr.NonEmptyReadonlyArray<string> = [
+    `<c r="A1" t="s"><v>0</v></c>`,
+    `<c r="B1"><v>1.5</v></c>`,
+    `<c r='C1' t="inlineStr"><is><t>a &amp; b</t></is></c>`,
+    `<c r="D1" s="2"/>`,
+    `<c r="E1" t="str"><f>SUM(A1:B1)</f><v>3</v></c>`,
+    `<c r="F1" t="b" ><v>1</v></c>`,
+    `\n  `,
+    `<c r="G1"><v>&#x41;&lt;&#65;</v></c>`,
+  ];
+  const odd: Arr.NonEmptyReadonlyArray<string> = [
+    `<!-- a comment -->`,
+    `<c r="A2"><v><![CDATA[x]]></v></c>`,
+    `<x:c r="A3"/>`,
+    `<c r="A4" x:id="1"/>`,
+    `<c r = "A5"/>`,
+    `<c r="A6" r="A7"/>`,
+    `<c r="A8"t="s"/>`,
+    `<c r="A9"></c >`,
+    `<c-x r="B1"/>`,
+    `<c r="A10" xmlns="urn:other"><v>1</v></c>`,
+    `<?pi x?>`,
+    `<c r="A11"><v>1</c>`,
+    `<c r="A12">`,
+    `</row>`,
+  ];
+  const row = (oddOnes: boolean) =>
+    `<row r="${1 + next(9)}"${next(2) === 0 ? ` spans="1:3"` : ""}>` +
+    Array.from({ length: next(5) }, () =>
+      oddOnes && next(6) === 0 ? pick(odd) : pick(plain),
+    ).join("") +
+    `</row>`;
+  const sheet = (oddOnes: boolean) =>
+    `<?xml version="1.0"?><worksheet ${NS}><dimension ref="A1"/><sheetData>` +
+    Array.from({ length: next(4) }, () => row(oddOnes)).join(pick(["", "\n"])) +
+    `</sheetData>${next(3) === 0 ? "<mergeCells/>" : ""}</worksheet>`;
+  test("gives the parser's tree or error, for markup it reads and markup it leaves", () => {
+    const inputs = [
+      ...Array.from({ length: 1500 }, () => sheet(false)),
+      ...Array.from({ length: 1500 }, () => sheet(true)),
+      // a damaged document around a well-formed sheetData
+      `<worksheet ${NS}><sheetData><row r="1"/></sheetData>`,
+      `<worksheet ${NS}><sheetData><row r="1"/></sheetData></worksheet><extra/>`,
+      `<!-- before --><worksheet ${NS}><sheetData><row r="1"/></sheetData></worksheet>`,
+      `<worksheet ${NS}><sheetData/></worksheet>`,
+      `<worksheet><x:sheetData xmlns:x="urn:x"><row/></x:sheetData><sheetData><row/></sheetData></worksheet>`,
+    ];
+    expect(inputs.map((xml) => outcome(xml, true))).toEqual(
+      inputs.map((xml) => outcome(xml, false)),
+    );
   });
 });

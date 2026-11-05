@@ -210,11 +210,15 @@ export class OpcReader {
     return b === null ? null : decodePart(b);
   }
 
-  /** A part parsed as XML, or null if absent; malformed XML throws an {@link XmlPartError}. */
-  xml(path: string): XmlElement | null {
+  /**
+   * A part parsed as XML, or null if absent; malformed XML throws an
+   * {@link XmlPartError}. `fastContentOf` names an element whose content is
+   * read by the fast scanner (see `parseXmlResult`).
+   */
+  xml(path: string, fastContentOf?: string): XmlElement | null {
     const text = this.text(path);
     if (text === null) return null;
-    const result = parseXmlResult(text);
+    const result = parseXmlResult(text, fastContentOf);
     if (Result.isFailure(result)) throw new XmlPartError(path.replace(/^\//, ""), result.failure);
     return result.success;
   }

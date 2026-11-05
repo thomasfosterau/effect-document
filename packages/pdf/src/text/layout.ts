@@ -22,7 +22,6 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as HashSet from "effect/HashSet";
 import * as Order from "effect/Order";
-import * as Rec from "effect/Record";
 import {
   type Block,
   BlockQuote,
@@ -37,7 +36,7 @@ import {
   Para,
   Plain,
   SoftBreak,
-  Str,
+  str,
   Strong,
 } from "@thomasfosterau/effect-document";
 import type { PageLink, PageText, TextGlyph } from "./extract.ts";
@@ -75,6 +74,7 @@ interface Line {
 }
 
 const SPACE_GAP = 0.15; // of the font size
+
 const BULLETS = "•◦▪▫‣⁃●○■□∙·–-*";
 const BULLET_RE = new RegExp(`^([${BULLETS.replace("-", "\\-")}])\\s+`);
 const ORDERED_RE = /^(\(?)(\d{1,3}|[a-z]|[ivxlcdm]{1,5}|[A-Z])([.)])\s+/;
@@ -172,21 +172,16 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
       lastText = "";
     }
     const l = line!;
-    let text = g.text.replace(C0_CONTROLS, "").replace(/[\t\n\r ]/g, " ");
+    const printable = isPrintableAscii(g.text);
+    let text = glyphText(g.text, printable);
     if (text === "") continue;
-    const gap = g.x - lastEnd;
-    if (
-      continues &&
-      gap > SPACE_GAP * Math.min(g.size, l.size) &&
-      !/\s$/.test(lastText) &&
-      !/^\s/.test(text)
-    )
-      text = " " + text;
+    if (continues && g.x - lastEnd > SPACE_GAP * Math.min(g.size, l.size))
+      text = spaced(lastText, text, printable);
 
     const style = { bold: g.bold, italic: g.italic, mono: g.monospace, url: urlAt(page.links, g) };
     const lastRun = l.runs[l.runs.length - 1];
     if (lastRun !== undefined && sameStyle(lastRun, style)) lastRun.text += text;
-    else if (lastRun !== undefined && /^\s+$/.test(text)) lastRun.text += text; // spaces don't start a new style
+    else if (lastRun !== undefined && isBlank(text, printable)) lastRun.text += text; // spaces don't start a new style
     else {
       // a leading space at a style boundary stays with the plainer side
       if (lastRun !== undefined && text.startsWith(" ")) {
@@ -196,7 +191,7 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
       l.runs.push({ text, ...style });
     }
 
-    const visible = text.replace(/\s/g, "").length;
+    const visible = visibleLength(text, printable);
     if (visible > 0 && visibleChars === 0) l.x0 = g.x; // indentation is where the ink starts
     if (visible > 0) {
       const key = Math.round(g.size * 2) / 2;
@@ -221,7 +216,7 @@ const buildLines = (page: PageText, pageIndex: number): Line[] => {
 // ============================================================================
 
 const styled = (run: Run, text: string): Inline => {
-  let node: Inline = run.mono ? new Code({ text }) : new Str({ text });
+  let node: Inline = run.mono ? new Code({ text }) : str(text);
   if (run.italic) node = new Emph({ content: [node] });
   if (run.bold) node = new Strong({ content: [node] });
   return node;
@@ -254,11 +249,11 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
     // keep spaces at the edges of a styled run outside it
     const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(r.text)!;
     const plain = !r.bold && !r.italic && !r.mono;
-    if (plain || m[2] === "") out.push(new Str({ text: r.text }));
+    if (plain || m[2] === "") out.push(str(r.text));
     else {
-      if (m[1] !== "") out.push(new Str({ text: m[1]! }));
+      if (m[1] !== "") out.push(str(m[1]!));
       out.push(styled(r, m[2]!));
-      if (m[3] !== "") out.push(new Str({ text: m[3]! }));
+      if (m[3] !== "") out.push(str(m[3]!));
     }
   }
   // merge adjacent Strs
@@ -266,7 +261,7 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
   for (const n of out) {
     const prev = result[result.length - 1];
     if (Predicate.isTagged(n, "Str") && prev?._tag === "Str")
-      result[result.length - 1] = new Str({ text: prev.text + n.text });
+      result[result.length - 1] = str(prev.text + n.text);
     else result.push(n);
   }
   return result;
@@ -599,6 +594,34 @@ export const layoutBlocks = (
   return blocks;
 };
 
+// Almost every glyph is one printable ASCII character, which none of the
+// replacements or whitespace checks below change, so each takes `printable`
+// and skips its regular expression for such a glyph (they run once per glyph).
+
+/** A glyph's text with control characters dropped and tabs, line breaks and no-break spaces as spaces. */
+const glyphText = (text: string, printable: boolean): string =>
+  printable ? text : text.replace(C0_CONTROLS, "").replace(/[\t\n\r\u00a0 ]/g, " ");
+
+/** `text` after a gap from `lastText`: with a space between them unless one is already there. */
+const spaced = (lastText: string, text: string, printable: boolean): string => {
+  const endsInSpace = !isPrintableAscii(lastText.slice(-1)) && /\s$/.test(lastText);
+  return endsInSpace || (!printable && /^\s/.test(text)) ? text : " " + text;
+};
+
+/** Whether `text` is all whitespace. */
+const isBlank = (text: string, printable: boolean): boolean => !printable && /^\s+$/.test(text);
+
+/** The characters of `text` that are not whitespace. */
+const visibleLength = (text: string, printable: boolean): number =>
+  printable ? 1 : text.replace(/\s/g, "").length;
+
+/** Whether `s` is one printable ASCII character (no control, no whitespace). */
+const isPrintableAscii = (s: string): boolean => {
+  if (s.length !== 1) return false;
+  const c = s.charCodeAt(0);
+  return c > 0x20 && c < 0x7f;
+};
+
 // ============================================================================
 // Tagged PDF: blocks from the structure tree (#198)
 // ============================================================================
@@ -656,27 +679,34 @@ export const structureBlocks = (
   pages: ReadonlyArray<PageText>,
   root: StructElement,
 ): Block[] | undefined => {
-  // each page's glyphs by MCID, in content order
-  const marked = pages.flatMap((page, p) =>
-    page.glyphs.flatMap((g) =>
-      g.mcid === undefined || g.artifact === true ? [] : [[contentKey(p, g.mcid), g] as const],
-    ),
-  );
-  const byContent = Rec.map(
-    Arr.groupBy(marked, ([key]) => key),
-    (entries) => entries.map(([, g]) => g),
-  );
+  // Each page's glyphs by MCID, in content order, and how much of the
+  // visible text the tree owns: one pass over the glyphs, which go by in runs
+  // of one MCID, so a key is built (and looked up) once per run, not per
+  // glyph.
+  const byContent: Record<string, Array<TextGlyph>> = {};
   const owned = HashSet.fromIterable(contentOf(root).map((c) => contentKey(c.page, c.mcid)));
-  const visible = pages.flatMap((page, p) =>
-    page.glyphs
-      .filter((g) => g.artifact !== true && g.upright && g.text.trim() !== "")
-      .map((g) => [p, g] as const),
-  );
-  const covered = visible.filter(
-    ([p, g]) => g.mcid !== undefined && HashSet.has(owned, contentKey(p, g.mcid)),
-  );
-  if (Arr.isReadonlyArrayEmpty(visible) || covered.length < visible.length * TREE_COVERAGE)
-    return undefined;
+  let visible = 0;
+  let covered = 0;
+  pages.forEach((page, p) => {
+    // MCIDs are non-negative, so -1 is no run yet
+    let runMcid = -1;
+    let run: Array<TextGlyph> = [];
+    let runOwned = false;
+    page.glyphs.forEach((g) => {
+      if (g.mcid !== undefined && g.mcid !== runMcid) {
+        runMcid = g.mcid;
+        const key = contentKey(p, g.mcid);
+        run = byContent[key] ??= [];
+        runOwned = HashSet.has(owned, key);
+      }
+      if (g.artifact === true) return;
+      if (g.mcid !== undefined) run.push(g);
+      if (!g.upright || (!isPrintableAscii(g.text) && g.text.trim() === "")) return;
+      visible++;
+      if (g.mcid !== undefined && runOwned) covered++;
+    });
+  });
+  if (visible === 0 || covered < visible * TREE_COVERAGE) return undefined;
 
   /** The lines the marked content shows: its glyphs, laid out page by page. */
   const linesOf = (content: ReadonlyArray<MarkedContent>): Line[] =>

@@ -53,9 +53,11 @@ import {
   RawInline,
   type SheetCell,
   type Shape,
-  IndexedCell,
   SheetColumn,
+  type RowCell,
   SheetRow,
+  isPlainRow,
+  type WorksheetRow,
   Slide,
   SlideShow,
   SmallCaps,
@@ -74,7 +76,7 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
-import { denseRows, sheetRow } from "../schema/sheet.ts";
+import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
@@ -425,13 +427,56 @@ const CELL: TagHandlers<SheetCell, [CellStyle, Ctx], SheetCell> = {
   ),
 };
 
+/**
+ * Whether narrowing keeps a cell exactly as it is: its style stays (it has
+ * none, or the profile allows styles) and its type does (a rich-text cell's
+ * runs are narrowed too, so it is always rebuilt). Nodes are immutable, so
+ * such a cell is returned itself rather than rebuilt.
+ */
+const keepsCell = (c: SheetCell, ctx: Ctx): boolean => {
+  const has = (f: Feature) => ctx.allowed.has(f);
+  if (c.style !== undefined && !has("cell.style")) return false;
+  return (
+    Predicate.isTagged(c, "CellText") ||
+    Predicate.isTagged(c, "CellBlank") ||
+    (Predicate.isTagged(c, "CellNumber") && has("cell.number")) ||
+    (Predicate.isTagged(c, "CellBoolean") && has("cell.boolean")) ||
+    (Predicate.isTagged(c, "CellDate") && has("cell.date")) ||
+    (Predicate.isTagged(c, "CellError") && has("cell.error")) ||
+    (Predicate.isTagged(c, "CellFormula") && has("cell.formula"))
+  );
+};
+
 const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
+  if (keepsCell(c, ctx)) return c;
   let style = c.style;
   if (style !== undefined && !ctx.allowed.has("cell.style")) {
     ctx.rec.drop("cell.style", "cell styling dropped");
     style = undefined;
   }
   return dispatchTag(CELL, c, style, ctx);
+};
+
+/**
+ * A row position narrowed: a gap as it is, a node narrowed, and a plain cell
+ * narrowed as the node it stands for, kept plain when that node is kept.
+ */
+const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
+  const node = cellOf(position);
+  if (node === undefined) return position;
+  const narrowed = narrowCell(node, ctx);
+  return narrowed === node ? position : narrowed;
+};
+
+/**
+ * A row with its cells narrowed: the row itself when every cell is kept
+ * unchanged, and a plain row stays a plain row (#227).
+ */
+const narrowRow = (r: WorksheetRow, ctx: Ctx): WorksheetRow => {
+  const old = rowCellsOf(r);
+  const cells = old.map((c) => narrowPosition(c, ctx));
+  if (cells.every((c, i) => c === old[i])) return r;
+  return isPlainRow(r) ? cells : new SheetRow({ index: r.index, cells, height: r.height });
 };
 
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
@@ -445,7 +490,7 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
   if (Arr.isReadonlyArrayNonEmpty(columns) && !has("sheet.columns")) {
     ctx.rec.drop("sheet.columns", "column metadata dropped");
     columns = [];
-  } else if (!has("cell.style")) {
+  } else if (!has("cell.style") && columns.some((c) => c.style !== undefined)) {
     // sheet.columns is allowed, but per-column styling is not.
     let recorded = false;
     columns = columns.map((c) => {
@@ -457,18 +502,20 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
       return new SheetColumn({ width: c.width });
     });
   }
+  const rows = w.rows.map((r) => narrowRow(r, ctx));
+  // nothing narrowed: the worksheet itself (nodes are immutable)
+  if (
+    w.attr === undefined &&
+    columns === w.columns &&
+    merges === w.merges &&
+    rows.every((r, i) => r === w.rows[i])
+  )
+    return w;
   return new Worksheet({
     attr: narrowAttr(w.attr, "Worksheet", ctx),
     name: w.name,
     columns,
-    rows: w.rows.map(
-      (r) =>
-        new SheetRow({
-          index: r.index,
-          cells: r.cells.map((c) => new IndexedCell({ col: c.col, cell: narrowCell(c.cell, ctx) })),
-          height: r.height,
-        }),
-    ),
+    rows,
     merges,
   });
 };

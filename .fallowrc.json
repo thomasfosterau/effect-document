@@ -23,6 +23,7 @@
     "test/**/*.test.ts",
     "test/**/*.types.ts",
     "examples/*.ts",
+    "bench/*.bench.ts",
     "**/vite.config.ts",
     "vite.package.ts",
     "scripts/check-dist-imports.mjs",
