@@ -421,17 +421,34 @@ const stringRecord = (
   onRow: (fields: Array<string>) => boolean,
 ): number => {
   const fields = scan.scratch;
+  const separator = plan.separatorChar;
+  // the next separator, LF and CR as locals for the record (written back
+  // after it): a field costs one comparison of each, not a property load and
+  // store, and a field ending at the separator needs no character read
+  let sep = scan.separator;
+  let lf = scan.lf;
+  let cr = scan.cr;
   let p = start;
   let n = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
-    const end = unquotedEnd(text, p, plan, scan);
+    if (sep < p) sep = find(text, separator, p);
+    if (lf < p) lf = find(text, "\n", p);
+    if (cr < p) cr = find(text, "\r", p);
+    const lineEnd = cr < lf ? cr : lf;
+    const end = sep < lineEnd ? sep : lineEnd;
     store(fields, n, text.slice(p, end));
     n++;
-    p = end;
-    if (text.charCodeAt(end) !== plan.separator) break;
-    p++;
+    // at the end of the text every search gives its length: no separator
+    if (end !== sep || end === text.length) {
+      p = end;
+      break;
+    }
+    p = end + 1;
   }
+  scan.separator = sep;
+  scan.lf = lf;
+  scan.cr = cr;
   return onRow(copyRow(fields, n, false)) ? afterLineBreak(text, p) : STOPPED;
 };
 
