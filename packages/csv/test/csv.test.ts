@@ -5,12 +5,13 @@ import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Equivalence from "effect/Equivalence";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
 import {
   cell,
   document,
-  type Document,
+  Document,
   encodeDocument,
   type ParseError,
   type SheetCell,
@@ -760,6 +761,32 @@ describe("CSV reader fast path", () => {
     { exactNumbers: false },
     { exactNumbers: false, inference: "cell", treatFirstRowAsHeader: false },
   ];
+  const decodeJson = Schema.decodeResult(Document);
+  const toJson = Schema.encodeSync(Document);
+  test("its documents, taken unchecked (worksheetOfTrustedRows), are what the schema accepts", () => {
+    // the reader builds its rows unchecked, so a row the schema would reject
+    // would pass silently: a decode of each document's encoding checks every
+    // cell, on both paths
+    const tables = Arr.makeBy(400, table);
+    const docs = optionSets.flatMap((options) =>
+      tables.flatMap((csv) =>
+        [csv, `junk\n${csv}`].flatMap((source, i) =>
+          Result.match(
+            Effect.runSync(
+              Effect.result(
+                makeCsvReader(i === 0 ? options : { ...options, skipRows: 1 }).read(text(source)),
+              ),
+            ),
+            { onSuccess: (doc) => [doc], onFailure: () => [] },
+          ),
+        ),
+      ),
+    );
+    expect(docs.length).toBeGreaterThan(1000);
+    const rejected = docs.filter((doc) => Result.isFailure(decodeJson(toJson(doc))));
+    expect(rejected).toEqual([]);
+  });
+
   test("gives the general path's document or failure", () => {
     const tables = Arr.makeBy(1500, table);
     const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));

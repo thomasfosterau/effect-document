@@ -205,20 +205,47 @@ const withFirst = <R>(first: R, rows: Array<R>): Array<R> => {
   return rows;
 };
 
+/**
+ * The reader of a one-pass read: each field built by `field`, a field of a
+ * column guessed to hold numbers read from the text in place (when typing by
+ * column), `fill` its placeholder, a number read in place made by `asNumber`.
+ */
+const typedReader = <A>(
+  guess: ColumnGuess<unknown>,
+  field: (raw: string, c: number) => A,
+  typing: Typing,
+  options: FusedOptions,
+  fill: A,
+  asNumber: (value: number) => A,
+): TypedReader<A> =>
+  new TypedReader<A>(
+    guess.kinds,
+    field,
+    typing.numberAt,
+    options.inferTypes && !options.byCell,
+    fill,
+    asNumber,
+  );
+
+/** A one-pass read whose rows are the scanner's own arrays of typed fields. */
+const typedPass = <A>(
+  text: string,
+  plan: FastPlan,
+  options: FusedOptions,
+  guess: ColumnGuess<unknown>,
+  reader: TypedReader<A>,
+): Option.Option<Pass<A, Array<A>>> =>
+  fusedPass<A, Array<A>>(
+    (onRow) => fastEachRecord(text, plan, reader, onRow),
+    options,
+    guess,
+    (_, fields) => fields,
+    () => reader.start(),
+  );
+
 /** Whether a fused pass can read under these options: a sniffed header needs column kinds. */
 const fusable = (options: FusedOptions): boolean =>
   options.header !== "sniff" || (options.inferTypes && !options.byCell);
-
-/**
- * A worksheet's rows as the one-pass read builds them: plain rows (#227),
- * each the scanner's own array of the row's cells, and the positions
- * (ascending) of those that are arrays of doubles, for `worksheetFromRows`
- * to check without boxing their numbers.
- */
-export interface FusedSheet {
-  readonly rows: ReadonlyArray<PlainRow>;
-  readonly numberRows: ReadonlyArray<number>;
-}
 
 /**
  * The worksheet's rows from `text` in one pass, or none when the general path
@@ -229,7 +256,7 @@ export const fusedRows = (
   plan: FastPlan,
   options: FusedOptions,
   typing: Typing,
-): Option.Option<FusedSheet> => {
+): Option.Option<ReadonlyArray<PlainRow>> => {
   if (!fusable(options)) return Option.none();
   const guess = new ColumnGuess(typing, asCells);
   const cellAt: (raw: string, c: number) => RowCell = !options.inferTypes
@@ -238,44 +265,20 @@ export const fusedRows = (
       ? typing.cellOf
       : (raw, c) => guess.value(raw, c);
   // a number read in place is a plain decimal, so finite: a plain cell
-  const reader = new TypedReader<RowCell>(
-    guess.kinds,
-    cellAt,
-    typing.numberAt,
-    options.inferTypes && !options.byCell,
-    undefined,
-    asCells.number,
-  );
-  // a row's index is its position in the finished rows (the held first row,
-  // header or not, is position 0)
-  const numberRows: Array<number> = [];
-  return Option.flatMap(
-    fusedPass<RowCell, PlainRow>(
-      (onRow) => fastEachRecord(text, plan, reader, onRow),
-      options,
-      guess,
-      (index, fields, numbers) => {
-        if (numbers) numberRows.push(index);
-        return fields;
+  const reader = typedReader(guess, cellAt, typing, options, undefined, asCells.number);
+  return Option.flatMap(typedPass(text, plan, options, guess, reader), ({ first, rows }) =>
+    Option.match(first, {
+      onNone: () => Option.some(rows),
+      onSome: () => {
+        const fields = reader.held;
+        const isHeader =
+          options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
+        if (isHeader) return Option.some(withFirst(headerRow(fields), rows));
+        // a data row after all: typed under the kinds the others settled
+        const row = fields.map(cellAt);
+        return guess.contradicted ? Option.none() : Option.some(withFirst(row, rows));
       },
-      () => reader.start(),
-    ),
-    ({ first, rows }) =>
-      Option.match(first, {
-        onNone: () => Option.some({ rows, numberRows }),
-        onSome: () => {
-          const fields = reader.held;
-          const isHeader =
-            options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
-          if (isHeader)
-            return Option.some({ rows: withFirst(headerRow(fields), rows), numberRows });
-          // a data row after all: typed under the kinds the others settled
-          const row = fields.map(cellAt);
-          return guess.contradicted
-            ? Option.none()
-            : Option.some({ rows: withFirst(row, rows), numberRows });
-        },
-      }),
+    }),
   );
 };
 
@@ -362,37 +365,22 @@ export const fusedValues = (
     : options.byCell
       ? typing.valueOf
       : (raw, c) => guess.value(raw, c);
-  const reader = new TypedReader<FusedValue>(
-    guess.kinds,
-    typed,
-    typing.numberAt,
-    options.inferTypes && !options.byCell,
-    null,
-    asValues.number,
-  );
+  const reader = typedReader(guess, typed, typing, options, null, asValues.number);
   const typeRow = (fields: ReadonlyArray<string>): Array<FusedValue> =>
     fields.map((raw, c) => typed(raw, c));
-  return Option.flatMap(
-    fusedPass<FusedValue, ReadonlyArray<FusedValue>>(
-      (onRow) => fastEachRecord(text, plan, reader, onRow),
-      options,
-      guess,
-      (_, fields) => fields,
-      () => reader.start(),
-    ),
-    ({ first, rows }) =>
-      Option.match(first, {
-        onNone: () => Option.some({ headers: null, rows }),
-        onSome: () => {
-          const strings = reader.held;
-          const isHeader =
-            options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
-          if (isHeader) return Option.some({ headers: strings, rows });
-          const row = typeRow(strings);
-          return guess.contradicted
-            ? Option.none()
-            : Option.some({ headers: null, rows: withFirst(row, rows) });
-        },
-      }),
+  return Option.flatMap(typedPass(text, plan, options, guess, reader), ({ first, rows }) =>
+    Option.match(first, {
+      onNone: () => Option.some({ headers: null, rows }),
+      onSome: () => {
+        const strings = reader.held;
+        const isHeader =
+          options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
+        if (isHeader) return Option.some({ headers: strings, rows });
+        const row = typeRow(strings);
+        return guess.contradicted
+          ? Option.none()
+          : Option.some({ headers: null, rows: withFirst(row, rows) });
+      },
+    }),
   );
 };

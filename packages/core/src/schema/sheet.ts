@@ -517,3 +517,27 @@ const acceptedIndex = (row: WorksheetRow, previous: number, listed: boolean): nu
     return (listed && isPositionalNumbers(row)) || isPositional(row) ? previous + 1 : -1;
   return row instanceof SheetRow && row.index > previous ? row.index : -1;
 };
+
+/**
+ * A worksheet of rows its caller built valid itself, taken without any
+ * check: the unchecked escape hatch for a reader's own output, as `trustAs`
+ * is for a document's profile. Each row must be what `Worksheet` accepts (a
+ * `SheetRow` instance, or a plain row of positional cells: plain cells, cell
+ * instances and gaps, the last a cell), the rows in strictly ascending index
+ * order. Nothing checks it, so a row that is not breaks the worksheet's
+ * guarantees silently: anything not built by the caller goes through
+ * {@link worksheetFromRows}, which checks every cell (about 2.3 ms per 100k
+ * rows of four, on bench/csv.bench.ts's floats table).
+ *
+ * @example
+ * ```ts
+ * import { worksheetOfTrustedRows } from "@thomasfosterau/effect-document"
+ *
+ * // rows a reader typed itself: plain cells, a row per line
+ * worksheetOfTrustedRows("Sheet1", [["a", 1], ["b", 2]])
+ * ```
+ */
+export const worksheetOfTrustedRows = (
+  name: string,
+  rows: ReadonlyArray<WorksheetRow>,
+): Worksheet => trustedWorksheet(name, rows);

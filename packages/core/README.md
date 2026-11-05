@@ -281,6 +281,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `rowsOf` | function | A worksheet's rows as `SheetRow` nodes (a plain row's built on demand). |
 | `rowIndexes` | function | The index of each of a worksheet's rows, explicit or implied, in one array. |
 | `rowCellsOf` | function | A worksheet row's cells, `SheetRow` or plain, without building a node. |
+| `worksheetOfTrustedRows` | function | A worksheet of rows its caller built valid itself, taken unchecked: the escape hatch for a reader's own output (`worksheetFromRows` checks every cell). |
 | `sheetRowOfNumbers` | function | `sheetRowOf` for a row of plain numbers, checked without boxing them. |
 | `cellOf` | function | The cell node a row position holds (a plain cell's unstyled node), or `undefined` for a gap. |
 | `cellAt` | function | The cell node at a column of a row, or `undefined` where it has none. |

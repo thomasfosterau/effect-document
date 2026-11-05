@@ -28,7 +28,7 @@ import {
   type SheetCell,
   type PlainRow,
   trustAs,
-  worksheetFromRows,
+  worksheetOfTrustedRows,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -41,7 +41,6 @@ import {
   type Build,
   type ColumnKind,
   type FusedOptions,
-  type FusedSheet,
   fusedRows,
   fusedValues,
   type Typing,
@@ -556,8 +555,10 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
 
   // the one-pass read (fused.ts), for the options it covers
   const fused = fusedRead(dialect, options ?? {}, classifier, fusedRows);
-  const asDocument = ({ rows, numberRows }: FusedSheet): Doc<CsvFeature> =>
-    trustAs<CsvFeature>(document([worksheetFromRows(sheetName, rows, numberRows)]));
+  // the reader typed every cell itself (plain cells, finite numbers, blanks
+  // as nodes): its rows are taken unchecked, as its profile is by `trustAs`
+  const asDocument = (rows: ReadonlyArray<PlainRow>): Doc<CsvFeature> =>
+    trustAs<CsvFeature>(document([worksheetOfTrustedRows(sheetName, rows)]));
 
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     Effect.suspend(() => {
@@ -579,7 +580,9 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
         const header = headers === null ? [] : [headers.slice()];
         const body = plainRows(rows, cellMaker(rows, { ...options, inferTypes }, classifier));
         return trustAs<CsvFeature>(
-          document([worksheetFromRows(sheetName, headers === null ? body : [...header, ...body])]),
+          document([
+            worksheetOfTrustedRows(sheetName, headers === null ? body : [...header, ...body]),
+          ]),
         );
       }),
     );

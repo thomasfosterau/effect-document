@@ -26,6 +26,7 @@ import {
   sheetRow,
   sparseRow,
   worksheetFromRows,
+  worksheetOfTrustedRows,
 } from "../../src/schema/index.ts";
 import { Profiles, narrow } from "../../src/profile/index.ts";
 
@@ -291,6 +292,12 @@ describe("plain rows (#227)", () => {
     // a plain row holds positional cells, the last a cell
     expect(() => worksheetFromRows("S", [["a", undefined]])).toThrow("Schema validation failed");
     expect(() => worksheetFromRows("S", [[Number.NaN]])).toThrow("Schema validation failed");
+  });
+
+  test("worksheetOfTrustedRows takes valid rows unchecked, as worksheetFromRows builds them", () => {
+    const rows = [["a", 1], sheetRow(3, ["x"]), [true, undefined, cell.text("y")]];
+    expect(worksheetOfTrustedRows("S", rows)).toStrictEqual(worksheetFromRows("S", rows));
+    expect(worksheetOfTrustedRows("S", rows).rows).toBe(rows);
   });
 
   test("the numberRows hint changes nothing but the speed", () => {
