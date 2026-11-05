@@ -22,7 +22,7 @@ import type { CsvDialect } from "./dialect.ts";
 import type { CsvScanOptions } from "./scanner.ts";
 
 /** What the fast path needs of a dialect, resolved to character codes. */
-interface Plan {
+export interface FastPlan {
   readonly separator: number;
   readonly separatorChar: string;
   /** The wrapper, or "" when quoting is off. */
@@ -41,7 +41,7 @@ const LF = 10;
  * need the grammar: a separator or wrapper of more than one character, an
  * escape other than a doubled wrapper, or an option that reshapes fields.
  */
-export const fastPlan = (dialect: CsvDialect, options: CsvScanOptions): Option.Option<Plan> => {
+export const fastPlan = (dialect: CsvDialect, options: CsvScanOptions): Option.Option<FastPlan> => {
   const { separator, wrapper, doubleWrapper } = dialect;
   const simple =
     separator.length === 1 &&
@@ -62,16 +62,17 @@ export const fastPlan = (dialect: CsvDialect, options: CsvScanOptions): Option.O
     wrapper,
     doubledWrapper: wrapper + wrapper,
     quote: wrapper === "" ? -1 : wrapper.charCodeAt(0),
-    filterEmpty: !!options.filterEmpty,
+    // the scan's default, for callers that pass options as given
+    filterEmpty: options.filterEmpty ?? true,
   });
 };
 
 /** Whether a character is the whitespace a blank line may hold (` \t\f\v`, less the separator). */
-const isBlank = (c: number, plan: Plan): boolean =>
+const isBlank = (c: number, plan: FastPlan): boolean =>
   c !== plan.separator && (c === 32 || c === 9 || c === 12 || c === 11);
 
 /** The index of the line break (or the end) ending a blank line at `p`, else -1. */
-const blankLineEnd = (text: string, p: number, plan: Plan): number => {
+const blankLineEnd = (text: string, p: number, plan: FastPlan): number => {
   let q = p;
   // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per line
   while (q < text.length && isBlank(text.charCodeAt(q), plan)) q++;
@@ -124,7 +125,7 @@ const find = (text: string, c: string, p: number): number => {
 };
 
 /** The end of unquoted text at `p`: the next separator or line break, or the end. */
-const unquotedEnd = (text: string, p: number, plan: Plan, scan: Scan): number => {
+const unquotedEnd = (text: string, p: number, plan: FastPlan, scan: Scan): number => {
   if (scan.separator < p) scan.separator = find(text, plan.separatorChar, p);
   if (scan.lf < p) scan.lf = find(text, "\n", p);
   if (scan.cr < p) scan.cr = find(text, "\r", p);
@@ -136,7 +137,7 @@ const unquotedEnd = (text: string, p: number, plan: Plan, scan: Scan): number =>
  * The index of the wrapper closing a quoted field whose content starts at
  * `from`: the first one not doubled. -1 if the field is never closed.
  */
-const closingWrapper = (text: string, from: number, plan: Plan, scan: Scan): number => {
+const closingWrapper = (text: string, from: number, plan: FastPlan, scan: Scan): number => {
   let i = text.indexOf(plan.wrapper, from);
   scan.doubled = false;
   // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
@@ -152,7 +153,7 @@ const unquote = (
   text: string,
   start: number,
   close: number,
-  plan: Plan,
+  plan: FastPlan,
   doubled: boolean,
 ): string => {
   const raw = text.slice(start, close);
@@ -164,7 +165,7 @@ const unquote = (
  * wrappers halved, then any text after the closing wrapper as written. The
  * index past it, or -1 if it is never closed.
  */
-const readQuoted = (text: string, p: number, plan: Plan, scan: Scan): number => {
+const readQuoted = (text: string, p: number, plan: FastPlan, scan: Scan): number => {
   const close = closingWrapper(text, p + 1, plan, scan);
   if (close === -1) return -1;
   const value = unquote(text, p + 1, close, plan, scan.doubled);
@@ -174,16 +175,17 @@ const readQuoted = (text: string, p: number, plan: Plan, scan: Scan): number => 
 };
 
 /**
- * Read the record at `p` onto `rows`, as the grammar does: fields up to the
- * line break, a quoted one with any text after its closing wrapper kept as
- * written. The index past its line break, or -1 on an unclosed quote.
+ * Read the record at `p` and hand it to `onRow`, as the grammar reads it:
+ * fields up to the line break, a quoted one with any text after its closing
+ * wrapper kept as written. The index past its line break, {@link UNCLOSED}
+ * on an unclosed quote, or {@link STOPPED} when `onRow` returns false.
  */
 const readRecord = (
   text: string,
   start: number,
-  plan: Plan,
+  plan: FastPlan,
   scan: Scan,
-  rows: Array<ReadonlyArray<string>>,
+  onRow: (fields: Array<string>) => boolean,
 ): number => {
   const fields = scan.template.slice();
   let p = start;
@@ -193,7 +195,7 @@ const readRecord = (
     let value: string;
     if (text.charCodeAt(p) === plan.quote) {
       p = readQuoted(text, p, plan, scan);
-      if (p === -1) return -1;
+      if (p === -1) return UNCLOSED;
       value = scan.quoted;
     } else {
       const end = unquotedEnd(text, p, plan, scan);
@@ -211,24 +213,55 @@ const readRecord = (
     fields.length = n;
     scan.template = fields.map(() => "");
   }
-  rows.push(fields);
+  if (!onRow(fields)) return STOPPED;
   return afterLineBreak(text, p);
 };
 
+/** {@link readRecord}: a quoted field is never closed. */
+const UNCLOSED = -1;
+/** {@link readRecord}: the row callback stopped the scan. */
+const STOPPED = -2;
+
+/** How a {@link fastEachRow} scan ended. */
+export type FastScanEnd = "done" | "unclosed" | "stopped";
+
 /**
- * Scan `text` as the row grammar does under `plan`: its records, blank lines
- * left out when `filterEmpty` is set; none if a quoted field is never closed
- * (the grammar reports where).
+ * Scan `text` as the row grammar does under `plan`, handing each record to
+ * `onRow` as soon as it is read (blank lines left out when `filterEmpty` is
+ * set), so a caller can build from a row and let it go. `onRow` returns
+ * false to stop. `"unclosed"` if a quoted field is never closed (the grammar
+ * reports where).
  */
-export const fastScan = (text: string, plan: Plan): Option.Option<Array<ReadonlyArray<string>>> => {
-  const rows: Array<ReadonlyArray<string>> = [];
+export const fastEachRow = (
+  text: string,
+  plan: FastPlan,
+  onRow: (fields: Array<string>) => boolean,
+): FastScanEnd => {
   const scan: Scan = { separator: -1, lf: -1, cr: -1, template: [], doubled: false, quoted: "" };
   let p = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
   while (p < text.length) {
     const blank = plan.filterEmpty ? blankLineEnd(text, p, plan) : -1;
-    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, rows);
-    if (p === -1) return Option.none();
+    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, onRow);
+    if (p === UNCLOSED) return "unclosed";
+    if (p === STOPPED) return "stopped";
   }
-  return Option.some(rows);
+  return "done";
+};
+
+/**
+ * Scan `text` as the row grammar does under `plan`: its records, blank lines
+ * left out when `filterEmpty` is set; none if a quoted field is never closed
+ * (the grammar reports where). `text` has no byte order mark.
+ */
+export const fastScan = (
+  text: string,
+  plan: FastPlan,
+): Option.Option<Array<ReadonlyArray<string>>> => {
+  const rows: Array<ReadonlyArray<string>> = [];
+  const end = fastEachRow(text, plan, (fields) => {
+    rows.push(fields);
+    return true;
+  });
+  return end === "done" ? Option.some(rows) : Option.none();
 };

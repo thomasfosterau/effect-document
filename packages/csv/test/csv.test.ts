@@ -10,6 +10,7 @@ import {
   cell,
   document,
   type Document,
+  encodeDocument,
   type ParseError,
   type SheetCell,
   IndexedCell,
@@ -608,6 +609,80 @@ describe("CSV scanner fast path", () => {
     // the grammar's position: the end of the input, where the closing quote was due
     expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 2, column: 0 });
     expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
+  });
+});
+
+/** A read's encoded document, or its failure's reason. */
+const readOutcome = (options: CsvReaderOptions, csv: string) =>
+  Result.match(
+    Effect.runSync(
+      Effect.result(
+        Effect.flatMap(makeCsvReader(options).read(text(csv)), (doc) => encodeDocument(doc)),
+      ),
+    ),
+    {
+      onSuccess: (doc) => ({ doc }),
+      onFailure: (e) => ({ reason: Predicate.isTagged(e, "ParseError") ? e.reason : e.message }),
+    },
+  );
+
+/** A general-path outcome with the junk line's offset taken out of its row numbers. */
+const unshift = (o: ReturnType<typeof readOutcome>) =>
+  "reason" in o
+    ? {
+        reason: o.reason.replace(
+          /^Row (\d+)/,
+          (_match: string, n: string) => `Row ${Number(n) - 1}`,
+        ),
+      }
+    : o;
+
+describe("CSV reader fast path", () => {
+  // `read` types rows in one pass (src/fused.ts) when it can, and otherwise
+  // takes the general path; `skipRows: 1` after a junk first line forces the
+  // general path on the same rows, so the two must give the same document,
+  // or the same failure.
+  let seed = 19;
+  const next = (n: number) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % n;
+  };
+  const pools = [
+    ["1", "2.5", "-3", "", "1e2"],
+    ["true", "false", ""],
+    ["a", "b c", '"q, r"', ""],
+    ["1", "2", "x"],
+    ["", ""],
+    ["true", "1"],
+  ];
+  const table = (): string => {
+    const columns = Arr.makeBy(1 + next(4), () => pools[next(pools.length)] ?? []);
+    const header = next(2) === 0 ? [columns.map((_, c) => `h${c}`)] : [];
+    const rows = Arr.makeBy(next(6), () => {
+      const row = columns.map((pool) => pool[next(pool.length)] ?? "");
+      // now and then a row of another width
+      return next(12) === 0 ? row.slice(1) : row;
+    });
+    return [...header, ...rows].map((r) => r.join(",")).join(next(2) === 0 ? "\n" : "\r\n");
+  };
+  const optionSets: ReadonlyArray<CsvReaderOptions> = [
+    {},
+    { treatFirstRowAsHeader: true },
+    { treatFirstRowAsHeader: false },
+    { inference: "cell" },
+    { inferTypes: false },
+    { inferTypes: false, treatFirstRowAsHeader: true },
+    { allowVariableColumns: true },
+    { allowVariableColumns: true, treatFirstRowAsHeader: true, inference: "cell" },
+  ];
+  test("gives the general path's document or failure", () => {
+    const tables = Arr.makeBy(1500, table);
+    const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
+    const fast = cases.map(({ options, csv }) => readOutcome(options, csv));
+    const general = cases.map(({ options, csv }) =>
+      unshift(readOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`)),
+    );
+    expect(fast).toEqual(general);
   });
 });
 

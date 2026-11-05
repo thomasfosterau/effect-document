@@ -179,6 +179,27 @@ export const trustedDenseRow = (
 };
 
 /**
+ * A row at `index` (a non-negative integer) whose cell at column `n` is
+ * `toCell(items[n], n)`, each built straight into its indexed cell: through
+ * the trusted constructor when it is an instance, else `new IndexedCell`
+ * (which checks and converts it, as `new SheetRow` would).
+ */
+export const trustedRowFrom = <A>(
+  index: number,
+  items: ReadonlyArray<A>,
+  toCell: (item: A, col: number) => SheetCell,
+): SheetRow => {
+  const row: Types.Mutable<SheetRow> = Object.create(SheetRow.prototype);
+  row.index = index;
+  row.cells = items.map((item, col) => {
+    const c = toCell(item, col);
+    return isCellInstance(c) ? trustedIndexedCell(col, c) : new IndexedCell({ col, cell: c });
+  });
+  row.height = undefined;
+  return row;
+};
+
+/**
  * A row at `index` (a non-negative integer) of `[column, cell]` entries whose
  * columns are non-negative integers in strictly ascending order, each cell an
  * instance. Without a height it has no `height` key, as `sparseRow`'s

@@ -9,7 +9,7 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { CellBlank, IndexedCell, type SheetCell, SheetRow, type Worksheet } from "./ast.ts";
-import { isCellInstance, trustedDenseRow, trustedSparseRow } from "./trusted.ts";
+import { isCellInstance, trustedDenseRow, trustedRowFrom, trustedSparseRow } from "./trusted.ts";
 
 /** A worksheet's extent: one past its last row index and one past its last column. */
 export interface SheetExtent {
@@ -148,6 +148,26 @@ export const sheetRow = (
         cells: cells.map((cell, col) => new IndexedCell({ col, cell })),
         height,
       });
+
+/**
+ * A dense row built from any values: the cell at column `n` is
+ * `toCell(items[n], n)`. It is `sheetRow(index, items.map(toCell))` without
+ * the array of cells in between (readers build one row per line of a file),
+ * and fails as `sheetRow` does.
+ *
+ * @example
+ * ```ts
+ * import { cell, sheetRowFrom } from "@thomasfosterau/effect-document"
+ *
+ * sheetRowFrom(0, ["a", "b"], (value) => cell.text(value))
+ * ```
+ */
+export const sheetRowFrom = <A>(
+  index: number,
+  items: ReadonlyArray<A>,
+  toCell: (item: A, col: number) => SheetCell,
+): SheetRow =>
+  isPosition(index) ? trustedRowFrom(index, items, toCell) : sheetRow(index, items.map(toCell));
 
 /**
  * A sparse row from its cells' `[column, cell]` entries, in strictly

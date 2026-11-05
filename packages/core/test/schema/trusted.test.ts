@@ -12,6 +12,7 @@ import {
   Worksheet,
   cell,
   sheetRow,
+  sheetRowFrom,
   sparseRow,
   str,
   worksheet,
@@ -35,6 +36,9 @@ const SAME = { prototype: true, keys: true, equal: true };
 
 /** What a schema pass that rejects its input throws. */
 const INVALID = "Schema validation failed";
+
+/** A cell from a string: text in column 0, a number after. */
+const toCell = (v: string, col: number) => (col === 0 ? cell.text(v) : cell.number(Number(v)));
 
 describe("constructors without the schema pass", () => {
   test("cells and text runs are the nodes `new` builds", () => {
@@ -61,6 +65,14 @@ describe("constructors without the schema pass", () => {
     expect(shape(trusted, built)).toEqual(SAME);
     expect(trusted).toStrictEqual(built);
     expect(trusted.cells[1]).toStrictEqual(built.cells[1]);
+  });
+
+  test("sheetRowFrom is sheetRow of the mapped cells", () => {
+    const values = ["a", "2"];
+    const built = sheetRow(1, values.map(toCell));
+    expect(shape(sheetRowFrom(1, values, toCell), built)).toEqual(SAME);
+    expect(sheetRowFrom(1, values, toCell)).toStrictEqual(built);
+    expect(() => sheetRowFrom(-1, values, toCell)).toThrow(INVALID);
   });
 
   test("sparseRow is `new SheetRow`, with no height key unless one is given", () => {

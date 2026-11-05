@@ -10,6 +10,7 @@
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import { pipe } from "effect/Function";
@@ -32,6 +33,8 @@ import {
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
 import { scanCsv, scanCsvStream, type CsvScanOptions } from "./scanner.ts";
+import { fastPlan } from "./fast.ts";
+import { type ColumnKind, type FusedOptions, fusedRows, type Typing } from "./fused.ts";
 
 /** The features the CSV profile allows, as a type: the phantom of its documents. */
 export type CsvFeature = FeaturesOf<typeof Csv>;
@@ -330,9 +333,6 @@ const sniffHeader = (
   });
 };
 
-/** A column's type so far: `blank` while it holds only blanks. */
-type ColumnKind = "number" | "boolean" | "text" | "blank";
-
 /**
  * Type rows of raw values, by column or by cell.
  *
@@ -425,6 +425,38 @@ const merge = (column: ColumnKind, kind: ColumnKind): ColumnKind =>
 // Reader
 // ============================================================================
 
+const stripBom = (text: string): string => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
+/**
+ * The reader's one-pass read for these options (`fused.ts`), or none when
+ * they need the general path: a dialect or option the fast scanner leaves to
+ * the grammar, provided headers, or header validation.
+ */
+const fusedRead = (
+  dialect: CsvDialect,
+  options: CsvReaderOptions,
+  inferTypes: boolean,
+  classifier: Classifier,
+): Option.Option<(text: string) => Option.Option<ReadonlyArray<SheetRow>>> => {
+  if (options.providedHeaders !== undefined || options.validateHeaders) return Option.none();
+  const header = options.treatFirstRowAsHeader;
+  const fusedOptions: FusedOptions = {
+    header: header === undefined ? "sniff" : header ? "first" : "data",
+    inferTypes,
+    byCell: options.inference === "cell",
+    checkWidths: !options.allowVariableColumns,
+  };
+  const typing: Typing = {
+    ...classifier,
+    cellOf: (raw) => toCell(raw, classifier.classify(raw)),
+    booleanOf: (raw) => classifier.asBoolean(raw) ?? false,
+  };
+  return Option.map(
+    fastPlan(dialect, options),
+    (plan) => (text: string) => fusedRows(text, plan, fusedOptions, typing),
+  );
+};
+
 /** Create a CSV Reader with the given options baked in. */
 export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> => {
   const dialect = options?.dialect ?? StandardDialect;
@@ -436,9 +468,27 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const sniff =
     options?.treatFirstRowAsHeader === undefined && options?.providedHeaders === undefined;
 
+  // the one-pass read (fused.ts), for the options it covers
+  const fused = fusedRead(dialect, options ?? {}, inferTypes, classifier);
+  const asDocument = (rows: ReadonlyArray<SheetRow>): Doc<CsvFeature> =>
+    trustAs<CsvFeature>(document([worksheetFromRows(sheetName, rows)]));
+
   const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
+    Effect.suspend(() => {
+      const source = contentToText(input);
+      return Option.match(
+        Option.flatMap(fused, (one) => one(stripBom(source))),
+        {
+          onSome: (rows) => Effect.succeed(asDocument(rows)),
+          onNone: () => generalRead(source),
+        },
+      );
+    });
+
+  /** The general path: scan, then type by column, then build. */
+  const generalRead = (source: string): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     pipe(
-      scanCsv(contentToText(input), dialect, options),
+      scanCsv(source, dialect, options),
       Effect.map((scanned) => {
         const first = scanned.rows[0];
         // the rest copied out only when the sniff takes the first row
