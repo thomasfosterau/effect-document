@@ -93,11 +93,19 @@ export const DEFAULT_MAX_CELLS = 5_000_000;
 // OOXML package navigation
 // ============================================================================
 
-/** A required part, parsed; failures keep the part name and XML position. */
-const parsePart = (pkg: OpcReader, path: string): Effect.Effect<XmlElement, ParseError> =>
+/**
+ * A required part, parsed; failures keep the part name and XML position.
+ * `fastContentOf` names an element whose content is read by the XML layer's
+ * fast scanner (a worksheet's `sheetData`).
+ */
+const parsePart = (
+  pkg: OpcReader,
+  path: string,
+  fastContentOf?: string,
+): Effect.Effect<XmlElement, ParseError> =>
   Effect.try({
     try: () => {
-      const root = pkg.xml(path);
+      const root = pkg.xml(path, fastContentOf);
       if (root === null)
         throw new OpcError("MissingPart", `Missing required package part: ${path}`);
       return root;
@@ -318,7 +326,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
 
-            const worksheetRoot = yield* parsePart(pkg, target);
+            const worksheetRoot = yield* parsePart(pkg, target, "sheetData");
             const remaining = maxCells - allocated;
             const parsed = parseWorksheetRows(worksheetRoot, sharedStrings, remaining);
             if (Predicate.isTagged(parsed, "TooLarge")) {

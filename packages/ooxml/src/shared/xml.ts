@@ -18,6 +18,7 @@
 
 import * as Arr from "effect/Array";
 import { Compiler, ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
 // ============================================================================
@@ -503,12 +504,207 @@ const xmlTree: Parser.Parser<TreeBuilder, string> = /*#__PURE__*/ Compiler.jit(
 /**
  * Parse an XML document into its root element, or a `ParseError` that points
  * at the problem (line, column and what was expected). Never throws.
+ *
+ * With `fastContentOf`, the content of the first element of that name (a
+ * worksheet's `sheetData`, say: nearly all of a large part) is read by a
+ * scanner for simple markup (see {@link fastContent}), and the rest of the
+ * document by the parser; anything the scanner does not recognise leaves the
+ * whole document to the parser, so the result and every error are the
+ * parser's.
  */
 export const parseXmlResult = (
   xml: string,
-): Result.Result<XmlElement, ParseError.ParseError<string>> => {
-  const tree = Parser.parse(xmlTree, xml);
-  return Result.isSuccess(tree) ? tree.success.finish(xml) : Result.fail(tree.failure);
+  fastContentOf?: string,
+): Result.Result<XmlElement, ParseError.ParseError<string>> =>
+  Option.getOrElse(
+    fastContentOf === undefined ? Option.none() : parseWithFastContent(xml, fastContentOf),
+    () => {
+      const tree = Parser.parse(xmlTree, xml);
+      return Result.isSuccess(tree) ? tree.success.finish(xml) : Result.fail(tree.failure);
+    },
+  );
+
+// ---- the fast content scanner -----------------------------------------------
+
+/** Whether a character may be in a name the fast scanner reads: ASCII letters and digits. */
+const isFastNameCode = (c: number): boolean =>
+  (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57);
+
+/** The end of the name at `p` the fast scanner reads (a letter, then letters and digits), or -1. */
+const fastNameEnd = (xml: string, p: number): number => {
+  const c = xml.charCodeAt(p);
+  if (!((c >= 97 && c <= 122) || (c >= 65 && c <= 90))) return -1;
+  let j = p + 1;
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per tag of a large part (bench/xlsx.bench.ts)
+  while (isFastNameCode(xml.charCodeAt(j))) j++;
+  return j;
+};
+
+const isSpaceCode = (c: number): boolean => c === 32 || c === 9 || c === 10 || c === 13;
+
+/** A start tag the fast scanner read: its attributes, the index past it, and whether it is empty. */
+interface FastTag {
+  readonly attrs: Record<string, string>;
+  readonly end: number;
+  readonly empty: boolean;
+}
+
+/**
+ * The attributes of the start tag whose name ends at `p`, as the parser reads
+ * them, or none for anything it must judge: a name with a prefix or other
+ * characters, `xmlns`, spaces around `=`, a name given twice.
+ */
+const fastStartTag = (xml: string, p: number): Option.Option<FastTag> => {
+  const attrs: Record<string, string> = {};
+  let j = p;
+  // oxlint-disable-next-line effect/imperative-loops -- once per attribute of a tag of a large part
+  for (;;) {
+    const spaced = j;
+    // oxlint-disable-next-line effect/imperative-loops -- a character scan over whitespace
+    while (isSpaceCode(xml.charCodeAt(j))) j++;
+    const c = xml.charCodeAt(j);
+    if (c === 62) return Option.some({ attrs, end: j + 1, empty: false });
+    if (c === 47)
+      return xml.charCodeAt(j + 1) === 62
+        ? Option.some({ attrs, end: j + 2, empty: true })
+        : Option.none();
+    j = j === spaced ? -1 : fastAttribute(xml, j, attrs);
+    if (j === -1) return Option.none();
+  }
+};
+
+/**
+ * Read the attribute `name="value"` at `j` into `attrs`: the index past it,
+ * or -1 for anything {@link fastStartTag} leaves to the parser.
+ */
+const fastAttribute = (xml: string, j: number, attrs: Record<string, string>): number => {
+  const nameEnd = fastNameEnd(xml, j);
+  const quote = xml.charCodeAt(nameEnd + 1);
+  if (nameEnd === -1 || xml.charCodeAt(nameEnd) !== 61 || (quote !== 34 && quote !== 39)) return -1;
+  const close = xml.indexOf(quote === 34 ? '"' : "'", nameEnd + 2);
+  const name = xml.slice(j, nameEnd);
+  if (close === -1 || name === "xmlns" || Object.hasOwn(attrs, name)) return -1;
+  attrs[name] = unescapeXml(xml.slice(nameEnd + 2, close));
+  return close + 1;
+};
+
+/** The fast scan's open elements, the outermost first. */
+interface FastScan {
+  readonly stack: Array<MutableElement>;
+  p: number;
+}
+
+/**
+ * Take the markup at `lt` (a `<`) into the scan: a closing tag closes the
+ * open element it names, a start tag opens (or, empty, adds) a child of it.
+ * False for markup the scanner leaves to the parser: a comment, CDATA, a
+ * processing instruction, a prefixed or unusual name, a mismatched tag.
+ */
+const fastTag = (xml: string, lt: number, scan: FastScan, ns: string): boolean => {
+  const top = scan.stack.at(-1);
+  if (top === undefined) return false;
+  if (xml.charCodeAt(lt + 1) === 47) {
+    const nameEnd = fastNameEnd(xml, lt + 2);
+    if (nameEnd === -1 || xml.charCodeAt(nameEnd) !== 62) return false;
+    if (xml.slice(lt + 2, nameEnd) !== top.name) return false;
+    scan.stack.pop();
+    scan.p = nameEnd + 1;
+    return true;
+  }
+  const nameEnd = fastNameEnd(xml, lt + 1);
+  const tag = nameEnd === -1 ? Option.none<FastTag>() : fastStartTag(xml, nameEnd);
+  if (Option.isNone(tag)) return false;
+  const el: MutableElement = {
+    name: xml.slice(lt + 1, nameEnd),
+    ns,
+    attrs: tag.value.attrs,
+    children: [],
+    text: "",
+  };
+  top.children.push(el);
+  if (!tag.value.empty) scan.stack.push(el);
+  scan.p = tag.value.end;
+  return true;
+};
+
+/**
+ * The content of `outer` from `from` to its closing tag, read by a scanner
+ * for simple markup: elements with plain names (no prefix) in `outer`'s
+ * namespace, attributes with plain names, and text, as the parser would build
+ * them. None at anything else, for the parser to judge. The index past the
+ * closing tag when it succeeds.
+ */
+const fastContent = (xml: string, from: number, outer: MutableElement): Option.Option<number> => {
+  const scan: FastScan = { stack: [outer], p: from };
+  // oxlint-disable-next-line effect/imperative-loops -- once per tag of a large part (bench/xlsx.bench.ts)
+  while (Arr.isReadonlyArrayNonEmpty(scan.stack)) {
+    const lt = xml.indexOf("<", scan.p);
+    const top = scan.stack.at(-1);
+    if (lt === -1 || top === undefined) return Option.none();
+    if (lt > scan.p) top.text += unescapeXml(xml.slice(scan.p, lt));
+    if (!fastTag(xml, lt, scan, outer.ns)) return Option.none();
+  }
+  return Option.some(scan.p);
+};
+
+/**
+ * {@link parseXmlResult} with the content of the first `<name>` element read
+ * by {@link fastContent}: the parser reads the document with that content cut
+ * out (so the rest is checked as before), and the scanned content is put back
+ * into its element. None when the scanner cannot read it, or the cut document
+ * does not parse, for the parser to read the whole document instead.
+ */
+const parseWithFastContent = (
+  xml: string,
+  name: string,
+): Option.Option<Result.Result<XmlElement, ParseError.ParseError<string>>> => {
+  const start = xml.indexOf(`<${name}`);
+  // a comment, CDATA or declaration before it could hide or fake the tag
+  if (start === -1 || xml.lastIndexOf("<!", start) !== -1) return Option.none();
+  const tag = fastStartTag(xml, start + 1 + name.length);
+  if (Option.isNone(tag) || tag.value.empty) return Option.none();
+  const outer: MutableElement = { name, ns: "", attrs: {}, children: [], text: "" };
+  const end = fastContent(xml, tag.value.end, outer);
+  if (Option.isNone(end)) return Option.none();
+  const closeStart = end.value - name.length - 3;
+  const tree = Parser.parse(xmlTree, xml.slice(0, tag.value.end) + xml.slice(closeStart));
+  if (Result.isFailure(tree)) return Option.none();
+  const root = tree.success.root;
+  const found = root === undefined ? Option.none() : firstNamed(root, name);
+  if (Option.isNone(found)) return Option.none();
+  const target = found.value;
+  // the cut element must be the one scanned: in the namespace the scan gave
+  // its children, and still empty
+  if (target.ns === NS_MCE || Arr.isReadonlyArrayNonEmpty(target.children) || target.text !== "")
+    return Option.none();
+  const finished = tree.success.finish(xml);
+  if (Result.isFailure(finished)) return Option.none();
+  setNamespace(outer.children, target.ns);
+  target.children = outer.children;
+  target.text = outer.text;
+  return Option.some(finished);
+};
+
+/** Give scanned elements, and every element within them, the namespace `ns`. */
+const setNamespace = (elements: ReadonlyArray<MutableElement>, ns: string): void => {
+  const todo = [...elements];
+  // oxlint-disable-next-line effect/imperative-loops -- an explicit-stack walk: a deep tree stays off the call stack
+  for (let el = todo.pop(); el !== undefined; el = todo.pop()) {
+    el.ns = ns;
+    todo.push(...el.children);
+  }
+};
+
+/** The first element named `name` in document order (a pre-order walk, without recursion). */
+const firstNamed = (root: MutableElement, name: string): Option.Option<MutableElement> => {
+  const todo: Array<MutableElement> = [root];
+  // oxlint-disable-next-line effect/imperative-loops -- an explicit-stack walk: a deep tree stays off the call stack
+  for (let el = todo.pop(); el !== undefined; el = todo.pop()) {
+    if (el.name === name) return Option.some(el);
+    // children pushed last first, so the walk is in document order
+    todo.push(...Arr.reverse(el.children));
+  }
+  return Option.none();
 };
 
 /**
