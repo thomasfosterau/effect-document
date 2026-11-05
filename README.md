@@ -85,7 +85,7 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 | CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.96×, Papa Parse 1.06×, d3-dsv 1.25×, csv-parse 4.2× |
 | CSV scan, every field quoted / all numbers | 2.7 MB / 4.2 MB | uDSV 0.96× / 0.85×, d3-dsv 1.50× / 1.06×, Papa Parse 2.31× / 1.95× |
 | CSV read (text → typed document) | 8 MB mixed / 80 KB | Papa Parse 0.93× / 1.07×, d3-dsv 1.08× / 1.0×, SheetJS (text → workbook) 4.3× / 4.2× |
-| CSV read, every field quoted / all numbers | 2.7 MB / 4.2 MB | Papa Parse 1.17× / 1.10×, d3-dsv 0.82× / 0.61× |
+| CSV read, every field quoted / all numbers | 2.7 MB / 4.2 MB | Papa Parse 1.39× / 1.17×, d3-dsv 1.0× / 0.45× |
 | CSV stream (64 KiB chunks) | 8 MB mixed | Papa Parse's Node stream 1.57×, csv-parse's 2.7× |
 | CSV write | 8 MB mixed | from a document: Papa Parse (from rows) 1.61×; `renderTable` (from rows): d3-dsv 1.07× |
 | XLSX read / write | 160k cells | SheetJS 0.79× / 1.30×, ExcelJS 0.91× / 2.0× |
