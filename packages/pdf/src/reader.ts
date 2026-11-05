@@ -16,6 +16,7 @@
 
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
+import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
 import * as Predicate from "effect/Predicate";
 import * as Effect from "effect/Effect";
@@ -59,15 +60,14 @@ const META_KEYS = [
 
 /** The document information dictionary as metadata. */
 export const readMeta = (file: PdfFile): Meta => {
-  const meta: Record<string, unknown> = {};
   const info = file.info;
-  for (const [key, name] of META_KEYS) {
-    const v = file.lookup(info, key);
-    if (!isString(v)) continue;
-    const text = decodeTextString(v.bytes).trim();
-    if (text !== "") meta[name] = text;
-  }
-  return meta;
+  return Rec.fromEntries(
+    META_KEYS.flatMap(([key, name]) => {
+      const v = file.lookup(info, key);
+      const text = isString(v) ? decodeTextString(v.bytes).trim() : "";
+      return text === "" ? [] : [[name, text] as const];
+    }),
+  );
 };
 
 /** `"LimitExceeded"` when the parser refused input nested too deeply. */

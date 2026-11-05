@@ -200,5 +200,5 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
  */
 export const trustAs = <F extends Feature>(doc: Document): Doc<F> =>
   // SAFETY: the caller guarantees the document was built within the profile `F`.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `trustAs` is the documented unchecked brand (core CLAUDE.md); a check here would be `validate`
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness -- `trustAs` is the documented unchecked brand (core CLAUDE.md); a check here would be `validate`
   doc as Doc<F>;

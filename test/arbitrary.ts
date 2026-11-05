@@ -12,6 +12,7 @@
  * property-testing work in #132.
  */
 
+import * as DateTime from "effect/DateTime";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Match from "effect/Match";
@@ -66,6 +67,9 @@ import {
   Worksheet,
   type Shape,
 } from "@thomasfosterau/effect-document";
+
+/** The first date the generated date cells count from. */
+const EPOCH_1990 = DateTime.makeUnsafe("1990-01-01T00:00:00.000Z");
 
 // ============================================================================
 // Primitive arbitraries
@@ -356,7 +360,8 @@ const cellOf = (feature: Feature): Arbitrary.Arbitrary<SheetCell> | undefined =>
     Match.when("cell.date", () =>
       Arbitrary.map(
         int(0, 20_000),
-        (days): SheetCell => new CellDate({ value: new Date(Date.UTC(1990, 0, 1 + days)) }),
+        (days): SheetCell =>
+          new CellDate({ value: DateTime.toDateUtc(DateTime.add(EPOCH_1990, { days })) }),
       ),
     ),
     Match.orElse(() => undefined),

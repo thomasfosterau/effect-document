@@ -94,10 +94,6 @@ export default defineConfig({
             "The `Buffer` global is typed `any` wherever @cloudflare/workers-types is loaded. Use Uint8Array / TextEncoder / DataView.",
         },
       ],
-      // `casting-awareness` is an awareness prompt, not a defect rule — it
-      // fires on every `as`, including the narrowings a byte-level decoder
-      // structurally requires. Stays visible as a warning.
-      "effect/casting-awareness": "warn",
       // Hard-codes abbreviations (`Arr`, `P`, `R`, …) with no options, so it is
       // unsatisfiable under the full-name convention (`import * as Option from
       // "effect/Option"`) this family shares with its consumers.
@@ -151,6 +147,8 @@ export default defineConfig({
       // value, a JSON metadata entry), and a PDF object is a union of
       // primitives that `typeof` discriminates. Each stays visible.
       "effect/no-unknown-parameters": "warn",
+      // One site: the stack-safe codec's `Own`, a node's own fields as the
+      // walker decodes them before the node class is built.
       "effect/no-unsafe-dictionary-type": "warn",
       "typescript/no-explicit-any": "off",
       "typescript/no-empty-object-type": "off",
@@ -230,10 +228,6 @@ export default defineConfig({
           "effect/avoid-ts-ignore": "off",
         },
       },
-      // Test fixtures are the seams under test, not domain code: a
-      // wall-clock `Date` standing in for a publication stamp, a `CI`
-      // variable toggled to drive a reporter. Each stays visible as a
-      // warning, because a fixture cannot be written another way.
       {
         files: ["**/test/**/*.ts"],
         rules: {
@@ -243,10 +237,6 @@ export default defineConfig({
           "effect/effect-run-in-body": "off",
           // ...and provides the layers the effect under test needs.
           "effecttsgo/strict-effect-provide": "off",
-          "effect/require-safety-comment-for-type-assertion": "warn",
-          "effect/use-clock-service": "warn",
-          "effect/avoid-process-env": "warn",
-          "effect/require-effect-concurrency": "warn",
           // Table-driven cases run one after another so a failure names its
           // case; a `Promise.all` over them would interleave the runs.
           "eslint/no-await-in-loop": "off",

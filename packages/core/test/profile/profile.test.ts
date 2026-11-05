@@ -1,4 +1,5 @@
 import { assert, describe, expect, test } from "vite-plus/test";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -44,7 +45,9 @@ const mkJson = (cellJson: { readonly _tag: string; readonly value: string }) => 
 describe("profile conformance", () => {
   const csvDoc = document([worksheet("S", [[cell.text("a"), cell.number(1)]])]);
   const richDoc = document([
-    worksheet("S", [[cell.date(new Date())]]),
+    worksheet("S", [
+      [cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-01-02T00:00:00.000Z")))],
+    ]),
     worksheet("S2", [[cell.number(2)]]),
   ]);
 

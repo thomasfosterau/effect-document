@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import {
@@ -37,7 +38,10 @@ describe("widen", () => {
 describe("narrow: spreadsheet -> csv (the Excel -> CSV case)", () => {
   const excel = document([
     worksheet("Jan", [
-      [cell.text("item"), cell.date(new Date("2026-01-02T00:00:00.000Z"))],
+      [
+        cell.text("item"),
+        cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-01-02T00:00:00.000Z"))),
+      ],
       [cell.formula("=A1", "cached"), cell.number(3)],
     ]),
     worksheet("Feb", [[cell.number(9)]]),

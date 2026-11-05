@@ -109,9 +109,7 @@ describe("Numbers reader (real .numbers fixture, structure only)", () => {
   test("reads the sheet names into (empty) worksheets", () => {
     const doc = run(Numbers.makeNumbersReader().read(bytes(fixture("test-1.numbers"))));
     expect(Numbers.Numbers.is(doc)).toBe(true);
-    const names = doc.blocks
-      .filter((b) => Predicate.isTagged(b, "Worksheet"))
-      .map((b) => (b as { name: string }).name);
+    const names = doc.blocks.flatMap((b) => (Predicate.isTagged(b, "Worksheet") ? [b.name] : []));
     expect(names).toEqual(["ZZZ_Sheet_1", "ZZZ_Sheet_2"]);
   });
 });

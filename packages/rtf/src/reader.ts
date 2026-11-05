@@ -281,12 +281,9 @@ const decoderFor = (cp: number): Decode => {
         ? decodeCp1252
         : Result.getOrElse(
             Result.map(
-              // SAFETY: some TypeScript DOM libs type the label as a fixed
-              // union, but any WHATWG encoding label is accepted at runtime
-              // (and an unknown one throws, which falls back to cp1252 below)
-              Result.try(
-                () => new TextDecoder(label as ConstructorParameters<typeof TextDecoder>[0]),
-              ),
+              // any WHATWG encoding label is accepted at runtime (and an
+              // unknown one throws, which falls back to cp1252 below)
+              Result.try(() => new TextDecoder(label)),
               (textDecoder): Decode =>
                 (bytes) =>
                   textDecoder.decode(bytes),

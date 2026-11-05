@@ -16,6 +16,7 @@ import {
   header,
   type Inline,
   link,
+  type Meta,
   orderedList,
   para,
   plainText,
@@ -53,20 +54,15 @@ import {
 } from "../src/cos/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
-const doc = (blocks: ReadonlyArray<Block>, meta: Record<string, unknown> = {}) =>
+const doc = (blocks: ReadonlyArray<Block>, meta: Meta = {}) =>
   trustAs<PdfFeature>(document(blocks, meta));
-const write = (
-  blocks: ReadonlyArray<Block>,
-  meta?: Record<string, unknown>,
-  options = {},
-): Uint8Array => {
+const write = (blocks: ReadonlyArray<Block>, meta?: Meta, options = {}): Uint8Array => {
   const c = run(makePdfWriter(options).write(doc(blocks, meta)));
   assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
   return c.bytes;
 };
 const read = (data: Uint8Array) => run(makePdfReader().read(bytes(data)));
-const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Record<string, unknown>) =>
-  read(write(blocks, meta));
+const roundTrip = (blocks: ReadonlyArray<Block>, meta?: Meta) => read(write(blocks, meta));
 /** Reads one of the PDFs under `test/fixtures` (provenance: its README). */
 const fixture = (name: string): Promise<Uint8Array> =>
   Effect.runPromise(

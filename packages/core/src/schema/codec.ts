@@ -152,7 +152,7 @@ const kind = (cls: NodeClass, children: ReadonlyArray<Child> = []): Kind => {
   const ownFields = Rec.filter(cls.fields, (_, key) => !children.some((c) => c.key === key));
   // SAFETY: the node fields are plain data schemas with no services, so the
   // struct of a subset of them decodes and encodes records without context.
-  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion -- `Rec.filter` widens the fields to `Schema.Struct.Fields`, whose services are `unknown`; the node classes' fields need none, which the types can't carry through the filter
+  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness -- `Rec.filter` widens the fields to `Schema.Struct.Fields`, whose services are `unknown`; the node classes' fields need none, which the types can't carry through the filter
   const own = Schema.Struct(ownFields) as unknown as Schema.Codec<Own, Own>;
   return {
     cls,
@@ -523,7 +523,7 @@ export const encodeDocumentResult = (
   Result.mapBoth(walk(document, DOCUMENT, encoding), {
     onFailure: (issue) => new Schema.SchemaError(issue),
     // SAFETY: the root is encoded field by field with `Document`'s own and recursive fields.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the walker builds plain JSON field by field from `Document`'s own schemas; a deep `Schema.is` to prove it would bring back the recursion the walker exists to avoid (#191)
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness -- the walker builds plain JSON field by field from `Document`'s own schemas; a deep `Schema.is` to prove it would bring back the recursion the walker exists to avoid (#191)
     onSuccess: (json) => json as DocumentEncoded,
   });
 

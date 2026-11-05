@@ -1,4 +1,5 @@
 import { assert, describe, expect, test } from "vite-plus/test";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
@@ -167,7 +168,12 @@ describe("the stack-safe Document codec (#191)", () => {
           items: [[para([link([str("x")], "#a", "t")])], [codeBlock("c", "ts")]],
         }),
         worksheet("S", [
-          [cell.text("a"), cell.date(new Date(0)), cell.formula("A1", "1"), cell.number(-1)],
+          [
+            cell.text("a"),
+            cell.date(DateTime.toDateUtc(DateTime.makeUnsafe(0))),
+            cell.formula("A1", "1"),
+            cell.number(-1),
+          ],
         ]),
         new Para({ content: [new Emph({ content: [] })] }),
       ],
