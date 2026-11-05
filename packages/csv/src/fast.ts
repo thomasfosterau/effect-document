@@ -24,8 +24,11 @@ import type { CsvScanOptions } from "./scanner.ts";
 /** What the fast path needs of a dialect, resolved to character codes. */
 interface Plan {
   readonly separator: number;
+  readonly separatorChar: string;
   /** The wrapper, or "" when quoting is off. */
   readonly wrapper: string;
+  /** The wrapper doubled: how it is written inside a quoted field. */
+  readonly doubledWrapper: string;
   readonly quote: number;
   readonly filterEmpty: boolean;
 }
@@ -55,7 +58,9 @@ export const fastPlan = (dialect: CsvDialect, options: CsvScanOptions): Option.O
   if (!simple || !plain) return Option.none();
   return Option.some({
     separator: separator.charCodeAt(0),
+    separatorChar: separator,
     wrapper,
+    doubledWrapper: wrapper + wrapper,
     quote: wrapper === "" ? -1 : wrapper.charCodeAt(0),
     filterEmpty: !!options.filterEmpty,
   });
@@ -81,10 +86,10 @@ const afterLineBreak = (text: string, p: number): number => {
   return c === LF ? p + 1 : p;
 };
 
-/** The index of the separator or line break (or the end) after unquoted text at `p`. */
+/** The index of the separator or line break (or the end) after text at `p`, a character at a time. */
 const textEnd = (text: string, p: number, separator: number): number => {
   let q = p;
-  // oxlint-disable-next-line effect/imperative-loops -- a character scan, once per unquoted field: the measured hot path (bench/csv.bench.ts)
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan, of the text after a closing wrapper (almost always none)
   for (; q < text.length; q++) {
     const c = text.charCodeAt(q);
     if (c === separator || c === LF || c === CR) break;
@@ -93,96 +98,137 @@ const textEnd = (text: string, p: number, separator: number): number => {
 };
 
 /**
+ * The scan's state between fields: where the next separator, LF and CR are
+ * (each found with `indexOf`, a native search, and searched for again only
+ * once the scan has passed it: one search per field for the separator, one
+ * per line for the line break, and for a file without CRs one in all), and
+ * the row of the previous record's width that each record's fields start as
+ * a copy of (exactly as long as the row and packed, where an array grown by
+ * `push` reserves 17 slots on its first push).
+ */
+interface Scan {
+  separator: number;
+  lf: number;
+  cr: number;
+  template: Array<string>;
+  /** Whether the quoted field just read holds a doubled wrapper. */
+  doubled: boolean;
+  /** The value of the quoted field just read. */
+  quoted: string;
+}
+
+/** The index of `c` at or after `p` in `text`, or its length if there is none. */
+const find = (text: string, c: string, p: number): number => {
+  const i = text.indexOf(c, p);
+  return i === -1 ? text.length : i;
+};
+
+/** The end of unquoted text at `p`: the next separator or line break, or the end. */
+const unquotedEnd = (text: string, p: number, plan: Plan, scan: Scan): number => {
+  if (scan.separator < p) scan.separator = find(text, plan.separatorChar, p);
+  if (scan.lf < p) scan.lf = find(text, "\n", p);
+  if (scan.cr < p) scan.cr = find(text, "\r", p);
+  const end = scan.separator < scan.lf ? scan.separator : scan.lf;
+  return scan.cr < end ? scan.cr : end;
+};
+
+/**
  * The index of the wrapper closing a quoted field whose content starts at
  * `from`: the first one not doubled. -1 if the field is never closed.
  */
-const closingWrapper = (text: string, from: number, plan: Plan): number => {
+const closingWrapper = (text: string, from: number, plan: Plan, scan: Scan): number => {
   let i = text.indexOf(plan.wrapper, from);
+  scan.doubled = false;
   // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
-  while (i !== -1 && text.charCodeAt(i + 1) === plan.quote) i = text.indexOf(plan.wrapper, i + 2);
+  while (i !== -1 && text.charCodeAt(i + 1) === plan.quote) {
+    scan.doubled = true;
+    i = text.indexOf(plan.wrapper, i + 2);
+  }
   return i;
 };
 
-/** The scan's position and the field it has just read. */
-interface Cursor {
-  p: number;
-  field: string;
-  /**
-   * A row of the previous record's width, filled with "": each record's
-   * fields start as a copy of it. A copy is exactly as long as the row and
-   * packed, where an array grown by `push` from empty reserves 17 slots on
-   * its first push (most of the scan's memory, so of its collection time).
-   */
-  template: Array<string>;
-}
-
-/**
- * Read the field at `cursor.p` into `cursor.field` and move past it: a quoted
- * field (its doubled wrappers halved, then any text after the closing wrapper,
- * kept as written) or unquoted text. False on an unclosed quote.
- */
-const readField = (text: string, cursor: Cursor, plan: Plan): boolean => {
-  const p = cursor.p;
-  if (text.charCodeAt(p) !== plan.quote) {
-    const end = textEnd(text, p, plan.separator);
-    cursor.field = text.slice(p, end);
-    cursor.p = end;
-    return true;
-  }
-  const close = closingWrapper(text, p + 1, plan);
-  if (close === -1) return false;
-  const raw = text.slice(p + 1, close);
-  // a wrapper inside the content is always half of a doubled pair
-  const value = raw.includes(plan.wrapper)
-    ? raw.replaceAll(plan.wrapper + plan.wrapper, plan.wrapper)
-    : raw;
-  const end = textEnd(text, close + 1, plan.separator);
-  cursor.field = end === close + 1 ? value : value + text.slice(close + 1, end);
-  cursor.p = end;
-  return true;
+/** A quoted field's value: its content, each doubled wrapper halved if it has any. */
+const unquote = (
+  text: string,
+  start: number,
+  close: number,
+  plan: Plan,
+  doubled: boolean,
+): string => {
+  const raw = text.slice(start, close);
+  return doubled ? raw.replaceAll(plan.doubledWrapper, plan.wrapper) : raw;
 };
 
-/** Read the record at `cursor.p`, up to its line break; false on an unclosed quote. */
+/**
+ * Read the quoted field at `p` into `scan.quoted`: its content, doubled
+ * wrappers halved, then any text after the closing wrapper as written. The
+ * index past it, or -1 if it is never closed.
+ */
+const readQuoted = (text: string, p: number, plan: Plan, scan: Scan): number => {
+  const close = closingWrapper(text, p + 1, plan, scan);
+  if (close === -1) return -1;
+  const value = unquote(text, p + 1, close, plan, scan.doubled);
+  const end = textEnd(text, close + 1, plan.separator);
+  scan.quoted = end === close + 1 ? value : value + text.slice(close + 1, end);
+  return end;
+};
+
+/**
+ * Read the record at `p` onto `rows`, as the grammar does: fields up to the
+ * line break, a quoted one with any text after its closing wrapper kept as
+ * written. The index past its line break, or -1 on an unclosed quote.
+ */
 const readRecord = (
   text: string,
-  cursor: Cursor,
+  start: number,
   plan: Plan,
+  scan: Scan,
   rows: Array<ReadonlyArray<string>>,
-): boolean => {
-  const fields = cursor.template.slice();
+): number => {
+  const fields = scan.template.slice();
+  let p = start;
   let n = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
-    if (!readField(text, cursor, plan)) return false;
-    if (n < fields.length) fields[n] = cursor.field;
-    else fields.push(cursor.field);
+    let value: string;
+    if (text.charCodeAt(p) === plan.quote) {
+      p = readQuoted(text, p, plan, scan);
+      if (p === -1) return -1;
+      value = scan.quoted;
+    } else {
+      const end = unquotedEnd(text, p, plan, scan);
+      value = text.slice(p, end);
+      p = end;
+    }
+    if (n < fields.length) fields[n] = value;
+    else fields.push(value);
     n++;
-    if (text.charCodeAt(cursor.p) !== plan.separator) break;
-    cursor.p++;
+    if (text.charCodeAt(p) !== plan.separator) break;
+    p++;
   }
   // a record of another width: trim the copy, and size the next one to it
-  if (n !== cursor.template.length) {
+  if (n !== scan.template.length) {
     fields.length = n;
-    cursor.template = fields.map(() => "");
+    scan.template = fields.map(() => "");
   }
   rows.push(fields);
-  cursor.p = afterLineBreak(text, cursor.p);
-  return true;
+  return afterLineBreak(text, p);
 };
 
 /**
  * Scan `text` as the row grammar does under `plan`: its records, blank lines
- * left out when `filterEmpty` is set; none if a quoted field is never
- * closed (the grammar reports where).
+ * left out when `filterEmpty` is set; none if a quoted field is never closed
+ * (the grammar reports where).
  */
 export const fastScan = (text: string, plan: Plan): Option.Option<Array<ReadonlyArray<string>>> => {
   const rows: Array<ReadonlyArray<string>> = [];
-  const cursor: Cursor = { p: 0, field: "", template: [] };
+  const scan: Scan = { separator: -1, lf: -1, cr: -1, template: [], doubled: false, quoted: "" };
+  let p = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per line of the file
-  while (cursor.p < text.length) {
-    const blank = plan.filterEmpty ? blankLineEnd(text, cursor.p, plan) : -1;
-    if (blank !== -1) cursor.p = afterLineBreak(text, blank);
-    else if (!readRecord(text, cursor, plan, rows)) return Option.none();
+  while (p < text.length) {
+    const blank = plan.filterEmpty ? blankLineEnd(text, p, plan) : -1;
+    p = blank !== -1 ? afterLineBreak(text, blank) : readRecord(text, p, plan, scan, rows);
+    if (p === -1) return Option.none();
   }
   return Option.some(rows);
 };

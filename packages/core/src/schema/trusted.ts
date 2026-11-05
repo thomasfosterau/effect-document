@@ -23,6 +23,7 @@
  */
 
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import type * as Types from "effect/Types";
 import {
   CellBlank,
@@ -133,19 +134,27 @@ const sharedBlank = /*#__PURE__*/ shared((): CellBlank => {
 export const trustedBlank = (): CellBlank => sharedBlank();
 
 /**
- * Whether a value is an instance of one of the cell classes, so the
- * `SheetCell` union would accept it unchanged. A plain object of the right
- * shape is not: the union converts it, so it takes the validating path.
+ * Whether a value is an instance of one of the cell classes (not a
+ * subclass), so the `SheetCell` union would accept it unchanged. A plain
+ * object of the right shape is not: the union converts it, so it takes the
+ * validating path, as anything else does.
  */
-export const isCellInstance = (value: unknown): value is SheetCell =>
-  value instanceof CellText ||
-  value instanceof CellNumber ||
-  value instanceof CellBlank ||
-  value instanceof CellBoolean ||
-  value instanceof CellDate ||
-  value instanceof CellError ||
-  value instanceof CellFormula ||
-  value instanceof CellRichText;
+export const isCellInstance = (value: unknown): value is SheetCell => {
+  // the prototype compared directly, not `instanceof` (which walks the whole
+  // chain for every class it is not): this runs once per cell a reader builds
+  if (!Predicate.isObject(value)) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return (
+    proto === CellText.prototype ||
+    proto === CellNumber.prototype ||
+    proto === CellBlank.prototype ||
+    proto === CellBoolean.prototype ||
+    proto === CellDate.prototype ||
+    proto === CellError.prototype ||
+    proto === CellFormula.prototype ||
+    proto === CellRichText.prototype
+  );
+};
 
 /** A cell at column `col`, a non-negative integer. */
 const trustedIndexedCell = (col: number, cell: SheetCell): IndexedCell => {

@@ -15,6 +15,7 @@ import {
   sparseRow,
   str,
   worksheet,
+  worksheetFromRows,
 } from "../../src/schema/index.ts";
 
 /** The nodes the constructors without the schema pass (`schema/trusted.ts`) build. */
@@ -91,6 +92,15 @@ describe("constructors without the schema pass", () => {
     ).toThrow(INVALID);
     expect(() => sparseRow(-1, [])).toThrow(INVALID);
     expect(() => sparseRow(0, [[0.5, a]])).toThrow(INVALID);
+  });
+
+  test("worksheetFromRows is `new Worksheet` of the rows, and checks their order as it does", () => {
+    const rows = [sheetRow(0, [cell.text("a")]), sheetRow(3, [cell.number(1)])];
+    const built = new Worksheet({ name: "S", columns: [], rows, merges: [] });
+    expect(shape(worksheetFromRows("S", rows), built)).toEqual(SAME);
+    expect(worksheetFromRows("S", rows)).toStrictEqual(built);
+    expect(() => worksheetFromRows("S", [sheetRow(1, []), sheetRow(1, [])])).toThrow(INVALID);
+    expect(() => worksheetFromRows("S", [sheetRow(2, []), sheetRow(1, [])])).toThrow(INVALID);
   });
 
   test("worksheet is `new Worksheet` of its rows", () => {

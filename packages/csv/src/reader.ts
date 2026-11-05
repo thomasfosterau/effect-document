@@ -24,8 +24,10 @@ import {
   type ParseError,
   type Reader,
   type SheetCell,
+  type SheetRow,
+  sheetRow,
   trustAs,
-  worksheet,
+  worksheetFromRows,
 } from "@thomasfosterau/effect-document";
 import { Csv } from "@thomasfosterau/effect-document/profiles";
 import { StandardDialect, type CsvDialect } from "./dialect.ts";
@@ -338,22 +340,34 @@ type ColumnKind = "number" | "boolean" | "text" | "blank";
  * being null (it is text either way), so a text column costs one set lookup
  * per value after its first text value.
  */
-const inferRows = (
+/**
+ * The rows of typed cells, as worksheet rows from `first` on. Each row is
+ * built whole as soon as its cells are, so a row's intermediate cell array
+ * dies young (and costs the collector nothing) instead of living until every
+ * row is typed.
+ */
+const sheetRows = (
   rows: ReadonlyArray<ReadonlyArray<string>>,
-  options: CsvInferenceOptions,
+  first: number,
+  cellAt: (raw: string, col: number) => SheetCell,
+): Array<SheetRow> => rows.map((row, r) => sheetRow(first + r, row.map(cellAt)));
+
+/** How each value becomes a cell: typed by column or by cell, or (off) text as written. */
+const cellMaker = (
+  rows: ReadonlyArray<ReadonlyArray<string>>,
+  options: CsvReaderOptions,
   classifier: Classifier,
-): Array<Array<SheetCell>> => {
+): ((raw: string, col: number) => SheetCell) => {
+  if (options.inferTypes === false) return (raw) => cell.text(raw);
   const { classify } = classifier;
-  // `map` sizes each row's array exactly (one grown by `push` reserves more)
-  if (options.inference === "cell")
-    return rows.map((row) => row.map((raw) => toCell(raw, classify(raw))));
+  if (options.inference === "cell") return (raw) => toCell(raw, classify(raw));
   // By column: a first pass finds each column's kind, and a value's cell then
   // follows from its column's kind alone (a null spelling is blank, anything
   // else is read as its column's type), so no value is kept between passes.
   const kinds = columnKinds(rows, classifier);
   const cellOf = kinds.map((kind) => columnCell(kind, classifier));
   const asText = columnCell("text", classifier);
-  return rows.map((row) => row.map((raw, c) => (cellOf[c] ?? asText)(raw)));
+  return (raw, c) => (cellOf[c] ?? asText)(raw);
 };
 
 /** Each column's kind: the type every non-null value in it has, else text. */
@@ -426,17 +440,30 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
     pipe(
       scanCsv(contentToText(input), dialect, options),
       Effect.map((scanned) => {
-        const [first, ...rest] = scanned.rows;
+        const first = scanned.rows[0];
+        // the rest copied out only when the sniff takes the first row
         return sniff && first !== undefined && sniffHeader(scanned.rows, classifier.classify)
-          ? { headers: first, rows: rest }
+          ? { headers: first, rows: scanned.rows.slice(1) }
           : scanned;
       }),
       Effect.map(({ headers, rows }) => {
-        const body = inferTypes
-          ? inferRows(rows, options ?? {}, classifier)
-          : rows.map((row) => row.map(cell.text));
-        const ws = worksheet(sheetName, body, headers ?? undefined);
-        return trustAs<CsvFeature>(document([ws]));
+        const header =
+          headers === null
+            ? []
+            : [
+                sheetRow(
+                  0,
+                  headers.map((h) => cell.text(h)),
+                ),
+              ];
+        const body = sheetRows(
+          rows,
+          header.length,
+          cellMaker(rows, { ...options, inferTypes }, classifier),
+        );
+        return trustAs<CsvFeature>(
+          document([worksheetFromRows(sheetName, headers === null ? body : [...header, ...body])]),
+        );
       }),
     );
 

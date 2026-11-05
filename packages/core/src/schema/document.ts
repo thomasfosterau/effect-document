@@ -27,6 +27,7 @@ import {
   Para,
   Plain,
   type SheetCell,
+  SheetRow,
   Slide,
   SlideShow,
   type Shape,
@@ -174,6 +175,27 @@ export const worksheet = (
     ? trustedWorksheet(name, sheetRows)
     : new Worksheet({ name, columns: [], rows: sheetRows, merges: [] });
 };
+
+/**
+ * A worksheet of finished rows, for readers that build each row as they go
+ * (`sheetRow`, `sparseRow`). Rows that are `SheetRow` instances in strictly
+ * ascending index order skip the schema pass; anything else is checked and
+ * fails as `new Worksheet` does.
+ *
+ * @example
+ * ```ts
+ * import { cell, sheetRow, worksheetFromRows } from "@thomasfosterau/effect-document"
+ *
+ * worksheetFromRows("Sheet1", [sheetRow(0, [cell.text("a")]), sheetRow(2, [cell.number(1)])])
+ * ```
+ */
+export const worksheetFromRows = (name: string, rows: ReadonlyArray<SheetRow>): Worksheet =>
+  Predicate.isString(name) &&
+  rows.every(
+    (row, i) => row instanceof SheetRow && (i === 0 || row.index > (rows[i - 1]?.index ?? -1)),
+  )
+    ? trustedWorksheet(name, rows)
+    : new Worksheet({ name, columns: [], rows, merges: [] });
 
 // ============================================================================
 // Constructors - presentation
