@@ -195,6 +195,16 @@ const fusedPass = <F, R>(
   return end !== "done" || guess.contradicted ? Option.none() : Option.some({ first, rows });
 };
 
+/**
+ * `rows` with `first` put before them, in place: a pass's rows are its own,
+ * and a spread would copy the whole array (a tenth of what `read` allocates
+ * on bench/csv.bench.ts's floats table).
+ */
+const withFirst = <R>(first: R, rows: Array<R>): Array<R> => {
+  rows.unshift(first);
+  return rows;
+};
+
 /** Whether a fused pass can read under these options: a sniffed header needs column kinds. */
 const fusable = (options: FusedOptions): boolean =>
   options.header !== "sniff" || (options.inferTypes && !options.byCell);
@@ -240,10 +250,10 @@ export const fusedRows = (
           const fields = reader.held;
           const isHeader =
             options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
-          if (isHeader) return Option.some([headerRow(fields), ...rows]);
+          if (isHeader) return Option.some(withFirst(headerRow(fields), rows));
           // a data row after all: typed under the kinds the others settled
           const row = sheetRowOf(0, fields.map(cellAt));
-          return guess.contradicted ? Option.none() : Option.some([row, ...rows]);
+          return guess.contradicted ? Option.none() : Option.some(withFirst(row, rows));
         },
       }),
   );
@@ -361,7 +371,7 @@ export const fusedValues = (
           const row = typeRow(strings);
           return guess.contradicted
             ? Option.none()
-            : Option.some({ headers: null, rows: [row, ...rows] });
+            : Option.some({ headers: null, rows: withFirst(row, rows) });
         },
       }),
   );
