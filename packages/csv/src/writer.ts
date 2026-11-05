@@ -16,17 +16,18 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import {
-  type CellNumber,
+  type RowCell,
+  type SheetCell,
   cellToText,
   type Content,
   DEFAULT_MAX_DENSE_CELLS,
   denseSize,
   type Doc,
   type FeaturesOf,
-  type IndexedCell,
   makeWriterTag,
-  type SheetCell,
   type SheetRow,
+  rowCellsOf,
+  rowIndexes,
   sheetExtent,
   text,
   type Worksheet,
@@ -191,8 +192,27 @@ const changesMeaning = (value: string, options: RowOptions): boolean =>
   hasEdgeSpace(value) ||
   (!!options.lineCommentMarker && value.startsWith(options.lineCommentMarker));
 
-const wrapField = (value: string, dialect: CsvDialect): string =>
-  dialect.wrapper + value.replaceAll(dialect.wrapper, dialect.doubleWrapper) + dialect.wrapper;
+/**
+ * A field quoted, each wrapper in it doubled. Most quoted fields hold no
+ * wrapper (they hold a separator or a line break), so a native search skips
+ * the doubling for them; one that does is joined from the slices between its
+ * wrappers, about twice as fast as `replaceAll` (bench/csv.bench.ts, every
+ * field quoted).
+ */
+const wrapField = (value: string, dialect: CsvDialect): string => {
+  const { wrapper, doubleWrapper } = dialect;
+  let at = wrapper === "" ? -1 : value.indexOf(wrapper);
+  if (at === -1) return wrapper + value + wrapper;
+  let out = wrapper;
+  let from = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- one native search per wrapper in the field
+  while (at !== -1) {
+    out += value.slice(from, at) + doubleWrapper;
+    from = at + wrapper.length;
+    at = value.indexOf(wrapper, from);
+  }
+  return out + value.slice(from) + wrapper;
+};
 
 /**
  * Quote a field, escaping the wrapper with `escape` if set, else doubling it.
@@ -331,8 +351,8 @@ const renderTextRow = (
   return line;
 };
 
-/** One past a sparse row's last column: the number of fields it is written as. */
-const rowWidth = (cells: ReadonlyArray<IndexedCell>): number => (cells.at(-1)?.col ?? -1) + 1;
+/** One past a row's last cell's column: the number of fields it is written as. */
+const rowWidth = (cells: ReadonlyArray<RowCell>): number => cells.length;
 
 /**
  * Render row `index` from a sparse sheet row's cells (none, for a row the
@@ -340,28 +360,25 @@ const rowWidth = (cells: ReadonlyArray<IndexedCell>): number => (cells.at(-1)?.c
  * its last cell, each gap an empty field, then empty fields to `width`.
  */
 const renderSheetRow = (
-  cells: ReadonlyArray<IndexedCell>,
+  cells: ReadonlyArray<RowCell>,
   index: number,
   width: number,
   ctx: RowContext,
 ): string | WriteError => {
   const n = Math.max(rowWidth(cells), width);
   const only = cells[0];
-  if (n === 1 && (only === undefined || cellField(only.cell, ctx) === "")) {
+  if (n === 1 && (only === undefined || cellField(only, ctx) === "")) {
     return loneEmptyField(index, ctx);
   }
   if (ctx.plain) return renderPlainRow(cells, n, ctx);
   let line = "";
-  // the cells are in ascending column order, so one cursor walks them
-  let next = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field written: the measured hot path (bench/csv.bench.ts), where a Field object and a Result per field cost most of the write
   for (let col = 0; col < n; col++) {
-    const entry = cells[next];
-    const held = entry?.col === col;
-    if (held) next++;
-    const field = held
-      ? renderOneField(cellField(entry.cell, ctx), isNumberCell(entry.cell), index, ctx)
-      : renderOneField("", false, index, ctx);
+    const held = cells[col];
+    const field =
+      held === undefined
+        ? renderOneField("", false, index, ctx)
+        : renderOneField(cellField(held, ctx), isNumberCell(held), index, ctx);
     if (!Predicate.isString(field)) return field;
     line = col === 0 ? field : line + ctx.dialect.separator + field;
   }
@@ -369,28 +386,36 @@ const renderSheetRow = (
 };
 
 /** {@link renderSheetRow} under the plain options: every field quoted as `minimal` does, joined. */
-const renderPlainRow = (cells: ReadonlyArray<IndexedCell>, n: number, ctx: RowContext): string => {
+const renderPlainRow = (cells: ReadonlyArray<RowCell>, n: number, ctx: RowContext): string => {
   const fields: Array<string> = [];
-  let next = 0;
   // oxlint-disable-next-line effect/imperative-loops -- once per field written, as in `renderSheetRow`
   for (let col = 0; col < n; col++) {
-    const entry = cells[next];
-    if (entry?.col === col) {
-      next++;
-      fields.push(minimalField(cellField(entry.cell, ctx), ctx));
-    } else fields.push("");
+    const held = cells[col];
+    fields.push(held === undefined ? "" : minimalField(cellField(held, ctx), ctx));
   }
   return fields.join(ctx.dialect.separator);
 };
 
-const isNumberCell = (c: SheetCell): c is CellNumber => Predicate.isTagged(c, "CellNumber");
+/** Whether a row position is a number: a plain one or a `CellNumber`. */
+const isNumberCell = (c: Exclude<RowCell, undefined>): boolean =>
+  Predicate.isNumber(c) || Predicate.isTagged(c, "CellNumber");
 
 /** A cell's field before quoting: a number in the write's number format, anything else its text. */
-const cellField = (c: SheetCell, ctx: RowContext): string =>
-  // text first: the most common cell, and one tag check for it
+const cellField = (c: Exclude<RowCell, undefined>, ctx: RowContext): string =>
+  // plain text first: the most common cell a reader writes
+  Predicate.isString(c)
+    ? c
+    : Predicate.isNumber(c)
+      ? ctx.formatNumber(c)
+      : Predicate.isBoolean(c)
+        ? String(c)
+        : nodeField(c, ctx);
+
+/** {@link cellField} of a node: a number in the write's number format, anything else its text. */
+const nodeField = (c: SheetCell, ctx: RowContext): string =>
   Predicate.isTagged(c, "CellText")
     ? c.value
-    : isNumberCell(c)
+    : Predicate.isTagged(c, "CellNumber")
       ? ctx.formatNumber(c.value)
       : cellToText(c);
 
@@ -414,6 +439,38 @@ const checkOptions = (
     onNone: () => Effect.void,
     onSome: (r) => Effect.fail(new WriteError({ format: "csv", reason: `escapeChar ${r}` })),
   });
+};
+
+/**
+ * Render a worksheet's rows, one line per row from 0 to its last (a row it
+ * does not hold is an empty line), onto `lines`, numbered from `first`:
+ * `lines`, or the first row's failure.
+ */
+const renderRows = (
+  sheet: Worksheet,
+  first: number,
+  width: number,
+  ctx: RowContext,
+  lines: Array<string>,
+): Array<string> | WriteError => {
+  const count = sheetExtent(sheet).rows;
+  // the rows are in ascending index order, so one cursor walks them
+  const indexes = rowIndexes(sheet);
+  let next = 0;
+  // oxlint-disable-next-line effect/imperative-loops -- once per row written, beside the field loop in `renderSheetRow`; it stops at the first row that fails
+  for (let index = 0; index < count; index++) {
+    const row = indexes[next] === index ? sheet.rows[next] : undefined;
+    if (row !== undefined) next++;
+    const line = renderSheetRow(
+      row === undefined ? [] : rowCellsOf(row),
+      first + index,
+      width,
+      ctx,
+    );
+    if (!Predicate.isString(line)) return line;
+    lines.push(line);
+  }
+  return lines;
 };
 
 /**
@@ -442,7 +499,7 @@ const renderSheet = (
       let width = 0;
       if (options.padRows) {
         width = headers?.length ?? 0;
-        width = rows.reduce((w, row) => Math.max(w, rowWidth(row.cells)), width);
+        width = rows.reduce((w, row) => Math.max(w, rowWidth(rowCellsOf(row))), width);
       }
       const lines: Array<string> = [];
       if (headers) {
@@ -450,22 +507,11 @@ const renderSheet = (
         if (!Predicate.isString(line)) return Effect.fail(line);
         lines.push(line);
       }
-      const first = headers ? 1 : 0;
-      const count = Option.match(ws, {
-        onNone: () => 0,
-        onSome: (sheet) => sheetExtent(sheet).rows,
+      const failed = Option.match(ws, {
+        onNone: () => lines,
+        onSome: (sheet) => renderRows(sheet, headers ? 1 : 0, width, ctx, lines),
       });
-      // the rows are in ascending index order, so one cursor walks them
-      let next = 0;
-      // oxlint-disable-next-line effect/imperative-loops -- once per row written, beside the field loop in `renderSheetRow`; it stops at the first row that fails
-      for (let index = 0; index < count; index++) {
-        const row = rows[next];
-        const held = row?.index === index;
-        if (held) next++;
-        const line = renderSheetRow(held ? row.cells : [], first + index, width, ctx);
-        if (!Predicate.isString(line)) return Effect.fail(line);
-        lines.push(line);
-      }
+      if (failed instanceof WriteError) return Effect.fail(failed);
       const body = Arr.isReadonlyArrayNonEmpty(lines)
         ? lines.join(dialect.linebreak) + dialect.linebreak
         : "";

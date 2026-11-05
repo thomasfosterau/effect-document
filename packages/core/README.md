@@ -59,7 +59,7 @@ const deepRoundTrip = Effect.gen(function* () {
 });
 ```
 
-The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet is sparse: it holds indexed rows of column-indexed cells, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
+The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet holds only the rows it has, each row's cells by position, a plain number, string or boolean standing for its unstyled cell and `undefined` for a gap, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
 
 ## Profiles
 
@@ -226,8 +226,11 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `CellRichText` | class | A rich-text cell with character-level formatting (inline runs). |
 | `SheetCell` | const | Any typed spreadsheet cell. |
 | `SheetColumn` | class | A column definition (width / default style). |
-| `IndexedCell` | class | A cell at its 0-based column. |
-| `SheetRow` | class | A spreadsheet row: its 0-based `index` and the cells it holds, in ascending column order. |
+| `PlainCell` | const | A finite number, string or boolean standing in a row for its unstyled cell node. |
+| `RowCell` | const | One position of a row: its cell (a node or a plain cell), or `undefined` for a gap (`null` in JSON). |
+| `SheetRow` | class | A spreadsheet row: its 0-based `index` and its cells by position (`undefined` a gap, the last a cell). |
+| `PlainRow` | schema | A row's cells alone, standing in a worksheet's `rows` for the row one past the one before it, with no height (#227); a bare array in JSON. |
+| `isPlainRow` | function | Whether a worksheet row is a plain row rather than a `SheetRow`. |
 | `MergeRange` | class | A rectangular merged-cell range (0-based, inclusive). |
 | `Worksheet` | class | A spreadsheet worksheet: a named, sparse grid of typed cells. |
 | `TextBox` | class | A text box shape. |
@@ -270,12 +273,19 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `DenseRowsOptions` | interface | Options for `denseRows` and `denseSize`. |
 | `denseSize` | function | The cells `denseRows` would allocate for a worksheet, plus one per row. |
 | `denseRows` | function | The derived dense view of a worksheet, built only within a cell budget. |
-| `sheetRow` | function | A sparse row from a dense array of cells. |
+| `sheetRow` | function | A row from its cells by position (`undefined` a gap), the array copied. |
 | `worksheetFromRows` | function | A worksheet of finished rows, for readers that build each row as they go (`sheetRow`, `sparseRow`). |
-| `sheetRowFrom` | function | A dense row built from any values, the cell at column `n` being `toCell(items[n], n)`: `sheetRow` without the array of cells in between. |
-| `indexedCell` | function | A cell at its 0-based column, without the schema pass for valid input; one may sit in many rows (a column's repeated value). |
-| `sheetRowOf` | function | A row from indexed cells in strictly ascending column order, kept as given. |
-| `sparseRow` | function | A sparse row from its cells' `[column, cell]` entries, in strictly ascending column order: the readers' constructor for rows whose cells skip columns. |
+| `sheetRowFrom` | function | A dense row built from any values, the cell at column `n` being `toCell(items[n], n)`. |
+| `sheetRowOf` | function | A row holding the array of cells it is given (not copied): for readers that build one per line. |
+| `rowEntries` | function | The cells a row holds with their columns, as nodes, gaps left out. |
+| `rowsOf` | function | A worksheet's rows as `SheetRow` nodes (a plain row's built on demand). |
+| `rowIndexes` | function | The index of each of a worksheet's rows, explicit or implied, in one array. |
+| `rowCellsOf` | function | A worksheet row's cells, `SheetRow` or plain, without building a node. |
+| `worksheetOfTrustedRows` | function | A worksheet of rows its caller built valid itself, taken unchecked: the escape hatch for a reader's own output (`worksheetFromRows` checks every cell). |
+| `sheetRowOfNumbers` | function | `sheetRowOf` for a row of plain numbers, checked without boxing them. |
+| `cellOf` | function | The cell node a row position holds (a plain cell's unstyled node), or `undefined` for a gap. |
+| `cellAt` | function | The cell node at a column of a row, or `undefined` where it has none. |
+| `sparseRow` | function | A row from its cells' `[column, cell]` entries, in strictly ascending column order (each column between a gap): the readers' constructor for rows whose cells skip columns. |
 | `NestedNode` | type | A node that counts as one level of nesting. |
 | `DEFAULT_MAX_NESTING_DEPTH` | const | The default maximum nesting depth readers accept. |
 | `nestedChildren` | function | The blocks, inlines and shapes directly inside a node. |

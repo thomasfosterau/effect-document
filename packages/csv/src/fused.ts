@@ -19,15 +19,7 @@
  */
 
 import * as Option from "effect/Option";
-import {
-  cell,
-  type IndexedCell,
-  indexedCell,
-  type SheetCell,
-  type SheetRow,
-  sheetRow,
-  sheetRowOf,
-} from "@thomasfosterau/effect-document";
+import { cell, type PlainRow, type RowCell } from "@thomasfosterau/effect-document";
 import { fastEachRecord, type FastPlan, type FastScanEnd, type FieldReader } from "./fast.ts";
 
 /** A column's type so far: `blank` while it holds only blanks. */
@@ -46,8 +38,8 @@ export interface Typing {
   readonly numberValue: (raw: string) => number;
   /** Whether a value spells a boolean. */
   readonly isBoolean: (raw: string) => boolean;
-  /** A cell typed on its own (`inference: "cell"`). */
-  readonly cellOf: (raw: string) => SheetCell;
+  /** A cell typed on its own (`inference: "cell"`), as {@link asCells} builds it. */
+  readonly cellOf: (raw: string) => RowCell;
   /** A value typed on its own (`inference: "cell"`): the value of its `cellOf` cell. */
   readonly valueOf: (raw: string) => FusedValue;
   /**
@@ -76,12 +68,16 @@ export interface Build<A> {
   readonly text: (raw: string) => A;
 }
 
-/** Values built as worksheet cells. */
-export const asCells: Build<SheetCell> = {
+/**
+ * Values built as a worksheet row's cells: plain cells (the bare number,
+ * boolean or text standing for its unstyled node), a blank as its node, and
+ * a number no plain cell holds (not finite) as its node too.
+ */
+export const asCells: Build<RowCell> = {
   blank: () => cell.blank(),
-  number: (value) => cell.number(value),
-  boolean: (value) => cell.boolean(value),
-  text: (raw) => cell.text(raw),
+  number: (value) => (Number.isFinite(value) ? value : cell.number(value)),
+  boolean: (value) => value,
+  text: (raw) => raw,
 };
 
 /** A typed CSV value: `null` for a null spelling. */
@@ -141,110 +137,8 @@ class ColumnGuess<A> {
   }
 }
 
-/** Values a column's dictionary is first judged after. */
-const TRIAL = 256;
-/**
- * The smallest text that dictionaries are used for: below it the document is
- * small enough that the collector's copying costs less than the lookups.
- */
-const DICTIONARY_MIN_TEXT = 256 * 1024;
-/** The most values a column's dictionary holds. */
-const MAX_VALUES = 8192;
-
-/**
- * One column's cells, as a dictionary of its values: a value seen before in
- * the column gets the very indexed cell (and cell) it got then. Nodes are
- * immutable, so sharing them is invisible, and columns repeat values
- * (categories, flags, small numbers, dates): each repeat is two objects the
- * document does not hold and the collector does not copy. Looking a fresh
- * string up hashes it, which costs about what a cell does, so a column whose
- * values mostly do not repeat (IDs, free text) turns its dictionary off after
- * its first {@link TRIAL} values.
- */
-class ColumnCells {
-  // oxlint-disable-next-line effect/avoid-native-object-helpers -- a lookup per value of the file; a `HashMap` hashes through `Equal`, the cost this dictionary exists to beat (bench/csv.bench.ts)
-  private readonly known = new Map<string, IndexedCell>();
-  private on = true;
-  private lookups = 0;
-  private hits = 0;
-  private readonly col: number;
-  private readonly make: (raw: string) => SheetCell;
-
-  constructor(col: number, make: (raw: string) => SheetCell, on: boolean) {
-    this.col = col;
-    this.make = make;
-    this.on = on;
-  }
-
-  /** Whether the dictionary is still on: off, a value's cell depends on its value alone. */
-  get active(): boolean {
-    return this.on;
-  }
-
-  /** The indexed cell for `raw` in this column. */
-  get(raw: string): IndexedCell {
-    if (!this.on) return indexedCell(this.col, this.make(raw));
-    this.lookups++;
-    const shared = this.known.get(raw);
-    if (shared !== undefined) {
-      this.hits++;
-      return shared;
-    }
-    const made = indexedCell(this.col, this.make(raw));
-    if (this.lookups >= TRIAL && this.hits * 2 < this.lookups) {
-      // mostly distinct values: the lookups cost more than they save
-      this.on = false;
-      this.known.clear();
-    } else if (this.known.size < MAX_VALUES) this.known.set(raw, made);
-    return made;
-  }
-}
-
-/** Each column's {@link ColumnCells}, made as rows reach it. */
-class RowCells {
-  private readonly columns: Array<ColumnCells> = [];
-  private readonly cellAt: (raw: string, col: number) => SheetCell;
-  private readonly dictionaries: boolean;
-
-  constructor(cellAt: (raw: string, col: number) => SheetCell, dictionaries: boolean) {
-    this.cellAt = cellAt;
-    this.dictionaries = dictionaries;
-  }
-
-  /** The row at `index` of these values. */
-  row(index: number, fields: ReadonlyArray<string>): SheetRow {
-    return sheetRowOf(
-      index,
-      fields.map((raw, c) => this.at(raw, c)),
-    );
-  }
-
-  /** The indexed cell for `raw` in column `c`. */
-  at(raw: string, c: number): IndexedCell {
-    return (this.columns[c] ??= this.column(c)).get(raw);
-  }
-
-  /**
-   * Whether column `c`'s cells depend on their values alone (its dictionary
-   * is off, or there are none), so a cell may be built without its string.
-   */
-  unshared(c: number): boolean {
-    const column = this.columns[c];
-    return column !== undefined && !column.active;
-  }
-
-  private column(c: number): ColumnCells {
-    const cellAt = this.cellAt;
-    return new ColumnCells(c, (raw) => cellAt(raw, c), this.dictionaries);
-  }
-}
-
-/** The first row as a header, its values as text cells. */
-const headerRow = (fields: ReadonlyArray<string>): SheetRow =>
-  sheetRow(
-    0,
-    fields.map((h) => cell.text(h)),
-  );
+/** The first row as a header, its values as (plain) text cells. */
+const headerRow = (fields: ReadonlyArray<string>): PlainRow => fields.slice();
 
 /**
  * Whether the held first row is the header, as the general path sniffs it:
@@ -274,10 +168,10 @@ interface Pass<F, R> {
  * a value contradicting its column's guess.
  */
 const fusedPass = <F, R>(
-  scan: (onRow: (fields: Array<F>) => boolean) => FastScanEnd,
+  scan: (onRow: (fields: Array<F>, numbers: boolean) => boolean) => FastScanEnd,
   options: FusedOptions,
   guess: ColumnGuess<unknown>,
-  rowOf: (index: number, fields: Array<F>) => R,
+  rowOf: (index: number, fields: Array<F>, numbers: boolean) => R,
   onFirst: () => void = () => {},
 ): Option.Option<Pass<F, R>> => {
   // the first row waits when it may be the header: row 0 is kept for it
@@ -286,7 +180,7 @@ const fusedPass = <F, R>(
   let width = -1;
   const rows: Array<R> = [];
   if (!hold) onFirst();
-  const end = scan((fields) => {
+  const end = scan((fields, numbers) => {
     // every row must be as wide as the first, header or not
     if (width === -1) width = fields.length;
     else if (options.checkWidths && fields.length !== width) return false;
@@ -295,11 +189,59 @@ const fusedPass = <F, R>(
       onFirst();
       return true;
     }
-    rows.push(rowOf(rows.length + (hold ? 1 : 0), fields));
+    rows.push(rowOf(rows.length + (hold ? 1 : 0), fields, numbers));
     return !guess.contradicted;
   });
   return end !== "done" || guess.contradicted ? Option.none() : Option.some({ first, rows });
 };
+
+/**
+ * `rows` with `first` put before them, in place: a pass's rows are its own,
+ * and a spread would copy the whole array (a tenth of what `read` allocates
+ * on bench/csv.bench.ts's floats table).
+ */
+const withFirst = <R>(first: R, rows: Array<R>): Array<R> => {
+  rows.unshift(first);
+  return rows;
+};
+
+/**
+ * The reader of a one-pass read: each field built by `field`, a field of a
+ * column guessed to hold numbers read from the text in place (when typing by
+ * column), `fill` its placeholder, a number read in place made by `asNumber`.
+ */
+const typedReader = <A>(
+  guess: ColumnGuess<unknown>,
+  field: (raw: string, c: number) => A,
+  typing: Typing,
+  options: FusedOptions,
+  fill: A,
+  asNumber: (value: number) => A,
+): TypedReader<A> =>
+  new TypedReader<A>(
+    guess.kinds,
+    field,
+    typing.numberAt,
+    options.inferTypes && !options.byCell,
+    fill,
+    asNumber,
+  );
+
+/** A one-pass read whose rows are the scanner's own arrays of typed fields. */
+const typedPass = <A>(
+  text: string,
+  plan: FastPlan,
+  options: FusedOptions,
+  guess: ColumnGuess<unknown>,
+  reader: TypedReader<A>,
+): Option.Option<Pass<A, Array<A>>> =>
+  fusedPass<A, Array<A>>(
+    (onRow) => fastEachRecord(text, plan, reader, onRow),
+    options,
+    guess,
+    (_, fields) => fields,
+    () => reader.start(),
+  );
 
 /** Whether a fused pass can read under these options: a sniffed header needs column kinds. */
 const fusable = (options: FusedOptions): boolean =>
@@ -314,68 +256,65 @@ export const fusedRows = (
   plan: FastPlan,
   options: FusedOptions,
   typing: Typing,
-): Option.Option<ReadonlyArray<SheetRow>> => {
+): Option.Option<ReadonlyArray<PlainRow>> => {
   if (!fusable(options)) return Option.none();
   const guess = new ColumnGuess(typing, asCells);
-  const cellAt = !options.inferTypes
-    ? (raw: string) => cell.text(raw)
+  const cellAt: (raw: string, c: number) => RowCell = !options.inferTypes
+    ? (raw) => raw
     : options.byCell
       ? typing.cellOf
-      : (raw: string, c: number) => guess.value(raw, c);
-  const cells = new RowCells(cellAt, text.length >= DICTIONARY_MIN_TEXT);
-  const reader = new CellReader(
-    guess.kinds,
-    cells,
-    typing.numberAt,
-    options.inferTypes && !options.byCell,
-  );
-  return Option.flatMap(
-    fusedPass<IndexedCell, SheetRow>(
-      (onRow) => fastEachRecord(text, plan, reader, onRow),
-      options,
-      guess,
-      (index, fields) => sheetRowOf(index, fields),
-      () => reader.start(),
-    ),
-    ({ first, rows }) =>
-      Option.match(first, {
-        onNone: () => Option.some(rows),
-        onSome: () => {
-          const fields = reader.held;
-          const isHeader =
-            options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
-          if (isHeader) return Option.some([headerRow(fields), ...rows]);
-          // a data row after all: typed under the kinds the others settled
-          const row = cells.row(0, fields);
-          return guess.contradicted ? Option.none() : Option.some([row, ...rows]);
-        },
-      }),
+      : (raw, c) => guess.value(raw, c);
+  // a number read in place is a plain decimal, so finite: a plain cell
+  const reader = typedReader(guess, cellAt, typing, options, undefined, asCells.number);
+  return Option.flatMap(typedPass(text, plan, options, guess, reader), ({ first, rows }) =>
+    Option.match(first, {
+      onNone: () => Option.some(rows),
+      onSome: () => {
+        const fields = reader.held;
+        const isHeader =
+          options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
+        if (isHeader) return Option.some(withFirst(headerRow(fields), rows));
+        // a data row after all: typed under the kinds the others settled
+        const row = fields.map(cellAt);
+        return guess.contradicted ? Option.none() : Option.some(withFirst(row, rows));
+      },
+    }),
   );
 };
 
 /**
- * A scan's fields, built as they are scanned once {@link start} is called.
- * Before that, the first row (which may be the header) is kept as strings
- * in {@link held}, its fields placeholders. A field of a column guessed to
- * hold numbers is read from the text in place when {@link inPlace} allows:
- * no string is made for it.
+ * A scan's fields, built as they are scanned once {@link start} is called:
+ * each by `field`, except that a field of a column guessed to hold numbers
+ * is read from the text in place (no string is made for it). Before that,
+ * the first row (which may be the header) is kept as strings in
+ * {@link held}, its fields placeholders.
  */
-abstract class FieldBuilder<A> implements FieldReader<A> {
+class TypedReader<A> implements FieldReader<A> {
   /** The first row's strings, until {@link start}. */
   readonly held: Array<string> = [];
   /** A placeholder for a field not yet built. */
-  abstract readonly fill: A;
+  readonly fill: A;
   private typing = false;
   private readonly kinds: ReadonlyArray<ColumnKind>;
+  private readonly field: (raw: string, c: number) => A;
   private readonly numberAt: (text: string, start: number, end: number) => number;
   private readonly byColumn: boolean;
 
+  /** A number read in place, as a field. */
+  private readonly asNumber: (value: number) => A;
+
   constructor(
     kinds: ReadonlyArray<ColumnKind>,
+    field: (raw: string, c: number) => A,
     numberAt: (text: string, start: number, end: number) => number,
     byColumn: boolean,
+    fill: A,
+    asNumber: (value: number) => A,
   ) {
+    this.fill = fill;
+    this.asNumber = asNumber;
     this.kinds = kinds;
+    this.field = field;
     this.numberAt = numberAt;
     this.byColumn = byColumn;
   }
@@ -385,84 +324,20 @@ abstract class FieldBuilder<A> implements FieldReader<A> {
     this.typing = true;
   }
 
-  readonly unquoted = (text: string, start: number, end: number, c: number): A => {
-    if (this.typing && this.byColumn && this.kinds[c] === "number" && this.inPlace(c)) {
+  readonly inPlace = true;
+
+  unquoted(text: string, start: number, end: number, c: number): A {
+    if (this.typing && this.byColumn && this.kinds[c] === "number") {
       const value = this.numberAt(text, start, end);
-      if (!Number.isNaN(value)) return this.number(value, c);
+      if (!Number.isNaN(value)) return this.asNumber(value);
     }
     return this.quoted(text.slice(start, end), c);
-  };
+  }
 
-  readonly quoted = (value: string, c: number): A => {
+  quoted(value: string, c: number): A {
     if (this.typing) return this.field(value, c);
     this.held[c] = value;
     return this.fill;
-  };
-
-  /** Whether column `c`'s numbers may be read in place. */
-  protected abstract inPlace(c: number): boolean;
-  /** The field for a number read in place in column `c`. */
-  protected abstract number(value: number, c: number): A;
-  /** The field for `raw` in column `c`. */
-  protected abstract field(raw: string, c: number): A;
-}
-
-/**
- * The document scan's fields: indexed cells, a number read in place only in
- * a column whose dictionary is off (its values mostly unique).
- */
-class CellReader extends FieldBuilder<IndexedCell> {
-  readonly fill: IndexedCell = indexedCell(0, cell.blank());
-  private readonly cells: RowCells;
-
-  constructor(
-    kinds: ReadonlyArray<ColumnKind>,
-    cells: RowCells,
-    numberAt: (text: string, start: number, end: number) => number,
-    byColumn: boolean,
-  ) {
-    super(kinds, numberAt, byColumn);
-    this.cells = cells;
-  }
-
-  protected inPlace(c: number): boolean {
-    return this.cells.unshared(c);
-  }
-
-  protected number(value: number, c: number): IndexedCell {
-    return indexedCell(c, cell.number(value));
-  }
-
-  protected field(raw: string, c: number): IndexedCell {
-    return this.cells.at(raw, c);
-  }
-}
-
-/** The typed scan's fields: plain values. */
-class ValueReader extends FieldBuilder<FusedValue> {
-  readonly fill: FusedValue = null;
-  private readonly typed: (raw: string, c: number) => FusedValue;
-
-  constructor(
-    kinds: ReadonlyArray<ColumnKind>,
-    typed: (raw: string, c: number) => FusedValue,
-    numberAt: (text: string, start: number, end: number) => number,
-    byColumn: boolean,
-  ) {
-    super(kinds, numberAt, byColumn);
-    this.typed = typed;
-  }
-
-  protected inPlace(): boolean {
-    return true;
-  }
-
-  protected number(value: number): FusedValue {
-    return value;
-  }
-
-  protected field(raw: string, c: number): FusedValue {
-    return this.typed(raw, c);
   }
 }
 
@@ -490,35 +365,22 @@ export const fusedValues = (
     : options.byCell
       ? typing.valueOf
       : (raw, c) => guess.value(raw, c);
-  const reader = new ValueReader(
-    guess.kinds,
-    typed,
-    typing.numberAt,
-    options.inferTypes && !options.byCell,
-  );
+  const reader = typedReader(guess, typed, typing, options, null, asValues.number);
   const typeRow = (fields: ReadonlyArray<string>): Array<FusedValue> =>
     fields.map((raw, c) => typed(raw, c));
-  return Option.flatMap(
-    fusedPass<FusedValue, ReadonlyArray<FusedValue>>(
-      (onRow) => fastEachRecord(text, plan, reader, onRow),
-      options,
-      guess,
-      (_, fields) => fields,
-      () => reader.start(),
-    ),
-    ({ first, rows }) =>
-      Option.match(first, {
-        onNone: () => Option.some({ headers: null, rows }),
-        onSome: () => {
-          const strings = reader.held;
-          const isHeader =
-            options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
-          if (isHeader) return Option.some({ headers: strings, rows });
-          const row = typeRow(strings);
-          return guess.contradicted
-            ? Option.none()
-            : Option.some({ headers: null, rows: [row, ...rows] });
-        },
-      }),
+  return Option.flatMap(typedPass(text, plan, options, guess, reader), ({ first, rows }) =>
+    Option.match(first, {
+      onNone: () => Option.some({ headers: null, rows }),
+      onSome: () => {
+        const strings = reader.held;
+        const isHeader =
+          options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
+        if (isHeader) return Option.some({ headers: strings, rows });
+        const row = typeRow(strings);
+        return guess.contradicted
+          ? Option.none()
+          : Option.some({ headers: null, rows: withFirst(row, rows) });
+      },
+    }),
   );
 };

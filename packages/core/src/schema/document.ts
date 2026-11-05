@@ -7,6 +7,7 @@ import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
+  type RowCell,
   Block,
   BulletList,
   CellBlank,
@@ -27,7 +28,6 @@ import {
   Para,
   Plain,
   type SheetCell,
-  SheetRow,
   Slide,
   SlideShow,
   type Shape,
@@ -39,7 +39,7 @@ import {
   TextBox,
   Worksheet,
 } from "./ast.ts";
-import { sheetRow } from "./sheet.ts";
+import { rowEntries, sheetRow } from "./sheet.ts";
 import {
   trustedBlank,
   trustedBoolean,
@@ -164,7 +164,7 @@ export const cell = {
  */
 export const worksheet = (
   name: string,
-  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
+  rows: ReadonlyArray<ReadonlyArray<RowCell>>,
   headers?: ReadonlyArray<string>,
 ): Worksheet => {
   const allRows = headers === undefined ? rows : [headers.map((h) => cell.text(h)), ...rows];
@@ -175,27 +175,6 @@ export const worksheet = (
     ? trustedWorksheet(name, sheetRows)
     : new Worksheet({ name, columns: [], rows: sheetRows, merges: [] });
 };
-
-/**
- * A worksheet of finished rows, for readers that build each row as they go
- * (`sheetRow`, `sparseRow`). Rows that are `SheetRow` instances in strictly
- * ascending index order skip the schema pass; anything else is checked and
- * fails as `new Worksheet` does.
- *
- * @example
- * ```ts
- * import { cell, sheetRow, worksheetFromRows } from "@thomasfosterau/effect-document"
- *
- * worksheetFromRows("Sheet1", [sheetRow(0, [cell.text("a")]), sheetRow(2, [cell.number(1)])])
- * ```
- */
-export const worksheetFromRows = (name: string, rows: ReadonlyArray<SheetRow>): Worksheet =>
-  Predicate.isString(name) &&
-  rows.every(
-    (row, i) => row instanceof SheetRow && (i === 0 || row.index > (rows[i - 1]?.index ?? -1)),
-  )
-    ? trustedWorksheet(name, rows)
-    : new Worksheet({ name, columns: [], rows, merges: [] });
 
 // ============================================================================
 // Constructors - presentation
@@ -359,7 +338,7 @@ const expandBlock = (block: Block): TextPart[] => {
       joinParts(
         n.rows.map((row) =>
           joinParts(
-            row.cells.map(({ cell: c }) => [{ c }]),
+            rowEntries(row).map(([, c]) => [{ c }]),
             "\t",
           ),
         ),

@@ -15,6 +15,9 @@ import {
   type Content,
   type Doc,
   makeWriterTag,
+  rowCellsOf,
+  rowEntries,
+  rowIndexes,
   sheetExtent,
   type Worksheet,
   WriteError,
@@ -182,15 +185,17 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
     extent.rows === 0 || extent.columns === 0
       ? ""
       : `<dimension ref="A1:${toA1(extent.columns - 1, extent.rows - 1)}"/>`;
+  const indexes = rowIndexes(ws);
   const rows = ws.rows
-    .map((row) => {
-      const cells = row.cells.flatMap(({ col, cell }) => {
+    .map((row, i) => {
+      const index = indexes[i] ?? i;
+      const cells = rowEntries(row).flatMap(([col, cell]) => {
         const rendered = cellToSpreadsheetMl(cell, sharedStrings);
         if (rendered === null) return [];
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
-        return [`<c r="${toA1(col, row.index)}"${typeAttr}>${rendered.inner}</c>`];
+        return [`<c r="${toA1(col, index)}"${typeAttr}>${rendered.inner}</c>`];
       });
-      return `<row r="${row.index + 1}">${cells.join("")}</row>`;
+      return `<row r="${index + 1}">${cells.join("")}</row>`;
     })
     .join("");
   return (
@@ -226,8 +231,8 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
-            row.cells.some(
-              ({ cell }) => Predicate.isTagged(cell, "CellFormula") && cell.result === undefined,
+            rowCellsOf(row).some(
+              (cell) => Predicate.isTagged(cell, "CellFormula") && cell.result === undefined,
             ),
           ),
         );

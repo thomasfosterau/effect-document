@@ -134,6 +134,33 @@ const failures = (input: unknown): readonly [string, string] => {
 };
 
 describe("the stack-safe Document codec (#191)", () => {
+  test("carries a row's plain cells and gaps through, as the Schema codec does", () => {
+    const doc = document([
+      worksheet("S", [
+        ["a", 1, true, undefined, cell.text("b")],
+        [cell.blank(), 0.5],
+      ]),
+    ]);
+    expect(toJson(encoded(doc))).toBe(schemaJson(doc));
+    const json = Schema.encodeUnknownSync(Document)(doc);
+    expect(ok(decodeDocumentResult(json))).toEqual(Schema.decodeUnknownSync(Document)(json));
+    // a non-finite plain number fails both codecs
+    const bad = {
+      meta: {},
+      blocks: [
+        {
+          _tag: "Worksheet",
+          name: "S",
+          columns: [],
+          merges: [],
+          rows: [{ index: 0, cells: [Number.NaN] }],
+        },
+      ],
+    };
+    expect(Result.isFailure(decodeDocumentResult(bad))).toBe(true);
+    expect(Result.isFailure(Schema.decodeUnknownResult(Document)(bad))).toBe(true);
+  });
+
   test.each(chains)("%s: agrees with the Schema codec at a shallow depth", (_, wrap) => {
     const doc = wrapped(wrap, 3);
     expect(toJson(encoded(doc))).toBe(schemaJson(doc));

@@ -1,19 +1,19 @@
 import { describe, expect, test } from "vite-plus/test";
 import * as Equal from "effect/Equal";
+import * as Schema from "effect/Schema";
 import {
   CellBlank,
   CellBoolean,
   CellNumber,
   CellText,
-  IndexedCell,
   type SheetCell,
   SheetRow,
   Str,
   Worksheet,
   cell,
-  indexedCell,
   sheetRow,
   sheetRowOf,
+  sheetRowOfNumbers,
   sheetRowFrom,
   sparseRow,
   str,
@@ -22,7 +22,7 @@ import {
 } from "../../src/schema/index.ts";
 
 /** The nodes the constructors without the schema pass (`schema/trusted.ts`) build. */
-type Node = SheetCell | Str | IndexedCell | SheetRow | Worksheet;
+type Node = SheetCell | Str | SheetRow | Worksheet;
 
 /**
  * What must match between a node built without the schema pass and one built
@@ -56,30 +56,40 @@ describe("constructors without the schema pass", () => {
     expect(pairs.map(([trusted]) => trusted)).toStrictEqual(pairs.map(([, built]) => built));
   });
 
-  test("sheetRow is `new SheetRow` of its indexed cells, height key included", () => {
-    const cells: Array<SheetCell> = [cell.text("a"), cell.number(2)];
-    const built = new SheetRow({
-      index: 3,
-      cells: cells.map((c, col) => new IndexedCell({ col, cell: c })),
-      height: undefined,
-    });
+  test("sheetRow is `new SheetRow` of its cells, gaps and height key included", () => {
+    const cells: Array<SheetCell | undefined> = [cell.text("a"), undefined, cell.number(2)];
+    const built = new SheetRow({ index: 3, cells, height: undefined });
     const trusted = sheetRow(3, cells);
     expect(shape(trusted, built)).toEqual(SAME);
     expect(trusted).toStrictEqual(built);
-    expect(trusted.cells[1]).toStrictEqual(built.cells[1]);
+    // the array is copied: the caller's stays its own
+    expect(trusted.cells).not.toBe(cells);
+    expect(() => sheetRow(3, [cell.text("a"), undefined])).toThrow(INVALID);
   });
 
-  test("indexedCell and sheetRowOf are `new IndexedCell` and `new SheetRow`", () => {
-    const a = indexedCell(0, cell.text("a"));
-    const b = indexedCell(2, cell.number(1));
-    expect(shape(a, new IndexedCell({ col: 0, cell: cell.text("a") }))).toEqual(SAME);
-    const built = new SheetRow({ index: 4, cells: [a, b], height: undefined });
-    expect(shape(sheetRowOf(4, [a, b]), built)).toEqual(SAME);
-    expect(sheetRowOf(4, [a, b])).toStrictEqual(built);
-    // a shared indexed cell may sit in several rows
-    expect(sheetRowOf(5, [a]).cells[0]).toBe(a);
-    expect(() => sheetRowOf(0, [b, a])).toThrow(INVALID);
-    expect(() => indexedCell(-1, cell.text("a"))).toThrow(INVALID);
+  test("sheetRowOf is `new SheetRow`, keeping the array it is given", () => {
+    const cells = [cell.text("a"), undefined, cell.number(1)];
+    const built = new SheetRow({ index: 4, cells, height: undefined });
+    expect(shape(sheetRowOf(4, cells), built)).toEqual(SAME);
+    expect(sheetRowOf(4, cells)).toStrictEqual(built);
+    expect(sheetRowOf(4, cells).cells).toBe(cells);
+    expect(() => sheetRowOf(-1, cells)).toThrow(INVALID);
+  });
+
+  test("sheetRowOfNumbers is sheetRowOf, for rows of numbers and anything else", () => {
+    // an array of doubles, as a reader of a table of numbers builds
+    const numbers = [1.5, 2, -3.25];
+    const built = new SheetRow({ index: 2, cells: numbers, height: undefined });
+    expect(shape(sheetRowOfNumbers(2, numbers), built)).toEqual(SAME);
+    expect(sheetRowOfNumbers(2, numbers)).toStrictEqual(built);
+    expect(sheetRowOfNumbers(2, numbers).cells).toBe(numbers);
+    // anything but finite numbers goes to sheetRowOf, which takes it or fails as it does
+    const mixed = [1, cell.text("a"), undefined, "b"];
+    expect(sheetRowOfNumbers(0, mixed)).toStrictEqual(sheetRowOf(0, mixed));
+    expect(sheetRowOfNumbers(0, [])).toStrictEqual(sheetRowOf(0, []));
+    expect(() => sheetRowOfNumbers(0, [1, Number.NaN])).toThrow(INVALID);
+    expect(() => sheetRowOfNumbers(0, [1, undefined])).toThrow(INVALID);
+    expect(() => sheetRowOfNumbers(-1, numbers)).toThrow(INVALID);
   });
 
   test("sheetRowFrom is sheetRow of the mapped cells", () => {
@@ -95,7 +105,7 @@ describe("constructors without the schema pass", () => {
       [0, cell.text("a")],
       [4, cell.number(5)],
     ];
-    const cells = entries.map(([col, c]) => new IndexedCell({ col, cell: c }));
+    const cells = [cell.text("a"), undefined, undefined, undefined, cell.number(5)];
     expect(shape(sparseRow(0, entries), new SheetRow({ index: 0, cells }))).toEqual(SAME);
     expect(shape(sparseRow(0, entries, 12), new SheetRow({ index: 0, cells, height: 12 }))).toEqual(
       SAME,
@@ -103,22 +113,22 @@ describe("constructors without the schema pass", () => {
     expect(Object.hasOwn(sparseRow(0, entries), "height")).toBe(false);
   });
 
-  test("sparseRow fails on out-of-order columns or a bad position, as `new SheetRow` does", () => {
+  test("sparseRow fails on out-of-order columns or a bad position, with a SchemaError", () => {
     const a = cell.text("a");
     expect(() =>
       sparseRow(0, [
         [2, a],
         [1, a],
       ]),
-    ).toThrow(INVALID);
+    ).toThrow(Schema.SchemaError);
     expect(() =>
       sparseRow(0, [
         [1, a],
         [1, a],
       ]),
-    ).toThrow(INVALID);
+    ).toThrow(Schema.SchemaError);
     expect(() => sparseRow(-1, [])).toThrow(INVALID);
-    expect(() => sparseRow(0, [[0.5, a]])).toThrow(INVALID);
+    expect(() => sparseRow(0, [[0.5, a]])).toThrow(Schema.SchemaError);
   });
 
   test("worksheetFromRows is `new Worksheet` of the rows, and checks their order as it does", () => {
