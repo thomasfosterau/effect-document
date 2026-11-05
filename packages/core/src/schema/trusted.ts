@@ -40,6 +40,7 @@ import {
   SheetRow,
   Str,
   Worksheet,
+  type WorksheetRow,
 } from "./ast.ts";
 
 /** A text run whose `text` is a string. */
@@ -225,9 +226,10 @@ export const positional = (
 
 /**
  * An unattributed worksheet with no column specs or merges, whose rows are
- * `SheetRow` instances in strictly ascending index order.
+ * `SheetRow` instances or positional cell arrays (plain rows), in strictly
+ * ascending index order.
  */
-export const trustedWorksheet = (name: string, rows: ReadonlyArray<SheetRow>): Worksheet => {
+export const trustedWorksheet = (name: string, rows: ReadonlyArray<WorksheetRow>): Worksheet => {
   const ws: Types.Mutable<Worksheet> = Object.create(Worksheet.prototype);
   ws._tag = "Worksheet";
   ws.name = name;

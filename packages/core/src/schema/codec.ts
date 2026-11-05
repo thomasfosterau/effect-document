@@ -111,6 +111,11 @@ interface Child {
   readonly optional: boolean;
   /** Whether the array may hold gaps (a row's cells): `undefined`, written `null`. */
   readonly gaps: boolean;
+  /**
+   * Whether an entry may be a plain row (a worksheet's rows, #227): an array
+   * of a row's positions in place of a node.
+   */
+  readonly plainRows: boolean;
 }
 
 /** A node class, the struct of its own (non-recursive) fields, and its recursive fields. */
@@ -135,6 +140,7 @@ const one = (key: string, ref: Ref): Child => ({
   ref,
   optional: false,
   gaps: false,
+  plainRows: false,
 });
 const many = (key: string, ref: Ref, optional = false): Child => ({
   key,
@@ -142,6 +148,7 @@ const many = (key: string, ref: Ref, optional = false): Child => ({
   ref,
   optional,
   gaps: false,
+  plainRows: false,
 });
 const manyMany = (key: string, ref: Ref): Child => ({
   key,
@@ -149,9 +156,12 @@ const manyMany = (key: string, ref: Ref): Child => ({
   ref,
   optional: false,
   gaps: false,
+  plainRows: false,
 });
 /** An array whose positions may be gaps (a row's cells). */
 const positions = (key: string, ref: Ref): Child => ({ ...many(key, ref), gaps: true });
+/** A worksheet's rows: each a row node, or a plain row's positions (#227). */
+const sheetRows = (key: string, ref: Ref): Child => ({ ...many(key, ref), plainRows: true });
 
 const inlines = (key: string): Child => many(key, "Inline");
 const blocks = (key: string): Child => many(key, "Block");
@@ -237,7 +247,7 @@ const BLOCK_KINDS: ReadonlyArray<Kind> = [
   kind(Figure, [blocks("caption"), blocks("content")]),
   kind(Div, [blocks("content")]),
   TABLE,
-  kind(Worksheet, [many("rows", SHEET_ROW)]),
+  kind(Worksheet, [sheetRows("rows", SHEET_ROW)]),
   kind(SlideShow, [many("slides", SLIDE)]),
 ];
 
@@ -325,7 +335,7 @@ const ABSENT: unique symbol = Symbol("absent");
  */
 type Template =
   | number
-  | ReadonlyArray<number | Literal>
+  | ReadonlyArray<number | Literal | PlainRowTemplate>
   | ReadonlyArray<ReadonlyArray<number>>
   | typeof ABSENT
   | undefined;
@@ -336,6 +346,11 @@ const GAP = -1;
 /** A plain cell's place in a row's template: its value, carried through as it is. */
 interface Literal {
   readonly plain: PlainCell;
+}
+
+/** A plain row's place in a worksheet's rows template: its positions' entries. */
+interface PlainRowTemplate {
+  readonly row: ReadonlyArray<number | Literal>;
 }
 
 /** Whether a row position is a plain cell's value (a number, a string or a boolean). */
@@ -376,12 +391,15 @@ interface WalkState {
 /** A finished node: a class instance when decoding, a JSON record when encoding. */
 type Built = object;
 
+/** A finished position of a row: a node, a plain cell, or a gap (`null` or `undefined`). */
+type FilledPosition = Built | PlainCell | null | undefined;
+
 /** A recursive field's finished value, shaped like its template. */
 type Filled =
   | Built
   | undefined
   | typeof ABSENT
-  | ReadonlyArray<Built | PlainCell | null | undefined>
+  | ReadonlyArray<FilledPosition | ReadonlyArray<FilledPosition>>
   | ReadonlyArray<ReadonlyArray<Built | undefined>>;
 
 /**
@@ -436,7 +454,9 @@ const walk = (
       return outer.map((v, i) =>
         child.gaps
           ? position(v, child.ref, down(fieldPath, i))
-          : queue(v, child.ref, down(fieldPath, i)),
+          : child.plainRows && Arr.isArray(v)
+            ? { row: v.map((c, j) => position(c, "SheetCell", down(fieldPath, i, j))) }
+            : queue(v, child.ref, down(fieldPath, i)),
       );
     return outer.map((inner, i) => {
       const vs = array(inner, child.ref, down(fieldPath, i)) ?? [];
@@ -480,7 +500,11 @@ const walk = (
                 : built[u]
               : "plain" in u
                 ? u.plain
-                : u.map((v) => built[v]),
+                : "row" in u
+                  ? u.row.map((p) =>
+                      Predicate.isNumber(p) ? (p === GAP ? direction.gapOut : built[p]) : p.plain,
+                    )
+                  : u.map((v) => built[v]),
           );
   Arr.unfold(frames.length - 1, (i) => {
     const frame = frames[i];

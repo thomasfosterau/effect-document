@@ -15,6 +15,9 @@ import {
   type ParseError,
   type SheetCell,
   SheetRow,
+  type WorksheetRow,
+  isPlainRow,
+  rowCellsOf,
   rowEntries,
   sheetRow,
   sparseRow,
@@ -59,7 +62,7 @@ const nudged = (s: string): Array<string> => {
 const significantDigits = (d: string) => d.replace(/^0+/, "").replace(/0+$/, "");
 
 /** A CSV row's cells as nodes: the reader writes every field, so a row has no gaps. */
-const cellsOf = (row: SheetRow) => rowEntries(row).map(([, c]) => c);
+const cellsOf = (row: WorksheetRow) => rowEntries(row).map(([, c]) => c);
 
 /** A document's first worksheet; fails the test when it has none. */
 const firstWorksheet = (doc: Document): Worksheet => {
@@ -804,7 +807,9 @@ describe("readCsvRows", () => {
     const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
     expect((await run(readCsvRows(csv, options))).rows).toEqual(expected);
     const doc = await run(makeCsvReader(options).read(text(csv)));
-    expect(firstWorksheet(doc).rows.map((row) => row.cells)).toEqual(expected);
+    expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
+    // a CSV document's rows are plain rows (#227)
+    expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
     const words = Arr.makeBy(w, (c) => `w${c}`);
     const scanned = await run(scanCsv(`${words.join(",")}\n${words.join(",")}\n`));
     expect(scanned.rows).toEqual([words, words]);

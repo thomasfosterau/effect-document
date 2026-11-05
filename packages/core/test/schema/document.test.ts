@@ -18,6 +18,7 @@ import {
   strong,
   table,
   worksheet,
+  rowsOf,
 } from "../../src/schema/index.ts";
 
 const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
@@ -45,8 +46,8 @@ describe("schema constructors", () => {
     expect(ws).toBeInstanceOf(Worksheet);
     // header row + 2 data rows
     expect(ws.rows).toHaveLength(3);
-    expect(ws.rows[1]).toMatchObject({ index: 1 });
-    expect(ws.rows[1]!.cells[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
+    expect(rowsOf(ws)[1]).toMatchObject({ index: 1 });
+    expect(rowsOf(ws)[1]!.cells[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
   });
 });
 

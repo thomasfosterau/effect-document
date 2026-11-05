@@ -19,13 +19,7 @@
  */
 
 import * as Option from "effect/Option";
-import {
-  cell,
-  type RowCell,
-  type SheetRow,
-  sheetRowOf,
-  sheetRowOfNumbers,
-} from "@thomasfosterau/effect-document";
+import { cell, type PlainRow, type RowCell } from "@thomasfosterau/effect-document";
 import { fastEachRecord, type FastPlan, type FastScanEnd, type FieldReader } from "./fast.ts";
 
 /** A column's type so far: `blank` while it holds only blanks. */
@@ -144,7 +138,7 @@ class ColumnGuess<A> {
 }
 
 /** The first row as a header, its values as (plain) text cells. */
-const headerRow = (fields: ReadonlyArray<string>): SheetRow => sheetRowOf(0, fields.slice());
+const headerRow = (fields: ReadonlyArray<string>): PlainRow => fields.slice();
 
 /**
  * Whether the held first row is the header, as the general path sniffs it:
@@ -216,6 +210,17 @@ const fusable = (options: FusedOptions): boolean =>
   options.header !== "sniff" || (options.inferTypes && !options.byCell);
 
 /**
+ * A worksheet's rows as the one-pass read builds them: plain rows (#227),
+ * each the scanner's own array of the row's cells, and the positions
+ * (ascending) of those that are arrays of doubles, for `worksheetFromRows`
+ * to check without boxing their numbers.
+ */
+export interface FusedSheet {
+  readonly rows: ReadonlyArray<PlainRow>;
+  readonly numberRows: ReadonlyArray<number>;
+}
+
+/**
  * The worksheet's rows from `text` in one pass, or none when the general path
  * must read it (see the module comment).
  */
@@ -224,7 +229,7 @@ export const fusedRows = (
   plan: FastPlan,
   options: FusedOptions,
   typing: Typing,
-): Option.Option<ReadonlyArray<SheetRow>> => {
+): Option.Option<FusedSheet> => {
   if (!fusable(options)) return Option.none();
   const guess = new ColumnGuess(typing, asCells);
   const cellAt: (raw: string, c: number) => RowCell = !options.inferTypes
@@ -241,27 +246,34 @@ export const fusedRows = (
     undefined,
     asCells.number,
   );
+  // a row's index is its position in the finished rows (the held first row,
+  // header or not, is position 0)
+  const numberRows: Array<number> = [];
   return Option.flatMap(
-    fusedPass<RowCell, SheetRow>(
+    fusedPass<RowCell, PlainRow>(
       (onRow) => fastEachRecord(text, plan, reader, onRow),
       options,
       guess,
-      // a row of numbers is an array of doubles: checked without boxing them
-      (index, fields, numbers) =>
-        numbers ? sheetRowOfNumbers(index, fields) : sheetRowOf(index, fields),
+      (index, fields, numbers) => {
+        if (numbers) numberRows.push(index);
+        return fields;
+      },
       () => reader.start(),
     ),
     ({ first, rows }) =>
       Option.match(first, {
-        onNone: () => Option.some(rows),
+        onNone: () => Option.some({ rows, numberRows }),
         onSome: () => {
           const fields = reader.held;
           const isHeader =
             options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
-          if (isHeader) return Option.some(withFirst(headerRow(fields), rows));
+          if (isHeader)
+            return Option.some({ rows: withFirst(headerRow(fields), rows), numberRows });
           // a data row after all: typed under the kinds the others settled
-          const row = sheetRowOf(0, fields.map(cellAt));
-          return guess.contradicted ? Option.none() : Option.some(withFirst(row, rows));
+          const row = fields.map(cellAt);
+          return guess.contradicted
+            ? Option.none()
+            : Option.some({ rows: withFirst(row, rows), numberRows });
         },
       }),
   );

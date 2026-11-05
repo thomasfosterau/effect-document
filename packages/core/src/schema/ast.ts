@@ -308,10 +308,12 @@ export interface SheetColumnEncoded {
   readonly width?: number | undefined;
   readonly style?: StyleE | undefined;
 }
+/** The JSON (encoded) form of one position of a row: a cell, a plain cell's bare value, or `null` for a gap. */
+export type RowCellEncoded = SheetCellEncoded | number | string | boolean | null;
 /** The JSON (encoded) form of {@link SheetRow}: a plain cell is its bare value, a gap `null`. */
 export interface SheetRowEncoded {
   readonly index: number;
-  readonly cells: ReadonlyArray<SheetCellEncoded | number | string | boolean | null>;
+  readonly cells: ReadonlyArray<RowCellEncoded>;
   readonly height?: number | undefined;
 }
 /** The JSON (encoded) form of {@link MergeRange}. */
@@ -327,7 +329,8 @@ export interface WorksheetEncoded {
   readonly attr?: Attrs | undefined;
   readonly name: string;
   readonly columns: ReadonlyArray<SheetColumnEncoded>;
-  readonly rows: ReadonlyArray<SheetRowEncoded>;
+  /** A row, or a plain row's cells alone (#227). */
+  readonly rows: ReadonlyArray<SheetRowEncoded | ReadonlyArray<RowCellEncoded>>;
   readonly merges: ReadonlyArray<MergeRangeEncoded>;
 }
 
@@ -771,30 +774,6 @@ export class SheetColumn extends Schema.Class<SheetColumn>("SheetColumn")({
 const SheetIndex = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 /**
- * A filter requiring an array's positions (by `key`) to be strictly
- * ascending, so each position appears once and in order.
- */
-const strictlyAscending = <A>(
-  key: (a: A) => number,
-  what: string,
-  annotations: {
-    readonly identifier: string;
-    readonly title: string;
-    readonly description: string;
-  },
-) =>
-  Schema.makeFilter<ReadonlyArray<A>>(
-    (items) =>
-      items.flatMap((item, i): Array<Schema.FilterIssue> => {
-        const previous = items[i - 1];
-        return previous !== undefined && key(item) <= key(previous)
-          ? [{ path: [i], issue: `${what} ${key(item)} is not after ${key(previous)}` }]
-          : [];
-      }),
-    annotations,
-  );
-
-/**
  * A plain cell: a finite number, a string or a boolean, standing in a row for
  * the unstyled {@link CellNumber}, {@link CellText} or {@link CellBoolean} of
  * that value. It is how a reader writes the common cell without a node for it
@@ -852,6 +831,64 @@ export class SheetRow extends Schema.Class<SheetRow>("SheetRow")({
   cells: Schema.Array(RowCell).check(endsWithCell),
   height: Schema.optional(Schema.Number),
 }) {}
+/**
+ * A plain row: a row's cells by position, as {@link SheetRow}'s `cells` are,
+ * standing in a worksheet's `rows` for the unstyled `SheetRow` one past the
+ * row before it (row 0 when it is the first) with no `height`. It is how a
+ * reader writes the common row without a node for it (#227), and is a bare
+ * array in JSON; `rowsOf` gives the `SheetRow` it stands for (the two are
+ * the same row, though not `Equal`).
+ */
+export const PlainRow = Schema.Array(RowCell).check(endsWithCell);
+/** A plain row, as a type: a row's cells by position. */
+export type PlainRow = typeof PlainRow.Type;
+
+/**
+ * One entry of a worksheet's `rows`: a {@link SheetRow}, or a
+ * {@link PlainRow} standing for the row one past the row before it.
+ */
+export const WorksheetRow = Schema.Union([PlainRow, SheetRow]);
+/** One entry of a worksheet's `rows`, as a type. */
+export type WorksheetRow = typeof WorksheetRow.Type;
+
+/**
+ * Whether a worksheet row is a {@link PlainRow} (its cells alone) rather
+ * than a {@link SheetRow}.
+ *
+ * @example
+ * ```ts
+ * import { isPlainRow, sheetRow } from "@thomasfosterau/effect-document"
+ *
+ * isPlainRow(["a", 1]) // true
+ * isPlainRow(sheetRow(0, ["a", 1])) // false
+ * ```
+ */
+export const isPlainRow = (row: WorksheetRow): row is PlainRow => Array.isArray(row);
+
+/**
+ * A filter requiring a worksheet's rows to have strictly ascending indexes,
+ * a plain row's being one past the row before it.
+ */
+const rowsAscending = Schema.makeFilter<ReadonlyArray<WorksheetRow>>(
+  (rows) =>
+    Arr.reduce(
+      rows,
+      { previous: -1, issues: Arr.empty<Schema.FilterIssue>() },
+      ({ previous, issues }, row, i) => {
+        const index = isPlainRow(row) ? previous + 1 : row.index;
+        if (index <= previous)
+          issues.push({ path: [i], issue: `row ${index} is not after ${previous}` });
+        return { previous: index, issues };
+      },
+    ).issues,
+  {
+    identifier: "WorksheetRowsAscending",
+    title: "rows in ascending index order",
+    description:
+      "A worksheet's rows have strictly ascending indexes, a plain row's one past the row before it: each row once, in order.",
+  },
+);
+
 /** A rectangular merged-cell range (0-based, inclusive). */
 export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
   fromRow: Schema.Number,
@@ -863,19 +900,16 @@ export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
  * A spreadsheet worksheet: a named, sparse grid of typed cells. `rows` holds
  * only the rows that have cells (or a height), in strictly ascending `index`
  * order, so a sheet's size follows the cells it holds rather than its extent;
- * `denseRows` derives the rectangular grid when a caller wants one.
+ * `denseRows` derives the rectangular grid when a caller wants one. An entry
+ * is a {@link SheetRow} or a {@link PlainRow} (its cells alone, standing for
+ * the row one past the one before it): read rows through `rowsOf`,
+ * `rowIndexes` and `rowCellsOf`, which handle both.
  */
 export class Worksheet extends Schema.TaggedClass<Worksheet>()("Worksheet", {
   attr: attrField,
   name: Schema.String,
   columns: Schema.Array(SheetColumn),
-  rows: Schema.Array(SheetRow).check(
-    strictlyAscending((r) => r.index, "row", {
-      identifier: "WorksheetRowsAscending",
-      title: "rows in ascending index order",
-      description: "A worksheet's rows have strictly ascending indexes: each row once, in order.",
-    }),
-  ),
+  rows: Schema.Array(WorksheetRow).check(rowsAscending),
   merges: Schema.Array(MergeRange),
 }) {}
 
