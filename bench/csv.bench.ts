@@ -98,11 +98,18 @@ const numeric = (rows: number): string => {
   return out.join("\n") + "\n";
 };
 
+/**
+ * `BENCH_LARGE=1` adds a 100 MB table, run three rounds (a few minutes, and
+ * a few GB of heap: `NODE_OPTIONS=--max-old-space-size=8192`).
+ */
+const large = process.env["BENCH_LARGE"] === "1";
+
 const inputs = [
-  { name: "mixed, 100k rows", csv: mixed(100_000) },
-  { name: "quoted, 50k rows", csv: quoted(50_000) },
-  { name: "numeric, 100k rows", csv: numeric(100_000) },
-  { name: "mixed, 1k rows", csv: mixed(1_000) },
+  { name: "mixed, 100k rows", csv: mixed(100_000), minRounds: 15 },
+  { name: "quoted, 50k rows", csv: quoted(50_000), minRounds: 15 },
+  { name: "numeric, 100k rows", csv: numeric(100_000), minRounds: 15 },
+  { name: "mixed, 1k rows", csv: mixed(1_000), minRounds: 15 },
+  ...(large ? [{ name: "mixed, 1.2M rows", csv: mixed(1_200_000), minRounds: 3 }] : []),
 ];
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => Effect.runSync(effect);
@@ -211,11 +218,11 @@ const writeCases = (csv: string): Array<Case> => {
   ];
 };
 
-const groups: Array<Group> = inputs.flatMap(({ name, csv }) => [
-  { name: `scan: ${name}`, bytes: bytes(csv), cases: scanCases(csv) },
-  { name: `read: ${name}`, bytes: bytes(csv), cases: readCases(csv) },
-  { name: `stream: ${name}`, bytes: bytes(csv), cases: streamCases(csv) },
-  { name: `write: ${name}`, bytes: bytes(csv), cases: writeCases(csv) },
+const groups: Array<Group> = inputs.flatMap(({ name, csv, minRounds }) => [
+  { name: `scan: ${name}`, bytes: bytes(csv), cases: scanCases(csv), minRounds },
+  { name: `read: ${name}`, bytes: bytes(csv), cases: readCases(csv), minRounds },
+  { name: `stream: ${name}`, bytes: bytes(csv), cases: streamCases(csv), minRounds },
+  { name: `write: ${name}`, bytes: bytes(csv), cases: writeCases(csv), minRounds },
 ]);
 
 await runGroups("CSV", groups);

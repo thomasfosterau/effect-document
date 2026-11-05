@@ -187,7 +187,13 @@ const parseWorksheetRows = (
     Order.Number,
     ([position]: readonly [number, unknown]) => position,
   );
-  const ascending = <A>(entries: Iterable<readonly [number, A]>) => Arr.sort(entries, byPosition);
+  // Writers emit rows and cells in order, so the sort is skipped when it
+  // would change nothing (it runs once per row, and its comparator per cell).
+  const ascending = <A>(entries: Iterable<readonly [number, A]>) => {
+    const all = Array.from(entries);
+    const sorted = all.every((entry, i) => i === 0 || entry[0] > (all[i - 1]?.[0] ?? -1));
+    return sorted ? all : Arr.sort(all, byPosition);
+  };
   const rows = ascending(cellMap).map(([index, cells]) => sparseRow(index, ascending(cells)));
   return { _tag: "Rows", rows, cells: count };
 };

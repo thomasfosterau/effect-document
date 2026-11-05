@@ -12,6 +12,7 @@
  *
  * Run with `vp run bench:docx` (builds first).
  */
+import { Buffer } from "node:buffer";
 import { bytes, contentToBytes, narrow } from "@thomasfosterau/effect-document";
 import { Docx } from "@thomasfosterau/effect-ooxml";
 import * as DocxLib from "docx";
@@ -28,7 +29,7 @@ const groups = (name: string, sections: number): Array<Group> => {
   const doc = narrow(proseDocument(sections), Docx.Docx).document;
   const written = run(writer.write(doc));
   const file = contentToBytes(written);
-  const arrayBuffer = file.slice().buffer;
+  const buffer = Buffer.from(file);
   const paragraphs = proseParagraphs(sections);
   const docxLib = () =>
     new DocxLib.Document({
@@ -56,8 +57,8 @@ const groups = (name: string, sections: number): Array<Group> => {
       bytes: file.length,
       cases: [
         { name: "effect-ooxml read", run: () => run(reader.read(bytes(file))) },
-        { name: "mammoth convertToHtml", run: () => mammoth.convertToHtml({ arrayBuffer }) },
-        { name: "mammoth extractRawText", run: () => mammoth.extractRawText({ arrayBuffer }) },
+        { name: "mammoth convertToHtml", run: () => mammoth.convertToHtml({ buffer }) },
+        { name: "mammoth extractRawText", run: () => mammoth.extractRawText({ buffer }) },
       ],
     },
     {

@@ -76,6 +76,23 @@ Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf
 
 PDF has no structure of its own to read - only glyphs at coordinates - so the PDF reader infers it from the layout: the most common font size is body text, larger sizes are heading levels, gaps wider than the usual leading separate paragraphs, lines opening with a bullet or number are list items, and runs of monospaced lines are code. Documents from typical producers (word processors, browsers, report generators) come back with their headings, paragraphs and inline styling; complex layouts (multiple columns, tables) come back as text in content-stream order.
 
+## Performance
+
+`vp run bench` measures every reader and writer against the leading JavaScript library for its format (`bench/`). Medians from one run on a 4-core cloud VM with Node 22; each figure is the other library's time divided by ours, so above 1× means we are faster:
+
+| Task | Input | Compared with |
+| --- | --- | --- |
+| CSV scan (text → string rows) | 8 MB, 100k mixed rows | uDSV 0.71×, d3-dsv 0.90×, Papa Parse 0.95×, csv-parse 3.0× |
+| CSV read (text → typed document) | same | SheetJS (text → workbook) 2.7×; uDSV typed arrays 0.32× |
+| CSV stream (64 KiB chunks) | same | Papa Parse's Node stream 1.9×, csv-parse's 2.7× |
+| CSV write (document → text) | same | Papa Parse (from rows) 0.82×, d3-dsv (from rows) 0.52×; `renderTable` (from rows) 0.78× d3-dsv |
+| XLSX read / write | 160k cells | SheetJS 0.89× / 1.16×, ExcelJS 1.0× / 1.96× |
+| DOCX read / write | 500 sections | mammoth `extractRawText` 1.67× / `docx` 0.81× (it writes no lists or tables) |
+| PPTX write | 200 slides | PptxGenJS 1.04× |
+| PDF read / write | 200 sections | pdf.js text extraction 1.08× / pdf-lib 1.27× |
+
+A CSV document holds about 3.5× the memory of the string arrays the CSV libraries return (each cell is an object in the document tree), which is most of the gap to uDSV's typed arrays.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Repository conventions are in [AGENTS.md](AGENTS.md), the release pipeline in [PUBLISHING.md](PUBLISHING.md) and the vulnerability-reporting policy in [SECURITY.md](SECURITY.md).

@@ -143,7 +143,13 @@ const attribute = Parser.separatedPair(
  */
 const distinctNames = (pairs: ReadonlyArray<readonly [string, string]>): boolean => {
   if (pairs.length > 16) return new Set(pairs.map(([k]) => k)).size === pairs.length;
-  return pairs.every(([k], i) => !pairs.some(([j], n) => n < i && j === k));
+  // oxlint-disable-next-line effect/imperative-loops -- once per element of every part: callbacks here allocated per element (bench/xlsx.bench.ts)
+  for (let i = 1; i < pairs.length; i++) {
+    const name = pairs[i]?.[0];
+    // oxlint-disable-next-line effect/imperative-loops -- as above
+    for (let j = 0; j < i; j++) if (pairs[j]?.[0] === name) return false;
+  }
+  return true;
 };
 
 const attributes = Parser.repeat(Parser.preceded(ws1, attribute)).pipe(

@@ -214,6 +214,7 @@ export default defineConfig({
           "effect/avoid-native-object-helpers": "off",
           "effect/no-unknown-returns": "off",
           "effect/avoid-non-null-assertion": "off",
+          "effect/prefer-option-over-null": "off",
           // ...and reads its fixtures (the PDF and iWork test files) once, up
           // front, before anything is timed.
           "effect/use-filesystem-service": "off",
@@ -357,13 +358,13 @@ export default defineConfig({
       // Benchmarks (`bench/`): every format's reader and writer against the
       // leading JavaScript library for it, over the built packages (each
       // imports them by name, through `exports` to `dist/`, hence the build
-      // edges). Run by hand around a change to a reader or writer, never in
-      // CI: the numbers depend on the machine. `BENCH_TIME` (ms per group,
+      // edges). Run by hand around a change to a reader or writer; not in CI
+      // yet (a non-blocking job is #136), and the numbers depend on the machine. `BENCH_TIME` (ms per group,
       // default 3000) and `BENCH_FILTER` (a group-name substring) narrow a
       // run. `bench` runs them all.
       bench: {
         command:
-          "node bench/csv.bench.ts && node bench/xlsx.bench.ts && node bench/docx.bench.ts && node bench/pptx.bench.ts && node bench/rtf.bench.ts && node bench/pdf.bench.ts && node bench/iwork.bench.ts",
+          "node --expose-gc bench/csv.bench.ts && node --expose-gc bench/xlsx.bench.ts && node --expose-gc bench/docx.bench.ts && node --expose-gc bench/pptx.bench.ts && node --expose-gc bench/rtf.bench.ts && node --expose-gc bench/pdf.bench.ts && node --expose-gc bench/iwork.bench.ts && node --expose-gc bench/convert.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -375,7 +376,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:csv": {
-        command: "node bench/csv.bench.ts",
+        command: "node --expose-gc bench/csv.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -387,7 +388,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:xlsx": {
-        command: "node bench/xlsx.bench.ts",
+        command: "node --expose-gc bench/xlsx.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -399,7 +400,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:docx": {
-        command: "node bench/docx.bench.ts",
+        command: "node --expose-gc bench/docx.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -411,7 +412,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:pptx": {
-        command: "node bench/pptx.bench.ts",
+        command: "node --expose-gc bench/pptx.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -423,7 +424,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:rtf": {
-        command: "node bench/rtf.bench.ts",
+        command: "node --expose-gc bench/rtf.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -435,7 +436,7 @@ export default defineConfig({
         cache: false,
       },
       "bench:pdf": {
-        command: "node bench/pdf.bench.ts",
+        command: "node --expose-gc bench/pdf.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
@@ -447,7 +448,19 @@ export default defineConfig({
         cache: false,
       },
       "bench:iwork": {
-        command: "node bench/iwork.bench.ts",
+        command: "node --expose-gc bench/iwork.bench.ts",
+        dependsOn: [
+          "@thomasfosterau/effect-document#build",
+          "@thomasfosterau/effect-csv#build",
+          "@thomasfosterau/effect-iwork#build",
+          "@thomasfosterau/effect-ooxml#build",
+          "@thomasfosterau/effect-pdf#build",
+          "@thomasfosterau/effect-rtf#build",
+        ],
+        cache: false,
+      },
+      "bench:convert": {
+        command: "node --expose-gc bench/convert.bench.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",
