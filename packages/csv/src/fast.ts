@@ -18,6 +18,7 @@
  */
 
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import type { CsvDialect } from "./dialect.ts";
 import type { CsvScanOptions } from "./scanner.ts";
 
@@ -114,6 +115,14 @@ interface Scan<T> {
   lf: number;
   cr: number;
   template: Array<T>;
+  /**
+   * A copy of the last row whose fields were all numbers, while rows keep
+   * being so: a row started as a copy of it is a packed array of doubles in
+   * V8, each number held unboxed (8 bytes, no heap number for the collector
+   * to copy), where one started from {@link template} boxes every number
+   * that is not a small integer (bench/csv.bench.ts, a table of numbers).
+   */
+  numbers: Option.Option<Array<T>>;
   /** Whether the quoted field just read holds a doubled wrapper. */
   doubled: boolean;
   /** The value of the quoted field just read. */
@@ -264,27 +273,63 @@ const readRecord = <T>(
   reader: FieldReader<T>,
   onRow: (fields: Array<T>) => boolean,
 ): number => {
-  const fields = scan.template.slice();
+  const numbers = scan.numbers;
+  const fields = Option.getOrElse(numbers, () => scan.template).slice();
   let p = start;
   let n = 0;
+  let allNumbers = true;
   // oxlint-disable-next-line effect/imperative-loops -- once per field of the file: the measured hot path (bench/csv.bench.ts)
   for (;;) {
     p = readField(text, p, plan, scan, reader, n);
     if (p === UNCLOSED) return UNCLOSED;
-    if (n < fields.length) fields[n] = scan.field;
-    else fields.push(scan.field);
+    const value = scan.field;
+    if (Option.isSome(numbers) && Predicate.isNumber(value)) storeNumber(fields, n, value);
+    else store(fields, n, value);
+    allNumbers &&= Predicate.isNumber(value);
     n++;
     if (text.charCodeAt(p) !== plan.separator) break;
     p++;
   }
   // a record of another width: trim the copy, and size the next one to it
-  if (n !== scan.template.length) {
+  const resized = n !== scan.template.length;
+  if (resized) {
     fields.length = n;
     scan.template = fields.map(() => reader.fill);
   }
+  if (!allNumbers) scan.numbers = Option.none();
+  // a template of doubles, not of the row's own values: a row of small
+  // integers would give an array of small integers, which each later row
+  // leaves (`map` builds its array by kind; `slice` would copy a generic one)
+  else if (resized || Option.isNone(numbers)) scan.numbers = Option.some(fields.map(doubleFill));
   if (!onRow(fields)) return STOPPED;
   return afterLineBreak(text, p);
 };
+
+/** Set field `n` of a record's array (growing it by one when `n` is its length). */
+const store = <T>(fields: Array<T>, n: number, value: T): void => {
+  if (n < fields.length) fields[n] = value;
+  else fields.push(value);
+};
+
+/**
+ * {@link store} for a number into a record started from the number template:
+ * a store site of its own, which only ever meets arrays of doubles and
+ * numbers, so V8 keeps it storing doubles. Shared with the generic store, it
+ * learns from generic arrays and turns these to generic ones too.
+ */
+const storeNumber = <T>(fields: Array<T>, n: number, value: T): void => {
+  if (n < fields.length) fields[n] = value;
+  else fields.push(value);
+};
+
+/**
+ * A placeholder the number template is filled with: a double that is not a
+ * small integer, so the template's array holds doubles.
+ */
+const doubleFill = <T>(value: T): T =>
+  // SAFETY: only a value that is a number is replaced, so T holds numbers; the placeholder is overwritten before the row is read
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
+  Predicate.isNumber(value) ? (0.5 as T & number) : value;
 
 /** {@link readRecord}: a quoted field is never closed. */
 const UNCLOSED = -1;
@@ -319,6 +364,7 @@ export const fastEachRecord = <T>(
     lf: -1,
     cr: -1,
     template: [],
+    numbers: Option.none(),
     doubled: false,
     quoted: "",
     field: reader.fill,

@@ -139,6 +139,19 @@ const isPlainCell = (value: unknown): boolean =>
   (Predicate.isNumber(value) && Number.isFinite(value));
 
 /**
+ * Whether a value may stand at a row position: a gap, a plain cell or a cell
+ * node. Numbers first: a reader's rows are mostly numbers, and this runs once
+ * per cell a reader builds (bench/csv.bench.ts).
+ */
+const isRowCellValue = (value: unknown): boolean =>
+  Predicate.isNumber(value)
+    ? Number.isFinite(value)
+    : value === undefined ||
+      Predicate.isString(value) ||
+      Predicate.isBoolean(value) ||
+      isCellInstance(value);
+
+/**
  * The cell node a row position holds: the node itself, the unstyled
  * `CellText` / `CellNumber` / `CellBoolean` a plain cell stands for, or
  * `undefined` for a gap. A plain cell's node is built when asked for (two
@@ -180,8 +193,7 @@ export const cellAt = (row: SheetRow, col: number): SheetCell | undefined => cel
  * instance, a plain cell or `undefined` (a gap), the last not a gap.
  */
 const isPositional = (cells: ReadonlyArray<RowCell>): boolean =>
-  cells.every((cell) => cell === undefined || isPlainCell(cell) || isCellInstance(cell)) &&
-  (Arr.isReadonlyArrayEmpty(cells) || cells.at(-1) !== undefined);
+  cells.every(isRowCellValue) && (Arr.isReadonlyArrayEmpty(cells) || cells.at(-1) !== undefined);
 
 /**
  * A row from its cells by position: the cell at array position `n` goes to
