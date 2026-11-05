@@ -61,7 +61,8 @@ const shared = <A>(make: () => A): (() => A) => {
 };
 
 /*
- * Constructor functions for the two nodes there is one of per cell. An object
+ * Constructor functions for the nodes there is one of per cell (a text or
+ * number cell, and its `IndexedCell`). An object
  * built by `new` gets exactly the slots its constructor stores, where one
  * built by `Object.create` plus stores gets V8's default slack: 40 bytes a
  * node rather than 56, a sixth of a CSV document's memory (and of the time
@@ -71,6 +72,10 @@ function TextCell(this: { _tag: string; value: string }, value: string): void {
   this._tag = "CellText";
   this.value = value;
 }
+function NumberCell(this: { _tag: string; value: number }, value: number): void {
+  this._tag = "CellNumber";
+  this.value = value;
+}
 function Indexed(this: { col: number; cell: SheetCell }, col: number, cell: SheetCell): void {
   this.col = col;
   this.cell = cell;
@@ -78,17 +83,21 @@ function Indexed(this: { col: number; cell: SheetCell }, col: number, cell: Shee
 
 interface Constructors {
   readonly text: new (value: string) => CellText;
+  readonly number: new (value: number) => CellNumber;
   readonly indexed: new (col: number, cell: SheetCell) => IndexedCell;
 }
 
 const constructors = /*#__PURE__*/ shared((): Constructors => {
   TextCell.prototype = CellText.prototype;
+  NumberCell.prototype = CellNumber.prototype;
   Indexed.prototype = IndexedCell.prototype;
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: a function with the class's prototype that stores exactly the class's fields builds what the class's constructor builds once its struct has accepted them (see the module comment)
   const text = TextCell as unknown as Constructors["text"];
   // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
+  const number = NumberCell as unknown as Constructors["number"];
+  // oxlint-disable-next-line effect/no-chained-type-assertions, effect/avoid-any, typescript/no-unsafe-type-assertion, effect/casting-awareness, effect/require-safety-comment-for-type-assertion -- SAFETY: as above
   const indexed = Indexed as unknown as Constructors["indexed"];
-  return { text, indexed };
+  return { text, number, indexed };
 });
 
 /** A text cell whose `value` is a string. */
@@ -98,10 +107,7 @@ export const trustedText = (value: string): CellText => {
 
 /** A number cell whose `value` is a number (`Schema.Number` accepts every one). */
 export const trustedNumber = (value: number): CellNumber => {
-  const c: Types.Mutable<CellNumber> = Object.create(CellNumber.prototype);
-  c._tag = "CellNumber";
-  c.value = value;
-  return c;
+  return new (constructors().number)(value);
 };
 
 /** A boolean cell whose `value` is a boolean. */

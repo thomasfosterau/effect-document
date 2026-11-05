@@ -18,9 +18,7 @@
  * @internal
  */
 
-import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
 import {
   cell,
   type IndexedCell,
@@ -30,13 +28,7 @@ import {
   sheetRow,
   sheetRowOf,
 } from "@thomasfosterau/effect-document";
-import {
-  fastEachRecord,
-  fastEachRow,
-  type FastPlan,
-  type FastScanEnd,
-  type FieldReader,
-} from "./fast.ts";
+import { fastEachRecord, type FastPlan, type FastScanEnd, type FieldReader } from "./fast.ts";
 
 /** A column's type so far: `blank` while it holds only blanks. */
 export type ColumnKind = "number" | "boolean" | "text" | "blank";
@@ -184,6 +176,11 @@ class ColumnCells {
     this.on = on;
   }
 
+  /** Whether the dictionary is still on: off, a value's cell depends on its value alone. */
+  get active(): boolean {
+    return this.on;
+  }
+
   /** The indexed cell for `raw` in this column. */
   get(raw: string): IndexedCell {
     if (!this.on) return indexedCell(this.col, this.make(raw));
@@ -218,8 +215,22 @@ class RowCells {
   row(index: number, fields: ReadonlyArray<string>): SheetRow {
     return sheetRowOf(
       index,
-      fields.map((raw, c) => (this.columns[c] ??= this.column(c)).get(raw)),
+      fields.map((raw, c) => this.at(raw, c)),
     );
+  }
+
+  /** The indexed cell for `raw` in column `c`. */
+  at(raw: string, c: number): IndexedCell {
+    return (this.columns[c] ??= this.column(c)).get(raw);
+  }
+
+  /**
+   * Whether column `c`'s cells depend on their values alone (its dictionary
+   * is off, or there are none), so a cell may be built without its string.
+   */
+  unshared(c: number): boolean {
+    const column = this.columns[c];
+    return column !== undefined && !column.active;
   }
 
   private column(c: number): ColumnCells {
@@ -312,17 +323,25 @@ export const fusedRows = (
       ? typing.cellOf
       : (raw: string, c: number) => guess.value(raw, c);
   const cells = new RowCells(cellAt, text.length >= DICTIONARY_MIN_TEXT);
+  const reader = new CellReader(
+    guess.kinds,
+    cells,
+    typing.numberAt,
+    options.inferTypes && !options.byCell,
+  );
   return Option.flatMap(
-    fusedPass<string, SheetRow>(
-      (onRow) => fastEachRow(text, plan, onRow),
+    fusedPass<IndexedCell, SheetRow>(
+      (onRow) => fastEachRecord(text, plan, reader, onRow),
       options,
       guess,
-      (index, fields) => cells.row(index, fields),
+      (index, fields) => sheetRowOf(index, fields),
+      () => reader.start(),
     ),
     ({ first, rows }) =>
       Option.match(first, {
         onNone: () => Option.some(rows),
-        onSome: (fields) => {
+        onSome: () => {
+          const fields = reader.held;
           const isHeader =
             options.header === "first" || sniffed(fields, rows.length, guess.kinds, typing);
           if (isHeader) return Option.some([headerRow(fields), ...rows]);
@@ -333,6 +352,119 @@ export const fusedRows = (
       }),
   );
 };
+
+/**
+ * A scan's fields, built as they are scanned once {@link start} is called.
+ * Before that, the first row (which may be the header) is kept as strings
+ * in {@link held}, its fields placeholders. A field of a column guessed to
+ * hold numbers is read from the text in place when {@link inPlace} allows:
+ * no string is made for it.
+ */
+abstract class FieldBuilder<A> implements FieldReader<A> {
+  /** The first row's strings, until {@link start}. */
+  readonly held: Array<string> = [];
+  /** A placeholder for a field not yet built. */
+  abstract readonly fill: A;
+  private typing = false;
+  private readonly kinds: ReadonlyArray<ColumnKind>;
+  private readonly numberAt: (text: string, start: number, end: number) => number;
+  private readonly byColumn: boolean;
+
+  constructor(
+    kinds: ReadonlyArray<ColumnKind>,
+    numberAt: (text: string, start: number, end: number) => number,
+    byColumn: boolean,
+  ) {
+    this.kinds = kinds;
+    this.numberAt = numberAt;
+    this.byColumn = byColumn;
+  }
+
+  /** Build every field from here on. */
+  start(): void {
+    this.typing = true;
+  }
+
+  readonly unquoted = (text: string, start: number, end: number, c: number): A => {
+    if (this.typing && this.byColumn && this.kinds[c] === "number" && this.inPlace(c)) {
+      const value = this.numberAt(text, start, end);
+      if (!Number.isNaN(value)) return this.number(value, c);
+    }
+    return this.quoted(text.slice(start, end), c);
+  };
+
+  readonly quoted = (value: string, c: number): A => {
+    if (this.typing) return this.field(value, c);
+    this.held[c] = value;
+    return this.fill;
+  };
+
+  /** Whether column `c`'s numbers may be read in place. */
+  protected abstract inPlace(c: number): boolean;
+  /** The field for a number read in place in column `c`. */
+  protected abstract number(value: number, c: number): A;
+  /** The field for `raw` in column `c`. */
+  protected abstract field(raw: string, c: number): A;
+}
+
+/**
+ * The document scan's fields: indexed cells, a number read in place only in
+ * a column whose dictionary is off (its values mostly unique).
+ */
+class CellReader extends FieldBuilder<IndexedCell> {
+  readonly fill: IndexedCell = indexedCell(0, cell.blank());
+  private readonly cells: RowCells;
+
+  constructor(
+    kinds: ReadonlyArray<ColumnKind>,
+    cells: RowCells,
+    numberAt: (text: string, start: number, end: number) => number,
+    byColumn: boolean,
+  ) {
+    super(kinds, numberAt, byColumn);
+    this.cells = cells;
+  }
+
+  protected inPlace(c: number): boolean {
+    return this.cells.unshared(c);
+  }
+
+  protected number(value: number, c: number): IndexedCell {
+    return indexedCell(c, cell.number(value));
+  }
+
+  protected field(raw: string, c: number): IndexedCell {
+    return this.cells.at(raw, c);
+  }
+}
+
+/** The typed scan's fields: plain values. */
+class ValueReader extends FieldBuilder<FusedValue> {
+  readonly fill: FusedValue = null;
+  private readonly typed: (raw: string, c: number) => FusedValue;
+
+  constructor(
+    kinds: ReadonlyArray<ColumnKind>,
+    typed: (raw: string, c: number) => FusedValue,
+    numberAt: (text: string, start: number, end: number) => number,
+    byColumn: boolean,
+  ) {
+    super(kinds, numberAt, byColumn);
+    this.typed = typed;
+  }
+
+  protected inPlace(): boolean {
+    return true;
+  }
+
+  protected number(value: number): FusedValue {
+    return value;
+  }
+
+  protected field(raw: string, c: number): FusedValue {
+    return this.typed(raw, c);
+  }
+}
 
 /** A table of typed values: its header (or `null`) and its rows. */
 export interface FusedTable {
@@ -359,7 +491,7 @@ export const fusedValues = (
       ? typing.valueOf
       : (raw, c) => guess.value(raw, c);
   const reader = new ValueReader(
-    guess,
+    guess.kinds,
     typed,
     typing.numberAt,
     options.inferTypes && !options.byCell,
@@ -377,9 +509,8 @@ export const fusedValues = (
     ({ first, rows }) =>
       Option.match(first, {
         onNone: () => Option.some({ headers: null, rows }),
-        onSome: (fields) => {
-          // held back untyped, so its fields are all strings: the filter keeps every one
-          const strings = Arr.filter(fields, Predicate.isString);
+        onSome: () => {
+          const strings = reader.held;
           const isHeader =
             options.header === "first" || sniffed(strings, rows.length, guess.kinds, typing);
           if (isHeader) return Option.some({ headers: strings, rows });
@@ -391,46 +522,3 @@ export const fusedValues = (
       }),
   );
 };
-
-/**
- * The typed scan's fields: each typed as it is read once {@link start} is
- * called (the first row, which may be the header, is read as strings), a
- * field of a column guessed to hold numbers read from the text in place.
- */
-class ValueReader implements FieldReader<FusedValue> {
-  readonly fill: FusedValue = null;
-  private typing = false;
-  private readonly guess: ColumnGuess<FusedValue>;
-  private readonly typed: (raw: string, c: number) => FusedValue;
-  private readonly numberAt: (text: string, start: number, end: number) => number;
-  private readonly byColumn: boolean;
-
-  constructor(
-    guess: ColumnGuess<FusedValue>,
-    typed: (raw: string, c: number) => FusedValue,
-    numberAt: (text: string, start: number, end: number) => number,
-    byColumn: boolean,
-  ) {
-    this.guess = guess;
-    this.typed = typed;
-    this.numberAt = numberAt;
-    this.byColumn = byColumn;
-  }
-
-  /** Type every field from here on. */
-  start(): void {
-    this.typing = true;
-  }
-
-  readonly unquoted = (text: string, start: number, end: number, c: number): FusedValue => {
-    if (this.byColumn && this.guess.kinds[c] === "number") {
-      const value = this.numberAt(text, start, end);
-      if (!Number.isNaN(value)) return value;
-    }
-    const raw = text.slice(start, end);
-    return this.typing ? this.typed(raw, c) : raw;
-  };
-
-  readonly quoted = (value: string, c: number): FusedValue =>
-    this.typing ? this.typed(value, c) : value;
-}
