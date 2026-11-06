@@ -9,10 +9,10 @@
  * - Rich-text cells are written as their flattened text.
  */
 
-import * as HashMap from "effect/HashMap";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import { cell, inlinesToText, type SheetCell } from "@thomasfosterau/effect-document";
+import { cellOfText, decodeXstring } from "./cellText.ts";
 import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
 // ============================================================================
@@ -98,17 +98,7 @@ export const cellToSpreadsheetMl = (
 // Reading: SpreadsheetML <c> element -> SheetCell
 // ============================================================================
 
-/**
- * Decode SpreadsheetML's `_xHHHH_` escapes (ST_Xstring), which carry
- * characters XML 1.0 can't (control characters, lone surrogates). `_x005F_`
- * escapes a literal underscore, so `_x005F_x0041_` decodes to `_x0041_`.
- */
-export const decodeXstring = (s: string): string =>
-  s.includes("_x")
-    ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) =>
-        String.fromCharCode(Number.parseInt(hex, 16)),
-      )
-    : s;
+export { decodeXstring } from "./cellText.ts";
 
 /**
  * Concatenate all `<t>` descendants of an element (handles rich-text runs),
@@ -140,7 +130,6 @@ export const spreadsheetMlToCell = (
   sharedStrings: ReadonlyArray<string>,
   formula?: string,
 ): SheetCell => {
-  const type = c.attrs["t"] ?? "n";
   const v = findChild(c, "v");
 
   // A formula cell carries an <f> element; round-trip it as a CellFormula
@@ -153,56 +142,11 @@ export const spreadsheetMlToCell = (
     );
   }
 
-  const read = HashMap.get(CELL_READERS, type);
-  return Option.isSome(read) ? read.value(c, v, sharedStrings) : numberCell(v);
+  const is = findChild(c, "is");
+  return cellOfText(
+    c.attrs["t"] ?? "n",
+    Option.fromUndefinedOr(v?.text),
+    Option.map(Option.fromUndefinedOr(is), collectText),
+    sharedStrings,
+  );
 };
-
-type CellReader = (
-  c: XmlElement,
-  v: XmlElement | undefined,
-  sharedStrings: ReadonlyArray<string>,
-) => SheetCell;
-
-/** A cell whose `<v>`, when present, maps to a cell through `f`. */
-const valued =
-  (f: (v: XmlElement) => SheetCell): CellReader =>
-  (_, v) =>
-    v === undefined ? cell.blank() : f(v);
-
-/** A numeric cell (`t="n"`, the default). */
-const numberCell = (v: XmlElement | undefined): SheetCell => {
-  if (v === undefined || v.text.trim() === "") return cell.blank();
-  const num = Number(v.text);
-  return Number.isFinite(num) ? cell.number(num) : cell.text(v.text);
-};
-
-/** The readers for each `t` cell type other than the numeric default. */
-const CELL_READERS = HashMap.make<ReadonlyArray<readonly [string, CellReader]>>(
-  [
-    "s",
-    (_, v, sharedStrings) => {
-      const value = v === undefined ? undefined : sharedStrings[Number.parseInt(v.text, 10)];
-      return value === undefined ? cell.blank() : cell.text(value);
-    },
-  ],
-  [
-    "inlineStr",
-    (c) => {
-      const is = findChild(c, "is");
-      return is === undefined ? cell.blank() : cell.text(collectText(is));
-    },
-  ],
-  ["str", valued((v) => cell.text(decodeXstring(v.text)))],
-  ["b", valued((v) => cell.boolean(v.text.trim() === "1"))],
-  ["e", valued((v) => cell.error(v.text))],
-  [
-    // An ISO 8601 date (Strict files and some producers).
-    "d",
-    (_, v) => {
-      if (v === undefined || v.text.trim() === "") return cell.blank();
-      // oxlint-disable-next-line effect/use-clock-service -- parses the cell's date, never reads the clock
-      const date = new Date(v.text.trim());
-      return Number.isNaN(date.getTime()) ? cell.text(v.text) : cell.date(date);
-    },
-  ],
-);
