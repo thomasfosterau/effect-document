@@ -10,7 +10,7 @@ Branch off `trunk`, rebase rather than merge, squash-merge with a conventional p
 
 Node 22 or later and pnpm 11 (the version is pinned by `packageManager`; Corepack or `pnpm self-update` picks it up). `pnpm install` installs the workspace, the Vite+ git hooks and the Effect-patched `tsc` / `oxlint`.
 
-Open in a Codespace or Dev Container: `.devcontainer/` provisions it with the same hook as agent sessions.
+Open in a Codespace or Dev Container: `.devcontainer/` provisions it with the same hook as agent sessions. The `Dev Container` workflow (`.github/workflows/devcontainer.yml`) builds it in CI whenever its inputs change; to try a change locally, `pnpm dlx @devcontainers/cli@0.89.0 up --workspace-folder .` (needs Docker).
 
 ## Git hooks
 
