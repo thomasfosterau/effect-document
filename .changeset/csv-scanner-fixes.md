@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-csv": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Fix several CSV scanner bugs.

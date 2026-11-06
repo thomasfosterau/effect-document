@@ -1,6 +1,5 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-ooxml": minor
 ---
 
 Ids are now allowed per node (#184). Each node kind that carries attributes has an id facet (`attr.id.header`, `attr.id.link`, …, see `IdFeature` and `ID_FEATURE`). A profile that lists `attr.id` gets all of them, so existing profiles allow ids everywhere as before; a profile can instead list only the nodes its format keeps ids on. `collectFeatures` reports a document's ids as their nodes' facets, and `narrow` keeps an id only where the target allows it there. A dropped id's loss entry now names the node's facet: `attr.id.link`, say, where it used to say `attr.id`.

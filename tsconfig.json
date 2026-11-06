@@ -6,21 +6,6 @@
       "path": "packages/core"
     },
     {
-      "path": "packages/csv"
-    },
-    {
-      "path": "packages/iwork"
-    },
-    {
-      "path": "packages/ooxml"
-    },
-    {
-      "path": "packages/pdf"
-    },
-    {
-      "path": "packages/rtf"
-    },
-    {
       "path": "./tsconfig.test.json"
     }
   ]

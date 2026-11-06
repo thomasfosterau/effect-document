@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-iwork": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 iWork codec hardening:

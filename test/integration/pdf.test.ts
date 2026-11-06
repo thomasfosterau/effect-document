@@ -15,9 +15,9 @@ import {
   trustAs,
   type FeaturesOf,
 } from "@thomasfosterau/effect-document";
-import { Docx } from "@thomasfosterau/effect-ooxml";
-import * as Pdf from "@thomasfosterau/effect-pdf";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import { Docx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 

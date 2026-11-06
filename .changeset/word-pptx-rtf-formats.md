@@ -1,6 +1,5 @@
 ---
-"@thomasfosterau/effect-ooxml": minor
-"@thomasfosterau/effect-rtf": minor
+"@thomasfosterau/effect-document": minor
 ---
 
 Add DOCX (Word), PPTX (PowerPoint) and RTF formats, each with its own profile.

@@ -2,7 +2,7 @@
 
 A type-safe, profile-based universal document schema for [Effect](https://effect.website) 4. One Pandoc-style AST spans prose documents, spreadsheets and presentations; **profiles** carve out named subsets of it; and the type system tracks which subset a document belongs to, so a reader returns exactly what its format produces, a writer accepts only what its format can represent, and converting between formats reports precisely what was lost.
 
-This package holds the schema, the profiles and the `Reader` / `Writer` / `Format` / `convert` pipeline. Each file format is its own package: [`effect-csv`](https://www.npmjs.com/package/@thomasfosterau/effect-csv), [`effect-ooxml`](https://www.npmjs.com/package/@thomasfosterau/effect-ooxml) (XLSX, DOCX, PPTX), [`effect-rtf`](https://www.npmjs.com/package/@thomasfosterau/effect-rtf), [`effect-pdf`](https://www.npmjs.com/package/@thomasfosterau/effect-pdf) and [`effect-iwork`](https://www.npmjs.com/package/@thomasfosterau/effect-iwork).
+This package holds the schema, the profiles and the `Reader` / `Writer` / `Format` / `convert` pipeline on its root entry, and every file format on a subpath of its own: [`/csv`](#csv-and-tsv-csv), [`/ooxml`](#office-open-xml-ooxml) (XLSX, DOCX, PPTX), [`/rtf`](#rtf-rtf), [`/pdf`](#pdf-pdf) and [`/iwork`](#apple-iwork-iwork). No format is on the root barrel, so importing the root loads none of them.
 
 > **Experimental.** The API is in flux; expect breaking changes before 1.0.
 
@@ -10,9 +10,11 @@ This package holds the schema, the profiles and the `Reader` / `Writer` / `Forma
 
 ```sh
 pnpm add effect @thomasfosterau/effect-document
+# for /csv, /rtf, /ooxml or /iwork:
+pnpm add @thomasfosterau/effect-parse
 ```
 
-`effect` (`^4.0.0`) is a peer dependency: your application owns the single copy.
+`effect` (`^4.0.0`) is a peer dependency: your application owns the single copy. `@thomasfosterau/effect-parse` (`^0.4.1`) is an optional peer, needed only by the formats written on it (see [Formats](#formats)).
 
 ## Documents
 
@@ -112,8 +114,8 @@ A `Reader<F>` parses `Content` (text or bytes) into a `Doc<F>`; a `Writer<F>` re
 ```ts
 import * as Effect from "effect/Effect";
 import { contentToBytes, convert, text } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import { Xlsx } from "@thomasfosterau/effect-ooxml";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Xlsx } from "@thomasfosterau/effect-document/ooxml";
 
 const program = Effect.gen(function* () {
   // CSV ⊆ Spreadsheet, so this direction loses nothing
@@ -361,3 +363,672 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `convert` | function | Convert content from one format to another. |
 
 Every node class also has a `*Encoded` interface: its JSON form (`ParaEncoded`, `WorksheetEncoded`, …), which is what `Schema.encode` produces.
+
+## Formats
+
+Each format family is a subpath of this package, kept off the root barrel. `/csv`, `/rtf`, `/ooxml*` and `/iwork*` are written on [`@thomasfosterau/effect-parse`](https://www.npmjs.com/package/@thomasfosterau/effect-parse), an optional peer you install to use them; `/ooxml*`, `/pdf*` and `/iwork*` load [fflate](https://www.npmjs.com/package/fflate) (ZIP and DEFLATE), a dependency. The root entry, `/schema`, `/profile`, `/profiles` and `/io` load neither.
+
+### CSV and TSV (`/csv`)
+
+CSV and TSV: a reader and writer for the `Csv` profile (one worksheet of text, number, boolean and blank cells), dialects, quoting, comments, type inference, a chunked streaming scanner, and seeded synthetic data. Parsing is built on [`@thomasfosterau/effect-parse`](https://www.npmjs.com/package/@thomasfosterau/effect-parse).
+
+#### Reading and writing
+
+```ts
+import * as Effect from "effect/Effect";
+import { contentToText, text } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+
+const program = Effect.gen(function* () {
+  // a single worksheet: the header row is sniffed, and the age and admin
+  // columns are inferred as number and boolean cells
+  const doc = yield* Csv.makeCsvReader().read(text("name,age,admin\nalice,30,true\n"));
+  const out = yield* Csv.makeCsvWriter().write(doc);
+  return contentToText(out); // "name,age,admin\nalice,30,true\n"
+});
+```
+
+By default the reader sniffs the header row: the first row is the header when every value in it is text and some column below it is all numbers or booleans. Pass `treatFirstRowAsHeader: true` or `false` to decide instead (an all-text file needs `true` for its first row to be a header). Each column is typed as a whole: a column is numeric only if every value in it is a number, so a code such as `007` keeps its whole column as written. Pass `inference: "cell"` to type each value on its own instead. Only plain decimals whose digits a double holds exactly become numbers, so 20-digit IDs stay text; pass `exactNumbers: false` to read every value the number grammar matches as `Number` of it instead, as d3-dsv and uDSV do (lossy past a double's digits).
+
+For rows rather than a document, `Csv.readCsvRows(text, options)` takes the same options and returns `{ headers, rows }`: the header (or `null`) and each row's values as plain strings, numbers, booleans and `null` (a null spelling), typed exactly as `read` types its cells. It is the like-for-like counterpart of d3-dsv's `autoType` and Papa Parse's `dynamicTyping`, and the cheaper choice when the table goes straight into code (see the performance table in the repository README).
+
+```ts
+const { headers, rows } = yield * Csv.readCsvRows("name,age\nalice,30\nbob,\n");
+// headers: ["name", "age"]; rows: [["alice", 30], ["bob", null]]
+```
+
+`Csv.format` and `Csv.tsvFormat` are the bundles for `convert`; `Csv.makeFormat({ reader, writer })` builds one with options. Pass `inferTypes: false` to keep every value a text cell exactly as written, a `dialect` (`StandardDialect`, `TsvDialect` or your own `CsvDialect`) for other separators and quoting, and `skipRows`, `lineCommentMarker`, `trimWhitespace` or `filterEmpty` to clean messy input. A malformed file (an unterminated quote, a ragged row under a header) fails with a `ParseError` carrying its position in the source.
+
+The writer quotes only the fields that need it (`quoting: "minimal"`); `quoting` also takes `"all"`, `"nonNumeric"` and `"none"`, after Python's `csv.QUOTE_*`. It doubles a wrapper inside a quoted field, as RFC 4180 specifies, or escapes it with `escapeChar` (`"\\"`, say) instead; a field holding the escape character itself fails the write, and the reader has no escape-character option yet. Rows end with the dialect's `linebreak`: LF in `StandardDialect`, CRLF in `Rfc4180Dialect`. Set `bom: true` for Excel to detect UTF-8, `headers` to write a header row first, and `padRows` to pad short rows into a rectangle. Numbers are written as shortest round-trip decimals with no exponent form (`formatNumber` overrides it). `renderCsvStream` renders a `Stream` of rows one chunk per row. A worksheet is sparse, so the writer writes each gap between cells as an empty field and each row the sheet does not hold as an empty line; `maxFields` (default `DEFAULT_MAX_FIELDS`, five million) bounds how far those gaps may expand, and a write past it fails with a `WriteError`.
+
+**Formula injection.** Spreadsheet apps run a cell that starts with `=`, `+`, `-` or `@` as a formula when the file is opened, so a value such as `=HYPERLINK(...)` from untrusted input can act on whoever opens the file. Set `escapeFormulae: true` when writing such data for people to open: it prefixes `'` to text fields that start with one of those characters, a tab or a CR, and quotes them. It changes the values, so leave it off for files that programs read.
+
+#### Streaming
+
+`readStream` yields rows without building the document, and `scanCsvStream` scans text that arrives in chunks; a field, a quoted line break or a CRLF may span chunk boundaries:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+
+const chunks = Stream.make("id,na", "me\n1,a", "lice\n2,bob\n");
+const rows = Csv.scanCsvStream(chunks, Csv.StandardDialect, { treatFirstRowAsHeader: true });
+const all = Stream.runCollect(rows); // [["1", "alice"], ["2", "bob"]]
+```
+
+#### Synthetic data
+
+```ts
+import * as Csv from "@thomasfosterau/effect-document/csv";
+
+// the same seed always gives the same table
+const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, seed: 42 });
+```
+
+#### API reference
+
+##### `@thomasfosterau/effect-document/csv`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The CSV profile. |
+| `CsvFormatOptions` | interface | Options for the CSV format bundle. |
+| `makeFormat` | function | Create a CSV Format bundle with custom reader/writer options. |
+| `format` | const | The CSV format bundle with default options, for use with `convert`. |
+| `tsvFormat` | const | The TSV (tab-separated values) format bundle. |
+| `CsvDialect` | interface | CSV dialect configuration - format variations like separators and quoting. |
+| `StandardDialect` | const | Standard comma-separated values, written with LF line breaks |
+| `Rfc4180Dialect` | const | Comma-separated values written with the CRLF line breaks RFC 4180 specifies |
+| `TsvDialect` | const | Tab-separated values |
+| `CsvScanOptions` | interface | How the scanner splits CSV text into rows. |
+| `ScannedTable` | interface | The result of scanning CSV text. |
+| `scanCsv` | function | Scan CSV text into headers and raw string rows. |
+| `scanCsvStream` | function | Scan a stream of CSV text chunks into data rows, emitting each row as soon as it is complete. |
+| `CsvFeature` | type | The features the CSV profile allows, as a type. |
+| `CsvInferenceOptions` | interface | How raw strings become typed values. |
+| `CsvReaderOptions` | interface | Options for the CSV reader. |
+| `inferCell` | function | Infer a typed cell from a raw CSV string value, on its own. |
+| `CsvValue` | type | A typed CSV value, as `readCsvRows` returns it: `null` for a null spelling. |
+| `CsvRows` | interface | A CSV table of typed values: its header row (or `null`) and its data rows. |
+| `readCsvRows` | function | Read CSV text into rows of typed values, typed as `read` types its cells. |
+| `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
+| `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
+| `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |
+| `makeCsvReaderLayer` | function | Layer providing a CSV Reader with custom options. |
+| `CsvQuoting` | type | When to quote fields, after Python's `csv.QUOTE_*`. |
+| `CsvWriterOptions` | interface | Options for the CSV writer. |
+| `DEFAULT_MAX_FIELDS` | const | The default `CsvWriterOptions.maxFields`: core's dense-grid budget, five million. |
+| `formatCsvNumber` | function | Render a number as its shortest round-trip decimal, never in exponent form. |
+| `renderField` | function | Render a single field, quoting it if necessary (as the `minimal` mode does). |
+| `renderTable` | function | Render rows of string fields to CSV text (with trailing newline). |
+| `renderCsvStream` | function | Render a stream of worksheet rows to CSV text, one chunk per row (the BOM and header row, if any, come first). |
+| `makeCsvWriter` | function | Create a CSV Writer with the given options baked in. |
+| `CsvWriterTag` | const | Context tag for dependency-injection style usage. |
+| `CsvWriterLive` | const | Layer providing a CSV Writer with default options. |
+| `makeCsvWriterLayer` | function | Layer providing a CSV Writer with custom options. |
+| `SynthesisSpec` | interface | What to synthesize. |
+| `SynthesizedTable` | interface | The raw result of synthesis. |
+| `synthesizeTable` | function | Generate a table of random string data according to the spec. |
+| `synthesizeDocument` | function | Generate a single-worksheet CSV-profile document of random string data. |
+
+### Office Open XML (`/ooxml`)
+
+Office Open XML: readers and writers for Excel workbooks (`Xlsx`), Word documents (`Docx`) and PowerPoint decks (`Pptx`), implemented directly on SpreadsheetML, WordprocessingML and PresentationML. The ZIP container is read and written with [fflate](https://www.npmjs.com/package/fflate).
+
+Import the three namespaces from `/ooxml`, or one format from its own subpath (`@thomasfosterau/effect-document/ooxml/xlsx`, `/ooxml/docx`, `/ooxml/pptx`) so a bundler keeps only that one.
+
+#### What each format covers
+
+| Format | Profile | Reads and writes |
+| --- | --- | --- |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas. Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
+| PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
+
+#### Usage
+
+```ts
+import * as Effect from "effect/Effect";
+import {
+  bytes,
+  cell,
+  document,
+  header,
+  para,
+  str,
+  trustAs,
+  worksheet,
+} from "@thomasfosterau/effect-document";
+import type { FeaturesOf } from "@thomasfosterau/effect-document";
+import { Docx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+
+const program = Effect.gen(function* () {
+  // a workbook: one worksheet of typed cells
+  const book = document([worksheet("Sales", [[cell.text("North"), cell.number(42000)]])]);
+  const xlsx = yield* Xlsx.makeXlsxWriter().write(trustAs<Xlsx.SpreadsheetFeature>(book));
+  const back = yield* Xlsx.makeXlsxReader().read(xlsx);
+
+  // a Word document
+  const letter = trustAs<FeaturesOf<typeof Docx.profile>>(
+    document([header(1, [str("Hello")]), para([str("World")])]),
+  );
+  const docx = yield* Docx.makeDocxWriter().write(letter);
+  return { sheets: back.blocks.length, docx };
+});
+```
+
+`trustAs` asserts a document's profile without checking it; use a profile's `validate` (or `narrow`) on documents you did not build yourself. Each namespace's `format` plugs into `convert`, and converting between them reports what the target cannot hold: DOCX → PPTX wraps loose prose into a single slide. A missing or malformed part fails with a `ParseError` whose `cause` says which.
+
+Every reader takes a `limits` option against zip bombs: `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed part read (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` keeps its default. Parts are inflated only when read, after their declared size is checked, so a zip bomb fails with a `ParseError` whose `code` is `"LimitExceeded"`. The names, defaults and messages are the same as the iWork readers' `limits`.
+
+The XLSX entry also exports its A1-notation helpers (`parseA1`, `parseA1Range`, `toA1`, `indexToCol`, `colToIndex`) and the SpreadsheetML cell codec.
+
+#### API reference
+
+The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subpath exports one of them flat.
+
+##### `@thomasfosterau/effect-document/ooxml/xlsx`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The XLSX (write) profile. |
+| `XlsxFormatOptions` | interface | Options for the XLSX format bundle. |
+| `makeFormat` | function | Create an XLSX Format bundle with custom reader/writer options. |
+| `format` | const | The XLSX format bundle with default options, for use with `convert`. |
+| `indexToCol` | function | Convert a 0-indexed column number to letters. |
+| `colToIndex` | function | Convert column letters to a 0-indexed column number. |
+| `CellRef` | interface | A cell position, 0-indexed (`A1` is `{ col. |
+| `AbsoluteCellRef` | interface | A cell reference that may pin its column and/or row with `$` ("$A1", "B$2", "$C$3"). |
+| `CellRange` | interface | A rectangular range between two corner references ("A1:B2"); a lone cell is a 1x1 range. |
+| `toA1` | function | Render a 0-indexed (col, row) pair as an A1 reference. |
+| `a1Cell` | const | A plain A1 reference, as in a SpreadsheetML cell's `r` attribute. |
+| `a1AbsoluteCell` | const | An A1 reference with optional `$` markers. |
+| `a1Range` | const | An A1 range, "A1:B2", or a single cell. |
+| `parseA1` | function | Parse an A1 reference into a 0-indexed (col, row) pair, or null if invalid |
+| `parseA1Absolute` | function | Parse an A1 reference that may carry `$` markers, or null if invalid |
+| `parseA1Range` | function | Parse an A1 range ("A1:B2", "$A$1:$B$2", or a single cell), or null if invalid |
+| `escapeXml` | function | Escape text content for XML |
+| `escapeAttr` | function | Escape an attribute value for XML |
+| `unescapeXml` | function | Unescape XML text content and attribute values |
+| `XmlElement` | interface | A parsed XML element |
+| `parseXmlResult` | function | Parse an XML document into its root element, or a `ParseError` that points at the problem (line, column and what was expected). |
+| `parseXml` | function | Parse an XML document and return its root element. |
+| `findChild` | function | Find the first direct child with the given local name |
+| `findChildren` | function | Find all direct children with the given local name |
+| `findAll` | function | Find all descendants with the given local name (depth-first, document order) |
+| `getAttr` | function | Get an attribute value, matching with or without a namespace prefix. |
+| `encodeXstring` | function | Encode a string as SpreadsheetML ST_Xstring. |
+| `escapeXstring` | function | Escape and ST_Xstring-encode text for a SpreadsheetML element. |
+| `SharedStrings` | class | Accumulates the shared strings table while rendering cells. |
+| `cellToSpreadsheetMl` | function | Render a cell as a SpreadsheetML `<c>` element body, or null for a blank cell (blank cells are omitted entirely). |
+| `decodeXstring` | function | Decode SpreadsheetML's `_xHHHH_` escapes (ST_Xstring), which carry characters XML 1.0 can't (control characters, lone surrogates). |
+| `collectText` | function | Concatenate all `<t>` descendants of an element (handles rich-text runs), skipping phonetic guides (`<rPh>`), which annotate the base text rather than belong to it. |
+| `spreadsheetMlToCell` | function | Convert a parsed SpreadsheetML `<c>` element into a typed cell. |
+| `xlsxFeatures` | const | The features the XLSX profile allows, as a list. |
+| `Xlsx` | const | What the XLSX writer preserves. |
+| `XlsxFeature` | type | The features the XLSX profile allows, as a type. |
+| `XlsxRead` | const | What the XLSX reader produces. |
+| `XlsxReadFeature` | type | The features of `XlsxRead`, what the XLSX reader produces, as a type. |
+| `SpreadsheetFeature` | type | The XLSX reader's features under their old name. |
+| `XlsxReaderOptions` | interface | Options for the XLSX reader. |
+| `DEFAULT_MAX_CELLS` | const | The default `XlsxReaderOptions.maxCells`. |
+| `makeXlsxReader` | function | Create an XLSX Reader with the given options baked in. |
+| `XlsxReaderTag` | const | Context tag for dependency-injection style usage. |
+| `XlsxReaderLive` | const | Layer providing an XLSX Reader with default options. |
+| `makeXlsxReaderLayer` | function | Layer providing an XLSX Reader with custom options. |
+| `sanitizeSheetNames` | function | Make sheet names Excel accepts, deterministically. |
+| `XlsxWriterOptions` | interface | Options for the XLSX writer. |
+| `makeXlsxWriter` | function | Create an XLSX Writer with the given options baked in. |
+| `XlsxWriterTag` | const | Context tag for dependency-injection style usage. |
+| `XlsxWriterLive` | const | Layer providing an XLSX Writer with default options. |
+| `makeXlsxWriterLayer` | function | Layer providing an XLSX Writer with custom options. |
+
+##### `@thomasfosterau/effect-document/ooxml/docx`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The DOCX profile. |
+| `DocxFormatOptions` | interface | Options for the DOCX format bundle. |
+| `makeFormat` | function | Create a DOCX Format bundle with custom reader/writer options. |
+| `format` | const | The DOCX format bundle with default options, for use with `convert`. |
+| `docxFeatures` | const | The features the DOCX profile allows, as a list. |
+| `Docx` | const | The DOCX (WordprocessingML) profile. |
+| `DocxFeature` | type | The features the DOCX profile allows, as a type. |
+| `DocxReaderOptions` | interface | Options for the DOCX reader. |
+| `makeDocxReader` | function | Create a DOCX Reader. |
+| `DocxReaderTag` | const | The Context tag for the DOCX reader, so a program can depend on a DOCX reader and have one provided. |
+| `DocxReaderLive` | const | A Layer providing the default DOCX reader for `DocxReaderTag`. |
+| `DocxWriterOptions` | interface | Options for the DOCX writer. |
+| `makeDocxWriter` | function | Create a DOCX Writer. |
+| `DocxWriterTag` | const | The Context tag for the DOCX writer, so a program can depend on a DOCX writer and have one provided. |
+| `DocxWriterLive` | const | A Layer providing the default DOCX writer for `DocxWriterTag`. |
+
+##### `@thomasfosterau/effect-document/ooxml/pptx`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The PPTX profile. |
+| `PptxFormatOptions` | interface | Options for the PPTX format bundle. |
+| `makeFormat` | function | Create a PPTX Format bundle with custom reader/writer options. |
+| `format` | const | The PPTX format bundle with default options, for use with `convert`. |
+| `pptxFeatures` | const | The features the PPTX profile allows, as a list. |
+| `Pptx` | const | The PPTX (PresentationML) profile. |
+| `PptxFeature` | type | The features the PPTX profile allows, as a type. |
+| `PptxRead` | const | What the PPTX reader produces. |
+| `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
+| `PptxReaderOptions` | interface | Options for the PPTX reader. |
+| `makePptxReader` | function | Create a PPTX Reader. |
+| `PptxReaderTag` | const | The Context tag for the PPTX reader, so a program can depend on a PPTX reader and have one provided. |
+| `PptxReaderLive` | const | A Layer providing the default PPTX reader for `PptxReaderTag`. |
+| `PptxWriterOptions` | interface | Options for the PPTX writer. |
+| `makePptxWriter` | function | Create a PPTX Writer. |
+| `PptxWriterTag` | const | The Context tag for the PPTX writer, so a program can depend on a PPTX writer and have one provided. |
+| `PptxWriterLive` | const | A Layer providing the default PPTX writer for `PptxWriterTag`. |
+
+### RTF (`/rtf`)
+
+Rich Text Format: a reader and writer for the `Rtf` profile, paragraphs and headings with bold, italic, underline and strikeout runs. Destinations the reader does not model (font and colour tables, stylesheets, pictures, headers and footers, `\*` destinations) are skipped; `\uN` escapes and their ANSI fallbacks are handled.
+
+#### Usage
+
+```ts
+import * as Effect from "effect/Effect";
+import { blocksToText, contentToText, text } from "@thomasfosterau/effect-document";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
+
+const program = Effect.gen(function* () {
+  const doc = yield* Rtf.makeRtfReader().read(text("{\\rtf1\\ansi Hello {\\b bold}\\par}"));
+  blocksToText(doc.blocks); // "Hello bold"
+  const out = yield* Rtf.makeRtfWriter().write(doc);
+  return contentToText(out); // "{\\rtf1\\ansi\\deff0\\fs24\n\\pard Hello {\\b bold}\\par\n}"
+});
+```
+
+Headings are written as bold, larger paragraphs (RTF has no semantic headings). Because a heading is bold, bold inside one can't be told apart from it: the `Rtf` profile keeps `Strong` out of headings, so `convert` unwraps it there and reports the loss. Use `Rtf.format` with `convert` to move between RTF and the other formats: DOCX → RTF reports the links, lists and tables it has to drop.
+
+#### API reference
+
+##### `@thomasfosterau/effect-document/rtf`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `profile` | const | The RTF profile. |
+| `format` | const | The RTF format bundle, for use with `convert`. |
+| `rtfFeatures` | const | The features the RTF profile allows, as a list. |
+| `Rtf` | const | The RTF profile. |
+| `RtfFeature` | type | The features the RTF profile allows, as a type. |
+| `makeRtfReader` | function | Create an RTF Reader. |
+| `RtfReaderTag` | const | The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. |
+| `RtfReaderLive` | const | A Layer providing the default RTF reader for `RtfReaderTag`. |
+| `RtfWriterOptions` | interface | Options for the RTF writer. |
+| `makeRtfWriter` | function | Create an RTF Writer. |
+| `RtfWriterTag` | const | The Context tag for the RTF writer, so a program can depend on an RTF writer and have one provided. |
+| `RtfWriterLive` | const | A Layer providing the default RTF writer for `RtfWriterTag`. |
+
+### PDF (`/pdf`)
+
+PDF: a reader and writer for the `Pdf` profile, on top of a self-contained PDF object layer (`/pdf/cos`), with [fflate](https://www.npmjs.com/package/fflate) for `/FlateDecode`.
+
+#### Usage
+
+```ts
+import * as Effect from "effect/Effect";
+import {
+  blocksToText,
+  document,
+  header,
+  para,
+  str,
+  trustAs,
+} from "@thomasfosterau/effect-document";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+
+const program = Effect.gen(function* () {
+  const doc = trustAs<Pdf.PdfFeature>(
+    document([header(1, [str("Title")]), para([str("Body text.")])]),
+  );
+  const pdf = yield* Pdf.makePdfWriter({ pageSize: "letter" }).write(doc); // Bytes
+  const back = yield* Pdf.makePdfReader().read(pdf); // Doc<PdfFeature>
+  return blocksToText(back.blocks); // "Title\nBody text."
+});
+```
+
+**Reading** recovers prose from the page layout: headings (ranked by font size), paragraphs (including ones broken across pages), bullet/ordered/nested lists, code blocks (runs of monospaced lines, indentation kept), bold, italic, inline code and links (from link annotations), plus the document information dictionary as metadata. A tagged PDF (one with a structure tree, as Word, LibreOffice, Chrome and this package's writer produce) is read from its tags instead: headings at their tagged level, paragraphs, lists (ordered or bulleted by their numbering or labels), code blocks and block quotes come from the structure elements, through the file's `/RoleMap`, and only the inline styling still comes from the fonts. As Tagged PDF specifies, only a soft hyphen (U+00AD) at a tagged line end joins a word across lines; a plain hyphen there is text, and the space after it is kept. The reader falls back to the layout when the tree is missing, unreadable, or owns less than 98% of the visible text; there, a heading whose text is a bookmark's title takes its level from the outline's depth, and the rest are ranked by size. It handles simple and composite (Type 0) fonts, `/ToUnicode` CMaps, standard and custom encodings, `/ActualText`, Form XObjects and rotated pages. Damaged files are repaired by scanning for objects. Encrypted files are refused.
+
+**Scanned pages** (images with no text layer) read as empty unless you give the reader an OCR engine. Either way, the pages left without text are listed in the document's `pagesWithoutText` metadata (1-based page numbers). No engine is bundled: implement `OcrEngineShape` over the one you use (Tesseract.js, a cloud OCR API, …) and pass it as `ocr`, or provide it as the `OcrEngine` service and use `PdfOcrReaderLive`:
+
+```ts
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+
+declare const myEngine: Pdf.OcrEngineShape; // recognize(image) => Effect<ReadonlyArray<OcrWord>, OcrError>
+
+const reader = Pdf.makePdfReader({ ocr: myEngine });
+// or, as a service:
+const ReaderLive = Pdf.PdfOcrReaderLive.pipe(Layer.provide(Layer.succeed(Pdf.OcrEngine, myEngine)));
+```
+
+The engine is called once for each image a textless page paints, in painting order, and never for pages that have text. It gets the image as the PDF stores it. JPEG, JPEG 2000, CCITT fax and JBIG2 data arrive still encoded (`_tag: "Encoded"`, with the codec's `parameters` and any JBIG2 `globals`). Other images arrive as decoded gray, RGB or CMYK samples (`_tag: "Samples"`). Images in other colour spaces (indexed, separation, …) are skipped. The engine returns words with pixel boxes (origin at the top-left), which the reader places on the page and lays out like any other text. An `OcrError` fails the read with a `ParseError` naming the page.
+
+**Writing** typesets a document onto pages (headings are bold, so `PdfWrite` keeps `Strong` out of headings, and `convert` unwraps it there with a loss entry): word-wrapped paragraphs, headings, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links. It uses the standard 14 fonts (Helvetica, Courier) with WinAnsiEncoding, so nothing is embedded; characters outside WinAnsiEncoding are written as `?`.
+
+The output is a tagged PDF: a structure tree (`/StructTreeRoot`) records each heading (`H1`–`H6`), paragraph (`P`), list (`L` / `LI` / `Lbl` / `LBody`, with its numbering), code block (`Code`), block quote and link, and marks the text each owns, so screen readers and other tools see the document's structure; rules, underlines and quote bars are marked as artifacts. A document's `lang` metadata becomes the catalog's `/Lang`. The headings also become the document outline (bookmarks), nested by level, each going to its heading.
+
+The object layer is on its own subpath, for working with PDF structure directly:
+
+```ts
+import { PdfFile, rewritePdf } from "@thomasfosterau/effect-document/pdf/cos";
+
+declare const data: Uint8Array;
+const file = PdfFile.open(data); // xref tables and streams, object streams, incremental updates, repair
+file.pages().length;
+file.lookupDict(file.catalog, "Pages");
+const saved = rewritePdf(file); // re-serialize (optionally with replaced objects)
+```
+
+The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `offset`, and `code: "LimitExceeded"` when arrays and dictionaries nest deeper than `MAX_OBJECT_NESTING`), `PdfFilterError` (with the `filter`) and `PdfEncryptedError`. The reader and writer turn those into a `ParseError` / `WriteError` in the error channel.
+
+#### API reference
+
+##### `@thomasfosterau/effect-document/pdf`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `decodeTextString` | function | Decode a text string. |
+| `glyphToUnicode` | function | The Unicode text for a glyph name. |
+| `PageImage` | interface | An image the page paints: an Image XObject drawn with `Do`, or an inline image. |
+| `PageLink` | interface | A URI link annotation. |
+| `PageText` | interface | A page's positioned text, links and images. |
+| `TextGlyph` | interface | A shown glyph, positioned on the page (origin bottom-left, y up). |
+| `extractPageText` | function | Extract the positioned text of one page. |
+| `Glyph` | interface | One decoded character code. |
+| `PdfFont` | interface | A font, as text extraction needs it. |
+| `loadFont` | function | Load a font dictionary for text extraction. |
+| `layoutBlocks` | function | Infer prose blocks from the text of a document's pages. |
+| `profile` | const | The PDF profile. |
+| `format` | const | The PDF format bundle, for use with `convert`. |
+| `pdfFeatures` | const | The features the PDF profile allows, as a list. |
+| `Pdf` | const | The PDF profile. |
+| `PdfFeature` | type | The features the PDF profile allows, as a type. |
+| `PdfWrite` | const | What the PDF writer preserves through `read(write(doc))` (#109). |
+| `PdfWriteFeature` | type | The features of `PdfWrite`, what the PDF writer accepts, as a type. |
+| `pdfBytes` | function | PDF bytes from content; text is taken one byte per character (Latin-1). |
+| `readMeta` | function | The document information dictionary as metadata. |
+| `openPdf` | function | Open a PDF, failing with a `ParseError` if it can't be read or is encrypted. |
+| `readPages` | function | The positioned text of every page. |
+| `pagesWithoutText` | function | The 1-based numbers of the pages that paint images but have no text. |
+| `PdfReaderOptions` | interface | Options for the PDF reader: the nesting-depth limit and the OCR engine. |
+| `makePdfReader` | function | Create a PDF Reader. |
+| `PdfReaderTag` | const | The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. |
+| `PdfReaderLive` | const | A Layer providing the default PDF reader for `PdfReaderTag`. |
+| `PdfOcrReaderLive` | const | A Layer providing a PDF reader for `PdfReaderTag` that OCRs scanned pages with the `OcrEngine` it requires. |
+| `OcrError` | class | An OCR engine could not recognise an image: why, and the engine's own failure if any. |
+| `OcrCodec` | type | The image codecs passed to an `OcrEngine` still encoded. |
+| `OcrEncodedImage` | interface | An image in a codec the PDF reader does not decode, passed through as the file stores it. |
+| `OcrSampledImage` | interface | An image as decoded samples. |
+| `OcrImage` | type | An image for an `OcrEngine`, either still encoded or as samples. |
+| `OcrWord` | interface | A recognised word and its bounding box, in the image's pixels with the origin at the top-left. |
+| `OcrEngineShape` | interface | An OCR engine: recognises the words in an image, in reading order. |
+| `OcrEngine` | const | The Context tag for the OCR engine the PDF reader uses on scanned pages. |
+| `toOcrImage` | function | A page image as an `OcrImage`, or none when it can't be given to an engine. |
+| `ocrGlyphs` | function | Recognised words as page glyphs, one per line of text. |
+| `PAGE_SIZES` | const | Page sizes in points. |
+| `PdfWriterOptions` | interface | Options for the PDF writer. |
+| `renderPdf` | function | Render a PDF-profile document to PDF bytes. |
+| `makePdfWriter` | function | Create a PDF Writer. |
+| `PdfWriterTag` | const | The Context tag for the PDF writer, so a program can depend on a PDF writer and have one provided. |
+| `PdfWriterLive` | const | A Layer providing the default PDF writer for `PdfWriterTag`. |
+
+##### `@thomasfosterau/effect-document/pdf/cos`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `PdfString` | interface | A PDF string. |
+| `PdfName` | interface | A PDF name (`/Type`), with `#xx` escapes decoded. |
+| `PdfArray` | interface | A PDF array. |
+| `PdfDict` | interface | A PDF dictionary. |
+| `PdfStream` | interface | A PDF stream. |
+| `PdfRef` | interface | An indirect reference (`12 0 R`). |
+| `PdfObject` | type | Any PDF object. |
+| `pdfString` | function | A PDF string object from raw bytes, written in hex (`<…>`) when `hex` is set. |
+| `pdfLatin1` | function | A string from a JavaScript string's code units, one byte each (Latin-1). |
+| `pdfTextString` | function | A text string (§7.9.2.2). |
+| `pdfName` | function | A PDF name object (`/Name`). |
+| `pdfArray` | function | A PDF array object. |
+| `pdfRef` | function | An indirect reference (`num gen R`) to object `num`, generation `gen` (default 0). |
+| `pdfDict` | function | A dictionary from a record; `undefined` values are left out. |
+| `pdfStream` | function | A PDF stream object. |
+| `isString` | function | Whether an object is a PDF string. |
+| `isName` | function | Whether an object is a PDF name, and (when given) that name. |
+| `isArray` | function | Whether an object is a PDF array. |
+| `isDict` | function | Whether an object is a PDF dictionary. |
+| `isStream` | function | Whether an object is a PDF stream. |
+| `isRef` | function | Whether an object is an indirect reference. |
+| `dictOf` | function | The dictionary of a dictionary or a stream. |
+| `bytesToLatin1` | function | Decode a string's bytes one byte per character (Latin-1). |
+| `latin1ToBytes` | const | A string's characters as bytes, one byte per character (Latin-1; higher code points are truncated). |
+| `PdfSyntaxError` | class | A syntax error at a byte offset in the input. |
+| `isWhitespace` | function | Whether a byte is PDF white-space (NUL, tab, LF, FF, CR or space). |
+| `Keyword` | interface | A bare keyword. |
+| `Token` | type | A lexical token. |
+| `Lexer` | class | A cursor over PDF bytes. |
+| `LengthResolver` | type | Resolves an indirect `/Length` while reading a stream. |
+| `isKeyword` | function | Whether a parsed item is a bare keyword (`obj`, `R`, an operator) rather than an object. |
+| `indexOf` | function | Find a byte sequence at or after `from`. |
+| `lastIndexOf` | function | Find a byte sequence at or before `from`, searching backwards. |
+| `ascii` | function | A string's character codes as a byte array. |
+| `IndirectObject` | interface | An indirect object (`num gen obj … endobj`). |
+| `MAX_OBJECT_NESTING` | const | How deeply arrays and dictionaries may nest in one object. |
+| `Parser` | class | Reads PDF objects from a lexer. |
+| `parseObject` | function | Parse a single object from bytes (e.g. |
+| `Operation` | interface | One content-stream operation. |
+| `parseContentStream` | function | Tokenize a content stream into operations (§7.8.2). |
+| `PdfFilterError` | class | A stream could not be decoded. |
+| `IMAGE_FILTERS` | const | Filters whose output is an encoded image, left for the caller. |
+| `flateEncode` | function | Deflate data for a FlateDecode stream. |
+| `applyFilter` | function | Apply one named filter. |
+| `Decoded` | interface | The result of decoding a stream. |
+| `decodeFilters` | function | Decode a stream's data through its `/Filter` chain. |
+| `XrefEntry` | type | Where an indirect object lives. |
+| `PdfPage` | interface | A page of the document, with its inherited attributes resolved. |
+| `PdfFile` | class | A parsed PDF file. |
+| `serializeObject` | function | Render an object as PDF syntax. |
+| `flateStream` | function | A stream whose data is Flate-compressed (unless compression would not help). |
+| `TrailerOptions` | interface | Options for the file trailer. |
+| `serializeFile` | function | Write a complete file from numbered objects. |
+| `PdfBuilder` | class | Assembles a new PDF file from indirect objects. |
+| `fileId` | function | A trailer `/ID`. |
+| `PdfEncryptedError` | class | An operation that cannot handle an encrypted file was given one. |
+| `rewritePdf` | function | Save a parsed file as a new, self-contained PDF. |
+
+### Apple iWork (`/iwork`)
+
+Read-only Apple iWork readers: Keynote (`.key`, slide text), Pages (`.pages`, body text) and Numbers (`.numbers`, sheet structure), plus the container codec they are built on.
+
+> **Experimental.** iWork files are reverse-engineered binary bundles, so these readers are best-effort and read _text_ only: Keynote yields each slide's text, Pages its body paragraphs, Numbers its sheets without cell values. Writing needs Apple's proprietary object-graph schemas and is not supported. Password-protected documents are detected and refused.
+>
+> Known limits until the object resolver (#101) lands (#99): the Pages reader takes the text of every storage in the file, so headers, footers, footnotes, text boxes, table cells and template text are mixed into the body; Keynote slides come in component-id order, not the show's slide order; a file from another iWork app (a `.key` read as Pages) is read rather than refused; and Numbers reports no loss for the cell values it does not read.
+
+#### Usage
+
+```ts
+import * as Effect from "effect/Effect";
+import { blocksToText, bytes, convert } from "@thomasfosterau/effect-document";
+import * as Keynote from "@thomasfosterau/effect-document/iwork/keynote";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
+
+declare const deck: Uint8Array; // the bytes of a .key file
+
+const program = Effect.gen(function* () {
+  const doc = yield* Keynote.makeKeynoteReader().read(bytes(deck));
+  // or straight into a writable format; the loss report says what was flattened
+  const { content, loss } = yield* convert({
+    from: Keynote.format,
+    to: Rtf.format,
+    input: bytes(deck),
+  });
+  return { text: blocksToText(doc.blocks), content, loss };
+});
+```
+
+Each app has its own subpath (`/iwork/keynote`, `/iwork/pages`, `/iwork/numbers`); `/iwork` exports all three as namespaces plus `Codec`.
+
+Every reader takes `IworkReaderOptions`:
+
+- `limits` (`BundleLimits`): `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed entry (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` takes its default (`DEFAULT_BUNDLE_LIMITS`). A zip bomb fails with `LimitExceeded` instead of exhausting memory, and the reader's `ParseError` has `code: "LimitExceeded"`. The names, defaults and messages are the same as the OOXML readers' `limits`. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
+- `lenient`: skip a component that fails to decode, with a logged warning (`Effect.logWarning`), instead of failing the whole read.
+
+#### Documents saved as a directory
+
+A `.key`, `.pages` or `.numbers` can be saved as a folder (a package directory) rather than a single zipped file. The readers take only `Content` bytes, so read a folder bundle in two steps: open it with the codec's `openBundleDirectory`, which reads just the `Index/*.iwa` components (or an inner `Index.zip`) through Effect's `FileSystem` service, under the same `limits` and with the same password-protection check as the readers; then pack those components into an in-memory zip and hand it to the reader. The readers use nothing but the components, so the repackaged zip reads exactly as the original document would.
+
+```ts
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
+import * as Effect from "effect/Effect";
+import { zipSync } from "fflate";
+import { blocksToText, bytes } from "@thomasfosterau/effect-document";
+import {
+  type BundleLimits,
+  openBundleDirectory,
+} from "@thomasfosterau/effect-document/iwork/codec";
+import * as Keynote from "@thomasfosterau/effect-document/iwork/keynote";
+
+const limits: BundleLimits = { maxTotalSize: 64 * 1024 * 1024 };
+
+const program = Effect.gen(function* () {
+  // fails with an IworkError (NotIwork, Encrypted, LimitExceeded, Io, …)
+  const bundle = yield* openBundleDirectory("Talk.key", { limits });
+  // level 0: store the components, don't spend time compressing them again
+  const input = bytes(zipSync(bundle.components, { level: 0 }));
+  const doc = yield* Keynote.makeKeynoteReader({ limits }).read(input);
+  return blocksToText(doc.blocks);
+}).pipe(Effect.provide(NodeFileSystem.layer));
+```
+
+The same composition works with `makePagesReader` and `makeNumbersReader`, and with `convert` (pass the repackaged `input`). The program requires `FileSystem` (provided above by `@effect/platform-node`; any platform's layer will do), and `zipSync` comes from [`fflate`](https://www.npmjs.com/package/fflate): add it to your own dependencies (this package already depends on it, so a compatible version dedupes). A runnable version is [`examples/read-iwork-directory.ts`](https://github.com/thomasfosterau/effect-document/blob/trunk/examples/read-iwork-directory.ts).
+
+#### Errors
+
+Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whose `reason` is one of `NotZip`, `NotIwork` (a zip without `.iwa` components, such as a `.docx`), `LegacyIwork09Unsupported`, `Encrypted`, `LimitExceeded`, `Truncated`, `Malformed` or `Io`, and which names the component, object and byte offset it happened at. The readers wrap it in a `ParseError` whose `reason` repeats the `IworkError`'s reason and location, whose `cause` is the `IworkError`, and whose `code` is `"LimitExceeded"` when a limit was exceeded.
+
+#### The container codec
+
+`@thomasfosterau/effect-document/iwork/codec` exposes the layers the readers use, for working with iWork files directly:
+
+- `openBundle` opens the ZIP bundle and its `.iwa` components, including older documents' nested `Index.zip`; `openBundleDirectory` opens a package saved as a directory (a `.key` folder) through the `FileSystem` service; see [Documents saved as a directory](#documents-saved-as-a-directory) for reading one with the readers.
+- `dechunk` / `chunk` handle IWA chunk framing.
+- `decompressBlock` / `compressBlock` are Apple's non-standard Snappy block format; the compressor writes literals only, which every Snappy decoder accepts.
+- The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors.
+- `decodeArchiveStream` decodes archived objects and their messages.
+
+`Registry` holds the few reverse-engineered message type ids the readers use; they come from the [keynote-parser](https://github.com/psobot/keynote-parser) v14.4 mapping and can drift between iWork versions.
+
+Test fixtures are vendored from MIT-licensed projects; see `test/fixtures/ATTRIBUTION.md`.
+
+#### API reference
+
+The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`; each subpath exports one of them flat.
+
+##### `@thomasfosterau/effect-document/iwork/pages`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `IworkReaderOptions` | interface | Options shared by the Pages, Numbers and Keynote readers. |
+| `pagesFeatures` | const | The features the Pages profile allows, as a list. |
+| `Pages` | const | The Pages (read) profile. |
+| `PagesFeature` | type | The features the Pages profile allows, as a type. |
+| `makePagesReader` | function | Create a Pages Reader. |
+| `profile` | const | The Pages profile (alias of `Pages`). |
+| `format` | const | The Pages format bundle (read-only) for use with `convert`. |
+| `PagesReaderTag` | const | The Context tag for the Pages reader, so a program can depend on a Pages reader and have one provided. |
+| `PagesReaderLive` | const | A Layer providing the default Pages reader for `PagesReaderTag`. |
+
+##### `@thomasfosterau/effect-document/iwork/numbers`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `IworkReaderOptions` | interface | Options shared by the Pages, Numbers and Keynote readers. |
+| `numbersFeatures` | const | The features the Numbers profile allows, as a list. |
+| `Numbers` | const | The Numbers (read) profile. |
+| `NumbersFeature` | type | The features the Numbers profile allows, as a type. |
+| `makeNumbersReader` | function | Create a Numbers Reader (structure only - sheet names, no cell values yet). |
+| `profile` | const | The Numbers profile (alias of `Numbers`). |
+| `format` | const | The Numbers format bundle (read-only, structure only) for use with `convert`. |
+| `NumbersReaderTag` | const | The Context tag for the Numbers reader, so a program can depend on a Numbers reader and have one provided. |
+| `NumbersReaderLive` | const | A Layer providing the default Numbers reader for `NumbersReaderTag`. |
+
+##### `@thomasfosterau/effect-document/iwork/keynote`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `IworkReaderOptions` | interface | Options shared by the Pages, Numbers and Keynote readers. |
+| `keynoteFeatures` | const | The features the Keynote profile allows, as a list. |
+| `Keynote` | const | The Keynote (read) profile. |
+| `KeynoteFeature` | type | The features the Keynote profile allows, as a type. |
+| `makeKeynoteReader` | function | Create a Keynote Reader. |
+| `profile` | const | The Keynote profile (alias of `Keynote`). |
+| `format` | const | The Keynote format bundle (read-only) for use with `convert`. |
+| `KeynoteReaderTag` | const | The Context tag for the Keynote reader, so a program can depend on a Keynote reader and have one provided. |
+| `KeynoteReaderLive` | const | A Layer providing the default Keynote reader for `KeynoteReaderTag`. |
+
+##### `@thomasfosterau/effect-document/iwork/codec`
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `codecError` | function | Fail at an offset (a shorthand for the codec's many checks). |
+| `fromParseError` | function | Convert an effect-parse error (from a framing grammar) into an `IworkError`. |
+| `IworkError` | class | The codec's one failure. |
+| `IworkErrorReason` | const | Why the codec failed. |
+| `isIworkError` | function | Whether a caught value is the codec's `IworkError`. |
+| `shiftOffset` | function | Move an error's offset by `by` bytes (an inner buffer's position in its outer one). |
+| `toIworkError` | function | Normalise a caught value. |
+| `withLocation` | function | Fill in the component / object an error happened in, keeping any already set. |
+| `Registry` | namespace | The handful of reverse-engineered iWork message type ids the readers use. |
+| `DecompressOptions` | interface | Options for `decompressBlock`. |
+| `DEFAULT_MAX_BLOCK_LENGTH` | const | The default `DecompressOptions.maxLength`. |
+| `decompressBlock` | function | Decompress one raw Snappy block. |
+| `compressBlock` | function | Compress to a valid raw Snappy block using only literal elements. |
+| `WIRE_VARINT` | const | Protobuf wire type 0. |
+| `WIRE_I64` | const | Protobuf wire type 1. |
+| `WIRE_LEN` | const | Protobuf wire type 2. |
+| `WIRE_I32` | const | Protobuf wire type 5. |
+| `Field` | interface | One protobuf field record. |
+| `varint` | const | A base-128 varint, as a `number` (exact up to 2^53), of at most 10 bytes. |
+| `field` | const | One field. |
+| `message` | const | A whole message. |
+| `VarintRead` | interface | A varint read by `readVarint`. |
+| `readVarint` | function | Read a base-128 varint at `pos`, returning the value and the new position. |
+| `parseMessage` | function | Parse a message into an ordered list of field records. |
+| `getVarint` | function | The first varint/fixed value for a field number, if present. |
+| `getBytes` | function | The first length-delimited payload for a field number, if present. |
+| `getAllBytes` | function | All length-delimited payloads for a field number (e.g. |
+| `getAllVarints` | function | All varint/fixed values for a field number. |
+| `getBigInt` | function | The first integer for a field number as an exact `bigint`. |
+| `getSint` | function | The first zigzag (`sint32`/`sint64`) varint for a field number. |
+| `getDouble` | function | The first `double` (64-bit) for a field number. |
+| `getFloat` | function | The first `float` (32-bit) for a field number. |
+| `PackedType` | type | How the elements of a repeated scalar field are encoded. |
+| `getPacked` | function | All values of a repeated scalar field, whether packed (length-delimited runs) or not (one field per value). |
+| `decodeUtf8` | function | Decode a length-delimited payload as a UTF-8 string. |
+| `DechunkOptions` | interface | Options for `dechunk`. |
+| `DEFAULT_MAX_STREAM_LENGTH` | const | The default `DechunkOptions.maxLength`. |
+| `dechunk` | function | Decode an `.iwa` file into its concatenated, decompressed Protobuf stream. |
+| `chunk` | function | Encode a Protobuf stream into IWA chunks (64 KiB uncompressed blocks). |
+| `IworkMessage` | interface | One archived message. |
+| `IworkObject` | interface | One archived object. |
+| `decodeArchiveStream` | function | Decode a decompressed object stream into its archived objects. |
+| `decodeIwa` | function | Decode an `.iwa` file (dechunk + parse the object stream). |
+| `IworkBundle` | interface | An opened iWork document. |
+| `BundleLimits` | interface | Zip-bomb limits for opening a bundle; any left out (or `undefined`) take the `DEFAULT_BUNDLE_LIMITS` value. |
+| `OpenBundleOptions` | interface | Options for `openBundle` and `openBundleDirectory`. |
+| `DEFAULT_BUNDLE_LIMITS` | const | The default `BundleLimits`. |
+| `ResolvedBundleLimits` | type | `BundleLimits` with every limit filled in. |
+| `openBundle` | function | Open an iWork bundle, inflating only its `.iwa` components. |
+| `openBundleDirectory` | function | Open an iWork package saved as a directory (e.g. |
+| `compareComponentPaths` | function | Compare paths with their digit runs as numbers, so `Slide-8060.iwa` sorts before `Slide-10000.iwa` and `Slide-8060.iwa` before `Slide-8060-2.iwa`. |
+| `ComponentPathOrder` | const | Component paths in natural order, as an `Order` (see `compareComponentPaths`). |
+| `componentPaths` | function | The component paths matching a predicate (e.g. |
+| `decodeComponent` | function | Decode a single component's archived objects (none if it is absent). |
+| `decodeAll` | function | Decode every component's objects, flattened (a whole-document object scan). |

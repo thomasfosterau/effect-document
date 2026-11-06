@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-csv": minor
+"@thomasfosterau/effect-document": minor
 ---
 
 New reader defaults, by owner decision on #88:

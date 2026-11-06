@@ -23,7 +23,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { unzipSync } from "fflate";
 import { describe, expect, test } from "vite-plus/test";
 import type { Feature } from "@thomasfosterau/effect-document";
-import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-ooxml";
+import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
 import { type AnyWriter, type Family, writeSamples } from "../samples.ts";
 import { DCTERMS_XSD, DC_XSD, XML_XSD } from "./xsd-stubs.ts";
 

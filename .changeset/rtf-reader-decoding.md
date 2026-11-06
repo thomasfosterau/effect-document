@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-rtf": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Fix the RTF reader's character decoding, formatting state and destinations.

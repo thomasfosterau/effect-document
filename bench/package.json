@@ -7,12 +7,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@thomasfosterau/effect-csv": "workspace:*",
     "@thomasfosterau/effect-document": "workspace:*",
-    "@thomasfosterau/effect-iwork": "workspace:*",
-    "@thomasfosterau/effect-ooxml": "workspace:*",
-    "@thomasfosterau/effect-pdf": "workspace:*",
-    "@thomasfosterau/effect-rtf": "workspace:*",
     "@types/d3-dsv": "catalog:",
     "@types/papaparse": "catalog:",
     "@types/pdfkit": "catalog:",

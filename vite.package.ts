@@ -18,7 +18,7 @@ import { defineConfig } from "vite-plus";
 export interface PackageConfigOptions {
   /** The package's `import.meta.url`, so paths resolve relative to it. */
   readonly url: string;
-  /** The published name (`@thomasfosterau/effect-csv`), for the test alias. */
+  /** The published name (`@thomasfosterau/effect-document`), for the test alias. */
   readonly name: string;
   /**
    * `pack.entry`: export subpath → source file. `index` is the root export

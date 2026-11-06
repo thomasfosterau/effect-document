@@ -1,5 +1,6 @@
-# pnpm workspace — the published packages of the effect-document family,
-# plus the private examples package.
+# pnpm workspace — the one published package, @thomasfosterau/effect-document
+# (packages/core, every format a subpath of it), plus the private examples and
+# bench packages.
 #
 # The `catalog:` protocol pins versions that MUST be singletons across the
 # workspace. Effect especially: two copies of `effect` break Context / Layer /
@@ -58,7 +59,9 @@ catalog:
   # `@oxlint/plugins` as a range, so it is not tied to vite-plus's oxlint.
   "@enfect/oxlint": ^0.10.0
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
-  # against (first-party; exempt from the release-age hold below).
+  # against (first-party; exempt from the release-age hold below). A
+  # devDependency here; consumers get it as an optional peer
+  # (`catalogs.peers` below).
   "@thomasfosterau/effect-parse": ^0.4.1
   "@types/node": ^26.6.6
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
@@ -89,7 +92,10 @@ catalog:
   "@vitest/coverage-istanbul": 5.1.0
   effect: 4.1.2
   fallow: 3.40.0
-  # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
+  # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`). A regular
+  # dependency of effect-document: it has no dependencies of its own, is
+  # `sideEffects: false`, and only the `/ooxml*`, `/pdf*` and `/iwork*`
+  # subpaths import it, so a consumer's bundler drops it otherwise.
   fflate: ^0.8.2
   publint: ^0.3.25
   # TypeScript 6/7 side-by-side: TS7 (the native Go compiler) ships no JS API
@@ -112,15 +118,20 @@ catalog:
   vite: npm:@voidzero-dev/vite-plus-core@1.5.0
   vitest: 5.1.0
 
-# Ranges the PUBLISHED packages declare. Kept as a named catalog so the strict
+# Ranges the PUBLISHED package declares. Kept as a named catalog so the strict
 # catalog mode still governs them while they stay ranges. `pnpm publish`
 # replaces `catalog:peers` with these ranges in the published manifest.
 catalogs:
   peers:
+    # Optional peer, reached only from `/csv`, `/rtf`, `/ooxml*` and
+    # `/iwork*` (test/module-graph.test.ts). Caret, not `>=`: on 0.x a minor
+    # release may break the combinator API the grammars are written against;
+    # the floor is the release the grammars were last moved to.
+    "@thomasfosterau/effect-parse": ^0.4.1
     # The owner's policy: every published package peers on `effect ^4.0.0`,
     # raised only when one of that package's own dependencies requires more
-    # (name the dependency here). None does: the only Effect-line runtime
-    # dependency, `@thomasfosterau/effect-parse`, peers on `effect ^4.0.0`.
+    # (name the dependency here). None does: the only Effect-line peer,
+    # `@thomasfosterau/effect-parse`, peers on `effect ^4.0.0`.
     effect: ^4.0.0
 
 overrides:

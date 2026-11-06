@@ -22,8 +22,8 @@ import {
   rowEntries,
   text,
 } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import { Xlsx } from "@thomasfosterau/effect-ooxml";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Xlsx } from "@thomasfosterau/effect-document/ooxml";
 
 const csvSource = `product,price,in_stock
 Laptop,999.99,true

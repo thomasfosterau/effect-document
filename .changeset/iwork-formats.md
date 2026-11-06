@@ -1,10 +1,10 @@
 ---
-"@thomasfosterau/effect-iwork": minor
+"@thomasfosterau/effect-document": minor
 ---
 
 Add experimental, read-only Apple iWork support (Pages / Numbers / Keynote) plus a dependency-free container codec.
 
-iWork '13+ files are reverse-engineered binary bundles - a zip of `.iwa` components holding Protobuf messages wrapped in a non-standard Snappy variant. This adds `@thomasfosterau/effect-iwork`: a from-scratch, dependency-free codec for the whole container stack (the Snappy _block_ format, IWA chunk framing, a generic schema-free Protobuf wire reader, the archived-object stream, and the zip-bundle opener), verified byte-for-byte against real Apple files.
+iWork '13+ files are reverse-engineered binary bundles - a zip of `.iwa` components holding Protobuf messages wrapped in a non-standard Snappy variant. This adds `@thomasfosterau/effect-document/iwork`: a from-scratch, dependency-free codec for the whole container stack (the Snappy _block_ format, IWA chunk framing, a generic schema-free Protobuf wire reader, the archived-object stream, and the zip-bundle opener), verified byte-for-byte against real Apple files.
 
 On top of it, read-only readers extract text:
 

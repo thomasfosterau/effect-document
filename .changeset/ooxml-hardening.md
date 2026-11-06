@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-ooxml": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Harden the OOXML XML parser and OPC package handling.

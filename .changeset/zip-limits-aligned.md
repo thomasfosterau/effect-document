@@ -1,6 +1,5 @@
 ---
-"@thomasfosterau/effect-ooxml": patch
-"@thomasfosterau/effect-iwork": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Align the zip-bomb limits of the OOXML and iWork readers, so both are configured and fail the same way:

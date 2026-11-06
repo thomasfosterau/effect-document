@@ -13,9 +13,9 @@ import {
   trustAs,
   worksheet,
 } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import * as Xlsx from "@thomasfosterau/effect-ooxml/xlsx";
-import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-ooxml/xlsx";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import * as Xlsx from "@thomasfosterau/effect-document/ooxml/xlsx";
+import { makeXlsxReader, makeXlsxWriter } from "@thomasfosterau/effect-document/ooxml/xlsx";
 
 type SpreadsheetF = FeaturesOf<typeof Xlsx.profile>;
 

@@ -1,6 +1,5 @@
 ---
-"@thomasfosterau/effect-rtf": minor
-"@thomasfosterau/effect-ooxml": minor
+"@thomasfosterau/effect-document": minor
 ---
 
 Move the RTF lexer and A1 references onto `@thomasfosterau/effect-parse`.

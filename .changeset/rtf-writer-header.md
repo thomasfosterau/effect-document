@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-rtf": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Fix the RTF writer's character escaping and header, and round-trip headings.

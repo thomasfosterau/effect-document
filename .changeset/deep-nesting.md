@@ -1,7 +1,5 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-ooxml": patch
-"@thomasfosterau/effect-pdf": patch
 ---
 
 Deeply nested documents no longer overflow the stack in feature collection (`Profile.is`, `validate`, `collectFeatures`) or in the text collapse (`blocksToText`, `inlinesToText`, `cellToText`, `shapeToText`): these walks now use an explicit stack.

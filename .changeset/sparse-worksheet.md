@@ -1,7 +1,5 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-ooxml": minor
-"@thomasfosterau/effect-csv": minor
 ---
 
 Worksheets are sparse (#185). **Breaking:** a `SheetRow` now carries its 0-based `index` and holds `IndexedCell`s (`{ col, cell }`) in strictly ascending column order, and a `Worksheet` holds only the rows it has, in strictly ascending `index` order; decoding (and the constructors) reject rows or cells out of order, repeated or at a negative or fractional position. The JSON form changes accordingly: `{ index, cells: [{ col, cell }] }` per row.

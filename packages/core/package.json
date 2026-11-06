@@ -2,13 +2,30 @@
   "$schema": "https://www.schemastore.org/package",
   "name": "@thomasfosterau/effect-document",
   "version": "0.0.0",
-  "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, with the Reader/Writer/Format abstractions and lossy-aware conversion",
+  "description": "Effect-native, type-safe universal document schema - profile-based subsets for documents, spreadsheets and presentations, the Reader/Writer/Format abstractions and lossy-aware conversion, with CSV, RTF, OOXML (xlsx, docx, pptx), PDF and iWork readers and writers on subpaths",
   "keywords": [
     "converter",
+    "csv",
     "document",
+    "docx",
     "effect",
+    "excel",
+    "iwork",
+    "keynote",
+    "numbers",
+    "ooxml",
+    "pages",
     "pandoc",
-    "schema"
+    "parser",
+    "pdf",
+    "powerpoint",
+    "pptx",
+    "rtf",
+    "schema",
+    "stream",
+    "tsv",
+    "word",
+    "xlsx"
   ],
   "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/core#readme",
   "bugs": {
@@ -50,19 +67,82 @@
       "types": "./dist/io.d.ts",
       "default": "./dist/io.js"
     },
+    "./csv": {
+      "types": "./dist/csv.d.ts",
+      "default": "./dist/csv.js"
+    },
+    "./rtf": {
+      "types": "./dist/rtf.d.ts",
+      "default": "./dist/rtf.js"
+    },
+    "./ooxml": {
+      "types": "./dist/ooxml.d.ts",
+      "default": "./dist/ooxml.js"
+    },
+    "./ooxml/xlsx": {
+      "types": "./dist/ooxml/xlsx.d.ts",
+      "default": "./dist/ooxml/xlsx.js"
+    },
+    "./ooxml/docx": {
+      "types": "./dist/ooxml/docx.d.ts",
+      "default": "./dist/ooxml/docx.js"
+    },
+    "./ooxml/pptx": {
+      "types": "./dist/ooxml/pptx.d.ts",
+      "default": "./dist/ooxml/pptx.js"
+    },
+    "./pdf": {
+      "types": "./dist/pdf.d.ts",
+      "default": "./dist/pdf.js"
+    },
+    "./pdf/cos": {
+      "types": "./dist/pdf/cos.d.ts",
+      "default": "./dist/pdf/cos.js"
+    },
+    "./iwork": {
+      "types": "./dist/iwork.d.ts",
+      "default": "./dist/iwork.js"
+    },
+    "./iwork/pages": {
+      "types": "./dist/iwork/pages.d.ts",
+      "default": "./dist/iwork/pages.js"
+    },
+    "./iwork/numbers": {
+      "types": "./dist/iwork/numbers.d.ts",
+      "default": "./dist/iwork/numbers.js"
+    },
+    "./iwork/keynote": {
+      "types": "./dist/iwork/keynote.d.ts",
+      "default": "./dist/iwork/keynote.js"
+    },
+    "./iwork/codec": {
+      "types": "./dist/iwork/codec.d.ts",
+      "default": "./dist/iwork/codec.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "fflate": "catalog:"
+  },
   "devDependencies": {
     "@effect/language-service": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@thomasfosterau/effect-parse": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "effect": "catalog:"
   },
   "peerDependencies": {
+    "@thomasfosterau/effect-parse": "catalog:peers",
     "effect": "catalog:peers"
+  },
+  "peerDependenciesMeta": {
+    "@thomasfosterau/effect-parse": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22"

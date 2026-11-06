@@ -14,7 +14,7 @@
  */
 import { Buffer } from "node:buffer";
 import { bytes, contentToBytes, narrow } from "@thomasfosterau/effect-document";
-import { Docx } from "@thomasfosterau/effect-ooxml";
+import { Docx } from "@thomasfosterau/effect-document/ooxml";
 import * as DocxLib from "docx";
 import * as Effect from "effect/Effect";
 import mammoth from "mammoth";
@@ -56,7 +56,7 @@ const groups = (name: string, sections: number): Array<Group> => {
       name: `read: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-ooxml read", run: () => run(reader.read(bytes(file))) },
+        { name: "effect-document read", run: () => run(reader.read(bytes(file))) },
         { name: "mammoth convertToHtml", run: () => mammoth.convertToHtml({ buffer }) },
         { name: "mammoth extractRawText", run: () => mammoth.extractRawText({ buffer }) },
       ],
@@ -65,7 +65,7 @@ const groups = (name: string, sections: number): Array<Group> => {
       name: `write: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-ooxml write (document)", run: () => run(writer.write(doc)) },
+        { name: "effect-document write (document)", run: () => run(writer.write(doc)) },
         {
           name: "docx Packer.toBuffer (paragraphs)",
           run: () => DocxLib.Packer.toBuffer(docxLib()),

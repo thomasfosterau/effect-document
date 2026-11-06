@@ -22,11 +22,11 @@ import * as Rec from "effect/Record";
 import * as Schema from "effect/Schema";
 import { afterAll, describe, expect, test } from "vite-plus/test";
 import { bytes, type Content, type ParseError } from "@thomasfosterau/effect-document";
-import { makeCsvReader } from "@thomasfosterau/effect-csv";
-import { Keynote, Numbers, Pages } from "@thomasfosterau/effect-iwork";
-import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import { makePdfReader } from "@thomasfosterau/effect-pdf";
-import { makeRtfReader } from "@thomasfosterau/effect-rtf";
+import { makeCsvReader } from "@thomasfosterau/effect-document/csv";
+import { Keynote, Numbers, Pages } from "@thomasfosterau/effect-document/iwork";
+import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import { makePdfReader } from "@thomasfosterau/effect-document/pdf";
+import { makeRtfReader } from "@thomasfosterau/effect-document/rtf";
 
 /** What the smoke run needs of a reader, whatever its profile. */
 interface AnyReader {

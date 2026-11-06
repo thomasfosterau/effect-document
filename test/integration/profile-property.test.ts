@@ -22,10 +22,10 @@ import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import { assert, describe, test } from "vite-plus/test";
 import { type Document, type Format, trustAs } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import * as Pdf from "@thomasfosterau/effect-pdf";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 import { arbitraryDocument, type Family, type ShapeOptions } from "../arbitrary.ts";
 import {
   mapBlockLists,

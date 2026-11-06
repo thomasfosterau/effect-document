@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-csv": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Stop CSV type inference from corrupting values, and make it configurable.

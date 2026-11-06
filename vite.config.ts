@@ -2,10 +2,10 @@
  * Root workspace config. Owns the repo-wide format/lint/staged passes (read
  * statically by `vp fmt` / `vp lint` / `vp staged`), the root aggregates
  * (`check`, `check:dist`, `test:integration`, `test:coverage`) and the
- * cross-package integration suite under `test/integration`. Every package's
- * own tasks are defined once in `vite.package.ts` and instantiated by each
- * package's `vite.config.ts`; a new package adds itself to the aggregate
- * lists below.
+ * cross-format integration suite under `test/integration`. The package's
+ * own tasks are defined once in `vite.package.ts` and instantiated by
+ * `packages/core/vite.config.ts`; a format is a subpath of that package, not
+ * a package of its own, so it adds nothing to the aggregates below.
  *
  * Copied from the effect-web library's root config: every comment that
  * explains a load-bearing decision is part of the standard and travels with
@@ -19,14 +19,9 @@ import { recommended } from "@effect/tsgo/oxlint-presets";
 import effect from "@enfect/oxlint";
 import { packageAliases } from "./vite.package.ts";
 import { options as core } from "./packages/core/vite.config.ts";
-import { options as csv } from "./packages/csv/vite.config.ts";
-import { options as iwork } from "./packages/iwork/vite.config.ts";
-import { options as ooxml } from "./packages/ooxml/vite.config.ts";
-import { options as pdf } from "./packages/pdf/vite.config.ts";
-import { options as rtf } from "./packages/rtf/vite.config.ts";
 
-/** Every package name and subpath, resolved to its `src/` file. */
-const integrationAliases = [core, csv, iwork, ooxml, pdf, rtf].flatMap(packageAliases);
+/** The package name and every subpath, resolved to its `src/` file. */
+const integrationAliases = packageAliases(core);
 
 export default defineConfig({
   // Staged-file checks run by `vp staged` (pre-commit).
@@ -71,7 +66,7 @@ export default defineConfig({
       // Vitest's `expect(value, message)` takes the failure message as its
       // second argument.
       "vitest/valid-expect": ["error", { maxArgs: 2 }],
-      // `survives` (packages/iwork/test/malformed.test.ts) is the fuzz
+      // `survives` (packages/core/test/iwork/malformed.test.ts) is the fuzz
       // suites' assertion: it fails the test when the decoder throws
       // anything but its own typed error.
       "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "assert", "survives"] }],
@@ -113,23 +108,23 @@ export default defineConfig({
       "effect/no-service-constructor-imports": "off",
 
       // ---- Effect preset: ported-code allowances ---------------------------
-      // The modules under packages/*/src predate the Effect oxlint preset.
+      // The modules under packages/core/src predate the Effect oxlint preset.
       // The rules below sit at `warn` so the code stays committable while each
       // site stays reported; a new site is a defect, not headroom. Once a
       // rule's count reaches zero its line is deleted, so it is back at the
       // preset's `error`.
       // Remaining sites are listed in effect-document#155, which also says
       // why each rule could not reach zero in the migration PR.
-      // 241 sites in packages/*/src (pdf 140, ooxml 38, iwork 32, core 22, rtf
+      // 241 sites in packages/core/src (pdf 140, ooxml 38, iwork 32, core 22, rtf
       // 6, csv 3): indexed loops over bytes, glyphs and XML children in the
       // decoders' hot paths, and the explicit-stack walks that keep deep
       // documents off the call stack.
       "effect/imperative-loops": "warn",
-      // 172 sites in packages/*/src (pdf 105, ooxml 30, iwork 23, rtf 6,
+      // 172 sites in packages/core/src (pdf 105, ooxml 30, iwork 23, rtf 6,
       // csv 5, core 3): `buf[i]!`-style reads beside a bounds check the
       // compiler cannot see (`noUncheckedIndexedAccess`).
       "effect/avoid-non-null-assertion": "warn",
-      // 91 sites in packages/*/src (pdf 40, ooxml 23, iwork 12, core 10,
+      // 91 sites in packages/core/src (pdf 40, ooxml 23, iwork 12, core 10,
       // rtf 4, csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
       // model and `Profile.features` / `collectFeatures` are public `Set`s
       // (a `HashMap` / `HashSet` would change that API), the rest are decoder
@@ -240,7 +235,7 @@ export default defineConfig({
       // in `Effect.ensuring` (a `vi.spyOn` recording every call exhausts
       // memory there): the patch IS the instrument.
       {
-        files: ["packages/csv/test/csv.test.ts"],
+        files: ["packages/core/test/csv/csv.test.ts"],
         rules: {
           "eslint/no-extend-native": "off",
           // The saved original is re-invoked with `.call(this, …)`.
@@ -288,191 +283,101 @@ export default defineConfig({
   },
   run: {
     tasks: {
-      // The CI typecheck gate, as one task: every package's `check` (`src`
+      // The CI typecheck gate, as one task: the package's `check` (`src`
       // under tsconfig.json, the tests under tsconfig.test.json) plus the
-      // root tsconfig.test.json (the integration suite and `examples/`). The
-      // packages are named explicitly — a `from: "dependencies"` edge does
-      // not traverse the workspace root's own devDependencies — so a new
-      // package adds itself to EVERY list here.
+      // root tsconfig.test.json (the integration suite, `examples/` and
+      // `bench/`). The package is named explicitly: a `from: "dependencies"`
+      // edge does not traverse the workspace root's own devDependencies.
       check: {
         command: "tsc -p tsconfig.test.json",
-        dependsOn: [
-          "@thomasfosterau/effect-document#check",
-          "@thomasfosterau/effect-csv#check",
-          "@thomasfosterau/effect-iwork#check",
-          "@thomasfosterau/effect-ooxml#check",
-          "@thomasfosterau/effect-pdf#check",
-          "@thomasfosterau/effect-rtf#check",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#check"],
         cache: false,
       },
-      // Import guard: the built dist of every published package imports no
-      // removed `effect/unstable/*` path (the family's rc.118 floor). Reads
-      // `dist/`, hence the build edges.
+      // Import guard over the built dist: it imports no removed
+      // `effect/unstable/*` path (the family's rc.118 floor), and the core
+      // entries reach no format dependency (`fflate`,
+      // `@thomasfosterau/effect-parse`; `/pdf*` no effect-parse). Reads
+      // `dist/`, hence the build edge.
       "check:dist": {
         command: "node scripts/check-dist-imports.mjs",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // Consumer smoke test: packs every package as `pnpm publish` would,
-      // lints the tarballs (publint, attw), installs them into a scratch
+      // Consumer smoke test: packs the package as `pnpm publish` would,
+      // lints the tarball (publint, attw), installs it into a scratch
       // project from npm and imports and type-checks every entry. Reads
-      // `dist/`, hence the build edges; needs the registry.
+      // `dist/`, hence the build edge; needs the registry.
       "check:pack": {
         command: "node scripts/check-pack.mjs",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       // Runs every program under `examples/` (the README's worked examples)
-      // against the built packages, as a consumer would: each imports the
-      // packages by name, which resolves through `exports` to `dist/` — hence
-      // the build edges. `convert-csv-to-xlsx` writes a git-ignored
+      // against the built package, as a consumer would: each imports it by
+      // name, which resolves through `exports` to `dist/` — hence the build
+      // edge. `convert-csv-to-xlsx` writes a git-ignored
       // `output.xlsx` to the workspace root.
       examples: {
         command:
           "vpx examples/document-ast.ts && vpx examples/streaming.ts && vpx examples/convert-csv-to-xlsx.ts && vpx examples/read-iwork-directory.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       // Benchmarks (`bench/`): every format's reader and writer against the
-      // leading JavaScript library for it, over the built packages (each
-      // imports them by name, through `exports` to `dist/`, hence the build
-      // edges). Run by hand around a change to a reader or writer; not in CI
+      // leading JavaScript library for it, over the built package (each
+      // imports it by name, through `exports` to `dist/`, hence the build
+      // edge). Run by hand around a change to a reader or writer; not in CI
       // yet (a non-blocking job is #136), and the numbers depend on the machine. `BENCH_TIME` (ms per group,
       // default 3000) and `BENCH_FILTER` (a group-name substring) narrow a
       // run. `bench` runs them all.
       bench: {
         command:
           "node --expose-gc bench/csv.bench.ts && node --expose-gc bench/xlsx.bench.ts && node --expose-gc bench/docx.bench.ts && node --expose-gc bench/pptx.bench.ts && node --expose-gc bench/rtf.bench.ts && node --expose-gc bench/pdf.bench.ts && node --expose-gc bench/iwork.bench.ts && node --expose-gc bench/convert.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:csv": {
         command: "node --expose-gc bench/csv.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:xlsx": {
         command: "node --expose-gc bench/xlsx.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:docx": {
         command: "node --expose-gc bench/docx.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:pptx": {
         command: "node --expose-gc bench/pptx.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:rtf": {
         command: "node --expose-gc bench/rtf.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:pdf": {
         command: "node --expose-gc bench/pdf.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:iwork": {
         command: "node --expose-gc bench/iwork.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
       "bench:convert": {
         command: "node --expose-gc bench/convert.bench.ts",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // The cross-package suite under `test/integration` (conversions between
-      // formats). It resolves every package name to its `src/` (the
+      // The cross-format suite under `test/integration` (conversions between
+      // formats). It resolves the package name and its subpaths to `src/` (the
       // `integration` project below), so it needs no build.
       "test:integration": {
         command: "vp test run --project integration",
@@ -509,7 +414,7 @@ export default defineConfig({
         command: "vp test run --project interop",
         cache: false,
       },
-      // Every package's unit suite plus the integration suite under one
+      // The package's unit suite plus the integration suite under one
       // Istanbul coverage map (`coverage/coverage-final.json`), which `fallow
       // audit` reads for exact per-function CRAP scores (`health.coverage` in
       // .fallowrc.json). Without it fallow estimates every function as
@@ -518,29 +423,21 @@ export default defineConfig({
       // PreToolUse fallow gate runs the audit on `git commit` / `git push`
       // but never refreshes this map).
       //
-      // One vitest process runs every package's suite, so no
-      // `{ from: "dependencies" }` edge builds the siblings a suite imports
-      // through `exports` (→ `dist/`); every package's `build` is named
-      // explicitly (cached, so a warm tree pays nothing).
+      // The package's `build` is named explicitly (cached, so a warm tree
+      // pays nothing), so the run sees the same `dist/` that `check:dist`,
+      // `examples` and `bench` read.
       "test:coverage": {
         command:
           "vp test run --coverage --project '!corpus' --project '!validate' --project '!interop'",
-        dependsOn: [
-          "@thomasfosterau/effect-document#build",
-          "@thomasfosterau/effect-csv#build",
-          "@thomasfosterau/effect-iwork#build",
-          "@thomasfosterau/effect-ooxml#build",
-          "@thomasfosterau/effect-pdf#build",
-          "@thomasfosterau/effect-rtf#build",
-        ],
+        dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
     },
   },
   test: {
-    // One entry per package (each package's own vite.config.ts is a vitest
-    // project), plus the integration suite, so the root run and the root
-    // coverage map cover them all.
+    // The package's own vite.config.ts is a vitest project, plus the
+    // integration, validate, interop and corpus suites, so the root run and
+    // the root coverage map cover them all.
     projects: [
       "packages/*/vite.config.ts",
       {

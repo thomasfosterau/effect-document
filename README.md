@@ -13,23 +13,25 @@ A **type-safe, profile-based universal document schema** for [Effect](https://ef
                      └──── widen (free) ─── narrow (lossy) ─────┘
 ```
 
-## Packages
+## Package
 
-The core package holds the schema, the profiles and the conversion pipeline; each format family is its own package, so you install only the formats you use.
+One package, [`@thomasfosterau/effect-document`](packages/core/README.md): the schema, the profiles and the conversion pipeline on its root entry, and each format family on a subpath of its own, never on the root barrel, so you load only the formats you import.
 
-| Package | What it is | Peers |
+| Entry | What it is | Needs |
 | --- | --- | --- |
-| [`@thomasfosterau/effect-document`](packages/core/README.md) | The document schema (prose, spreadsheets, presentations, attributes), feature profiles with `widen` / `narrow` and loss reports, and the `Reader` / `Writer` / `Format` / `convert` pipeline. | `effect` |
-| [`@thomasfosterau/effect-csv`](packages/csv/README.md) | CSV / TSV reader and writer: dialects, quoting, comments, type inference, chunked streaming, seeded synthetic data. | `effect` |
-| [`@thomasfosterau/effect-ooxml`](packages/ooxml/README.md) | XLSX, DOCX and PPTX readers and writers on SpreadsheetML / WordprocessingML / PresentationML. | `effect` |
-| [`@thomasfosterau/effect-rtf`](packages/rtf/README.md) | RTF reader and writer: paragraphs and headings with bold / italic / underline / strikeout runs. | `effect` |
-| [`@thomasfosterau/effect-pdf`](packages/pdf/README.md) | PDF reader (structure recovered from the layout) and writer (standard 14 fonts), on a self-contained PDF object layer. | `effect` |
-| [`@thomasfosterau/effect-iwork`](packages/iwork/README.md) | Experimental, read-only Keynote / Pages / Numbers readers and the iWork container codec. | `effect` |
+| `@thomasfosterau/effect-document` (also `/schema`, `/profile`, `/profiles`, `/io`) | The document schema (prose, spreadsheets, presentations, attributes), feature profiles with `widen` / `narrow` and loss reports, and the `Reader` / `Writer` / `Format` / `convert` pipeline. | `effect` |
+| `/csv` | CSV / TSV reader and writer: dialects, quoting, comments, type inference, chunked streaming, seeded synthetic data. | `effect`, `@thomasfosterau/effect-parse` |
+| `/ooxml` (also `/ooxml/xlsx`, `/ooxml/docx`, `/ooxml/pptx`) | XLSX, DOCX and PPTX readers and writers on SpreadsheetML / WordprocessingML / PresentationML. | `effect`, `@thomasfosterau/effect-parse` |
+| `/rtf` | RTF reader and writer: paragraphs and headings with bold / italic / underline / strikeout runs. | `effect`, `@thomasfosterau/effect-parse` |
+| `/pdf` (also `/pdf/cos`) | PDF reader (structure recovered from the layout) and writer (standard 14 fonts), on a self-contained PDF object layer. | `effect` |
+| `/iwork` (also `/iwork/pages`, `/iwork/numbers`, `/iwork/keynote`, `/iwork/codec`) | Experimental, read-only Keynote / Pages / Numbers readers and the iWork container codec. | `effect`, `@thomasfosterau/effect-parse` |
+
+`effect` is a peer. `@thomasfosterau/effect-parse` is an optional peer: install it to use `/csv`, `/rtf`, `/ooxml*` or `/iwork*`. `fflate` (ZIP and DEFLATE) is a dependency that only `/ooxml*`, `/pdf*` and `/iwork*` load.
 
 ## Install
 
 ```sh
-pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-csv @thomasfosterau/effect-ooxml
+pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-parse
 ```
 
 ## Convert CSV to Excel and back
@@ -37,8 +39,8 @@ pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-csv @thom
 ```ts
 import * as Effect from "effect/Effect";
 import { contentToText, convert, text } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import { Xlsx } from "@thomasfosterau/effect-ooxml";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Xlsx } from "@thomasfosterau/effect-document/ooxml";
 
 const program = Effect.gen(function* () {
   // CSV ⊆ Spreadsheet: a free widening, nothing lost
@@ -54,7 +56,7 @@ const program = Effect.gen(function* () {
 });
 ```
 
-The type system is part of the contract: a writer for `Doc<CsvFeature>` will not compile against a document that may hold date cells until you `narrow` it, and widening a CSV document into a spreadsheet is ordinary assignability. The [core README](packages/core/README.md) explains the schema, profiles and pipeline; [`examples/`](examples) has runnable programs (`vp run examples`).
+The type system is part of the contract: a writer for `Doc<CsvFeature>` will not compile against a document that may hold date cells until you `narrow` it, and widening a CSV document into a spreadsheet is ordinary assignability. The [package README](packages/core/README.md) explains the schema, profiles, pipeline and every format; [`examples/`](examples) has runnable programs (`vp run examples`).
 
 ## Format support
 

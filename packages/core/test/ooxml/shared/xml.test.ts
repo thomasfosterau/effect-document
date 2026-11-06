@@ -1,0 +1,289 @@
+/**
+ * Tests for the minimal XML utilities
+ */
+
+import { assert, describe, expect, test } from "vite-plus/test";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
+import {
+  escapeAttr,
+  escapeXml,
+  findAll,
+  findChild,
+  findChildren,
+  getAttr,
+  parseXml,
+  parseXmlResult,
+  unescapeXml,
+} from "../../../src/ooxml/shared/index.ts";
+
+/** The failure of parsing `xml`, which must fail. */
+const failure = (xml: string) => {
+  const r = parseXmlResult(xml);
+  assert(Result.isFailure(r), "expected a parse failure");
+  return r.failure;
+};
+
+describe("escaping", () => {
+  test("escapes text content", () => {
+    expect(escapeXml("a < b & c > d")).toBe("a &lt; b &amp; c &gt; d");
+  });
+
+  test("escapes attribute values", () => {
+    expect(escapeAttr('say "hi" & <bye>')).toBe("say &quot;hi&quot; &amp; &lt;bye&gt;");
+    expect(escapeAttr("tab\there")).toBe("tab&#9;here");
+  });
+
+  test("unescapes entities", () => {
+    expect(unescapeXml("a &lt; b &amp; c &gt; d")).toBe("a < b & c > d");
+    expect(unescapeXml("&quot;quoted&quot; &apos;single&apos;")).toBe("\"quoted\" 'single'");
+    expect(unescapeXml("&#65;&#x42;")).toBe("AB");
+  });
+
+  test("escape/unescape round-trips", () => {
+    const tricky = "a < b & \"c\" > 'd' &amp; <tag/>";
+    expect(unescapeXml(escapeXml(tricky))).toBe(tricky);
+    expect(unescapeXml(escapeAttr(tricky))).toBe(tricky);
+  });
+});
+
+describe("parseXml", () => {
+  test("parses a simple document", () => {
+    const root = parseXml('<?xml version="1.0"?><root attr="value"><child>text</child></root>');
+
+    expect(root.name).toBe("root");
+    expect(root.attrs["attr"]).toBe("value");
+    expect(root.children.length).toBe(1);
+    expect(root.children[0]?.name).toBe("child");
+    expect(root.children[0]?.text).toBe("text");
+  });
+
+  test("parses self-closing tags", () => {
+    const root = parseXml('<row><c r="A1"/><c r="B1"/></row>');
+
+    expect(root.children.length).toBe(2);
+    expect(root.children[0]?.attrs["r"]).toBe("A1");
+    expect(root.children[1]?.attrs["r"]).toBe("B1");
+  });
+
+  test("strips namespace prefixes from element names but keeps attribute keys", () => {
+    const root = parseXml('<x:sheet xmlns:x="ns" name="Data" r:id="rId1"></x:sheet>');
+
+    expect(root.name).toBe("sheet");
+    expect(root.attrs["name"]).toBe("Data");
+    expect(root.attrs["r:id"]).toBe("rId1");
+  });
+
+  test("unescapes text and attribute content", () => {
+    const root = parseXml('<t a="&quot;x&quot;">a &amp; b</t>');
+
+    expect(root.text).toBe("a & b");
+    expect(root.attrs["a"]).toBe('"x"');
+  });
+
+  test("handles nested SpreadsheetML structures", () => {
+    const root = parseXml(
+      "<worksheet><sheetData>" +
+        '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><v>42</v></c></row>' +
+        '<row r="2"><c r="A2" t="inlineStr"><is><t>inline</t></is></c></row>' +
+        "</sheetData></worksheet>",
+    );
+
+    const sheetData = findChild(root, "sheetData");
+    expect(sheetData).toBeDefined();
+    const rows = findChildren(sheetData!, "row");
+    expect(rows.length).toBe(2);
+
+    const cells = findAll(root, "c");
+    expect(cells.length).toBe(3);
+    expect(cells[0]?.attrs["t"]).toBe("s");
+
+    const inlineText = findAll(root, "t");
+    expect(inlineText[0]?.text).toBe("inline");
+  });
+
+  test("skips comments and doctype declarations", () => {
+    const root = parseXml("<!DOCTYPE foo><!-- a comment --><root><!-- inner --><child/></root>");
+
+    expect(root.name).toBe("root");
+    expect(root.children.length).toBe(1);
+  });
+
+  test("throws on malformed input", () => {
+    expect(() => parseXml("")).toThrow("expected root element");
+    expect(() => parseXml("just text")).toThrow("expected root element");
+    expect(() => parseXml("<unclosed")).toThrow("found end of input");
+  });
+
+  test("keeps CDATA verbatim and accepts a byte order mark", () => {
+    const root = parseXml('\uFEFF<?xml version="1.0"?>\n<t>a <![CDATA[<b> & c]]></t>');
+    expect(root.text).toBe("a <b> & c");
+  });
+
+  test("reports mismatched closing tags at the element", () => {
+    const e = failure("<a>\n  <b></a>");
+    expect(e.position).toEqual({ line: 2, column: 4 }); // the element name
+    expect(e.message).toContain("closing tag </a> does not match <b>");
+  });
+
+  test("reports unterminated elements, attributes and comments with positions", () => {
+    expect(failure("<a>").message).toContain("closing tag");
+    expect(failure('<a x="1>').position).toEqual({ line: 1, column: 9 });
+    expect(failure("<a x=1/>").message).toContain("attribute value");
+    expect(failure("<a><!-- x</a>").message).toContain('"-->"');
+  });
+
+  test("rejects content after the root element", () => {
+    expect(failure("<a/><b/>").position).toEqual({ line: 1, column: 5 });
+  });
+});
+
+describe("getAttr", () => {
+  test("matches attributes with or without namespace prefixes", () => {
+    const root = parseXml('<sheet name="S" r:id="rId1"/>');
+
+    expect(getAttr(root, "name")).toBe("S");
+    expect(getAttr(root, "r:id")).toBe("rId1");
+    expect(getAttr(root, "id")).toBe("rId1");
+    expect(getAttr(root, "missing")).toBeUndefined();
+  });
+});
+
+describe("hardening (#55)", () => {
+  test("20,000 levels of nesting parse without overflowing the stack", () => {
+    const depth = 20_000;
+    const root = parseXml("<a>".repeat(depth) + "x" + "</a>".repeat(depth));
+    expect(root.name).toBe("a");
+    expect(findAll(root, "a")).toHaveLength(depth - 1);
+  });
+
+  test("parseXmlResult never throws, and invalid character references become U+FFFD", () => {
+    expect(Result.isFailure(parseXmlResult("<a>".repeat(50_000)))).toBe(true);
+    expect(parseXml("<a>&#99999999;&#xD800;&#65;</a>").text).toBe("��A");
+    expect(unescapeXml("&amp;lt;")).toBe("&lt;");
+  });
+
+  test("resolves element namespaces, and getAttr prefers the element's own namespace", () => {
+    const root = parseXml(
+      `<w:b xmlns:w="urn:w" xmlns:w14="urn:w14" w14:val="0" w:val="1"><x xmlns="urn:d"/><m:t xmlns:m="urn:m"/></w:b>`,
+    );
+    expect(root.ns).toBe("urn:w");
+    expect(root.children.map((c) => c.ns)).toEqual(["urn:d", "urn:m"]);
+    expect(getAttr(root, "val")).toBe("1");
+  });
+
+  test("mc:AlternateContent resolves to an understood Choice, else the Fallback", () => {
+    const mc = `xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"`;
+    const w = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wps="urn:wps"`;
+    const root = parseXml(
+      `<w:body ${mc} ${w}>` +
+        `<mc:AlternateContent><mc:Choice Requires="wps"><w:p>choice</w:p></mc:Choice><mc:Fallback><w:p>fallback</w:p></mc:Fallback></mc:AlternateContent>` +
+        `<mc:AlternateContent><mc:Choice Requires="w"><w:p>understood</w:p></mc:Choice><mc:Fallback><w:p>no</w:p></mc:Fallback></mc:AlternateContent>` +
+        `<mc:AlternateContent/>` +
+        `</w:body>`,
+    );
+    expect(root.children.map((c) => c.text)).toEqual(["fallback", "understood"]);
+  });
+
+  test("a DOCTYPE with an internal subset is skipped and its entities never expanded", () => {
+    const root = parseXml(`<!DOCTYPE a [ <!ENTITY e "boom"> <!ELEMENT a ANY> ]><a>&e;</a>`);
+    expect(root.text).toBe("&e;");
+  });
+
+  test("invalid names and duplicate attributes are rejected", () => {
+    expect(Result.isFailure(parseXmlResult(`<a"b/>`))).toBe(true);
+    expect(Result.isFailure(parseXmlResult(`<1a/>`))).toBe(true);
+    const dup = parseXmlResult(`<a x="1" x="2"/>`);
+    expect(Result.isFailure(dup) && dup.failure.message).toContain(`duplicate attribute "x"`);
+    // the first name given twice is the one named
+    const twice = parseXmlResult(`<a y="1" x="1" y="2" x="2"/>`);
+    expect(Result.isFailure(twice) && twice.failure.message).toContain(`duplicate attribute "y"`);
+  });
+
+  test("an attribute named __proto__ is an own attribute, not the record's prototype", () => {
+    const root = parseXml(`<a __proto__="p" b="q"/>`);
+    expect(Object.getPrototypeOf(root.attrs)).toBe(Object.prototype);
+    expect(Object.entries(root.attrs)).toEqual([
+      ["__proto__", "p"],
+      ["b", "q"],
+    ]);
+  });
+
+  test("a structural error after a later tokenizing error still reports the tokenizing one", () => {
+    // `</b>` mismatches first, but the `<1` after it does not tokenize: as
+    // when every token was read before the tree, the tokenizing error wins
+    const r = parseXmlResult(`<a></b><1/></a>`);
+    expect(Result.isFailure(r) && r.failure.message).not.toContain("does not match");
+  });
+});
+
+/** A parse's tree, or its failure's message, with the fast scanner or without it. */
+const outcome = (xml: string, fast: boolean) => {
+  const r = fast ? parseXmlResult(xml, "sheetData") : parseXmlResult(xml);
+  return Result.isSuccess(r) ? { tree: r.success } : { error: r.failure.message };
+};
+
+describe("the fast content scanner (parseXmlResult with fastContentOf)", () => {
+  // a Lehmer generator, so the inputs are the same on every run
+  let seed = 31;
+  const next = (n: number) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % n;
+  };
+  const pick = <A>(xs: Arr.NonEmptyReadonlyArray<A>): A =>
+    Option.getOrElse(Arr.get(xs, next(xs.length)), () => xs[0]);
+  const NS = `xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"`;
+  // markup the scanner reads, and markup it must leave to the parser
+  const plain: Arr.NonEmptyReadonlyArray<string> = [
+    `<c r="A1" t="s"><v>0</v></c>`,
+    `<c r="B1"><v>1.5</v></c>`,
+    `<c r='C1' t="inlineStr"><is><t>a &amp; b</t></is></c>`,
+    `<c r="D1" s="2"/>`,
+    `<c r="E1" t="str"><f>SUM(A1:B1)</f><v>3</v></c>`,
+    `<c r="F1" t="b" ><v>1</v></c>`,
+    `\n  `,
+    `<c r="G1"><v>&#x41;&lt;&#65;</v></c>`,
+  ];
+  const odd: Arr.NonEmptyReadonlyArray<string> = [
+    `<!-- a comment -->`,
+    `<c r="A2"><v><![CDATA[x]]></v></c>`,
+    `<x:c r="A3"/>`,
+    `<c r="A4" x:id="1"/>`,
+    `<c r = "A5"/>`,
+    `<c r="A6" r="A7"/>`,
+    `<c r="A8"t="s"/>`,
+    `<c r="A9"></c >`,
+    `<c-x r="B1"/>`,
+    `<c r="A10" xmlns="urn:other"><v>1</v></c>`,
+    `<?pi x?>`,
+    `<c r="A11"><v>1</c>`,
+    `<c r="A12">`,
+    `</row>`,
+  ];
+  const row = (oddOnes: boolean) =>
+    `<row r="${1 + next(9)}"${next(2) === 0 ? ` spans="1:3"` : ""}>` +
+    Array.from({ length: next(5) }, () =>
+      oddOnes && next(6) === 0 ? pick(odd) : pick(plain),
+    ).join("") +
+    `</row>`;
+  const sheet = (oddOnes: boolean) =>
+    `<?xml version="1.0"?><worksheet ${NS}><dimension ref="A1"/><sheetData>` +
+    Array.from({ length: next(4) }, () => row(oddOnes)).join(pick(["", "\n"])) +
+    `</sheetData>${next(3) === 0 ? "<mergeCells/>" : ""}</worksheet>`;
+  test("gives the parser's tree or error, for markup it reads and markup it leaves", () => {
+    const inputs = [
+      ...Array.from({ length: 1500 }, () => sheet(false)),
+      ...Array.from({ length: 1500 }, () => sheet(true)),
+      // a damaged document around a well-formed sheetData
+      `<worksheet ${NS}><sheetData><row r="1"/></sheetData>`,
+      `<worksheet ${NS}><sheetData><row r="1"/></sheetData></worksheet><extra/>`,
+      `<!-- before --><worksheet ${NS}><sheetData><row r="1"/></sheetData></worksheet>`,
+      `<worksheet ${NS}><sheetData/></worksheet>`,
+      `<worksheet><x:sheetData xmlns:x="urn:x"><row/></x:sheetData><sheetData><row/></sheetData></worksheet>`,
+    ];
+    expect(inputs.map((xml) => outcome(xml, true))).toEqual(
+      inputs.map((xml) => outcome(xml, false)),
+    );
+  });
+});
