@@ -7,7 +7,7 @@
  * Run with `vp run bench:rtf` (builds first).
  */
 import { contentToText, narrow, text } from "@thomasfosterau/effect-document";
-import { makeRtfReader, makeRtfWriter, Rtf } from "@thomasfosterau/effect-rtf";
+import { makeRtfReader, makeRtfWriter, Rtf } from "@thomasfosterau/effect-document/rtf";
 import * as Effect from "effect/Effect";
 import { type Group, runGroups } from "./harness.ts";
 import { proseDocument } from "./prose.ts";
@@ -25,12 +25,12 @@ const groups = (name: string, sections: number): Array<Group> => {
     {
       name: `read: ${name}`,
       bytes: size,
-      cases: [{ name: "effect-rtf read", run: () => run(reader.read(text(source))) }],
+      cases: [{ name: "effect-document read", run: () => run(reader.read(text(source))) }],
     },
     {
       name: `write: ${name}`,
       bytes: size,
-      cases: [{ name: "effect-rtf write (document)", run: () => run(writer.write(doc)) }],
+      cases: [{ name: "effect-document write (document)", run: () => run(writer.write(doc)) }],
     },
   ];
 };

@@ -1,5 +1,4 @@
 ---
-"@thomasfosterau/effect-ooxml": patch
 "@thomasfosterau/effect-document": patch
 ---
 

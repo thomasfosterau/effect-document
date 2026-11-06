@@ -22,7 +22,7 @@ import {
   renderTable,
   scanCsv,
   scanCsvStream,
-} from "@thomasfosterau/effect-csv";
+} from "@thomasfosterau/effect-document/csv";
 import { text } from "@thomasfosterau/effect-document";
 import { parse as csvParse } from "csv-parse/sync";
 import { parse as csvParseStream } from "csv-parse";
@@ -144,7 +144,7 @@ const scanCases = (csv: string): Array<Case> => {
   const udsv = initParser(schema);
   return [
     {
-      name: "effect-csv scanCsv",
+      name: "effect-document scanCsv",
       run: () => run(scanCsv(csv, undefined, { treatFirstRowAsHeader: true })),
     },
     { name: "uDSV stringArrs", run: () => udsv.stringArrs(csv) },
@@ -158,24 +158,24 @@ const readCases = (csv: string): Array<Case> => {
   const schema = inferSchema(csv);
   const udsv = initParser(schema);
   return [
-    { name: "effect-csv read", run: () => run(reader.read(text(csv))) },
+    { name: "effect-document read", run: () => run(reader.read(text(csv))) },
     {
-      name: "effect-csv read (inferTypes off)",
+      name: "effect-document read (inferTypes off)",
       run: () =>
         run(makeCsvReader({ treatFirstRowAsHeader: true, inferTypes: false }).read(text(csv))),
     },
     // typed rows rather than a document: like with like against the libraries below
     {
-      name: "effect-csv readCsvRows",
+      name: "effect-document readCsvRows",
       run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true })),
     },
     // numbers as `Number` reads them, digits held or not: the libraries' rule
     {
-      name: "effect-csv readCsvRows (lossy)",
+      name: "effect-document readCsvRows (lossy)",
       run: () => run(readCsvRows(csv, { treatFirstRowAsHeader: true, exactNumbers: false })),
     },
     {
-      name: "effect-csv read (lossy)",
+      name: "effect-document read (lossy)",
       run: () => run(lossyReader.read(text(csv))),
     },
     {
@@ -210,7 +210,7 @@ const streamCases = (csv: string): Array<Case> => {
   const parts = chunks(csv, 65536);
   return [
     {
-      name: "effect-csv scanCsvStream",
+      name: "effect-document scanCsvStream",
       run: () =>
         runP(
           Stream.runCount(
@@ -235,8 +235,8 @@ const writeCases = (csv: string): Array<Case> => {
     makeCsvReader({ treatFirstRowAsHeader: true, inferTypes: false }).read(text(csv)),
   );
   return [
-    { name: "effect-csv write (document)", run: () => run(writer.write(doc)) },
-    { name: "effect-csv renderTable", run: () => renderTable(rows) },
+    { name: "effect-document write (document)", run: () => run(writer.write(doc)) },
+    { name: "effect-document renderTable", run: () => renderTable(rows) },
     { name: "d3-dsv csvFormatRows", run: () => csvFormatRows(rows) },
     { name: "papaparse unparse", run: () => Papa.unparse(rows) },
     { name: "csv-stringify/sync", run: () => csvStringify(rows) },

@@ -26,9 +26,9 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { describe, expect, test } from "vite-plus/test";
 import { blocksToText, type Document } from "@thomasfosterau/effect-document";
-import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import { makePdfWriter } from "@thomasfosterau/effect-pdf";
-import { makeRtfWriter } from "@thomasfosterau/effect-rtf";
+import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import { makePdfWriter } from "@thomasfosterau/effect-document/pdf";
+import { makeRtfWriter } from "@thomasfosterau/effect-document/rtf";
 import { type AnyWriter, type Family, type WrittenSample, writeSamples } from "../samples.ts";
 
 /** The external tools, each with the arguments that print its version. */

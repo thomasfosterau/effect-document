@@ -1,8 +1,5 @@
 ---
-"@thomasfosterau/effect-csv": patch
-"@thomasfosterau/effect-ooxml": patch
-"@thomasfosterau/effect-rtf": patch
-"@thomasfosterau/effect-iwork": patch
+"@thomasfosterau/effect-document": patch
 ---
 
-Depend on `@thomasfosterau/effect-parse` `^0.4.1`.
+Require `@thomasfosterau/effect-parse` `^0.4.1` (the optional peer the CSV, RTF, OOXML and iWork subpaths use).

@@ -140,24 +140,9 @@ importers:
       '@enfect/oxlint':
         specifier: 'catalog:'
         version: 0.10.0
-      '@thomasfosterau/effect-csv':
-        specifier: workspace:*
-        version: link:packages/csv
       '@thomasfosterau/effect-document':
         specifier: workspace:*
         version: link:packages/core
-      '@thomasfosterau/effect-iwork':
-        specifier: workspace:*
-        version: link:packages/iwork
-      '@thomasfosterau/effect-ooxml':
-        specifier: workspace:*
-        version: link:packages/ooxml
-      '@thomasfosterau/effect-pdf':
-        specifier: workspace:*
-        version: link:packages/pdf
-      '@thomasfosterau/effect-rtf':
-        specifier: workspace:*
-        version: link:packages/rtf
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
@@ -194,24 +179,9 @@ importers:
 
   bench:
     dependencies:
-      '@thomasfosterau/effect-csv':
-        specifier: workspace:*
-        version: link:../packages/csv
       '@thomasfosterau/effect-document':
         specifier: workspace:*
         version: link:../packages/core
-      '@thomasfosterau/effect-iwork':
-        specifier: workspace:*
-        version: link:../packages/iwork
-      '@thomasfosterau/effect-ooxml':
-        specifier: workspace:*
-        version: link:../packages/ooxml
-      '@thomasfosterau/effect-pdf':
-        specifier: workspace:*
-        version: link:../packages/pdf
-      '@thomasfosterau/effect-rtf':
-        specifier: workspace:*
-        version: link:../packages/rtf
       '@types/d3-dsv':
         specifier: 'catalog:'
         version: 3.0.7
@@ -269,18 +239,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.2(effect@4.1.2)(redis@6.3.0)
-      '@thomasfosterau/effect-csv':
-        specifier: workspace:*
-        version: link:../packages/csv
       '@thomasfosterau/effect-document':
         specifier: workspace:*
         version: link:../packages/core
-      '@thomasfosterau/effect-iwork':
-        specifier: workspace:*
-        version: link:../packages/iwork
-      '@thomasfosterau/effect-ooxml':
-        specifier: workspace:*
-        version: link:../packages/ooxml
       effect:
         specifier: 4.1.2
         version: 4.1.2
@@ -289,50 +250,7 @@ importers:
         version: 0.8.3
 
   packages/core:
-    devDependencies:
-      '@effect/language-service':
-        specifier: 'catalog:'
-        version: 0.87.5
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.6.6
-      '@vitest/coverage-istanbul':
-        specifier: 'catalog:'
-        version: 5.1.0(vitest@5.1.0)
-      effect:
-        specifier: 4.1.2
-        version: 4.1.2
-
-  packages/csv:
     dependencies:
-      '@thomasfosterau/effect-document':
-        specifier: workspace:^
-        version: link:../core
-      '@thomasfosterau/effect-parse':
-        specifier: 'catalog:'
-        version: 0.4.1(effect@4.1.2)
-    devDependencies:
-      '@effect/language-service':
-        specifier: 'catalog:'
-        version: 0.87.5
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.6.6
-      '@vitest/coverage-istanbul':
-        specifier: 'catalog:'
-        version: 5.1.0(vitest@5.1.0)
-      effect:
-        specifier: 4.1.2
-        version: 4.1.2
-
-  packages/iwork:
-    dependencies:
-      '@thomasfosterau/effect-document':
-        specifier: workspace:^
-        version: link:../core
-      '@thomasfosterau/effect-parse':
-        specifier: 'catalog:'
-        version: 0.4.1(effect@4.1.2)
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
@@ -343,78 +261,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.2(effect@4.1.2)(redis@6.3.0)
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.6.6
-      '@vitest/coverage-istanbul':
-        specifier: 'catalog:'
-        version: 5.1.0(vitest@5.1.0)
-      effect:
-        specifier: 4.1.2
-        version: 4.1.2
-
-  packages/ooxml:
-    dependencies:
-      '@thomasfosterau/effect-document':
-        specifier: workspace:^
-        version: link:../core
       '@thomasfosterau/effect-parse':
         specifier: 'catalog:'
         version: 0.4.1(effect@4.1.2)
-      fflate:
-        specifier: 'catalog:'
-        version: 0.8.3
-    devDependencies:
-      '@effect/language-service':
-        specifier: 'catalog:'
-        version: 0.87.5
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.6.6
-      '@vitest/coverage-istanbul':
-        specifier: 'catalog:'
-        version: 5.1.0(vitest@5.1.0)
-      effect:
-        specifier: 4.1.2
-        version: 4.1.2
-
-  packages/pdf:
-    dependencies:
-      '@thomasfosterau/effect-document':
-        specifier: workspace:^
-        version: link:../core
-      fflate:
-        specifier: 'catalog:'
-        version: 0.8.3
-    devDependencies:
-      '@effect/language-service':
-        specifier: 'catalog:'
-        version: 0.87.5
-      '@effect/platform-node':
-        specifier: 'catalog:'
-        version: 4.1.2(effect@4.1.2)(redis@6.3.0)
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.6.6
-      '@vitest/coverage-istanbul':
-        specifier: 'catalog:'
-        version: 5.1.0(vitest@5.1.0)
-      effect:
-        specifier: 4.1.2
-        version: 4.1.2
-
-  packages/rtf:
-    dependencies:
-      '@thomasfosterau/effect-document':
-        specifier: workspace:^
-        version: link:../core
-      '@thomasfosterau/effect-parse':
-        specifier: 'catalog:'
-        version: 0.4.1(effect@4.1.2)
-    devDependencies:
-      '@effect/language-service':
-        specifier: 'catalog:'
-        version: 0.87.5
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
@@ -4033,7 +3882,7 @@ snapshots:
 
   '@types/ws@8.18.2':
     dependencies:
-      '@types/node': 26.6.5
+      '@types/node': 26.6.6
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true

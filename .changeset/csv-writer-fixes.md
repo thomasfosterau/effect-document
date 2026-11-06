@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-csv": patch
+"@thomasfosterau/effect-document": patch
 ---
 
 Fix CSV writer data loss and add output options.

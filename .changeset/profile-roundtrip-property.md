@@ -1,9 +1,5 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-pdf": minor
-"@thomasfosterau/effect-ooxml": patch
-"@thomasfosterau/effect-csv": patch
-"@thomasfosterau/effect-rtf": patch
 ---
 
 Write profiles are now checked by a property test, and writers render their profiles exhaustively (#109).

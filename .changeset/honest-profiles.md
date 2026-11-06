@@ -1,10 +1,5 @@
 ---
 "@thomasfosterau/effect-document": minor
-"@thomasfosterau/effect-ooxml": minor
-"@thomasfosterau/effect-pdf": minor
-"@thomasfosterau/effect-rtf": minor
-"@thomasfosterau/effect-csv": patch
-"@thomasfosterau/effect-iwork": patch
 ---
 
 Profiles no longer overclaim (#109).

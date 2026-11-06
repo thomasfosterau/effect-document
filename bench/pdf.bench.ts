@@ -18,7 +18,7 @@
  */
 import { readFileSync } from "node:fs";
 import { bytes, contentToBytes, narrow } from "@thomasfosterau/effect-document";
-import { makePdfReader, makePdfWriter, PdfWrite } from "@thomasfosterau/effect-pdf";
+import { makePdfReader, makePdfWriter, PdfWrite } from "@thomasfosterau/effect-document/pdf";
 import * as Effect from "effect/Effect";
 import { Buffer } from "node:buffer";
 import PDFKitDocument from "pdfkit";
@@ -45,7 +45,7 @@ const pdfjsText = async (file: Uint8Array): Promise<number> => {
 };
 
 const readCases = (file: Uint8Array): Array<Case> => [
-  { name: "effect-pdf read", run: () => run(reader.read(bytes(file))) },
+  { name: "effect-document read", run: () => run(reader.read(bytes(file))) },
   { name: "pdf.js getTextContent (all pages)", run: () => pdfjsText(file) },
 ];
 
@@ -76,7 +76,7 @@ const groups = (name: string, sections: number): Array<Group> => {
       name: `write: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-pdf write (document)", run: () => run(writer.write(doc)) },
+        { name: "effect-document write (document)", run: () => run(writer.write(doc)) },
         { name: "PDFKit text (paragraphs)", run: () => pdfkitWrite(paragraphs) },
       ],
     },
@@ -85,7 +85,7 @@ const groups = (name: string, sections: number): Array<Group> => {
 
 const fixture = (name: string): Group => {
   const file = new Uint8Array(
-    readFileSync(new URL(`../packages/pdf/test/fixtures/${name}`, import.meta.url)),
+    readFileSync(new URL(`../packages/core/test/pdf/fixtures/${name}`, import.meta.url)),
   );
   return { name: `read: ${name} (fixture)`, bytes: file.length, cases: readCases(file) };
 };

@@ -24,8 +24,8 @@ import {
   contentToText,
   type SlideShow,
 } from "@thomasfosterau/effect-document";
-import { Docx, Pptx } from "@thomasfosterau/effect-ooxml";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import { Docx, Pptx } from "@thomasfosterau/effect-document/ooxml";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
 const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const isSlideShow = (block: Block): block is SlideShow => Predicate.isTagged(block, "SlideShow");

@@ -33,9 +33,9 @@ Hooks are managed by Vite+; the editable [.vite-hooks/pre-commit](.vite-hooks/pr
 vp lint                                  # oxlint (@enfect/oxlint + @effect/tsgo presets)
 vp fmt                                   # oxfmt
 vp run check                             # the whole type gate
-vp run --filter ./packages/pdf check     # one package's type gate
-vp run -r test:unit                      # every package's unit suite
-vp test run test/pdf.test.ts             # one file (from inside the package)
+vp run --filter ./packages/core check    # the package's type gate alone
+vp run -r test:unit                      # the package's unit suite
+vp test run test/pdf/pdf.test.ts         # one file (from packages/core)
 vp run test:integration                  # the cross-format suite
 vp run corpora:fetch                     # fetch the pinned public corpora into .corpora/ (network)
 vp run test:corpus                       # every reader over every fetched corpus file

@@ -1,15 +1,16 @@
 /**
- * Consumer smoke test for the published packages (`vp run check:pack`, after
+ * Consumer smoke test for the published package (`vp run check:pack`, after
  * `vp run -r build`): checks what npm would ship, not the workspace.
  *
- * 1. `pnpm pack` each package, the way `pnpm publish` builds the tarball
+ * 1. `pnpm pack` the package, the way `pnpm publish` builds the tarball
  *    (`workspace:` and `catalog:` specifiers replaced with real ranges).
- * 2. Lint each tarball: publint (manifest, `exports` and files agree) and
+ * 2. Lint the tarball: publint (manifest, `exports` and files agree) and
  *    attw with the `esm-only` profile (every entry's types resolve under
  *    node16 / bundler resolution; the packages ship no CommonJS).
- * 3. Install every tarball, plus `effect` and `@types/node` at the catalog
- *    versions, into a scratch project with npm, so `@thomasfosterau/effect-parse` and `fflate`
- *    come from the registry as a consumer gets them.
+ * 3. Install the tarball, plus `effect`, `@types/node` and the optional
+ *    `@thomasfosterau/effect-parse` peer at the catalog versions, into a
+ *    scratch project with npm, so they and `fflate` come from the registry as
+ *    a consumer gets them.
  * 4. Import every `exports` entry from Node, and type-check an import of
  *    every entry with `module: nodenext` and `skipLibCheck: false`, so the
  *    emitted `.d.ts` must compile under a strict consumer's settings.
@@ -21,7 +22,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const packages = ["core", "csv", "iwork", "ooxml", "pdf", "rtf"];
+const packages = ["core"];
 const root = resolve(".");
 const bin = (name) => join(root, "node_modules", ".bin", name);
 const run = (command, args, cwd) => execFileSync(command, args, { cwd, stdio: "inherit" });
@@ -75,6 +76,7 @@ try {
       "--ignore-scripts",
       `effect@${catalogVersion("effect")}`,
       `@types/node@${catalogVersion("@types/node")}`,
+      `@thomasfosterau/effect-parse@${catalogVersion("@thomasfosterau/effect-parse")}`,
       ...tarballs,
     ],
     consumer,

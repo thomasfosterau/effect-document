@@ -16,10 +16,10 @@ import {
   Profiles,
   type TagsOf,
 } from "@thomasfosterau/effect-document";
-import * as Csv from "@thomasfosterau/effect-csv";
-import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import * as Pdf from "@thomasfosterau/effect-pdf";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Docx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
 type CsvF = FeaturesOf<typeof Profiles.Csv>;
 type SpreadsheetF = FeaturesOf<typeof Profiles.Spreadsheet>;

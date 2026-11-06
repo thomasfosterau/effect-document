@@ -22,8 +22,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as R from "effect/Record";
 import { zipSync, unzipSync } from "fflate";
 import { blocksToText, bytes, type Content } from "@thomasfosterau/effect-document";
-import { type BundleLimits, openBundleDirectory } from "@thomasfosterau/effect-iwork/codec";
-import * as Keynote from "@thomasfosterau/effect-iwork/keynote";
+import {
+  type BundleLimits,
+  openBundleDirectory,
+} from "@thomasfosterau/effect-document/iwork/codec";
+import * as Keynote from "@thomasfosterau/effect-document/iwork/keynote";
 
 /**
  * Open a folder bundle and repackage its components as the zipped `Content`
@@ -56,7 +59,7 @@ const program = Effect.fn("readIworkDirectory")(function* () {
   const fs = yield* FileSystem.FileSystem;
 
   // --- Make a folder bundle from the zipped fixture ----------------------
-  const zipped = yield* fs.readFile("packages/iwork/test/fixtures/simple-oneslide.key");
+  const zipped = yield* fs.readFile("packages/core/test/iwork/fixtures/simple-oneslide.key");
   const tmp = yield* fs.makeTempDirectoryScoped();
   const deck = `${tmp}/simple-oneslide.key`;
   yield* unpackTo(zipped, deck);

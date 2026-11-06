@@ -6,20 +6,20 @@
     "packages/core/src/profile/index.ts",
     "packages/core/src/profile/profiles.ts",
     "packages/core/src/io/index.ts",
-    "packages/csv/src/index.ts",
-    "packages/iwork/src/index.ts",
-    "packages/iwork/src/pages.ts",
-    "packages/iwork/src/numbers.ts",
-    "packages/iwork/src/keynote.ts",
-    "packages/iwork/src/codec.ts",
-    "packages/ooxml/src/index.ts",
-    "packages/ooxml/src/xlsx/index.ts",
-    "packages/ooxml/src/docx/index.ts",
-    "packages/ooxml/src/pptx/index.ts",
-    "packages/pdf/src/index.ts",
-    "packages/pdf/src/cos/index.ts",
-    "packages/rtf/src/index.ts",
-    "packages/*/test/**/*.test.ts",
+    "packages/core/src/csv/index.ts",
+    "packages/core/src/rtf/index.ts",
+    "packages/core/src/ooxml/index.ts",
+    "packages/core/src/ooxml/xlsx/index.ts",
+    "packages/core/src/ooxml/docx/index.ts",
+    "packages/core/src/ooxml/pptx/index.ts",
+    "packages/core/src/pdf/index.ts",
+    "packages/core/src/pdf/cos/index.ts",
+    "packages/core/src/iwork/index.ts",
+    "packages/core/src/iwork/pages.ts",
+    "packages/core/src/iwork/numbers.ts",
+    "packages/core/src/iwork/keynote.ts",
+    "packages/core/src/iwork/codec.ts",
+    "packages/core/test/**/*.test.ts",
     "test/**/*.test.ts",
     "test/**/*.types.ts",
     "examples/*.ts",
@@ -63,27 +63,35 @@
     "zones": [
       {
         "name": "core",
-        "patterns": ["packages/core/**"]
+        "patterns": [
+          "packages/core/src/index.ts",
+          "packages/core/src/schema/**",
+          "packages/core/src/profile/**",
+          "packages/core/src/io/**",
+          "packages/core/test/schema/**",
+          "packages/core/test/profile/**",
+          "packages/core/test/*.ts"
+        ]
       },
       {
         "name": "csv",
-        "patterns": ["packages/csv/**"]
+        "patterns": ["packages/core/src/csv/**", "packages/core/test/csv/**"]
       },
       {
         "name": "iwork",
-        "patterns": ["packages/iwork/**"]
+        "patterns": ["packages/core/src/iwork/**", "packages/core/test/iwork/**"]
       },
       {
         "name": "ooxml",
-        "patterns": ["packages/ooxml/**"]
+        "patterns": ["packages/core/src/ooxml/**", "packages/core/test/ooxml/**"]
       },
       {
         "name": "pdf",
-        "patterns": ["packages/pdf/**"]
+        "patterns": ["packages/core/src/pdf/**", "packages/core/test/pdf/**"]
       },
       {
         "name": "rtf",
-        "patterns": ["packages/rtf/**"]
+        "patterns": ["packages/core/src/rtf/**", "packages/core/test/rtf/**"]
       }
     ],
     "rules": [

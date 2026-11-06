@@ -4,15 +4,15 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import { bytes, contentToText, convert } from "@thomasfosterau/effect-document";
-import { Keynote } from "@thomasfosterau/effect-iwork";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import { Keynote } from "@thomasfosterau/effect-document/iwork";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
 /** Reads one of the iWork package's binary fixtures. */
 const fixture = Effect.fn("fixture")(function* (name: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const file = yield* path.fromFileUrl(
-    new URL(`../../packages/iwork/test/fixtures/${name}`, import.meta.url),
+    new URL(`../../packages/core/test/iwork/fixtures/${name}`, import.meta.url),
   );
   return yield* fs.readFile(file);
 });

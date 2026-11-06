@@ -9,11 +9,11 @@
  *
  * Run with `vp run bench:convert` (builds first).
  */
-import * as Csv from "@thomasfosterau/effect-csv";
+import * as Csv from "@thomasfosterau/effect-document/csv";
 import { bytes, contentToBytes, convert, narrow, text } from "@thomasfosterau/effect-document";
-import { Docx, Xlsx } from "@thomasfosterau/effect-ooxml";
-import * as Pdf from "@thomasfosterau/effect-pdf";
-import * as Rtf from "@thomasfosterau/effect-rtf";
+import { Docx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 import * as Effect from "effect/Effect";
 import Papa from "papaparse";
 import { Buffer } from "node:buffer";

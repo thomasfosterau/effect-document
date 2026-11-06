@@ -1,5 +1,5 @@
 ---
-"@thomasfosterau/effect-ooxml": minor
+"@thomasfosterau/effect-document": minor
 ---
 
 Parse OOXML parts with an `@thomasfosterau/effect-parse` grammar.

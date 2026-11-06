@@ -9,7 +9,11 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { contentToText, text } from "@thomasfosterau/effect-document";
-import { makeCsvReader, makeCsvWriter, synthesizeDocument } from "@thomasfosterau/effect-csv";
+import {
+  makeCsvReader,
+  makeCsvWriter,
+  synthesizeDocument,
+} from "@thomasfosterau/effect-document/csv";
 
 const program = Effect.fn("streaming")(function* () {
   // --- Synthesize a big CSV-profile document to play with -----------------

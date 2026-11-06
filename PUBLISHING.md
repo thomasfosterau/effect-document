@@ -14,8 +14,8 @@ The publish step runs `pnpm -r publish --ignore-scripts`, which rewrites each pa
 
 0. **Rename the default branch to `trunk`** (Settings → General → Default branch). The workflows, Changesets and the fallow gate are already configured for `trunk`; until the rename neither CI nor Release runs.
 1. **Allow Actions to open the Version Packages PR.** In the repo: **Settings → Actions → General → Workflow permissions** → enable **"Allow GitHub Actions to create and approve pull requests"**. Without this the built-in `GITHUB_TOKEN` is forbidden from opening pull requests and the workflow fails at the PR-creation step — even though the job already grants `pull-requests: write`.
-2. **Bootstrap each package on npm.** A trusted publisher can only be configured on a package that already exists, so the very first version of each package is published by hand from a clean checkout (`vp run -r build && pnpm --filter <name> publish --access public`, with an npm login that has publish rights on the `@thomasfosterau` scope; no `--provenance`, which can only be generated on CI), or the first `Release` run is given a short-lived granular token via a `NODE_AUTH_TOKEN` step that is removed afterwards.
-3. **Configure the trusted publisher** on npmjs.com for each package → **Settings → Trusted Publisher**:
+2. **Bootstrap the package on npm.** The repository publishes one package, `@thomasfosterau/effect-document` (every format is a subpath of it). A trusted publisher can only be configured on a package that already exists, so its very first version is published by hand from a clean checkout (`vp run -r build && pnpm --filter <name> publish --access public`, with an npm login that has publish rights on the `@thomasfosterau` scope; no `--provenance`, which can only be generated on CI), or the first `Release` run is given a short-lived granular token via a `NODE_AUTH_TOKEN` step that is removed afterwards.
+3. **Configure the trusted publisher** on npmjs.com for `@thomasfosterau/effect-document` → **Settings → Trusted Publisher**:
    - Provider: **GitHub Actions**
    - Repository: `thomasfosterau/effect-document`
    - Workflow: `release.yml`

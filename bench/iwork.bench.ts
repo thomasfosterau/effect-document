@@ -10,13 +10,15 @@
  */
 import { readFileSync } from "node:fs";
 import { bytes } from "@thomasfosterau/effect-document";
-import { Keynote, Numbers } from "@thomasfosterau/effect-iwork";
+import { Keynote, Numbers } from "@thomasfosterau/effect-document/iwork";
 import * as Effect from "effect/Effect";
 import { type Group, runGroups } from "./harness.ts";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => Effect.runSync(effect);
 const fixture = (name: string): Uint8Array =>
-  new Uint8Array(readFileSync(new URL(`../packages/iwork/test/fixtures/${name}`, import.meta.url)));
+  new Uint8Array(
+    readFileSync(new URL(`../packages/core/test/iwork/fixtures/${name}`, import.meta.url)),
+  );
 
 const numbers = fixture("test-1.numbers");
 const keynote = fixture("simple-oneslide.key");
@@ -28,14 +30,14 @@ const groups: Array<Group> = [
     name: "read: test-1.numbers (fixture)",
     bytes: numbers.length,
     cases: [
-      { name: "effect-iwork Numbers read", run: () => run(numbersReader.read(bytes(numbers))) },
+      { name: "effect-document Numbers read", run: () => run(numbersReader.read(bytes(numbers))) },
     ],
   },
   {
     name: "read: simple-oneslide.key (fixture)",
     bytes: keynote.length,
     cases: [
-      { name: "effect-iwork Keynote read", run: () => run(keynoteReader.read(bytes(keynote))) },
+      { name: "effect-document Keynote read", run: () => run(keynoteReader.read(bytes(keynote))) },
     ],
   },
 ];

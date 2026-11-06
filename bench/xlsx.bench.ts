@@ -24,7 +24,7 @@ import {
   trustAs,
   worksheet,
 } from "@thomasfosterau/effect-document";
-import { Xlsx } from "@thomasfosterau/effect-ooxml";
+import { Xlsx } from "@thomasfosterau/effect-document/ooxml";
 import ExcelJS from "exceljs";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
@@ -80,7 +80,7 @@ const groups = (name: string, rows: number): Array<Group> => {
       name: `read: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-ooxml read", run: () => run(reader.read(bytes(file))) },
+        { name: "effect-document read", run: () => run(reader.read(bytes(file))) },
         {
           name: "ExcelJS xlsx.load",
           run: () => new ExcelJS.Workbook().xlsx.load(file.slice().buffer),
@@ -92,7 +92,7 @@ const groups = (name: string, rows: number): Array<Group> => {
       name: `write: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-ooxml write (document)", run: () => run(writer.write(doc)) },
+        { name: "effect-document write (document)", run: () => run(writer.write(doc)) },
         { name: "ExcelJS writeBuffer (rows)", run: () => exceljsBook().xlsx.writeBuffer() },
         { name: "write-excel-file (rows)", run: () => writeXlsxFile(data).toBuffer() },
       ],

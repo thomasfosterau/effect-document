@@ -20,7 +20,7 @@ import {
   textBox,
   trustAs,
 } from "@thomasfosterau/effect-document";
-import { Pptx } from "@thomasfosterau/effect-ooxml";
+import { Pptx } from "@thomasfosterau/effect-document/ooxml";
 import * as Effect from "effect/Effect";
 import PptxGenJS from "pptxgenjs";
 import { type Group, rng, runGroups } from "./harness.ts";
@@ -73,13 +73,13 @@ const groups = (name: string, slides: number): Array<Group> => {
     {
       name: `read: ${name}`,
       bytes: file.length,
-      cases: [{ name: "effect-ooxml read", run: () => run(reader.read(bytes(file))) }],
+      cases: [{ name: "effect-document read", run: () => run(reader.read(bytes(file))) }],
     },
     {
       name: `write: ${name}`,
       bytes: file.length,
       cases: [
-        { name: "effect-ooxml write (document)", run: () => run(writer.write(doc)) },
+        { name: "effect-document write (document)", run: () => run(writer.write(doc)) },
         { name: "PptxGenJS write", run: pptxgen },
       ],
     },
