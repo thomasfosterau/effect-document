@@ -59,7 +59,7 @@ catalog:
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
   "@thomasfosterau/effect-parse": ^0.4.0
-  "@types/node": ^26.6.5
+  "@types/node": ^26.6.6
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
   # The leading actively maintained JavaScript library for each format, which
   # `vp run bench` measures our readers and writers against: each published a
