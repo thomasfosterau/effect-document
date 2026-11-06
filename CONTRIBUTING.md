@@ -10,6 +10,8 @@ Branch off `trunk`, rebase rather than merge, squash-merge with a conventional p
 
 Node 22 or later and pnpm 11 (the version is pinned by `packageManager`; Corepack or `pnpm self-update` picks it up). `pnpm install` installs the workspace, the Vite+ git hooks and the Effect-patched `tsc` / `oxlint`.
 
+Open in a Codespace or Dev Container: `.devcontainer/` provisions it with the same hook as agent sessions.
+
 ## Git hooks
 
 Hooks are managed by Vite+; the editable [.vite-hooks/pre-commit](.vite-hooks/pre-commit) is committed. **pre-commit** runs `vp staged` (format + lint on staged files). There is no pre-push hook.
