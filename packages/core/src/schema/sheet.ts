@@ -282,11 +282,7 @@ const isPositional = (cells: ReadonlyArray<RowCell>): boolean =>
  * sheetRow(0, [cell.text("a"), undefined, cell.number(3)])
  * ```
  */
-export const sheetRow = (
-  index: number,
-  cells: ReadonlyArray<RowCell>,
-  height?: number,
-): SheetRow =>
+export const sheetRow = (index: number, cells: ReadonlyArray<RowCell>, height?: number): SheetRow =>
   // the schema pass would accept these unchanged, so skip it; anything else
   // is checked and fails as before
   isPosition(index) && isHeight(height) && isPositional(cells)
