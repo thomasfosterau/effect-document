@@ -87,7 +87,7 @@ catalog:
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.0.5
   effect: 4.0.6
-  fallow: 3.37.0
+  fallow: 3.39.0
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
   fflate: ^0.8.2
   publint: ^0.3.25
