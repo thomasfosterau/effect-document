@@ -39,7 +39,7 @@ catalog:
   # on any other component version, failing `pnpm install` itself. Read the
   # `components` table in node_modules/@effect/tsgo/dist/effect-tsgo.cjs
   # before bumping any of the three.
-  "@effect/tsgo": 0.63.0
+  "@effect/tsgo": 0.67.1
   # The Node `FileSystem` / `Path` layers the test suites and the runnable
   # examples read fixtures and write output through (dev-only: no published
   # package imports it). Exact, in lockstep with `effect` below: its own peer
@@ -55,7 +55,7 @@ catalog:
   # singleton (the `effect` override below), so it needs no scoped override.
   # Its `vite.config.ts` load calls Effect APIs, so an `effect` bump re-runs
   # `vp check` against the plugin too. Moves with the toolchain group.
-  "@enfect/oxlint": ^0.9.0
+  "@enfect/oxlint": ^0.10.0
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
   "@thomasfosterau/effect-parse": ^0.4.0
@@ -85,7 +85,7 @@ catalog:
   write-excel-file: ^4.1.1
   # Must equal the vitest that vite-plus bundles (see `vitest` below); vite-plus
   # refuses to run coverage on a mismatch.
-  "@vitest/coverage-istanbul": 5.0.5
+  "@vitest/coverage-istanbul": 5.1.0
   effect: 4.0.6
   fallow: 3.37.0
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
@@ -107,9 +107,9 @@ catalog:
   # package, and `vitest` must match vite-plus's exact pin because the
   # `vitest: "catalog:"` override forces every resolution to the catalog
   # singleton.
-  vite-plus: 1.4.0
+  vite-plus: 1.5.0
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vitest: 5.0.5
+  vitest: 5.1.0
 
 # Ranges the PUBLISHED packages declare. Kept as a named catalog so the strict
 # catalog mode still governs them while they stay ranges. `pnpm publish`
