@@ -22,7 +22,8 @@
 #   packages share; `parse`: `@thomasfosterau/effect-parse` is the combinator
 #   library the CSV, OOXML, iWork and RTF readers are written against. One
 #   version of each across the packages.
-# - `example-runner` (`tsx`, plus `@effect/docgen` should it be added),
+# - `example-runner` (`@effect/docgen`, should it be added; the examples run
+#   under `vpx`, which ships with vite-plus),
 #   `changesets`, `fallow`, `pack-lint` (`publint` and
 #   `@arethetypeswrong/cli`, the `check:pack` tarball linters): tooling that
 #   moves as a unit.
@@ -104,7 +105,6 @@ updates:
         applies-to: version-updates
         patterns:
           - "@effect/docgen"
-          - "tsx"
         update-types: ["major", "minor", "patch"]
       changesets:
         applies-to: version-updates

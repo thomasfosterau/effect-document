@@ -1,7 +1,7 @@
 /**
  * Working with the universal document schema and the profile/subset system.
  *
- * Run with: vp exec tsx examples/document-ast.ts (after `vp run -r build`)
+ * Run with: vpx examples/document-ast.ts (after `vp run -r build`)
  */
 
 import * as Console from "effect/Console";

@@ -91,8 +91,6 @@ catalog:
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`).
   fflate: ^0.8.2
   publint: ^0.3.25
-  # Runs the examples under `examples/`.
-  tsx: ^4.23.15
   # TypeScript 6/7 side-by-side: TS7 (the native Go compiler) ships no JS API
   # until 7.1, so JS-API consumers (@effect/language-service, tsdown's
   # declaration bundler) stay on TS6 while native `tsc` type-checks. The alias

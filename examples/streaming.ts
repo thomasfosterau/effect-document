@@ -2,7 +2,7 @@
  * Streaming CSV rows with Effect Streams - process large inputs without
  * materializing the whole table, and synthesize test data to stream.
  *
- * Run with: vp exec tsx examples/streaming.ts (after `vp run -r build`)
+ * Run with: vpx examples/streaming.ts (after `vp run -r build`)
  */
 
 import * as Console from "effect/Console";
