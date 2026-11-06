@@ -344,7 +344,7 @@ export default defineConfig({
       // `output.xlsx` to the workspace root.
       examples: {
         command:
-          "tsx examples/document-ast.ts && tsx examples/streaming.ts && tsx examples/convert-csv-to-xlsx.ts && tsx examples/read-iwork-directory.ts",
+          "vpx examples/document-ast.ts && vpx examples/streaming.ts && vpx examples/convert-csv-to-xlsx.ts && vpx examples/read-iwork-directory.ts",
         dependsOn: [
           "@thomasfosterau/effect-document#build",
           "@thomasfosterau/effect-csv#build",

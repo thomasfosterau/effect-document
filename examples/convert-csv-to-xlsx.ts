@@ -4,7 +4,7 @@
  * CSV text goes in, a real .xlsx file comes out, and back again - and because
  * the formats carry their profiles, `convert` reports when a step is lossy.
  *
- * Run with: vp exec tsx examples/convert-csv-to-xlsx.ts
+ * Run with: vpx examples/convert-csv-to-xlsx.ts
  */
 
 import * as NodeServices from "@effect/platform-node/NodeServices";

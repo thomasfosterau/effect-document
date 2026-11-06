@@ -12,7 +12,7 @@
  * The example first unpacks the vendored `simple-oneslide.key` fixture into a
  * temporary directory, so there is a folder bundle to read.
  *
- * Run with: vp exec tsx examples/read-iwork-directory.ts (after `vp run -r build`)
+ * Run with: vpx examples/read-iwork-directory.ts (after `vp run -r build`)
  */
 
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
