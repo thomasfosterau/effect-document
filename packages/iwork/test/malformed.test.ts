@@ -3,7 +3,6 @@ import * as ByteSize from "effect/ByteSize";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
-import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Result from "effect/Result";
 import { unzipSync, zipSync } from "fflate";
@@ -30,9 +29,10 @@ import {
 import { compressBlock, decompressBlock } from "../src/snappy.ts";
 import * as Keynote from "../src/keynote.ts";
 import { f32, f64, fixedField, i64, lenField, record, varint, varintField } from "./encode.ts";
-import { loadFixtures } from "./fixture.ts";
+import { loadFixtures, statFixture } from "./fixture.ts";
 
 const fixture = await loadFixtures(["simple-oneslide.iwa", "simple-oneslide.key"]);
+const fixtureInfo = await statFixture("simple-oneslide.key");
 
 /** The `IworkError` a codec call throws (anything else, or no failure, fails the test). */
 const failure = (f: () => void): IworkError => {
@@ -314,20 +314,9 @@ describe("bundle: typed failures and inflation limits", () => {
       readDirectory: () => Effect.succeed(["Index", ...Object.keys(files), "Data/x.jpg"]),
       stat: (path) =>
         Effect.succeed({
+          ...fixtureInfo,
           type: "File",
-          mtime: Option.none(),
-          atime: Option.none(),
-          birthtime: Option.none(),
-          dev: 0n,
-          ino: Option.none(),
-          mode: 0o644,
-          nlink: Option.none(),
-          uid: Option.none(),
-          gid: Option.none(),
-          rdev: Option.none(),
           size: ByteSize.bytes(files[path.slice("/deck.key/".length)]?.length ?? 0),
-          blksize: Option.none(),
-          blocks: Option.none(),
         }),
       readFile: (path) => Effect.succeed(files[path.slice("/deck.key/".length)]!),
     });
