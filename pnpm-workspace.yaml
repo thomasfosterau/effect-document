@@ -58,7 +58,7 @@ catalog:
   "@enfect/oxlint": ^0.9.0
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
-  "@thomasfosterau/effect-parse": ^0.4.0
+  "@thomasfosterau/effect-parse": ^0.4.1
   "@types/node": ^26.6.5
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
   # The leading actively maintained JavaScript library for each format, which
