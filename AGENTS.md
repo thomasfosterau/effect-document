@@ -95,7 +95,7 @@ Steps 2–11 are CI's required `ci` job, in its order ([ci.yml](.github/workflow
 
 Read the installed package before writing Effect code: `node_modules/effect/CLAUDE.md` and the `ai-docs/` examples it links, `node_modules/effect/dist/*.d.ts` and `node_modules/effect/src`. Never guess at an Effect API.
 
-- The pinned version is the `effect` entry in `pnpm-workspace.yaml`'s catalog; the published peer floor is under `catalogs.peers`. Raising the floor is a breaking change for every published package.
+- The pinned version is the `effect` entry in `pnpm-workspace.yaml`'s catalog; the published peer range is under `catalogs.peers`. The `effect` peer is `^4.0.0`, per package: raise a package's floor only when one of its own dependencies requires it (or its code needs an unstable module first shipped in a later minor), naming that dependency or module in the catalog comment, and prove the floor by re-running the gates with the catalog pin at the floor version. Raising the floor is a breaking change for every package it applies to.
 - Tagged errors are `Schema.TaggedError<Self>()(tag, fields)` classes; matching on a document node's tag uses `Match.tag` / `Predicate.isTagged`, not `node._tag === "…"`.
 - The parser combinators (CSV, OOXML, iWork and RTF readers) come from `@thomasfosterau/effect-parse`, imported by subpath (`/Parser`, `/Text`, …).
 

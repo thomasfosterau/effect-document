@@ -12,7 +12,7 @@ This package holds the schema, the profiles and the `Reader` / `Writer` / `Forma
 pnpm add effect @thomasfosterau/effect-document
 ```
 
-`effect` (4.x, `>=4.0.0-rc.118`) is a peer dependency: your application owns the single copy.
+`effect` (`^4.0.0`) is a peer dependency: your application owns the single copy.
 
 ## Documents
 

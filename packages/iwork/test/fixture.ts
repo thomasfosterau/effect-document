@@ -39,3 +39,20 @@ export const loadFixtures = async (
     return data;
   };
 };
+
+/**
+ * The real `FileSystem.File.Info` of a vendored fixture, so a stubbed `stat`
+ * can spread it rather than spell every field: the field types differ across
+ * the effect versions the peer range admits (`dev` is a `number` on 4.0.x and
+ * a `bigint` from 4.1).
+ */
+export const statFixture = (name: string): Promise<FileSystem.File.Info> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      return yield* fs.stat(
+        yield* path.fromFileUrl(new URL(`./fixtures/${name}`, import.meta.url)),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );

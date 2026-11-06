@@ -117,8 +117,11 @@ catalog:
 # replaces `catalog:peers` with these ranges in the published manifest.
 catalogs:
   peers:
-    # rc.118 moved every `effect/unstable/*` export path; the family's floor.
-    effect: ">=4.0.0-rc.118"
+    # The owner's policy: every published package peers on `effect ^4.0.0`,
+    # raised only when one of that package's own dependencies requires more
+    # (name the dependency here). None does: the only Effect-line runtime
+    # dependency, `@thomasfosterau/effect-parse`, peers on `effect ^4.0.0`.
+    effect: ^4.0.0
 
 overrides:
   # `vp migrate` writes the Vite+ managed overrides as `vite@*` / `vitest@*`:
