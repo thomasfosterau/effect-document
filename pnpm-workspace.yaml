@@ -54,7 +54,8 @@ catalog:
   # 0.9.0 depends on `effect` 4.1.0 (exact) but runs on the workspace
   # singleton (the `effect` override below), so it needs no scoped override.
   # Its `vite.config.ts` load calls Effect APIs, so an `effect` bump re-runs
-  # `vp check` against the plugin too. Moves with the toolchain group.
+  # `vp check` against the plugin too. Ungrouped in Dependabot: it takes
+  # `@oxlint/plugins` as a range, so it is not tied to vite-plus's oxlint.
   "@enfect/oxlint": ^0.9.0
   # The combinator library the CSV, iWork, OOXML and RTF readers are written
   # against (first-party; exempt from the release-age hold below).
