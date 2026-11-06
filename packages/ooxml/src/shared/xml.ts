@@ -657,16 +657,67 @@ const fastContent = (xml: string, from: number, outer: MutableElement): Option.O
 const parseWithFastContent = (
   xml: string,
   name: string,
-): Option.Option<Result.Result<XmlElement, ParseError.ParseError<string>>> => {
+): Option.Option<Result.Result<XmlElement, ParseError.ParseError<string>>> =>
+  Option.map(
+    cutAndParse(xml, name, (source, from) => {
+      const outer: MutableElement = { name, ns: "", attrs: {}, children: [], text: "" };
+      return Option.map(fastContent(source, from, outer), (end) => ({ end, value: outer }));
+    }),
+    ({ root, target, value: outer }) => {
+      setNamespace(outer.children, target.ns);
+      target.children = outer.children;
+      target.text = outer.text;
+      return Result.succeed(root);
+    },
+  );
+
+/** A content scanner's reading of an element's content: the index past its closing tag, and what it read. */
+export interface ScannedContent<A> {
+  readonly end: number;
+  readonly value: A;
+}
+
+/** A document read with one element's content cut out, that element (left empty), and what the scanner read of its content. */
+export interface ParsedWithScan<A> {
+  readonly root: XmlElement;
+  readonly target: XmlElement;
+  readonly value: A;
+}
+
+/**
+ * Read a document whose first `<name>` element's content is read by `scan`
+ * (from the index past its start tag to the index past its closing tag), and
+ * the rest by the parser, with that content cut out. The cut element comes
+ * back empty, beside what `scan` read; a caller checks it is where it expects
+ * the content (a direct child of the root, say). None when there is no such
+ * element, a comment, CDATA or declaration comes before it, `scan` gives up,
+ * or the cut document does not parse, for the caller to parse the whole
+ * document instead (so every tree and error is the parser's).
+ */
+export const parseWithScannedContent: <A>(
+  xml: string,
+  name: string,
+  scan: (xml: string, from: number) => Option.Option<ScannedContent<A>>,
+) => Option.Option<ParsedWithScan<A>> = (xml, name, scan) => cutAndParse(xml, name, scan);
+
+/** {@link parseWithScannedContent}, giving the cut element as the mutable element it is. */
+const cutAndParse = <A>(
+  xml: string,
+  name: string,
+  scan: (xml: string, from: number) => Option.Option<ScannedContent<A>>,
+): Option.Option<{
+  readonly root: XmlElement;
+  readonly target: MutableElement;
+  readonly value: A;
+}> => {
   const start = xml.indexOf(`<${name}`);
   // a comment, CDATA or declaration before it could hide or fake the tag
   if (start === -1 || xml.lastIndexOf("<!", start) !== -1) return Option.none();
   const tag = fastStartTag(xml, start + 1 + name.length);
   if (Option.isNone(tag) || tag.value.empty) return Option.none();
-  const outer: MutableElement = { name, ns: "", attrs: {}, children: [], text: "" };
-  const end = fastContent(xml, tag.value.end, outer);
-  if (Option.isNone(end)) return Option.none();
-  const closeStart = end.value - name.length - 3;
+  const scanned = scan(xml, tag.value.end);
+  if (Option.isNone(scanned)) return Option.none();
+  const closeStart = scanned.value.end - name.length - 3;
   const tree = Parser.parse(xmlTree, xml.slice(0, tag.value.end) + xml.slice(closeStart));
   if (Result.isFailure(tree)) return Option.none();
   const root = tree.success.root;
@@ -679,10 +730,7 @@ const parseWithFastContent = (
     return Option.none();
   const finished = tree.success.finish(xml);
   if (Result.isFailure(finished)) return Option.none();
-  setNamespace(outer.children, target.ns);
-  target.children = outer.children;
-  target.text = outer.text;
-  return Option.some(finished);
+  return Option.some({ root: finished.success, target, value: scanned.value.value });
 };
 
 /** Give scanned elements, and every element within them, the namespace `ns`. */
