@@ -296,7 +296,8 @@ export default defineConfig({
       // Import guard over the built dist: it imports no removed
       // `effect/unstable/*` path (the family's rc.118 floor), and the core
       // entries reach no format dependency (`fflate`,
-      // `@thomasfosterau/effect-parse`; `/pdf*` no effect-parse). Reads
+      // `@thomasfosterau/effect-parse`, `@thomasfosterau/effect-xml`; `/pdf*`
+      // no effect-parse; only `/ooxml*` effect-xml). Reads
       // `dist/`, hence the build edge.
       "check:dist": {
         command: "node scripts/check-dist-imports.mjs",

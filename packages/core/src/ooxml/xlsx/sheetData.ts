@@ -19,7 +19,7 @@ import * as Predicate from "effect/Predicate";
 import type { PlainCell, SheetCell } from "../../index.ts";
 import { parseA1 } from "./a1.ts";
 import { cellOfText, decodeXstring } from "./cellText.ts";
-import { type ScannedContent, unescapeXml } from "../shared/xml.ts";
+import { isPlainValue, type ScannedContent, unescapeXml } from "../shared/xml.ts";
 import {
   place,
   plainOrCell,
@@ -114,7 +114,8 @@ const isDuplicate = (scan: Scan, start: number, end: number): boolean => {
  * `r` and `t` are (`scan.rStart` …), and set `scan.p` past the tag: false for
  * anything the XML layer's fast scanner leaves to the parser (a prefixed or
  * unusual name, `xmlns`, spaces around `=`, a duplicate, an entity in `r` or
- * `t`, which the scan would have to decode).
+ * `t`, which the scan would have to decode, or a value the tokenizer would
+ * not read as written: see `isPlainValue`).
  */
 const startTag = (scan: Scan, p: number): boolean => {
   const { xml } = scan;
@@ -143,7 +144,13 @@ const startTag = (scan: Scan, p: number): boolean => {
     if (end === NONE || xml.charCodeAt(end) !== EQ || (quote !== DQUOTE && quote !== SQUOTE))
       return false;
     const close = xml.indexOf(quote === DQUOTE ? '"' : "'", end + 2);
-    if (close === NONE || isName(xml, j, end, "xmlns") || isDuplicate(scan, j, end)) return false;
+    if (
+      close === NONE ||
+      isName(xml, j, end, "xmlns") ||
+      isDuplicate(scan, j, end) ||
+      !isPlainValue(xml, end + 2, close)
+    )
+      return false;
     scan.names.push(j, end);
     const isR = isName(xml, j, end, "r");
     if (isR || isName(xml, j, end, "t")) {

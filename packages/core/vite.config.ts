@@ -5,7 +5,7 @@ import { packageConfig, type PackageConfigOptions } from "../../vite.package.ts"
  * Each format is a nested subpath (`./csv`, `./ooxml/xlsx`, …) and stays off
  * the root barrel, so a consumer that never imports a format never loads it
  * or its dependency (`fflate`, the optional `@thomasfosterau/effect-parse`
- * peer).
+ * and `@thomasfosterau/effect-xml` peers).
  */
 export const options: PackageConfigOptions = {
   url: import.meta.url,

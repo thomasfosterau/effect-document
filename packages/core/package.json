@@ -131,16 +131,21 @@
     "@effect/language-service": "catalog:",
     "@effect/platform-node": "catalog:",
     "@thomasfosterau/effect-parse": "catalog:",
+    "@thomasfosterau/effect-xml": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "effect": "catalog:"
   },
   "peerDependencies": {
     "@thomasfosterau/effect-parse": "catalog:peers",
+    "@thomasfosterau/effect-xml": "catalog:peers",
     "effect": "catalog:peers"
   },
   "peerDependenciesMeta": {
     "@thomasfosterau/effect-parse": {
+      "optional": true
+    },
+    "@thomasfosterau/effect-xml": {
       "optional": true
     }
   },

@@ -12,11 +12,16 @@
  * - **write**: cells to workbook bytes (`makeXlsxWriter().write` from a
  *   document, against ExcelJS's `xlsx.writeBuffer` from a worksheet and
  *   write-excel-file from an array of rows).
+ * - **reference sheet** (#141): the reader alone on 27,500 rows, a
+ *   7.8 MB worksheet part (the size the XML parser is held to), as written
+ *   and with one formula cell, which sends the part down the tree path (the
+ *   XML parser) instead of the `sheetData` row scanner.
  *
  * Run with `vp run bench:xlsx` (builds first).
  */
 import {
   bytes,
+  CellFormula,
   cell,
   contentToBytes,
   document,
@@ -100,7 +105,31 @@ const groups = (name: string, rows: number): Array<Group> => {
   ];
 };
 
+/** The reader alone on one sheet of `cells`. */
+const readGroup = (name: string, cells: ReadonlyArray<ReadonlyArray<SheetCell>>): Group => {
+  const file = contentToBytes(
+    run(writer.write(trustAs<Xlsx.XlsxFeature>(document([worksheet("Sheet1", cells)])))),
+  );
+  return {
+    name,
+    bytes: file.length,
+    cases: [{ name: "effect-document read", run: () => run(reader.read(bytes(file))) }],
+  };
+};
+
+/** The reader on the reference sheet, through the row scanner and through the tree path. */
+const referenceGroups = (rows: number): Array<Group> => {
+  const cells = table(rows).map((r) => r.map(toCell));
+  // one formula in the last row: the row scanner gives the part to the tree path
+  const withFormula = [...cells.slice(0, -1), [new CellFormula({ formula: "1+1", result: "2" })]];
+  return [
+    readGroup(`reference sheet: ${rows} rows, row scanner`, cells),
+    readGroup(`reference sheet: ${rows} rows, tree path (one formula)`, withFormula),
+  ];
+};
+
 await runGroups("XLSX", [
+  ...referenceGroups(27_500),
   ...groups("20k rows × 8 columns", 20_000),
   ...groups("500 rows × 8 columns", 500),
 ]);

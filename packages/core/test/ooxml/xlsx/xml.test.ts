@@ -111,7 +111,7 @@ describe("parseXml", () => {
   test("throws on malformed input", () => {
     expect(() => parseXml("")).toThrow("expected root element");
     expect(() => parseXml("just text")).toThrow("expected root element");
-    expect(() => parseXml("<unclosed")).toThrow("found end of input");
+    expect(() => parseXml("<unclosed")).toThrow("Unexpected end of input");
   });
 
   test("keeps CDATA verbatim and accepts a byte order mark", () => {
@@ -127,9 +127,12 @@ describe("parseXml", () => {
 
   test("reports unterminated elements, attributes and comments with positions", () => {
     expect(failure("<a>").message).toContain("closing tag");
-    expect(failure('<a x="1>').position).toEqual({ line: 1, column: 9 });
+    // effect-xml's tagged error is the cause, at its own position (#141)
+    expect(failure('<a x="1>').message).toContain("Unexpected character");
     expect(failure("<a x=1/>").message).toContain("attribute value");
-    expect(failure("<a><!-- x</a>").message).toContain('"-->"');
+    const comment = failure("<a><!-- x</a>");
+    expect(comment.message).toContain("Unexpected end of input");
+    expect(comment.position).toEqual({ line: 1, column: 14 });
   });
 
   test("rejects content after the root element", () => {

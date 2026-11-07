@@ -15,6 +15,7 @@ import {
   getAttr,
   parseXml,
   parseXmlResult,
+  tokenizerError,
   unescapeXml,
 } from "../../../src/ooxml/shared/index.ts";
 
@@ -24,6 +25,10 @@ const failure = (xml: string) => {
   assert(Result.isFailure(r), "expected a parse failure");
   return r.failure;
 };
+
+/** The tag of the effect-xml error behind the failure of parsing `xml`, which must fail. */
+const tokenizerTag = (xml: string) =>
+  Option.getOrUndefined(Option.map(tokenizerError(failure(xml)), (e) => e._tag));
 
 describe("escaping", () => {
   test("escapes text content", () => {
@@ -113,7 +118,7 @@ describe("parseXml", () => {
   test("throws on malformed input", () => {
     expect(() => parseXml("")).toThrow("expected root element");
     expect(() => parseXml("just text")).toThrow("expected root element");
-    expect(() => parseXml("<unclosed")).toThrow("found end of input");
+    expect(() => parseXml("<unclosed")).toThrow("Unexpected end of input");
   });
 
   test("keeps CDATA verbatim and accepts a byte order mark", () => {
@@ -129,9 +134,11 @@ describe("parseXml", () => {
 
   test("reports unterminated elements, attributes and comments with positions", () => {
     expect(failure("<a>").message).toContain("closing tag");
-    expect(failure('<a x="1>').position).toEqual({ line: 1, column: 9 });
+    // effect-xml's tagged error is the cause, at its own position (#141)
+    expect(tokenizerTag('<a x="1>')).toBe("UnexpectedCharacter");
     expect(failure("<a x=1/>").message).toContain("attribute value");
-    expect(failure("<a><!-- x</a>").message).toContain('"-->"');
+    expect(tokenizerTag("<a><!-- x</a>")).toBe("UnexpectedEndOfInput");
+    expect(failure("<a><!-- x</a>").position).toEqual({ line: 1, column: 14 });
   });
 
   test("rejects content after the root element", () => {
@@ -158,10 +165,21 @@ describe("hardening (#55)", () => {
     expect(findAll(root, "a")).toHaveLength(depth - 1);
   });
 
-  test("parseXmlResult never throws, and invalid character references become U+FFFD", () => {
+  test("parseXmlResult never throws, and a reference XML does not allow fails the part", () => {
     expect(Result.isFailure(parseXmlResult("<a>".repeat(50_000)))).toBe(true);
-    expect(parseXml("<a>&#99999999;&#xD800;&#65;</a>").text).toBe("��A");
+    // strict since effect-xml tokenizes (#141): no longer read as U+FFFD
+    for (const xml of ["<a>&#99999999;</a>", "<a>&#xD800;</a>", "<a>&#1;</a>", "<a>a & b</a>"]) {
+      expect(tokenizerTag(xml)).toBe("InvalidEntity");
+    }
+    expect(tokenizerTag("<a>\u0001</a>")).toBe("UnexpectedCharacter");
+    expect(parseXml("<a>&#65;&#x1F600;</a>").text).toBe("A\u{1F600}");
     expect(unescapeXml("&amp;lt;")).toBe("&lt;");
+  });
+
+  test("line ends and attribute values are normalized, as XML requires", () => {
+    const root = parseXml(`<a b="x\ny\tz" c="x&#10;y">1\r\n2\r3</a>`);
+    expect(root.text).toBe("1\n2\n3");
+    expect(root.attrs).toEqual({ b: "x y z", c: "x\ny" });
   });
 
   test("resolves element namespaces, and getAttr prefers the element's own namespace", () => {
@@ -186,9 +204,11 @@ describe("hardening (#55)", () => {
     expect(root.children.map((c) => c.text)).toEqual(["fallback", "understood"]);
   });
 
-  test("a DOCTYPE with an internal subset is skipped and its entities never expanded", () => {
-    const root = parseXml(`<!DOCTYPE a [ <!ENTITY e "boom"> <!ELEMENT a ANY> ]><a>&e;</a>`);
-    expect(root.text).toBe("&e;");
+  test("a DOCTYPE with an internal subset is read past and its entities never expanded", () => {
+    const subset = `<!DOCTYPE a [ <!ENTITY e "boom"> <!ELEMENT a ANY> ]>`;
+    expect(parseXml(`${subset}<a>x</a>`).text).toBe("x");
+    // a reference to a declared entity is an unknown one: it fails, never "boom" (#141)
+    expect(tokenizerTag(`${subset}<a>&e;</a>`)).toBe("InvalidEntity");
   });
 
   test("invalid names and duplicate attributes are rejected", () => {
@@ -244,6 +264,7 @@ describe("the fast content scanner (parseXmlResult with fastContentOf)", () => {
     `<c r="F1" t="b" ><v>1</v></c>`,
     `\n  `,
     `<c r="G1"><v>&#x41;&lt;&#65;</v></c>`,
+    `<c r="H1" t="inlineStr"><is><t>line&#10;break&#13;&#x9;</t></is></c>`,
   ];
   const odd: Arr.NonEmptyReadonlyArray<string> = [
     `<!-- a comment -->`,
@@ -260,6 +281,17 @@ describe("the fast content scanner (parseXmlResult with fastContentOf)", () => {
     `<c r="A11"><v>1</c>`,
     `<c r="A12">`,
     `</row>`,
+    // what the strict tokenizer judges and the scanner does not model (#141)
+    `<c r="A13"><v>1\r2</v></c>`,
+    `<c r="A14"><v>&#1;</v></c>`,
+    `<c r="A15"><v>&#xD800;&#x10FFFF;</v></c>`,
+    `<c r="A16"><v>&e;</v></c>`,
+    `<c r="A17"><v>a ]]> b</v></c>`,
+    `<c r="A18" s="1\t2"/>`,
+    `<c r="A19" s="a<b"/>`,
+    `<c r="A20"><v>\u0001</v></c>`,
+    `<c r="A21"><v>a & b</v></c>`,
+    `<c r="A22"><v>\uFFFE</v></c>`,
   ];
   const row = (oddOnes: boolean) =>
     `<row r="${1 + next(9)}"${next(2) === 0 ? ` spans="1:3"` : ""}>` +

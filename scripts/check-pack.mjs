@@ -8,7 +8,7 @@
  *    attw with the `esm-only` profile (every entry's types resolve under
  *    node16 / bundler resolution; the packages ship no CommonJS).
  * 3. Install the tarball, plus `effect`, `@types/node` and the optional
- *    `@thomasfosterau/effect-parse` peer at the catalog versions, into a
+ *    `@thomasfosterau/effect-parse` and `@thomasfosterau/effect-xml` peers at the catalog versions, into a
  *    scratch project with npm, so they and `fflate` come from the registry as
  *    a consumer gets them.
  * 4. Import every `exports` entry from Node, and type-check an import of
@@ -77,6 +77,7 @@ try {
       `effect@${catalogVersion("effect")}`,
       `@types/node@${catalogVersion("@types/node")}`,
       `@thomasfosterau/effect-parse@${catalogVersion("@thomasfosterau/effect-parse")}`,
+      `@thomasfosterau/effect-xml@${catalogVersion("@thomasfosterau/effect-xml")}`,
       ...tarballs,
     ],
     consumer,

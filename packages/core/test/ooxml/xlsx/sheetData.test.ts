@@ -85,6 +85,17 @@ describe("the sheetData scanner", () => {
     `<c r="A11"><v>1</c>`,
     `<!-- a comment -->`,
     `<x r="A1"/>`,
+    // what the strict tokenizer judges and the scanner does not model (#141)
+    `<c r="A13"><v>1\r2</v></c>`,
+    `<c r="A14" t="inlineStr"><is><t>&#1;</t></is></c>`,
+    `<c r="A15"><v>&#xD800;</v></c>`,
+    `<c r="A16" t="inlineStr"><is><t>&e;</t></is></c>`,
+    `<c r="A17" t="inlineStr"><is><t>a ]]> b</t></is></c>`,
+    `<c r="A18" s="1\t2"/>`,
+    `<c r="A19" s="a<b"/>`,
+    `<c r="A20" t="inlineStr"><is><t>\u0001</t></is></c>`,
+    `<c r="A21" t="inlineStr"><is><t>a & b</t></is></c>`,
+    `<c r="A22" t="inlineStr"><is><t>line&#10;break</t></is></c>`,
   ];
   const row = (oddOnes: boolean) =>
     `<row${pick(["", ` r="${1 + next(9)}"`, ` r="${1 + next(9)}" spans="1:3"`, ` r="x"`, ` r=" 3"`])}>` +

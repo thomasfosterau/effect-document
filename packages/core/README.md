@@ -11,10 +11,10 @@ This package holds the schema, the profiles and the `Reader` / `Writer` / `Forma
 ```sh
 pnpm add effect @thomasfosterau/effect-document
 # for /csv, /rtf, /ooxml or /iwork:
-pnpm add @thomasfosterau/effect-parse
+pnpm add @thomasfosterau/effect-parse @thomasfosterau/effect-xml
 ```
 
-`effect` (`^4.0.0`) is a peer dependency: your application owns the single copy. `@thomasfosterau/effect-parse` (`^0.4.1`) is an optional peer, needed only by the formats written on it (see [Formats](#formats)).
+`effect` (`^4.0.0`) is a peer dependency: your application owns the single copy. `@thomasfosterau/effect-parse` (`^0.4.1`) is an optional peer, needed only by the formats written on it, and `@thomasfosterau/effect-xml` (`^0.1.0`) one needed only by `/ooxml*` (see [Formats](#formats)).
 
 ## Documents
 
@@ -366,7 +366,7 @@ Every node class also has a `*Encoded` interface: its JSON form (`ParaEncoded`, 
 
 ## Formats
 
-Each format family is a subpath of this package, kept off the root barrel. `/csv`, `/rtf`, `/ooxml*` and `/iwork*` are written on [`@thomasfosterau/effect-parse`](https://www.npmjs.com/package/@thomasfosterau/effect-parse), an optional peer you install to use them; `/ooxml*`, `/pdf*` and `/iwork*` load [fflate](https://www.npmjs.com/package/fflate) (ZIP and DEFLATE), a dependency. The root entry, `/schema`, `/profile`, `/profiles` and `/io` load neither.
+Each format family is a subpath of this package, kept off the root barrel. `/csv`, `/rtf`, `/ooxml*` and `/iwork*` are written on [`@thomasfosterau/effect-parse`](https://www.npmjs.com/package/@thomasfosterau/effect-parse), an optional peer you install to use them; `/ooxml*` also reads XML with [`@thomasfosterau/effect-xml`](https://www.npmjs.com/package/@thomasfosterau/effect-xml), another; `/ooxml*`, `/pdf*` and `/iwork*` load [fflate](https://www.npmjs.com/package/fflate) (ZIP and DEFLATE), a dependency. The root entry, `/schema`, `/profile`, `/profiles` and `/io` load neither.
 
 ### CSV and TSV (`/csv`)
 

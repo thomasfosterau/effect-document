@@ -28,8 +28,9 @@ for (const name of packages) {
 
 // What each published entry loads: walk the built import graph from each
 // `exports` entry and collect the packages it reaches. The core entries reach
-// neither `fflate` nor the optional `@thomasfosterau/effect-parse` peer, and
-// `/pdf*` reaches no effect-parse (test/module-graph.test.ts checks `src/`).
+// neither `fflate` nor the optional `@thomasfosterau/effect-parse` and
+// `@thomasfosterau/effect-xml` peers, `/pdf*` reaches no effect-parse, and
+// only `/ooxml*` reaches effect-xml (test/module-graph.test.ts checks `src/`).
 // Rolldown writes every static import at the start of a line; a doc comment
 // that shows an import never starts one.
 const importRe = /^(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']|^import\s*["']([^"']+)["']/gm;
@@ -53,12 +54,16 @@ const reach = (entry) => {
   return found;
 };
 const coreEntries = [".", "./schema", "./profile", "./profiles", "./io"];
-const forbiddenFrom = (key) =>
-  coreEntries.includes(key)
-    ? ["fflate", "@thomasfosterau/effect-parse"]
-    : key === "./pdf" || key.startsWith("./pdf/")
-      ? ["@thomasfosterau/effect-parse"]
-      : [];
+const parse = "@thomasfosterau/effect-parse";
+const xml = "@thomasfosterau/effect-xml";
+// The format dependencies each family of entries must not reach; an entry
+// not listed (`/csv`, `/rtf`, `/iwork*`) must not reach effect-xml.
+const reachRules = [
+  [(key) => coreEntries.includes(key), ["fflate", parse, xml]],
+  [(key) => key === "./pdf" || key.startsWith("./pdf/"), [parse, xml]],
+  [(key) => key === "./ooxml" || key.startsWith("./ooxml/"), []],
+];
+const forbiddenFrom = (key) => reachRules.find(([matches]) => matches(key))?.[1] ?? [xml];
 for (const name of packages) {
   const dir = join("packages", name);
   const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));

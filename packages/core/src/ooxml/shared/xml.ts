@@ -1,14 +1,15 @@
 /**
  * Minimal XML utilities shared by the OOXML formats (xlsx, docx, pptx).
  *
- * OOXML is regular, attribute-driven XML; a small effect-parse grammar handles
- * the subset OOXML uses (elements, attributes, text content, self-closing
- * tags, declarations, comments, CDATA) and reports malformed input with its
- * line and column. The tree is built iteratively, so deep nesting can't
- * overflow the stack, and parsing never throws from `parseXmlResult`.
+ * OOXML is regular, attribute-driven XML. effect-xml's strict SAX tokenizer
+ * (`@thomasfosterau/effect-xml`, #141) reads it, and malformed input is
+ * reported with its line and column, the tokenizer's tagged error as the
+ * `ParseError`'s `cause`. The tree is built iteratively, so deep nesting
+ * can't overflow the stack, and parsing never throws from `parseXmlResult`.
  *
- * This is not a general XML parser: entities are never declared or expanded
- * (a DOCTYPE's internal subset is skipped). Each element's namespace is
+ * Entities are never declared or expanded (a DOCTYPE's internal subset is
+ * read past), so a reference to anything but XML's five predefined entities,
+ * or to a character XML does not allow, fails the part. Each element's namespace is
  * resolved into `ns`, but elements are still navigated by their local names
  * (`<w:p>`, `<a:p>` and `<p:sp>` are all "p"); attribute keys keep their
  * prefixes and `getAttr` matches either. Markup Compatibility
@@ -17,7 +18,10 @@
  */
 
 import * as Arr from "effect/Array";
-import { Compiler, ParseError, Parser, Token } from "@thomasfosterau/effect-parse";
+import { ParseError } from "@thomasfosterau/effect-parse";
+import type { Position, SaxError } from "@thomasfosterau/effect-xml";
+import * as Sax from "@thomasfosterau/effect-xml/Sax";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
@@ -102,41 +106,27 @@ const localName = (name: string): string => {
   return colon === -1 ? name : name.substring(colon + 1);
 };
 
-// ---- grammar ---------------------------------------------------------------
+// ---- tokenizing --------------------------------------------------------------
 //
-// The grammar only tokenizes (tags, text, CDATA, comments, declarations); the
-// element tree is built from the tokens on an explicit stack, so nesting depth
-// is limited by memory rather than the call stack.
+// effect-xml's strict SAX tokenizer (`Sax.forEach`, #141) reads the markup:
+// names, attribute syntax, references, comments, CDATA sections, PIs and the
+// DOCTYPE (its internal subset read past, never interpreted). The element
+// tree is built from its events on an explicit stack, so nesting depth is
+// limited by memory rather than the call stack. The structural checks
+// (matched tags, one root, unique attributes) are this builder's: the
+// tokenizer leaves them to a tree builder.
 
-const space = " \t\r\n";
-const ws = Token.takeWhile(space);
-const ws1 = Token.takeWhile(space, { min: 1 });
-
-const isNameStartCode = (c: number): boolean =>
-  (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || c === 95 || c === 58 || c >= 0xc0;
-const isNameStart = (ch: string): boolean => isNameStartCode(ch.charCodeAt(0));
-const isNameChar = (ch: string): boolean => {
-  const c = ch.charCodeAt(0);
-  return isNameStartCode(c) || (c >= 48 && c <= 57) || c === 45 || c === 46 || c === 0xb7;
+/**
+ * The tokenizer's options. No positions per event: a failure asks for its
+ * own, which costs nothing until then. No depth limit: the builder and the
+ * queries are iterative, and the OPC limits already bound a part's size.
+ */
+const SAX_OPTIONS: Sax.ForEachOptions = {
+  positions: false,
+  limits: { maxDepth: Number.POSITIVE_INFINITY },
 };
-const xmlName = Token.takeWhile(isNameChar, { min: 1 }).pipe(
-  Parser.filter((n) => isNameStart(n[0]!)),
-  Parser.expected("name"),
-);
 
-const quoted = (quote: string) =>
-  Parser.preceded(
-    Token.literal(quote),
-    Parser.cut(Parser.terminated(Token.takeTill(quote), Token.literal(quote))),
-  );
-const attribute = Parser.separatedPair(
-  xmlName,
-  Parser.seq(ws, Token.literal("="), ws),
-  Parser.map(Parser.alt(quoted('"'), quoted("'")), unescapeXml).pipe(
-    Parser.expected("attribute value"),
-  ),
-);
-/** An element's attributes as they are parsed, and the first name given twice, if any. */
+/** An element's attributes as they are read, and the first name given twice, if any. */
 interface AttributesSoFar {
   readonly attrs: Record<string, string>;
   duplicate: string | undefined;
@@ -147,7 +137,7 @@ interface AttributesSoFar {
  * for the failure. `__proto__` is defined as an own property, as
  * `Object.fromEntries` does, never set as the prototype.
  */
-const addAttribute = (acc: AttributesSoFar, [name, value]: readonly [string, string]) => {
+const addAttribute = (acc: AttributesSoFar, name: string, value: string): void => {
   if (Object.hasOwn(acc.attrs, name)) acc.duplicate ??= name;
   else if (name === "__proto__")
     Object.defineProperty(acc.attrs, name, {
@@ -157,117 +147,21 @@ const addAttribute = (acc: AttributesSoFar, [name, value]: readonly [string, str
       configurable: true,
     });
   else acc.attrs[name] = value;
-  return acc;
 };
 
 /**
- * An element's attributes, built into its record as they are parsed (no
- * array of pairs per element: this runs once per element of every part,
- * bench/xlsx.bench.ts); a name given twice fails the element.
+ * A start tag's attributes as a record (no array of pairs per element: this
+ * runs once per element of every part, bench/xlsx.bench.ts).
  */
-const attributes = Parser.fold(Parser.preceded(ws1, attribute), {
-  init: (): AttributesSoFar => ({ attrs: {}, duplicate: undefined }),
-  f: addAttribute,
-}).pipe(
-  Parser.filterOrFail(
-    (acc) => acc.duplicate === undefined,
-    (acc) => `duplicate attribute "${acc.duplicate}"`,
-  ),
-  Parser.map((acc): Record<string, string> => acc.attrs),
-);
-
-/** `open ... close`, committed once `open` has matched. */
-const section = (open: string, close: string) =>
-  Parser.preceded(
-    Token.literal(open),
-    Parser.cut(Parser.terminated(Token.takeUntil(close), Token.literal(close))),
-  );
-const comment = section("<!--", "-->").pipe(Parser.expected("comment"));
-const declaration = section("<?", "?>").pipe(Parser.expected("processing instruction"));
-const cdata = section("<![CDATA[", "]]>").pipe(Parser.expected("CDATA section"));
-/** `<!DOCTYPE ...>`, including an internal subset `[...]`; entities are never expanded. */
-const doctype = Parser.preceded(
-  Token.literal("<!"),
-  Parser.cut(
-    Parser.seq(Token.takeTill("[>"), Parser.opt(section("[", "]")), ws, Token.literal(">")),
-  ),
-).pipe(Parser.expected("declaration"));
-const text = Parser.map(Token.takeTill("<", { min: 1 }), unescapeXml).pipe(Parser.expected("text"));
-
-type XmlToken =
-  | {
-      readonly k: "open";
-      readonly name: string;
-      readonly attrs: Record<string, string>;
-      readonly empty: boolean;
-      readonly at: number;
-    }
-  | { readonly k: "close"; readonly name: string; readonly at: number }
-  | { readonly k: "text"; readonly text: string; readonly at: number }
-  | null;
-
-const openTag: Parser.Parser<XmlToken, string> = Parser.preceded(
-  // `</`, `<!` and `<?` are closing tags, comments/CDATA/DOCTYPE and PIs
-  Parser.seq(Token.literal("<"), Parser.not(Token.oneOf("/!?"))),
-  Parser.cut(
-    Parser.map(
-      Parser.seq(
-        Parser.location,
-        xmlName,
-        attributes,
-        ws,
-        Parser.alt(Parser.as(Token.literal("/>"), true), Parser.as(Token.literal(">"), false)).pipe(
-          Parser.expected('">" or "/>"'),
-        ),
-      ),
-      ([at, tag, attrs, , empty]): XmlToken => ({ k: "open", name: tag, attrs, empty, at }),
-    ),
-  ),
-);
-
-const closeTag: Parser.Parser<XmlToken> = Parser.map(
-  Parser.seq(
-    Parser.location,
-    Parser.delimited(
-      Token.literal("</"),
-      Parser.cut(xmlName),
-      Parser.cut(Parser.seq(ws, Token.literal(">"))),
-    ),
-  ),
-  ([at, tag]): XmlToken => ({ k: "close", name: tag, at: at + 2 }),
-).pipe(Parser.expected("closing tag"));
-
-const textToken: Parser.Parser<XmlToken> = Parser.map(
-  Parser.seq(Parser.location, text),
-  ([at, t]): XmlToken => ({ k: "text", text: t, at }),
-);
-
-const cdataToken: Parser.Parser<XmlToken> = Parser.map(
-  Parser.seq(Parser.location, cdata),
-  ([at, t]): XmlToken => ({ k: "text", text: t, at }),
-);
-
-const xmlToken: Parser.Parser<XmlToken, string> = Parser.alt<
-  [
-    Parser.Parser<XmlToken>,
-    Parser.Parser<XmlToken, string>,
-    Parser.Parser<XmlToken>,
-    Parser.Parser<XmlToken>,
-    Parser.Parser<XmlToken>,
-    Parser.Parser<XmlToken>,
-    Parser.Parser<XmlToken>,
-  ]
->(
-  // most frequent first; the `<!`/`<?` forms are only tried after `<name`
-  // and `</name` have been ruled out by their first characters
-  textToken,
-  openTag.pipe(Parser.expected("element")),
-  closeTag,
-  cdataToken,
-  Parser.as(comment, null),
-  Parser.as(declaration, null),
-  Parser.as(doctype, null),
-);
+const attributesOf = (attributes: ReadonlyArray<Sax.Attribute>): AttributesSoFar => {
+  const acc: AttributesSoFar = { attrs: {}, duplicate: undefined };
+  // oxlint-disable-next-line effect/imperative-loops -- once per attribute of every element: no closure or iterator per element
+  for (let i = 0; i < attributes.length; i++) {
+    const attribute = attributes[i]!;
+    addAttribute(acc, attribute.name, attribute.value);
+  }
+  return acc;
+};
 
 // ---- tree building ---------------------------------------------------------
 
@@ -367,9 +261,8 @@ const needsScope = (attrs: Record<string, string>): boolean => {
 /** Parsed elements' in-scope namespace declarations, for `getAttr`. */
 const elementScopes = new WeakMap<XmlElement, Scope>();
 
-type TokenOf<K extends string> = Extract<NonNullable<XmlToken>, { readonly k: K }>;
 /**
- * A tree-building failure, found as tokens arrive and turned into a
+ * A tree-building failure, found as events arrive and turned into a
  * `ParseError` against the input once the whole input has tokenized (so a
  * tokenizing error later in the input still takes precedence, as when the
  * tokens were all read before the tree was built).
@@ -391,73 +284,112 @@ const pending = (
 interface Frame {
   readonly el: MutableElement;
   readonly raw: string;
-  readonly at: number;
   readonly scope: Scope;
+  /** Where the element's name starts, when the builder records openings (else -1). */
+  readonly at: number;
 }
 
+/** Where the current event starts, in UTF-16 units of the tokenized text. */
+type Locate = () => Position;
+
 /**
- * The open elements while tokens arrive, built as each token is parsed (so
- * no token outlives its step); the first failure is kept, and later tokens
- * are only tokenized.
+ * The open elements while events arrive, built as each event is read (so no
+ * event outlives its step); the first failure is kept, and later events are
+ * only tokenized. `shift` is what the tokenized text lacks of the input (a
+ * byte order mark), added back to every offset. With `recordOpenings`, each
+ * open element keeps where its name starts, so a mismatched closing tag is
+ * reported at the element it does not match; that costs a position per
+ * element, so it is only done to report a mismatch found without it.
  */
 class TreeBuilder {
   root: MutableElement | undefined = undefined;
   readonly stack: Frame[] = [];
   failure: Failure = undefined;
+  /** Whether the first failure is a closing tag that does not match its element. */
+  mismatched = false;
+  readonly shift: number;
+  readonly recordOpenings: boolean;
 
-  /** Take one token into the tree, keeping the first failure. */
-  step(token: XmlToken): this {
-    if (token === null || this.failure !== undefined) return this;
-    this.failure =
-      token.k === "text"
-        ? this.text(token)
-        : token.k === "open"
-          ? this.open(token)
-          : this.close(token);
-    return this;
+  constructor(shift: number, recordOpenings: boolean) {
+    this.shift = shift;
+    this.recordOpenings = recordOpenings;
+  }
+
+  /** Take one event into the tree, keeping the first failure. */
+  step(event: Sax.SaxEvent, locate: Locate): void {
+    if (this.failure !== undefined) return;
+    // oxlint-disable-next-line effect/prefer-match-over-switch, effect/avoid-direct-tag-checks -- once per event of every part: a shared `$match` / `$is` goes megamorphic here (effect-xml's AGENTS.md: a third of the throughput), so its own lexer switches too
+    switch (event._tag) {
+      case "StartElement":
+        this.failure = this.open(event, locate);
+        break;
+      case "EndElement":
+        this.failure = this.close(event.name, locate);
+        break;
+      case "Text":
+      case "CData":
+        this.failure = this.text(event.data, locate);
+        break;
+      default:
+      // comments, PIs, the declaration and the DOCTYPE are not part of the tree
+    }
   }
 
   get top(): Frame | undefined {
     return this.stack[this.stack.length - 1];
   }
 
-  text(token: TokenOf<"text">): Failure {
+  at(locate: Locate): number {
+    return locate().offset + this.shift;
+  }
+
+  text(data: string, locate: Locate): Failure {
     const top = this.top;
-    if (top !== undefined) top.el.text += token.text;
-    else if (token.text.trim() !== "") {
+    if (top !== undefined) top.el.text += data;
+    else if (data.trim() !== "") {
       const what = this.root === undefined ? "root element" : "end of input";
-      return pending(token.at, `expected ${what}`, [what]);
+      return pending(this.at(locate), `expected ${what}`, [what]);
     }
     return undefined;
   }
 
-  open(token: TokenOf<"open">): Failure {
+  open(event: Extract<Sax.SaxEvent, { readonly _tag: "StartElement" }>, locate: Locate): Failure {
     const top = this.top;
     if (top === undefined && this.root !== undefined)
-      return pending(token.at - 1, "expected end of input", ["end of input"]);
-    const scope = withDeclarations(top?.scope ?? BASE_SCOPE, token.attrs);
+      return pending(this.at(locate), "expected end of input", ["end of input"]);
+    const { attrs, duplicate } = attributesOf(event.attributes);
+    if (duplicate !== undefined)
+      return pending(this.at(locate), `duplicate attribute "${duplicate}"`);
+    const name: string = event.name;
+    const scope = withDeclarations(top?.scope ?? BASE_SCOPE, attrs);
     const el: MutableElement = {
-      name: localName(token.name),
-      ns: scope.get(prefixOf(token.name)) ?? "",
-      attrs: token.attrs,
+      name: localName(name),
+      ns: scope.get(prefixOf(name)) ?? "",
+      attrs,
       children: [],
       text: "",
     };
     // Scopes are only consulted to disambiguate attributes and resolve
     // mc:Choice requirements, so only the elements that may need one record it.
-    if (el.ns === NS_MCE || needsScope(token.attrs)) elementScopes.set(el, scope);
+    if (el.ns === NS_MCE || needsScope(attrs)) elementScopes.set(el, scope);
     if (top === undefined) this.root = el;
     else top.el.children.push(el);
-    if (!token.empty) this.stack.push({ el, raw: token.name, at: token.at, scope });
+    if (!event.selfClosing)
+      this.stack.push({ el, raw: name, scope, at: this.recordOpenings ? this.at(locate) + 1 : -1 });
     else if (isAlternateContent(el) && top !== undefined) top.el.children.pop();
     return undefined;
   }
 
-  close(token: TokenOf<"close">): Failure {
+  close(name: string, locate: Locate): Failure {
     const top = this.stack.pop();
-    if (top === undefined) return pending(token.at, `unexpected closing tag </${token.name}>`);
-    if (top.raw !== token.name)
-      return pending(top.at, `closing tag </${token.name}> does not match <${top.raw}>`);
+    if (top === undefined) return pending(this.at(locate), `unexpected closing tag </${name}>`);
+    if (top.raw !== name) {
+      this.mismatched = true;
+      return pending(
+        top.at === -1 ? this.at(locate) : top.at,
+        `closing tag </${name}> does not match <${top.raw}>`,
+      );
+    }
     const parent = this.top;
     // Markup Compatibility: replace the AlternateContent with one branch.
     if (parent !== undefined && isAlternateContent(top.el)) {
@@ -468,7 +400,7 @@ class TreeBuilder {
   }
 
   /** The root element of `input`, or its first failure. */
-  finish(input: string): Result.Result<XmlElement, ParseError.ParseError<string>> {
+  finish(input: string): Result.Result<MutableElement, ParseError.ParseError<string>> {
     const failure = this.failure;
     if (failure !== undefined)
       return Result.fail(failAt(input, failure.offset, failure.description, failure.expected));
@@ -487,19 +419,63 @@ const isAlternateContent = (el: MutableElement): boolean =>
   el.ns === NS_MCE && el.name === "AlternateContent";
 
 /**
- * A whole XML document: an optional BOM, then tokens to the end, each taken
- * into the tree as it is parsed.
+ * The effect-xml error behind each tokenizing failure. `parseXmlResult`'s
+ * failure type (`ParseError<string>`) is public, so the tagged error rides
+ * beside it rather than in its `cause`; {@link tokenizerError} finds it.
  */
-const xmlTree: Parser.Parser<TreeBuilder, string> = /*#__PURE__*/ Compiler.jit(
-  Parser.delimited(
-    Parser.opt(Token.literal("\ufeff")),
-    Parser.fold(xmlToken, {
-      init: () => new TreeBuilder(),
-      f: (tree: TreeBuilder, token: XmlToken) => tree.step(token),
-    }),
-    Parser.cut(Parser.eof),
-  ),
-);
+const tokenizerErrors = new WeakMap<ParseError.ParseError<string>, SaxError>();
+
+/** The tagged effect-xml error a tokenizing failure came from, if it came from one. */
+export const tokenizerError = (failure: ParseError.ParseError<string>): Option.Option<SaxError> =>
+  Option.fromUndefinedOr(tokenizerErrors.get(failure));
+
+/**
+ * A tokenizing failure as a `ParseError` against the input, at the error's
+ * offset (the end of the input when it has none), described by its message,
+ * with the error itself kept for {@link tokenizerError}.
+ */
+const tokenizingFailure = (
+  input: string,
+  shift: number,
+  error: SaxError,
+): ParseError.ParseError<string> => {
+  const position = "position" in error ? error.position : null;
+  const failure = failAt(
+    input,
+    position === null ? input.length : Math.min(position.offset + shift, input.length),
+    error.message,
+  );
+  tokenizerErrors.set(failure, error);
+  return failure;
+};
+
+/**
+ * Tokenize a whole document and build its tree: the root element, or the
+ * first failure (a tokenizing one before a structural one). Never throws.
+ */
+const buildTree = (
+  input: string,
+  recordOpenings = false,
+): Result.Result<MutableElement, ParseError.ParseError<string>> => {
+  // a byte order mark belongs to the encoding, not the text: the tokenizer
+  // would read it as character data before the root
+  const shift = input.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const tree = new TreeBuilder(shift, recordOpenings);
+  // oxlint-disable-next-line effect/effect-run-in-body -- `Sax.forEach` is synchronous over a string (a suspended loop) and effect-xml 0.1.0 has no Result form; the OPC reader it serves is synchronous, run inside each reader's Effect.try
+  const tokenized = Effect.runSync(
+    Effect.result(
+      Sax.forEach(
+        shift === 0 ? input : input.substring(shift),
+        (event, locate) => tree.step(event, locate),
+        SAX_OPTIONS,
+      ),
+    ),
+  );
+  if (Result.isFailure(tokenized))
+    return Result.fail(tokenizingFailure(input, shift, tokenized.failure));
+  // a mismatch is reported at the element: read again, recording openings
+  return tree.mismatched && !recordOpenings ? buildTree(input, true) : tree.finish(input);
+};
 
 /**
  * Parse an XML document into its root element, or a `ParseError` that points
@@ -518,10 +494,7 @@ export const parseXmlResult = (
 ): Result.Result<XmlElement, ParseError.ParseError<string>> =>
   Option.getOrElse(
     fastContentOf === undefined ? Option.none() : parseWithFastContent(xml, fastContentOf),
-    () => {
-      const tree = Parser.parse(xmlTree, xml);
-      return Result.isSuccess(tree) ? tree.success.finish(xml) : Result.fail(tree.failure);
-    },
+    () => buildTree(xml),
   );
 
 // ---- the fast content scanner -----------------------------------------------
@@ -583,7 +556,13 @@ const fastAttribute = (xml: string, j: number, attrs: Record<string, string>): n
   if (nameEnd === -1 || xml.charCodeAt(nameEnd) !== 61 || (quote !== 34 && quote !== 39)) return -1;
   const close = xml.indexOf(quote === 34 ? '"' : "'", nameEnd + 2);
   const name = xml.slice(j, nameEnd);
-  if (close === -1 || name === "xmlns" || Object.hasOwn(attrs, name)) return -1;
+  if (
+    close === -1 ||
+    name === "xmlns" ||
+    Object.hasOwn(attrs, name) ||
+    !isPlainValue(xml, nameEnd + 2, close)
+  )
+    return -1;
   attrs[name] = unescapeXml(xml.slice(nameEnd + 2, close));
   return close + 1;
 };
@@ -700,6 +679,82 @@ export const parseWithScannedContent: <A>(
   scan: (xml: string, from: number) => Option.Option<ScannedContent<A>>,
 ) => Option.Option<ParsedWithScan<A>> = (xml, name, scan) => cutAndParse(xml, name, scan);
 
+/**
+ * What the content scanners do not model of the strict tokenizer (#141),
+ * checked once over the content rather than per value (the scanners run once
+ * per cell): a character XML forbids or a carriage return (line ends are
+ * normalized; {@link CONTROL}), `]]>` in text, and a reference other than the
+ * five predefined entities and numeric character references to characters
+ * XML allows ({@link BAD_REFERENCE}, {@link forbiddenCharRef}). Attribute
+ * values are checked by the scanners as they read them
+ * ({@link isPlainValue}). Content with any of them is left to the tree path,
+ * so its tree and errors are the tokenizer's.
+ */
+// oxlint-disable-next-line no-control-regex -- the control characters XML forbids are exactly what it looks for
+const CONTROL = /[\0-\x08\x0B\x0C\x0E-\x1F\r\uFFFE\uFFFF]/g;
+
+/** A reference the tokenizer does not take as it is: an unknown entity, or no reference at all. */
+const BAD_REFERENCE = /&(?!(?:lt|gt|amp|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);)/g;
+
+/** A numeric character reference, its digits captured (`x` first for hexadecimal). */
+const CHAR_REF = /&#(x?)([0-9a-fA-F]+);/g;
+
+/** Whether `code` is a character XML 1.0 allows (its `Char` production). */
+const isXmlChar = (code: number): boolean =>
+  code === 0x9 ||
+  code === 0xa ||
+  code === 0xd ||
+  (code >= 0x20 && code <= 0xd7ff) ||
+  (code >= 0xe000 && code <= 0xfffd) ||
+  (code >= 0x10000 && code <= 0x10ffff);
+
+/** Whether `content` holds a character reference to a character XML forbids. */
+const forbiddenCharRef = (content: string): boolean =>
+  content.includes("&#") &&
+  Arr.some([...content.matchAll(CHAR_REF)], ([, hex, digits]) => {
+    const code = Number.parseInt(digits ?? "", hex === "x" ? 16 : 10);
+    return !isXmlChar(code);
+  });
+
+/**
+ * Whether `pattern` matches between `from` and `end`: run on the whole text
+ * from `from` (a slice of a large part could be flattened into a copy), the
+ * match bounded by `end`.
+ */
+const matchesWithin = (pattern: RegExp, xml: string, from: number, end: number): boolean => {
+  const sticky = new RegExp(pattern.source, "g");
+  sticky.lastIndex = from;
+  const found = sticky.exec(xml);
+  return found !== null && found.index < end;
+};
+
+/** Whether `needle` occurs between `from` and `end`. */
+const occursWithin = (needle: string, xml: string, from: number, end: number): boolean => {
+  const at = xml.indexOf(needle, from);
+  return at !== -1 && at + needle.length <= end;
+};
+
+/** Whether the content from `from` to `end` holds anything the scanners do not model. */
+const hasUnmodelled = (xml: string, from: number, end: number): boolean =>
+  matchesWithin(CONTROL, xml, from, end) ||
+  occursWithin("]]>", xml, from, end) ||
+  (occursWithin("&", xml, from, end) &&
+    (matchesWithin(BAD_REFERENCE, xml, from, end) || forbiddenCharRef(xml.slice(from, end))));
+
+/**
+ * Whether the attribute value from `start` to `end` is read by the strict
+ * tokenizer as written: no `<` (forbidden) and no tab or line feed (which it
+ * normalizes to a space; a carriage return is caught by {@link CONTROL}).
+ */
+export const isPlainValue = (xml: string, start: number, end: number): boolean => {
+  // oxlint-disable-next-line effect/imperative-loops -- a character scan over one short value, once per attribute of a large part
+  for (let i = start; i < end; i++) {
+    const c = xml.charCodeAt(i);
+    if (c === 60 || c === 9 || c === 10) return false;
+  }
+  return true;
+};
+
 /** {@link parseWithScannedContent}, giving the cut element as the mutable element it is. */
 const cutAndParse = <A>(
   xml: string,
@@ -716,21 +771,20 @@ const cutAndParse = <A>(
   const tag = fastStartTag(xml, start + 1 + name.length);
   if (Option.isNone(tag) || tag.value.empty) return Option.none();
   const scanned = scan(xml, tag.value.end);
-  if (Option.isNone(scanned)) return Option.none();
+  if (Option.isNone(scanned) || hasUnmodelled(xml, tag.value.end, scanned.value.end))
+    return Option.none();
   const closeStart = scanned.value.end - name.length - 3;
-  const tree = Parser.parse(xmlTree, xml.slice(0, tag.value.end) + xml.slice(closeStart));
+  const tree = buildTree(xml.slice(0, tag.value.end) + xml.slice(closeStart));
   if (Result.isFailure(tree)) return Option.none();
-  const root = tree.success.root;
-  const found = root === undefined ? Option.none() : firstNamed(root, name);
+  const root = tree.success;
+  const found = firstNamed(root, name);
   if (Option.isNone(found)) return Option.none();
   const target = found.value;
   // the cut element must be the one scanned: in the namespace the scan gave
   // its children, and still empty
   if (target.ns === NS_MCE || Arr.isReadonlyArrayNonEmpty(target.children) || target.text !== "")
     return Option.none();
-  const finished = tree.success.finish(xml);
-  if (Result.isFailure(finished)) return Option.none();
-  return Option.some({ root: finished.success, target, value: scanned.value.value });
+  return Option.some({ root, target, value: scanned.value.value });
 };
 
 /** Give scanned elements, and every element within them, the namespace `ns`. */

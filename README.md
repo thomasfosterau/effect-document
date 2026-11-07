@@ -21,17 +21,17 @@ One package, [`@thomasfosterau/effect-document`](packages/core/README.md): the s
 | --- | --- | --- |
 | `@thomasfosterau/effect-document` (also `/schema`, `/profile`, `/profiles`, `/io`) | The document schema (prose, spreadsheets, presentations, attributes), feature profiles with `widen` / `narrow` and loss reports, and the `Reader` / `Writer` / `Format` / `convert` pipeline. | `effect` |
 | `/csv` | CSV / TSV reader and writer: dialects, quoting, comments, type inference, chunked streaming, seeded synthetic data. | `effect`, `@thomasfosterau/effect-parse` |
-| `/ooxml` (also `/ooxml/xlsx`, `/ooxml/docx`, `/ooxml/pptx`) | XLSX, DOCX and PPTX readers and writers on SpreadsheetML / WordprocessingML / PresentationML. | `effect`, `@thomasfosterau/effect-parse` |
+| `/ooxml` (also `/ooxml/xlsx`, `/ooxml/docx`, `/ooxml/pptx`) | XLSX, DOCX and PPTX readers and writers on SpreadsheetML / WordprocessingML / PresentationML. | `effect`, `@thomasfosterau/effect-parse`, `@thomasfosterau/effect-xml` |
 | `/rtf` | RTF reader and writer: paragraphs and headings with bold / italic / underline / strikeout runs. | `effect`, `@thomasfosterau/effect-parse` |
 | `/pdf` (also `/pdf/cos`) | PDF reader (structure recovered from the layout) and writer (standard 14 fonts), on a self-contained PDF object layer. | `effect` |
 | `/iwork` (also `/iwork/pages`, `/iwork/numbers`, `/iwork/keynote`, `/iwork/codec`) | Experimental, read-only Keynote / Pages / Numbers readers and the iWork container codec. | `effect`, `@thomasfosterau/effect-parse` |
 
-`effect` is a peer. `@thomasfosterau/effect-parse` is an optional peer: install it to use `/csv`, `/rtf`, `/ooxml*` or `/iwork*`. `fflate` (ZIP and DEFLATE) is a dependency that only `/ooxml*`, `/pdf*` and `/iwork*` load.
+`effect` is a peer. `@thomasfosterau/effect-parse` is an optional peer: install it to use `/csv`, `/rtf`, `/ooxml*` or `/iwork*`. `@thomasfosterau/effect-xml` is another, for `/ooxml*`. `fflate` (ZIP and DEFLATE) is a dependency that only `/ooxml*`, `/pdf*` and `/iwork*` load.
 
 ## Install
 
 ```sh
-pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-parse
+pnpm add effect @thomasfosterau/effect-document @thomasfosterau/effect-parse @thomasfosterau/effect-xml
 ```
 
 ## Convert CSV to Excel and back

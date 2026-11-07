@@ -6,11 +6,12 @@
  * relationships on the way in, and zip a set of parts on the way out.
  */
 
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ParseError as XmlSyntaxError } from "@thomasfosterau/effect-parse";
 import * as Result from "effect/Result";
-import { findChildren, getAttr, parseXmlResult, type XmlElement } from "./xml.ts";
+import { findChildren, getAttr, parseXmlResult, tokenizerError, type XmlElement } from "./xml.ts";
 
 /** A resolved relationship from a `.rels` file. */
 export interface Relationship {
@@ -93,13 +94,18 @@ export class OpcError extends Error {
   }
 }
 
-/** A part whose XML is malformed, with the parser's positioned error. */
+/**
+ * A part whose XML is malformed, with the parser's positioned error; its
+ * `cause` is effect-xml's tagged error when the tokenizer found it (#141).
+ */
 export class XmlPartError extends Error {
   readonly part: string;
   readonly failure: XmlSyntaxError.ParseError<string>;
 
   constructor(part: string, failure: XmlSyntaxError.ParseError<string>) {
-    super(`malformed XML in /${part}: ${failure.message}`);
+    super(`malformed XML in /${part}: ${failure.message}`, {
+      cause: Option.getOrUndefined(tokenizerError(failure)),
+    });
     this.part = part;
     this.failure = failure;
   }

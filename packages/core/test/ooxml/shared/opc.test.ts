@@ -107,6 +107,23 @@ describe("OpcReader (#55)", () => {
     expect(e.success.failure.position).toEqual({ line: 2, column: 4 });
   });
 
+  test("a tokenizing failure keeps effect-xml's tagged error as the XmlPartError's cause", () => {
+    const pkg = new OpcReader(zip({ "bad.xml": "<a>&e;</a>", "open.xml": "<a>" }));
+    const bad = Result.flip(Result.try(() => pkg.xml("bad.xml")));
+    assert(
+      Result.isSuccess(bad) && bad.success instanceof XmlPartError,
+      "expected an XmlPartError",
+    );
+    expect(bad.success.cause).toMatchObject({ _tag: "InvalidEntity" });
+    // a structural failure is the tree builder's own, with no tokenizer error behind it
+    const open = Result.flip(Result.try(() => pkg.xml("open.xml")));
+    assert(
+      Result.isSuccess(open) && open.success instanceof XmlPartError,
+      "expected an XmlPartError",
+    );
+    expect(open.success.cause).toBeUndefined();
+  });
+
   test("zip output is byte-deterministic", () => {
     expect(zipParts({ "a.xml": "<a/>" })).toEqual(zipParts({ "a.xml": "<a/>" }));
     const doc = document([worksheet("S", [[cell.number(1)]])]);

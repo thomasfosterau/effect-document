@@ -2,8 +2,9 @@
  * The import graph of each entry point, walked through `src/`: which of the
  * package's dependencies a consumer loads by importing that subpath. The core
  * entries reach neither `fflate` nor the optional
- * `@thomasfosterau/effect-parse` peer, so a consumer who uses no format needs
- * neither installed and bundles neither; `/pdf*` needs no effect-parse.
+ * `@thomasfosterau/effect-parse` and `@thomasfosterau/effect-xml` peers, so a
+ * consumer who uses no format needs none of them installed and bundles none;
+ * `/pdf*` needs no effect-parse, and only `/ooxml*` needs effect-xml (#141).
  * `scripts/check-dist-imports.mjs` checks the same of the built `dist/`.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -74,7 +75,7 @@ describe("module graph", () => {
     expect([...graph.keys()]).toEqual(Object.keys(options.entries));
   });
 
-  it.each(coreEntries)("%s reaches neither fflate nor effect-parse", (key) => {
+  it.each(coreEntries)("%s reaches no format dependency", (key) => {
     expect(graph.get(key)).toEqual([]);
   });
 
@@ -84,6 +85,7 @@ describe("module graph", () => {
 
   it("reaches only the dependencies each subpath needs", () => {
     const parse = "@thomasfosterau/effect-parse";
+    const xml = "@thomasfosterau/effect-xml";
     expect(Object.fromEntries(graph)).toEqual({
       index: [],
       schema: [],
@@ -92,10 +94,10 @@ describe("module graph", () => {
       io: [],
       csv: [parse],
       rtf: [parse],
-      ooxml: [parse, "fflate"],
-      "ooxml/xlsx": [parse, "fflate"],
-      "ooxml/docx": [parse, "fflate"],
-      "ooxml/pptx": [parse, "fflate"],
+      ooxml: [parse, xml, "fflate"],
+      "ooxml/xlsx": [parse, xml, "fflate"],
+      "ooxml/docx": [parse, xml, "fflate"],
+      "ooxml/pptx": [parse, xml, "fflate"],
       pdf: ["fflate"],
       "pdf/cos": ["fflate"],
       iwork: [parse, "fflate"],
