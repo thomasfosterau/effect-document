@@ -1,0 +1,380 @@
+# @thomasfosterau/effect-document
+
+## 0.1.0
+
+### Minor Changes
+
+- [#167](https://github.com/thomasfosterau/effect-document/pull/167) [`925f0d2`](https://github.com/thomasfosterau/effect-document/commit/925f0d2720f35aab16225baaf9aa59a7a474d739) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - New reader defaults, by owner decision on [#88](https://github.com/thomasfosterau/effect-document/issues/88):
+
+  - The CSV reader sniffs the header row when `treatFirstRowAsHeader` is unset. The first row is the header when it has at least two rows, every value in the first row is non-empty text, and at least one column below it is all numbers or booleans (like Python's `csv.Sniffer.has_header`). An explicit `true` or `false` overrides the sniff. The header row is read as text and left out of inference. The scanners and `readStream` still default to no header.
+  - Type inference is per-column by default (`inference` defaults to `"column"`): a column is numeric or boolean only if every value in it is, and otherwise the whole column stays text. Pass `inference: "cell"` for the previous value-by-value inference.
+
+- [#9](https://github.com/thomasfosterau/effect-document/pull/9) [`c6badbd`](https://github.com/thomasfosterau/effect-document/commit/c6badbdff77ba6b5f695d4fc1a5ca11ca39082dc) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Rewrite the CSV scanner on `@thomasfosterau/effect-parse`.
+
+  - Quoted fields may now contain line breaks (RFC 4180), so fields the CSV writer quotes for embedded newlines read back intact.
+  - Bare CR line endings are accepted (previously a bare `\r` inside a line hung the scanner).
+  - An unclosed quote is a `ParseError` with its row and column, instead of being silently closed at the end of the line.
+  - New `scanCsvStream(chunks, dialect, options)` scans a `Stream` of text chunks and emits each row as soon as it is complete. `readStream` uses it, so rows are no longer all scanned up front.
+  - `scanCsv` uses a compiled, cached grammar: about 14x faster on a 4.5 MB file.
+
+- [#230](https://github.com/thomasfosterau/effect-document/pull/230) [`18a46fb`](https://github.com/thomasfosterau/effect-document/commit/18a46fbfacff09e553bb132f22f6bf36e1c5028a) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add `readCsvRows`, which reads CSV text into rows of plain typed values (strings, numbers, booleans and `null`) with the same header handling and type inference as the reader, without building a document, and the `CsvValue` and `CsvRows` types. Long decimals (16 digits and more) are now classified and read from their digits without the regular expression, which makes reading full-precision floats several times faster for both `read` and `readCsvRows`. A quoted field with doubled wrappers is now unquoted, and a field is quoted on write, by joining the slices between its wrappers rather than with `replaceAll` (and a quoted field with no wrapper in it is not searched again), which makes reading and writing quoted CSV about a third faster. A row of numbers is held as an array of unboxed doubles (a table of numbers holds what uDSV's does: 10.5 MB on the benchmark table, from 15). New `exactNumbers` inference option (default `true`): `false` reads every value the number grammar matches as `Number` of it, whatever its digits, as d3-dsv and uDSV do. The string scan no longer tracks whether a row is all numbers (only the typed readers do), and a text with no wrapper in it is scanned with quoting off. Text with no wrapper in it is scanned by loops of their own (the string scan's slices each field with no reader between), which brings `scanCsv` level with uDSV's string parse on most tables.
+
+- [#166](https://github.com/thomasfosterau/effect-document/pull/166) [`bfeeb6f`](https://github.com/thomasfosterau/effect-document/commit/bfeeb6f0c06d1de45348c98e28cf42c7acd4c9ce) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add a `validateHeaders` scan option. When set, a header row with an empty or whitespace-only name, or a name used twice, fails with a `ParseError` that gives the column. This applies to the first row and to `providedHeaders`, in both `scanCsv` and `scanCsvStream`. It is off by default, so such headers are still kept as they are.
+
+- [#187](https://github.com/thomasfosterau/effect-document/pull/187) [`daabfef`](https://github.com/thomasfosterau/effect-document/commit/daabfef78c438cd6da16b8b37548b75c9b55638e) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add an `escapeChar` writer option ([#89](https://github.com/thomasfosterau/effect-document/issues/89)), as Python's `escapechar` with `doublequote=False`: a wrapper inside a quoted field is written after the escape character instead of being doubled. It fails closed: a field holding the escape character itself fails the write, and `quoting: "none"` still fails on a field that needs quotes rather than escaping its separators or line breaks. An `escapeChar` that is not one character, or that is the separator, the wrapper or a line break, fails the write (or the stream). `formatNumber` now accepts an explicit `undefined`. The README documents the writer options and the formula-injection risk `escapeFormulae` guards against.
+
+- [#150](https://github.com/thomasfosterau/effect-document/pull/150) [`6d725f0`](https://github.com/thomasfosterau/effect-document/commit/6d725f09bfcff05196c598540e3945f3d671f94d) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Deeply nested documents no longer overflow the stack in feature collection (`Profile.is`, `validate`, `collectFeatures`) or in the text collapse (`blocksToText`, `inlinesToText`, `cellToText`, `shapeToText`): these walks now use an explicit stack.
+
+  New in core: `nestingDepth` / `blocksNestingDepth` (iterative), `DEFAULT_MAX_NESTING_DEPTH` (128, below the depth at which Schema encoding of nested tables overflows the stack), `limitNestingDepth`, and an optional `ParseError.code` (`"LimitExceeded"`). The DOCX and PDF readers, whose nesting follows the input, take a `maxDepth` option and fail with a `LimitExceeded` ParseError past it.
+
+- [#213](https://github.com/thomasfosterau/effect-document/pull/213) [`8fde077`](https://github.com/thomasfosterau/effect-document/commit/8fde077dc9858e50540b07bec0b578f193ce998a) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - DOCX keeps ids on bookmarked text ([#184](https://github.com/thomasfosterau/effect-document/issues/184)): a bookmark that isn't a heading's id reads as a `Span` with the bookmark's name as its id (an empty bookmark, a place to link to, as an empty span), and a `Span` with an id is written as a bookmark around its runs, so a `#id` link lands on it. The DOCX profile adds `inline.span` and `attr.id.span`. A heading's id is now only a bookmark around the whole heading; one around part of it is a span inside the heading. Word's hidden bookmarks (`_GoBack`, `_Toc…`) are still kept only when a link goes to them. A span without an id says nothing, so its content is written without one.
+
+- [#9](https://github.com/thomasfosterau/effect-document/pull/9) [`574c067`](https://github.com/thomasfosterau/effect-document/commit/574c067407cd2cf4473258f13c4ae3fdf7820f75) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Migrate to Effect 4. The `effect` peer dependency is now `^4.0.0`.
+
+  - Node schemas use the Effect 4 Schema API (`Schema.Union([...])`, `Schema.Literals([...])`, `Schema.Record(key, value)`, `Schema.Codec`). Encode and decode with `Schema.encodeEffect` / `Schema.decodeEffect`.
+  - `CellDate` still encodes to an ISO-8601 string (`Schema.DateFromString`).
+  - `Profile.schema` is typed as `Schema.Codec<Doc<F>, DocumentEncoded>`.
+  - `makeReaderTag` / `makeWriterTag` return `Context.Service` keys.
+
+- [#229](https://github.com/thomasfosterau/effect-document/pull/229) [`5bab91e`](https://github.com/thomasfosterau/effect-document/commit/5bab91e2dba0bfd60336d1bcd0bde5ed0559b162) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Building documents is several times faster. `cell.text` / `number` / `boolean` / `blank`, `str`, `sheetRow` and `worksheet` no longer run the `Schema.Class` constructor's schema pass when their input is already valid; they build the same node directly (an instance of its class, `Equal.equals` to the one `new` builds, with the same keys). Invalid input still fails as before. Text cells and indexed cells are built by constructor functions sized to their fields (40 bytes a node rather than 56), and `cell.boolean` / `cell.blank` return one shared instance per value, since nodes are immutable. `cellToText` reads a cell's value directly, without the general text collapse. New: `sparseRow(index, [[col, cell], …], height?)`, the same fast constructor for rows whose cells skip columns, which fails as `new SheetRow` does on columns out of order, `worksheetFromRows(name, rows)`, a worksheet of rows already built, which checks their order as `new Worksheet` does, `sheetRowFrom(index, items, toCell)`, `sheetRow` without the array of cells in between, and `indexedCell(col, cell)` / `sheetRowOf(index, indexedCells)`, so a reader can place one immutable indexed cell in many rows.
+
+  `narrow` keeps the worksheets, rows and cells it leaves unchanged instead of rebuilding them (nodes are immutable), so `convert` from a spreadsheet to a format that can hold its cells copies nothing. Rows are built with a constructor function too (48 bytes), and a row's guard checks numbers first.
+
+- [#248](https://github.com/thomasfosterau/effect-document/pull/248) [`9ffb755`](https://github.com/thomasfosterau/effect-document/commit/9ffb7554d4b7e3bb8313f640d434884617d3fd3b) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The formats are nested subpaths of this package, none of them on the root barrel: `@thomasfosterau/effect-document` itself is the schema, the profile system, the Reader/Writer/Format abstractions and `convert`, with the built-in profiles also on `./profiles` and the IO layer on `./io`.
+
+  - `@thomasfosterau/effect-document/csv`: CSV / TSV.
+  - `@thomasfosterau/effect-document/rtf`: RTF.
+  - `@thomasfosterau/effect-document/ooxml`: the `Xlsx`, `Docx` and `Pptx` namespaces, also on `./ooxml/xlsx`, `./ooxml/docx` and `./ooxml/pptx`.
+  - `@thomasfosterau/effect-document/pdf`: PDF, with the object layer on `./pdf/cos`.
+  - `@thomasfosterau/effect-document/iwork`: the `Pages`, `Numbers`, `Keynote` and container `Codec` namespaces, also on `./iwork/pages`, `./iwork/numbers`, `./iwork/keynote` and `./iwork/codec`.
+
+  `fflate` (ZIP and DEFLATE) is a dependency, reached only from `./ooxml*`, `./pdf*` and `./iwork*`. `@thomasfosterau/effect-parse` is an optional peer (`^0.4.1`), reached only from `./csv`, `./rtf`, `./ooxml*` and `./iwork*`: install it to use those. The root entry, `./schema`, `./profile`, `./profiles` and `./io` reach neither, and `./pdf` does not reach effect-parse.
+
+  ```ts
+  import { convert } from "@thomasfosterau/effect-document";
+  import * as Csv from "@thomasfosterau/effect-document/csv";
+  import { Xlsx } from "@thomasfosterau/effect-document/ooxml";
+  ```
+
+- [#160](https://github.com/thomasfosterau/effect-document/pull/160) [`bd639a7`](https://github.com/thomasfosterau/effect-document/commit/bd639a7a318d5de3b40f14b5584c45a2d9f6d702) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Profiles no longer overclaim ([#109](https://github.com/thomasfosterau/effect-document/issues/109)).
+
+  `Format<R, W = R>` now has separate `readProfile` and `writeProfile` fields in place of `profile`. A format's write profile is what its writer preserves through `read(write(doc))`, and `convert` narrows to it, so anything a writer would silently drop or downgrade is now reported in the loss report.
+
+  Trimmed to what round-trips today:
+
+  - **XLSX:** new `Xlsx` (write) and `XlsxRead` profiles replace the full `Spreadsheet` profile. Columns, merges, styles, rich text, attributes and dates are not preserved.
+  - **DOCX:** code blocks, block quotes, divs, line blocks, rules, inline code and quotations are not preserved.
+  - **PPTX and RTF:** headers are not preserved.
+  - **PDF:** new `PdfWrite` profile. Block quotes, rules, line breaks, underline and strikeout are not preserved.
+
+  A new integration test round-trips a sample of every write-profile feature for every format, so profile drift fails CI.
+
+- [#7](https://github.com/thomasfosterau/effect-document/pull/7) [`e47a449`](https://github.com/thomasfosterau/effect-document/commit/e47a449befe530adf98594e760349ed4eab443c1) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add experimental, read-only Apple iWork support (Pages / Numbers / Keynote) plus a dependency-free container codec.
+
+  iWork '13+ files are reverse-engineered binary bundles - a zip of `.iwa` components holding Protobuf messages wrapped in a non-standard Snappy variant. This adds `@thomasfosterau/effect-document/iwork`: a from-scratch, dependency-free codec for the whole container stack (the Snappy _block_ format, IWA chunk framing, a generic schema-free Protobuf wire reader, the archived-object stream, and the zip-bundle opener), verified byte-for-byte against real Apple files.
+
+  On top of it, read-only readers extract text:
+
+  - **Keynote** (`.key`): slide text -> a presentation document (validated against a real Apple `.key` fixture).
+  - **Pages** (`.pages`): body text -> a prose document (best-effort; no public Pages fixtures exist to validate against).
+  - **Numbers** (`.numbers`): sheet structure (names -> empty worksheets); cell values are deferred (Numbers stores them in a hand-packed binary blob).
+
+  Password-protected documents are detected (top-level `.iwph`) and refused. Writing iWork files requires the proprietary, version-specific object-graph schemas and is a future phase. The readers are experimental and version-sensitive.
+
+- [#9](https://github.com/thomasfosterau/effect-document/pull/9) [`6f9eff3`](https://github.com/thomasfosterau/effect-document/commit/6f9eff3a0cf51c8ec1aa9a38f2bcb429b71cb4dc) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Parse OOXML parts with an `@thomasfosterau/effect-parse` grammar.
+
+  - Malformed XML now fails with a positioned `ParseError` (line, column and what was expected) rather than a bare `Error`. `parseXml` still throws; the new `parseXmlResult` returns a `Result` instead.
+  - Closing tags must match their element (`<a><b></a>` is an error, reported at `<b>`), and content after the root element is rejected. A leading byte order mark is accepted.
+  - Output is unchanged: all 617 XML parts of python-docx's Word test files parse identically, at the same speed (about 10% faster on a 7.9 MB worksheet).
+
+- [#12](https://github.com/thomasfosterau/effect-document/pull/12) [`a812c0c`](https://github.com/thomasfosterau/effect-document/commit/a812c0cb517d3ce90042e04000aeb8219d3b9013) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add `@thomasfosterau/effect-document/pdf`: a PDF reader and writer with its own profile (`Pdf`), built on a dependency-light PDF object layer.
+
+  - **Reading** extracts each page's positioned text (simple and Type 0 fonts, `/ToUnicode` CMaps, standard encodings and `/Differences`, `/ActualText`, Form XObjects, rotated pages) and infers prose from the layout: headings ranked by font size, paragraphs (joined across page breaks), bullet/ordered/ nested lists, code blocks, bold, italic, inline code, and links from link annotations. The document information dictionary becomes the metadata. Encrypted files are refused.
+  - **Writing** typesets headings, word-wrapped paragraphs, nested lists, code blocks, block quotes, rules, bold/italic/underline/strikeout, inline code and clickable links onto A4/Letter/custom pages with the standard 14 fonts (WinAnsi characters only).
+  - **`@thomasfosterau/effect-document/pdf/cos`**, the object layer: the object model, a lenient parser, stream filters (Flate with predictors, LZW, ASCIIHex, ASCII85, RunLength), `PdfFile` for opening files (xref tables and streams, object streams, incremental updates, and repair of damaged files), content-stream tokenizing, and `PdfBuilder` / `rewritePdf` for writing.
+
+- [#172](https://github.com/thomasfosterau/effect-document/pull/172) [`21ce6b3`](https://github.com/thomasfosterau/effect-document/commit/21ce6b304f7af1a2c978dab529ab9424ce0d822f) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Scanned pages: the reader lists pages that paint images but have no text in the document's `pagesWithoutText` metadata, and OCRs them when given an engine. The new `ocr` reader option (or the `OcrEngine` service with `PdfOcrReaderLive`) takes any engine implementing `OcrEngineShape`; none is bundled. The engine receives each image as the file stores it: JPEG, JPEG 2000, CCITT and JBIG2 data are passed through encoded, and other images arrive as decoded gray, RGB or CMYK samples. The words it returns are laid out like any other text. `PageText` gains `images`, and `decodeFilters` now also returns the image codec's `imageParms`.
+
+- [#211](https://github.com/thomasfosterau/effect-document/pull/211) [`7bbb9d7`](https://github.com/thomasfosterau/effect-document/commit/7bbb9d761076e5f2701d4fe9ed4fce8b31cdaa5f) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The PDF writer writes a document outline (bookmarks) from the headings, nested by level, each item going to the top of its heading ([#20](https://github.com/thomasfosterau/effect-document/issues/20), [#198](https://github.com/thomasfosterau/effect-document/issues/198)). The layout reader, for an untagged file, takes a heading's level from the outline item with its text (its depth), and ranks the rest by size as before.
+
+- [#224](https://github.com/thomasfosterau/effect-document/pull/224) [`cfb5d66`](https://github.com/thomasfosterau/effect-document/commit/cfb5d66e0ba58e731ef3f5de5e9f8afcc5496c35) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - `PdfWrite` allows inline code again ([#212](https://github.com/thomasfosterau/effect-document/issues/212)). The writer tags its output and the reader takes blocks from the tags, so a `Code` inline stays inside its paragraph through `read(write(doc))`; `convert` to PDF no longer narrows inline code away with a loss entry.
+
+- [#209](https://github.com/thomasfosterau/effect-document/pull/209) [`1411a17`](https://github.com/thomasfosterau/effect-document/commit/1411a17e1c2c4effd6852cd7207fe8cd7d865e48) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Ids are now allowed per node ([#184](https://github.com/thomasfosterau/effect-document/issues/184)). Each node kind that carries attributes has an id facet (`attr.id.header`, `attr.id.link`, …, see `IdFeature` and `ID_FEATURE`). A profile that lists `attr.id` gets all of them, so existing profiles allow ids everywhere as before; a profile can instead list only the nodes its format keeps ids on. `collectFeatures` reports a document's ids as their nodes' facets, and `narrow` keeps an id only where the target allows it there. A dropped id's loss entry now names the node's facet: `attr.id.link`, say, where it used to say `attr.id`.
+
+  `narrow` now also narrows the attributes of code blocks and definition lists, and the contents of definition lists and line blocks, which it used to pass through unchanged.
+
+  DOCX keeps heading ids: a heading's first bookmark reads as its id (Word's hidden `_GoBack` / `_Toc…` bookmarks only when a link goes to them), and a heading's id is written as a bookmark around it, so a `#id` link lands on it. The DOCX profile adds `attr.id.header` and no other id facet.
+
+- [#234](https://github.com/thomasfosterau/effect-document/pull/234) [`4ad411a`](https://github.com/thomasfosterau/effect-document/commit/4ad411a751171806ecdd7616e1439ae090346b78) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Plain rows ([#227](https://github.com/thomasfosterau/effect-document/issues/227)): a worksheet's `rows` may hold a row's cells alone, a `PlainRow`, standing for the unstyled `SheetRow` one past the row before it (row 0 when first) with no height. It is a bare array in JSON (`{ "rows": [[1, "a"], [2, "b"]] }`), and the stack-safe codec reads and writes it. `Worksheet.rows` widens to `ReadonlyArray<SheetRow | PlainRow>`: read rows through the new `rowsOf` (nodes, a plain row's built on demand), `rowIndexes` and `rowCellsOf` (no nodes), or `isPlainRow`; `rowEntries` and `cellAt` accept either form. `worksheetFromRows` accepts plain rows, with an optional `numberRows` hint (positions of rows of plain numbers, checked without boxing them). `worksheetOfTrustedRows(name, rows)` (owner decision on [#227](https://github.com/thomasfosterau/effect-document/issues/227)) takes rows a reader built valid itself without checking a cell, as `trustAs` takes a document's profile; anything else should go through `worksheetFromRows`. The CSV reader's documents now hold plain rows and are built with it, so a read builds no node and runs no check per row: `read` of a 100k-row table of 17-digit floats goes from 1.21x uDSV's `typedArrs` to level with it (and ahead of it on a table of numbers). The XLSX reader writes a row that follows on from the one before as a plain row.
+
+- [#231](https://github.com/thomasfosterau/effect-document/pull/231) [`d79201b`](https://github.com/thomasfosterau/effect-document/commit/d79201b601e8bc5c776fd585d8cd37d9791aa35f) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - **Breaking:** a worksheet row's cells are positional ([#226](https://github.com/thomasfosterau/effect-document/issues/226)). `SheetRow.cells` is `ReadonlyArray<SheetCell | undefined>`: the cell at array position `n` is in column `n`, `undefined` is a gap, and the last position holds a cell. In JSON a gap is `null`, so a row is `{ index, cells: [cell, null, cell] }` where it was `{ index, cells: [{ col, cell }, …] }`; documents encoded before this change no longer decode. A position may also be a plain cell: a finite number, string or boolean standing for its unstyled `CellNumber` / `CellText` / `CellBoolean`, written as the bare JSON value (`PlainCell`); read cells through the new `cellOf` / `cellAt`, or `rowEntries`, which always give the node (a plain cell and its node are the same cell, but not `Equal`). The CSV and XLSX readers write plain cells. `IndexedCell` and `indexedCell` are removed. `sheetRow` takes cells with gaps (and copies the array), `sheetRowOf` now takes positional cells and keeps the array it is given, `sparseRow` builds the positional row from `[column, cell]` entries, and the new `rowEntries(row)` lists the cells a row holds with their columns.
+
+  A plain value is now no object at all (it was two), so a CSV document of unique numbers is about a quarter of its former size (83 → 21 MB on the benchmark table) and `read` is faster than d3-dsv's `autoType` on every benchmark table; an XLSX document is half the size. Rows remain sparse (a worksheet holds only the rows it has), but a far-right cell costs its row's width: the XLSX reader's `maxCells` now bounds cell positions (each row's width, one past its last valued cell) rather than valued cells, so a sheet with values far apart within a row needs a larger budget than before.
+
+- [#6](https://github.com/thomasfosterau/effect-document/pull/6) [`87fc1a7`](https://github.com/thomasfosterau/effect-document/commit/87fc1a7ccde3cfc3bcfe43404fbdfe1b1695b940) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Replace the two-layer IR (Document AST + tabular Workbook + legacy effect-csv shim) with a single, type-safe **profile-based universal document schema**.
+
+  - **One schema** spanning prose, spreadsheets (a `Worksheet` block of typed cells), and presentations (a `SlideShow` block) — a Pandoc-superset with a structured + open attribute model.
+  - **Profiles** are named subsets of the schema. Documents are phantom-typed `Doc<F>` so "subset of" is ordinary TypeScript assignability: readers return exactly their format's subset, and writers reject (at compile time) any document too rich to represent.
+  - **`narrow`/`widen`** transform documents between subsets — widening is free, narrowing is lossy and reports exactly what was dropped or down-converted. **`convert`** widens or narrows automatically and returns a loss report.
+  - CSV and XLSX are retrofitted onto the new schema (`Csv`/`Xlsx` profiles).
+
+  Breaking: the old `Workbook`/`Sheet`/`Cell` IR, the `convert()` return shape (now `{ content, loss }`), and the `/legacy` entry point are removed. New subpath entry points `/schema` and `/profile` are added.
+
+- [#194](https://github.com/thomasfosterau/effect-document/pull/194) [`ee78713`](https://github.com/thomasfosterau/effect-document/commit/ee78713d16674a818c999bd9f764c71c700fbced) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Write profiles are now checked by a property test, and writers render their profiles exhaustively ([#109](https://github.com/thomasfosterau/effect-document/issues/109)).
+
+  - New in the core: `TagsOf<F>` (the node tags a feature set names) and `InlineOf<F>`, `BlockOf<F>`, `CellOf<F>` and `ShapeOf<F>` (the nodes a `Doc<F>` may hold), plus the `isNodeIn(profile, node)` guard. The DOCX, PPTX, PDF and RTF writers render through tables exhaustive over these, so adding a feature to a profile without a writer for it is a compile error.
+  - **PDF:** inline code leaves the `PdfWrite` profile: a monospace run that fills a line reads back as a code block, so converting to PDF now reports inline code as a loss.
+  - **DOCX:** hyperlinks take their look from a `Hyperlink` character style instead of a direct underline, so they no longer read back wrapped in `Underline`; every list gets its own numbering instance, so adjacent lists stay separate; a heading that leads a list item keeps its heading style and reads back as a `Header`.
+  - **TSV:** a line of tabs is a row of empty fields rather than a blank line, so the reader no longer drops it.
+  - **RTF:** a node outside the RTF profile, in a document handed to the writer with `trustAs`, is dropped instead of throwing.
+
+- [#9](https://github.com/thomasfosterau/effect-document/pull/9) [`b8a7a3f`](https://github.com/thomasfosterau/effect-document/commit/b8a7a3f5fa140005574c4a6f7239432ecdb63fe6) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Move the RTF lexer and A1 references onto `@thomasfosterau/effect-parse`.
+
+  - The RTF reader now lexes with a compiled effect-parse grammar (groups, control words with signed parameters, control symbols, `\'hh` escapes, text) and interprets the tokens. Output is unchanged, and it is about 20% faster.
+  - `parseA1` is a parser too, and now rejects row 0 (`"A0"`), which used to produce row -1.
+  - New: `parseA1Absolute` for `$`-pinned references (`"$B$3"`) and `parseA1Range` for ranges (`"A1:B2"`). The `a1Cell`, `a1AbsoluteCell` and `a1Range` parsers are exported for use in larger grammars.
+
+- [#233](https://github.com/thomasfosterau/effect-document/pull/233) [`ca1f192`](https://github.com/thomasfosterau/effect-document/commit/ca1f19235c71f55b792bb33dc1ce5e4811eb4893) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add `sheetRowOfNumbers(index, cells)`: `sheetRowOf` for a row its caller expects to hold only plain numbers, with the same result and the same failures. Its check of the numbers only ever meets arrays of numbers, which V8 holds as unboxed doubles and reads without boxing; `sheetRowOf`'s check meets every kind of row and boxes each number it reads from such an array. The CSV reader uses it for rows of numbers.
+
+- [#199](https://github.com/thomasfosterau/effect-document/pull/199) [`5ffbd4a`](https://github.com/thomasfosterau/effect-document/commit/5ffbd4a99b8b5faa8e152743cf9a1e0dbdb309f9) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Worksheets are sparse ([#185](https://github.com/thomasfosterau/effect-document/issues/185)). **Breaking:** a `SheetRow` now carries its 0-based `index` and holds `IndexedCell`s (`{ col, cell }`) in strictly ascending column order, and a `Worksheet` holds only the rows it has, in strictly ascending `index` order; decoding (and the constructors) reject rows or cells out of order, repeated or at a negative or fractional position. The JSON form changes accordingly: `{ index, cells: [{ col, cell }] }` per row.
+
+  New in core: `IndexedCell`, `sheetRow` (a sparse row from a dense array of cells), `sheetExtent`, and the derived dense view `denseRows` (rectangular by default, `{ rectangular: false }` for each row up to its own last cell). Because a sparse sheet's extent can be billions of cells, `denseRows` returns a `Result` and builds the grid only within a budget (`maxCells`, default `DEFAULT_MAX_DENSE_CELLS`, five million; `denseSize` gives the cost), failing with `DenseGridTooLarge` before allocating. `worksheet(...)` still takes a dense grid and keeps every cell given. Text collapse (`blocksToText`) of a worksheet is now the cells it holds, tab-separated, one line per held row, without laying out gaps. Narrowing a worksheet to a prose table lays it out by its dense grid, and drops it with a `sheet.worksheet` loss entry when the grid is over budget.
+
+  XLSX: the reader keeps only valued cells at their own row and column, so a sheet with one value at A1 and one at XFD1048576 holds two cells instead of failing or allocating its extent. `<dimension>` is no longer read, and `maxCells` now bounds the valued cells summed over the workbook (it was rows × columns of the dense grids). Trailing blank rows and columns, and blank cells generally, are no longer recovered on read. The writer writes each row and cell at its own index.
+
+  CSV: the reader keeps every field (blanks included) as before, now as rows `0..n` with cells `0..m`. The writer writes a gap between cells as an empty field and a row the sheet does not hold as an empty line, within a new `maxFields` budget (default `DEFAULT_MAX_FIELDS`, five million, counting one per line): a sheet whose gaps expand past it fails with a `WriteError` before rendering. `renderCsvStream` writes each streamed row from column 0 to its last cell, ignores its `index`, and fails on a row wider than `maxFields`.
+
+- [#208](https://github.com/thomasfosterau/effect-document/pull/208) [`666dff0`](https://github.com/thomasfosterau/effect-document/commit/666dff09a95e5ae8454965d573644e609f0fe5f2) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add `encodeDocument` / `decodeDocument` (and `encodeDocumentResult` / `decodeDocumentResult`), a wire codec for `Document` that handles any nesting depth ([#191](https://github.com/thomasfosterau/effect-document/issues/191)). Effect's Schema parser recurses once per level, so encoding or decoding a document a few hundred levels deep with `Schema` overflows the call stack and dies with a defect; the new codec walks the tree with an explicit work list. It produces the same JSON (key order included) and the same documents as the Schema codec, and fails with a `SchemaError` pointing at the offending node.
+
+- [#206](https://github.com/thomasfosterau/effect-document/pull/206) [`3fe668f`](https://github.com/thomasfosterau/effect-document/commit/3fe668f4cbc81a126b298718f77a3c18437a4f54) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Profiles can carry structural rules: `defineProfile(id, features, { notWithin })` keeps a feature the profile allows out of a given node. `is` and `validate` reject a document that breaks a rule, and `narrow` (so `convert`) rewrites the inner node as if the profile lacked the feature there, with a loss entry giving the rule's reason. `Profile` gains a `notWithin` field, and `collectFeaturesWithin` reports the features used inside nodes of a given feature.
+
+  RTF and PDF set headings in bold, so their write profiles (`Rtf`, `PdfWrite`) now keep `Strong` out of `Header`: converting a heading with bold text to RTF or PDF unwraps the bold and reports the loss, where it used to report the conversion as lossless ([#197](https://github.com/thomasfosterau/effect-document/issues/197)).
+
+- [#210](https://github.com/thomasfosterau/effect-document/pull/210) [`3ab815a`](https://github.com/thomasfosterau/effect-document/commit/3ab815ac042e2cfb8679e1a6887db3579cd848de) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The PDF reader reads a tagged PDF from its structure tree ([#198](https://github.com/thomasfosterau/effect-document/issues/198), [#19](https://github.com/thomasfosterau/effect-document/issues/19)): headings at their tagged level, paragraphs, lists (ordered or bulleted by their `/ListNumbering` or their labels), code blocks and block quotes come from the structure elements, through the file's `/RoleMap` (a custom `Heading N` type reads as a heading), and inline styling and links still come from the fonts and annotations. Artifacts (page numbers, running heads) are left out. The reader falls back to inferring structure from the layout when the tree is missing, unreadable, or owns less than 98% of the visible text. `TextGlyph` gains `mcid` and `artifact`. The writer's own output now round-trips heading levels, paragraph and code-block breaks, list-marker-like words, multi-paragraph list items and adjacent lists.
+
+- [#207](https://github.com/thomasfosterau/effect-document/pull/207) [`022a7d3`](https://github.com/thomasfosterau/effect-document/commit/022a7d339aade68aa3835c24496d2daea2c4177c) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The PDF writer now produces tagged PDF ([#198](https://github.com/thomasfosterau/effect-document/issues/198)): a structure tree with headings (`H1`–`H6`), paragraphs, lists (`L` / `LI` / `Lbl` / `LBody`, with their numbering), code blocks, block quotes and links, each owning the marked content it sets, with a parent tree for the content and the link annotations, and `/MarkInfo << /Marked true >>`. Rules, underlines and quote bars are marked as artifacts, and a document's `lang` metadata becomes the catalog's `/Lang`. Screen readers and other tools see the document's structure; the reader does not use the tags yet.
+
+- [#6](https://github.com/thomasfosterau/effect-document/pull/6) [`407bca5`](https://github.com/thomasfosterau/effect-document/commit/407bca5d098ab1dee14da5e5317aacfa2ec271d6) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Add DOCX (Word), PPTX (PowerPoint) and RTF formats, each with its own profile.
+
+  - **DOCX** (WordprocessingML): reads/writes headings, runs (bold/italic/ underline/strike/super/sub/small-caps), hyperlinks, bullet/ordered lists and tables.
+  - **PPTX** (PresentationML): reads/writes a structurally valid deck of slides whose text-box / placeholder shapes hold paragraphs, headings and lists.
+  - **RTF**: reads/writes paragraphs and headings with bold/italic/underline/ strike runs.
+
+  Each format defines its own subset profile (`Docx`, `Pptx`, `Rtf`), so they exercise the conversion machinery across document families: `Rtf → Docx` widens for free, while `Docx → Rtf` and `Pptx → Docx`/`Rtf` narrow with a loss report (links to text, lists to paragraphs, slides flattened to prose, tables dropped).
+
+  Internally, the OOXML XML parser and a new OPC packaging helper are shared across xlsx/docx/pptx in the shared OOXML module. The XLSX reader now also round-trips formula cells.
+
+### Patch Changes
+
+- [`387e496`](https://github.com/thomasfosterau/effect-document/commit/387e496bdb4d0cdaa3a33a48cc31f70375e9d57c) Thanks [@claude](https://github.com/claude)! - Document that `formatCsvNumber` writes `NaN`, `Infinity` and `-Infinity` as text, as pandas does, and that they read back as text.
+
+- [#229](https://github.com/thomasfosterau/effect-document/pull/229) [`5bab91e`](https://github.com/thomasfosterau/effect-document/commit/5bab91e2dba0bfd60336d1bcd0bde5ed0559b162) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The CSV reader, scanner and writer are several times faster (see `vp run bench:csv`). `scanCsv` has a hand-written fast path for the common dialects (one-character separator, a wrapper escaped by doubling, no `trimWhitespace` / `lineCommentMarker` / `quoteAnywhere` / `skipRows`), with the same rows and the same errors as the grammar, which still runs for everything else. On 8 MB of mixed rows: `scanCsv` 219 → 97 ms, level with Papa Parse and ahead of d3-dsv; `read` 1.85 s → 0.34 s, 3× faster than SheetJS and ahead of d3-dsv and Papa Parse on small files; `scanCsvStream` 270 → 155 ms, faster than Papa Parse's and csv-parse's Node streams; `write` 0.9 s → 0.15 s, and `renderTable` level with d3-dsv. `read` types each row as the scanner reads it when the options allow, shares one cell per repeated value in a column (on larger texts, and only while a column's values do repeat), reads plain decimals in the scan that classifies them, (falling back to the full scan-then-type path whenever a later value contradicts a column's type, so the result is the same), column inference keeps no per-value array between its passes, and the writer renders the default options without a per-field `Result` or `Effect`. Column-count and header errors are found as before, and a stream still emits the rows before a bad one before failing on it. Fixes: a `padRows` write of a sheet with hundreds of thousands of rows no longer overflows the stack. The fast scanner reads each record into an array it reuses and copies the row out by an array literal of its width, which V8 allocates straight into the old generation once rows outlive the young one: half the garbage-collector scavenges, so `scanCsv` is ahead of uDSV's `stringArrs` and `readCsvRows` level with or ahead of its `typedArrs` on tables of numbers. The one-pass reader puts the header row before the others in place rather than copying every row into a new array (an eighth less allocation for `read`), which brings `read` on a table of numbers level with uDSV's `typedArrs`. A row of numbers is built with core's new `sheetRowOfNumbers`, whose check reads its doubles without boxing them (a third less allocation for `read` of a table of numbers, now ahead of uDSV's `typedArrs`). Reading a long decimal exactly finds the gap to the next double by arithmetic rather than through its bits in a typed array, so `readCsvRows` of a table of 17-digit floats is ahead of uDSV's `typedArrs` too.
+
+- [#167](https://github.com/thomasfosterau/effect-document/pull/167) [`12ce2cb`](https://github.com/thomasfosterau/effect-document/commit/12ce2cb5f1dd819c45d72ceb9c25ae2fa654f4b1) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - CSV type inference keeps a value as a number exactly when a double holds its written significant digits, replacing the 15-significant-digit cutoff. Full-precision doubles such as `0.30000000000000004` are now read as numbers. Values that would change when parsed still stay text, such as 20-digit IDs, `9007199254740993` (2^53 + 1) and `1e400`.
+
+- [#179](https://github.com/thomasfosterau/effect-document/pull/179) [`da6b6a4`](https://github.com/thomasfosterau/effect-document/commit/da6b6a48916b3f417dfe1daf29d3860301df95b9) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - `scanCsv` (and so the CSV reader) no longer takes time quadratic in the input when it validates column counts, the default: a record's source row, which is found by walking the text up to it, is now computed only when that record's width is wrong and the error reports it. A 0.25 MB file that took about 3 s now scans in milliseconds.
+
+- [#241](https://github.com/thomasfosterau/effect-document/pull/241) [`a20ce22`](https://github.com/thomasfosterau/effect-document/commit/a20ce226cb0c51a8476acf48aa82a01d006ba75b) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - `scanCsv` of quote-free text keeps the next separator and line-break positions in locals for each record, and knows a field ended at a separator without reading the character: about 4% less time on a 100k-row table of numbers, level with uDSV's `stringArrs` on the mean.
+
+- [#149](https://github.com/thomasfosterau/effect-document/pull/149) [`a69c912`](https://github.com/thomasfosterau/effect-document/commit/a69c912a31cca75c2c20bd7aa83f8530efa81d79) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Fix several CSV scanner bugs.
+
+  - A wrapper inside an unquoted field is now a literal character, so `12" pizza,3` no longer swallows the following records. Text after a closing quote is still kept (`"a"b` reads as `ab`). The old behaviour, where quoted segments may start anywhere in a field, is available as `quoteAnywhere`.
+  - An empty `wrapper` turns quoting off instead of breaking the parser.
+  - Multi-character separators are matched whole, so fields may contain their characters (`a|b||c` with separator `||`).
+  - `skipRows` counts CRLF, LF and bare CR line endings, in `scanCsv` and `scanCsvStream` (a CRLF may be split across chunks).
+  - `trimWhitespace` keeps whitespace inside quoted fields.
+  - Without headers, every row must be as wide as the first unless `allowVariableColumns` is set. Column-count and syntax errors both report the 0-based source row in `position.row`, counting skipped, blank, comment and quoted lines.
+  - Stream syntax errors now carry a source position, and an unclosed quote reads "Unclosed quoted field: expected a closing quote" in both scanners.
+  - With `treatFirstRowAsHeader`, `providedHeaders` now replace the header row instead of being ignored.
+  - The compiled-parser cache evicts the least recently used grammar instead of clearing itself.
+  - A leading byte order mark is ignored for text input.
+
+- [#154](https://github.com/thomasfosterau/effect-document/pull/154) [`f9eb32e`](https://github.com/thomasfosterau/effect-document/commit/f9eb32ec33602c6cce03ad6a0349c6e0e4ec7c95) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Stop CSV type inference from corrupting values, and make it configurable.
+
+  - Only plain decimals (`-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?`) with at most 15 significant digits are read as numbers. `007`, ZIP codes, `0x1F`, `0b11`, `+1`, `12`, `Infinity` and long IDs now stay text.
+  - Booleans are matched case-insensitively, so Excel's `TRUE`/`FALSE` read as booleans.
+  - New inference options: `inference: "column"` types a whole column by all of its values (per-cell stays the default); `booleans` and `booleansCaseSensitive`; `decimalChar` and `groupChar` (CSVW names); `percent`; and `nullValues` for values read as blank cells.
+  - `inferCell` takes the same options as an optional second argument.
+  - The `inferTypes` docs describe what inference loses.
+
+- [#151](https://github.com/thomasfosterau/effect-document/pull/151) [`f2d1020`](https://github.com/thomasfosterau/effect-document/commit/f2d1020203f1e7a016a31b94384ac56d5d8bf62c) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Fix CSV writer data loss and add output options.
+
+  - A row holding a single blank cell is written as `""` instead of an empty line, which the reader dropped.
+  - Number cells are written as their shortest round-trip decimal, never in exponent form (`1e21` is written as `1000000000000000000000`). Override with `formatNumber`; `formatCsvNumber` is the default.
+  - Fields with leading or trailing whitespace are quoted, and so are fields starting with the new `lineCommentMarker` option, so they read back intact.
+  - New `escapeFormulae` option guards against CSV (formula) injection: text starting with `=`, `+`, `-`, `@`, a tab or a CR is prefixed with `'` and quoted. Off by default.
+  - New `quoting` option: `minimal` (the default), `all`, `nonNumeric` or `none`. With `none`, writing fails with a `WriteError` if a field can't be read back without quotes.
+  - New `bom`, `headers` and `padRows` options.
+  - New `renderCsvStream` renders a `Stream` of `SheetRow`s to a `Stream` of CSV text, one chunk per row.
+  - The line break is documented as the dialect's `linebreak` (LF by default). The new `Rfc4180Dialect` writes CRLF.
+
+- [#156](https://github.com/thomasfosterau/effect-document/pull/156) [`58fd4d6`](https://github.com/thomasfosterau/effect-document/commit/58fd4d630e88260cdc2d9ccc87ce2c3fc7d8c922) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - DOCX correctness fixes.
+
+  Writer:
+
+  - Hyperlink targets are attribute-escaped.
+  - Each ordered list gets its own numbering instance, honouring `start`.
+  - Nested lists and other blocks inside list items are kept.
+  - `Quoted` gets its quotation marks.
+  - `\n` and `\t` become `w:br` and `w:tab`.
+  - A `styles.xml` part defines Heading1–6, Code and TableGrid.
+  - `#anchor` links are written as internal hyperlinks.
+
+  Reader:
+
+  - ST_OnOff "off" values and `w:u="none"` are honoured.
+  - `numId="0"` is not a list item.
+  - List kinds, nesting and start numbers come from `numbering.xml` and `w:ilvl`.
+  - Text in tracked insertions and content controls is kept, and deleted text is dropped.
+  - Simple and complex `HYPERLINK` fields become links.
+  - `w:anchor` becomes `#anchor`.
+  - A page break ends the paragraph.
+  - Code-styled paragraphs read back as code blocks.
+
+- [#204](https://github.com/thomasfosterau/effect-document/pull/204) [`87d1d85`](https://github.com/thomasfosterau/effect-document/commit/87d1d852ce7a60c747d86f5211023583b34e5376) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - DOCX: a list item's blocks after its first paragraph (further paragraphs, code blocks, headings, tables) now stay in the item. The writer indents them to the item's level, as Word indents a list's continuation paragraphs, and the reader attaches a paragraph or table indented to an open list's level (from `numbering.xml`, `w:ind` `w:left` or `w:start`) to that list's last item. An item that starts with a code block, table or nested list reads back without the empty numbered paragraph the writer has to put before it.
+
+- [#178](https://github.com/thomasfosterau/effect-document/pull/178) [`182d0ea`](https://github.com/thomasfosterau/effect-document/commit/182d0ea632110ffb1faf857020790c8171fe50f1) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Build on `@thomasfosterau/effect-parse` 0.2 (was 0.1), whose `Parser.compile` is now `Compiler.jit`.
+
+  - `scanCsvStream` (and so the CSV reader's `readStream`) runs a compiled row grammar, memoized per dialect and options like the whole-text one: about twice as fast on a 4 MB file. Rows and errors are unchanged.
+  - The `a1AbsoluteCell` and `a1Range` parsers (`parseA1Absolute`, `parseA1Range`) are compiled too, like `a1Cell`.
+
+- [#245](https://github.com/thomasfosterau/effect-document/pull/245) [`f8ab951`](https://github.com/thomasfosterau/effect-document/commit/f8ab9514c566548f6c59a90be3199c36f77c4406) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Require `@thomasfosterau/effect-parse` `^0.4.1` (the optional peer the CSV, RTF, OOXML and iWork subpaths use).
+
+- [#247](https://github.com/thomasfosterau/effect-document/pull/247) [`cb81631`](https://github.com/thomasfosterau/effect-document/commit/cb81631a72430282c19c74460acb198da3849c1b) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The `effect` peer range is now `^4.0.0` (was `>=4.0.0-rc.118`), per the peer-range policy: every package is tested against effect 4.0.0. Only the range's form changes: it no longer admits Effect 5 or the 4.0.0 release candidates. No runtime code changes.
+
+- [#157](https://github.com/thomasfosterau/effect-document/pull/157) [`4d29070`](https://github.com/thomasfosterau/effect-document/commit/4d2907030818c01d3627a6528ddbd5f9887af0b5) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - iWork codec hardening:
+
+  - Snappy: the preamble is capped (64 MiB per block, and no more than the input can expand to), and every copy offset, copy length and literal is checked against the input and output. A block must produce exactly its declared length. `dechunk` caps a whole stream at 256 MiB (`maxLength`).
+  - Archive stream: ArchiveInfo and payload lengths are checked against the buffer, and a missing identifier, type or length is an error instead of 0. Object identifiers are exact `bigint`s.
+  - Protobuf: fixed-width fields keep their raw bytes. New `getDouble`, `getFloat`, `getBigInt` (`uint64`, `int64`, `sint64`), `getSint` and `getPacked` helpers. Varints above 2^53 keep their exact value.
+  - Errors: the codec fails only with a typed `IworkError` that carries a reason, the component, the object id and the byte offset. `openBundle`, `decodeComponent`, `decodeAll` and `decodeIwa` return a `Result`. The readers keep the location in the `ParseError` and take a `lenient` option that skips a bad component with a logged warning.
+  - Memory: only `Index/*.iwa` components (and `Index.zip`) are inflated, under entry-count, entry-size and total-size limits. Media is read on demand with `bundle.readEntry`. `openBundleDirectory` opens an unzipped package directory through `FileSystem`.
+
+- [#10](https://github.com/thomasfosterau/effect-document/pull/10) [`378df7a`](https://github.com/thomasfosterau/effect-document/commit/378df7af192eb1087aa35688b16f1bd2ca7e1aec) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Read iWork Protobuf fields and `.iwa` chunk headers with `@thomasfosterau/effect-parse`.
+
+  - Truncated fields are now errors. A fixed-width or length-delimited field that ran past the end of its message used to yield `NaN` or silently shortened bytes. `parseMessage`, `readVarint` and `dechunk` now throw a positioned `ParseError` (e.g. "length-delimited field needs 5 bytes, only 1 left" at its offset).
+  - New `varint`, `field` and `message` parsers are exported for use in larger byte grammars.
+  - Output is unchanged on the fixtures: all 119 `.iwa` streams dechunk identically, and all 1,271 top-level payloads parse identically. Reading is within about 15% of the previous speed.
+
+- [#159](https://github.com/thomasfosterau/effect-document/pull/159) [`2db89b2`](https://github.com/thomasfosterau/effect-document/commit/2db89b26e40febb93b93a847423a0248e8af5aa7) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - iWork reader fixes:
+
+  - A zip with no `Index/*.iwa` components fails with a typed reason instead of reading as an empty document. A `.docx` or another zip gives `NotIwork`, and an iWork '09 package (`index.apxl`, `index.xml`, or their `.gz` forms) gives `LegacyIwork09Unsupported`.
+  - Keynote slide components are ordered by their numeric id (`Slide-8060` before `Slide-10000`), not lexicographically. Suffixed components (`Slide-NNNN-2.iwa`) are now read as slides too. `componentPaths` uses the new `compareComponentPaths` natural sort.
+  - Numbers sheets follow the order of `TN.DocumentArchive.sheets` instead of zip entry order.
+
+- [#224](https://github.com/thomasfosterau/effect-document/pull/224) [`7ea63ff`](https://github.com/thomasfosterau/effect-document/commit/7ea63ff501ba60d4556d6f78786fad5ea192a8a3) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Type-safety cleanup from the lint paydown ([#217](https://github.com/thomasfosterau/effect-document/issues/217)); no behaviour changes on any valid input. `dispatchTag` now types its node as the member of the union its tag names, so each handler gets its own node without a cast. `PdfFile.catalog` throws a `PdfSyntaxError` ("no document catalog") instead of returning a non-dictionary, and the stack-safe document decoder checks that its result is a `Document`.
+
+- [#215](https://github.com/thomasfosterau/effect-document/pull/215) [`cb5fe2c`](https://github.com/thomasfosterau/effect-document/commit/cb5fe2ca0e443fc7911424d728f8f5560d920de2) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Tidy declarations flagged by type-aware linting, with no change in behaviour: `sheetRow`'s optional `height` parameter is declared `height?: number`, and `narrowEffect`, `synthesizeTable` and `synthesizeDocument` spell their never-failing return type `Effect<A>` instead of `Effect<A, never>`.
+
+- [#230](https://github.com/thomasfosterau/effect-document/pull/230) [`445820d`](https://github.com/thomasfosterau/effect-document/commit/445820debe559d049f67966efe46f50675cd932f) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - `cell.number` builds its node with a constructor function, as `cell.text` does: 40 bytes rather than 56. The CSV reader builds the cells of a column of mostly unique numbers from the number read in place in the text, without making its string first. Together they make `read` of a table of unique numbers about a third faster, and its document about a ninth smaller.
+
+- [#158](https://github.com/thomasfosterau/effect-document/pull/158) [`bd411b4`](https://github.com/thomasfosterau/effect-document/commit/bd411b412a811ab6fd3bed100fe112506ffc5e49) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Harden the OOXML XML parser and OPC package handling.
+
+  XML parser:
+
+  - It now builds its tree iteratively, so 20,000+ levels of nesting no longer overflow the stack.
+  - `parseXmlResult` never throws, and invalid character references become U+FFFD.
+  - Element namespaces are resolved into a new `ns` field. When `w:val` and `w14:val` both exist, `getAttr` prefers the attribute in the element's own namespace.
+  - `mc:AlternateContent` resolves to an understood `mc:Choice`, otherwise to the `mc:Fallback`.
+  - DOCTYPE internal subsets are skipped, and entities are never expanded.
+  - Names are validated, and duplicate attributes are rejected.
+
+  `OpcReader`:
+
+  - Parts are inflated lazily, within configurable limits on entry count, per-part size and total size (`OpcLimits`, the reader option `limits`).
+  - Part names match case-insensitively, and relationship targets are percent-decoded.
+  - UTF-16 parts are decoded.
+  - `[Content_Types].xml` is checked, so a package of the wrong type fails with `WrongPackageType` instead of reading as empty.
+
+  Readers:
+
+  - Malformed XML reports its part and line/column in `ParseError.position`.
+  - The XLSX reader uses the shared `OpcReader`.
+
+  Writers:
+
+  - Zip output is byte-deterministic (fixed `mtime`).
+
+- [#192](https://github.com/thomasfosterau/effect-document/pull/192) [`a7a5c5c`](https://github.com/thomasfosterau/effect-document/commit/a7a5c5cba25f75195f26b4ac4258410636222b67) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The COS parser refuses arrays and dictionaries nested more than `MAX_OBJECT_NESTING` (512) levels deep with a `PdfSyntaxError` carrying `code: "LimitExceeded"`, instead of overflowing the stack; the reader reports it as a `ParseError` with the same code.
+
+- [#162](https://github.com/thomasfosterau/effect-document/pull/162) [`58ae24f`](https://github.com/thomasfosterau/effect-document/commit/58ae24f1266ffe21db23ce2e35d9aab05d528b61) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - PDF reader: one-line paragraphs are no longer merged into one paragraph. The paragraph-break threshold now comes from the line spacing inside paragraphs, so the gaps between paragraphs no longer distort it. Double-spaced text is still read as continuous paragraphs.
+
+- [#224](https://github.com/thomasfosterau/effect-document/pull/224) [`82bff9e`](https://github.com/thomasfosterau/effect-document/commit/82bff9e667070a13fd6509592dff6d059e163fb8) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The PDF reader no longer joins a tagged line that ends in a plain hyphen to the next line's first word ([#198](https://github.com/thomasfosterau/effect-document/issues/198)). In Tagged PDF a hyphen added by line breaking is a soft hyphen (U+00AD), so only that one joins a word across lines; a `-` at a line end is part of the text. Untagged files keep the layout heuristic. The writer's own output now round-trips words that end in a hyphen.
+
+- [#205](https://github.com/thomasfosterau/effect-document/pull/205) [`6910111`](https://github.com/thomasfosterau/effect-document/commit/69101112e13ba14ab5b28dafee9a84b843286f98) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - PPTX: a list item's later paragraphs now stay in the item, and adjacent ordered lists stay separate. The writer puts an item's bulleted paragraph at its level's margin (`marL`, with a hanging `indent`) and the item's later paragraphs at the same margin without a bullet, as PowerPoint does; the reader attaches an unbulleted paragraph at an open list's margin to that list's last item. Each ordered list's first item carries `startAt`, so the reader begins a new list there, and an ordered list's `start` round-trips. An item that starts with a nested list reads back without the empty bulleted paragraph the writer has to put before it.
+
+- [#153](https://github.com/thomasfosterau/effect-document/pull/153) [`7ddb4dd`](https://github.com/thomasfosterau/effect-document/commit/7ddb4dd8c14fbbebd65de7219565c5a2e127ed91) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - PPTX reader:
+
+  - Shapes inside group shapes (`p:grpSp`) are now read.
+  - `b="true"` and `i="true"` are recognised.
+  - A `<p:ph>` without a type defaults to `obj`.
+  - Title placeholders read as level-1 headers.
+  - Field text (`a:fld`) is kept.
+  - Paragraph `lvl` nests bullet lists.
+  - A slide with a missing relationship or part fails the read instead of being skipped.
+
+  PPTX writer:
+
+  - Nested lists are written with `lvl`.
+  - Headers in title placeholders are written without bold, so they round-trip.
+
+- [#229](https://github.com/thomasfosterau/effect-document/pull/229) [`5bab91e`](https://github.com/thomasfosterau/effect-document/commit/5bab91e2dba0bfd60336d1bcd0bde5ed0559b162) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Faster readers (see `vp run bench:<format>`): XLSX builds its rows with `sparseRow` and the shared XML parser no longer allocates per element to check attribute names and namespace declarations (about 25% faster). The PDF reader's per-glyph matrix arithmetic and layout run without per-glyph arrays and regular expressions (reading 200 pages: about 0.58 s → 0.31 s, now level with pdf.js's text extraction); its output is unchanged. The DOCX, PPTX, RTF and PDF readers build text runs with the faster `str`. The XML parser behind the DOCX, PPTX and XLSX readers builds each element's tree and attribute record as it parses (no array of tokens or of attribute pairs per part), and records namespace scopes only for elements that can need them, which makes reading a large XLSX sheet faster than SheetJS's `XLSX.read`. A worksheet's cell data is read by a fast scanner that builds the same elements as the XML parser (and hands anything unusual back to it), so `XLSX.read` of a sheet is about a third faster than SheetJS's on large sheets and about 1.4x on small ones.
+
+- [#180](https://github.com/thomasfosterau/effect-document/pull/180) [`43e873d`](https://github.com/thomasfosterau/effect-document/commit/43e873dc7567f5f83496d3b45602d798b84e1a6a) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The RTF reader decodes cp1252 (`\ansicpg1252`, `\fcharset0`, and the fallback for unsupported code pages such as 437 and 850) by table instead of through `TextDecoder("windows-1252")`, so bytes 0x80–0x9F come out as `€`, `“`, `”`, `–` and the rest of cp1252 on Node 22 too, where `TextDecoder` returned their Latin-1 C1 control characters.
+
+- [#148](https://github.com/thomasfosterau/effect-document/pull/148) [`c78e485`](https://github.com/thomasfosterau/effect-document/commit/c78e4855048638f0106ef3fd802cb75a9015515c) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Fix the RTF reader's character decoding, formatting state and destinations.
+
+  - `\'hh` escapes are decoded through the active font's `\fcharset` / `\cpg` or the document's `\ansicpg` (cp1252 `\'93` is now `“`), and double-byte code pages (932, 936, 949, 950) combine lead and trail bytes.
+  - `Bytes` input is read as 7-bit RTF: 8-bit bytes go through the code page instead of being decoded as UTF-8.
+  - `\ucN` sets the `\u` fallback length, a `\'hh` fallback is skipped, `\u` surrogate pairs combine, and an out-of-range `\u` parameter fails with a `ParseError` instead of a defect.
+  - `\plain` resets character formatting. Special-character words (`\rquote`, `\emdash`, `\bullet`, ...) and `\-` / `\_` produce their characters.
+  - `\cell` separates cells with a tab; `\row`, `\sect`, `\page` and `\column` break paragraphs.
+  - Footnotes, `\v` hidden text, `\deleted` revisions, `\fldinst`, `\listtext` and many unstarred destinations (`annotation`, `object`, `shp`, `xe`, `header*`, `rsidtbl`, ...) are no longer read as body text.
+  - `\binN` data is skipped; `\tab-y` keeps its hyphen; text after the outermost group is ignored; input that doesn't start with `{\rtf` fails with a `ParseError`.
+
+- [#152](https://github.com/thomasfosterau/effect-document/pull/152) [`1b83198`](https://github.com/thomasfosterau/effect-document/commit/1b83198b03565c43feeb2143bb9a928d231b5d12) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Fix the RTF writer's character escaping and header, and round-trip headings.
+
+  - Characters above U+FFFF are written as a signed UTF-16 surrogate pair (`\u-10179?\u-8704?`), and control characters as `\uN` instead of raw.
+  - The header declares `\ansicpg1252` and `\uc1`, and has a font table (`\f0` Helvetica, `\f1` Courier New), a colour table and a stylesheet, so `\deff0` points at a real font.
+  - Headings are written with the `heading N` styles (`\sN\outlinelevelN`), and the reader maps `\outlinelevelN` and heading styles back to `Header`.
+  - The writer's switches are exhaustive over the profile, so a feature added to the profile without writer support is a compile error.
+  - New `RtfWriterOptions`: `lineEnding`, `font`, `fontSize`, `paperWidth` / `paperHeight` and `marginLeft` / `marginRight` / `marginTop` / `marginBottom`.
+
+- [#165](https://github.com/thomasfosterau/effect-document/pull/165) [`286249e`](https://github.com/thomasfosterau/effect-document/commit/286249e7b9f794d79d0475f8a63cbee48d621d08) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Publish built ESM and declarations: every entry point's `exports` now resolves to `dist/` (one bundle per subpath, `sideEffects: false`) instead of the TypeScript sources, and the `effect` peer range is `^4.0.0`.
+
+  Errors are Schema tagged errors throughout. The core's `ParseError`, `WriteError`, `ProfileViolation` and `ConversionError` keep their tags and fields. In `@thomasfosterau/effect-document/pdf/cos`, `PdfSyntaxError` and `PdfFilterError` are tagged errors constructed from an options object (`new PdfSyntaxError({ reason, offset })`, `new PdfFilterError({ filter, reason })`) with the same `message` text, and `rewritePdf` refuses an encrypted file with the new `PdfEncryptedError`. `@thomasfosterau/effect-document/iwork/codec`'s `IworkError` keeps its tag, fields and `message`, and its reasons are also exported as the `IworkErrorReason` schema. The OOXML readers report a missing part as an `OpcError` of the new kind `"MissingPart"` (the `ParseError`'s `cause`) instead of a bare `Error`, and the XLSX writer's failure for a document without worksheets now reads `document contains no worksheets to write`.
+
+  Fixes: an RTF control word named like an `Object.prototype` member (`\constructor`) no longer injects that member's text. Additions: `ComponentPathOrder` (component paths in natural order, as an `Order`; `compareComponentPaths` now returns an `Ordering`), the `ResolvedLimits` type behind `DEFAULT_BUNDLE_LIMITS`, the named `VarintRead` that `readVarint` returns, and a doc comment on every export.
+
+- [#145](https://github.com/thomasfosterau/effect-document/pull/145) [`c66a018`](https://github.com/thomasfosterau/effect-document/commit/c66a018e445017ad45ee81364a19886822254cac) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - XLSX reader: size each worksheet's grid by the cells that hold a value, so empty `<row>`s and style-only cells no longer extend it, and fail with a `ParseError` when the extent would exceed the new `maxCells` option (default 5,000,000) instead of allocating the grid. `<dimension>` is honoured as a hint within that limit, and the writer now declares it to preserve trailing blank rows and columns.
+
+- [#146](https://github.com/thomasfosterau/effect-document/pull/146) [`100acfa`](https://github.com/thomasfosterau/effect-document/commit/100acfae3433a450665fbdb10bb55be0af79f5df) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - XLSX reader fixes:
+
+  - Chartsheets, dialogsheets and macrosheets no longer fail the read. They come back as empty worksheets tagged `attr.data.kind`.
+  - Rows and cells without an `r` attribute follow the previous row or cell instead of being placed by ordinal.
+  - The dependent cells of a shared formula get the master formula translated by their offset, instead of an empty formula.
+  - Phonetic guide text (`<rPh>`) is no longer concatenated into strings.
+  - `_xHHHH_` escapes are decoded.
+  - ISO 8601 `t="d"` cells read as `CellDate`.
+
+- [#241](https://github.com/thomasfosterau/effect-document/pull/241) [`a20ce22`](https://github.com/thomasfosterau/effect-document/commit/a20ce226cb0c51a8476acf48aa82a01d006ba75b) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The XLSX reader reads a worksheet's `sheetData` straight into rows, with no element tree, when it holds the plain markup writers emit (`<row>`s of `<c>`s with a `<v>` or a plain inline string). Anything else (a formula, rich text, a comment, unusual markup, a sheet over `maxCells`) is read as before, so documents and errors are unchanged. Reading a 20,000 × 8 sheet takes about a third less time.
+
+- [#186](https://github.com/thomasfosterau/effect-document/pull/186) [`ac6c095`](https://github.com/thomasfosterau/effect-document/commit/ac6c0956a05b65022ef1308c5f32cca592df7b9b) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - XLSX reader: `maxCells` now bounds the cells of the whole workbook rather than each worksheet, so a small file with many sheets (or many `<sheet>` entries pointing at one worksheet part, each widened by its `<dimension>` hint) can no longer allocate sheets × `maxCells` blank cells. A sheet whose extent exceeds what the sheets before it left fails with a `ParseError`, and a `<dimension>` hint that would exceed it is ignored.
+
+- [#161](https://github.com/thomasfosterau/effect-document/pull/161) [`990f266`](https://github.com/thomasfosterau/effect-document/commit/990f26694047949c7846c6292f0b4a0edc878721) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The XLSX writer now uses the shared OOXML namespace constants and `zipParts` instead of its own copies.
+
+- [#147](https://github.com/thomasfosterau/effect-document/pull/147) [`56a9bf4`](https://github.com/thomasfosterau/effect-document/commit/56a9bf43c36838d0b24264122125ae4b7e306b42) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - XLSX writer: emit files Excel opens without repair.
+
+  - `NaN` and `±Infinity` are written as `#NUM!` error cells.
+  - Characters that are invalid in XML 1.0 are `_xHHHH_`-encoded, and a literal `_xHHHH_` is escaped with `_x005F_`.
+  - Sheet names are sanitised deterministically: invalid characters, empty names, `History`, more than 31 characters, and case-insensitive duplicates. See `sanitizeSheetNames`.
+  - A leading `=` is stripped from formulas. `CellFormula.formula` is documented as never including it.
+  - `<calcPr fullCalcOnLoad="1"/>` is emitted when a formula has no cached result.
+  - `sst@count` is now the reference count, with `uniqueCount` as the distinct count.
+  - `docProps/core.xml` and `docProps/app.xml` are written.
+
+- [#190](https://github.com/thomasfosterau/effect-document/pull/190) [`802034b`](https://github.com/thomasfosterau/effect-document/commit/802034b7d43b7d18f2ce905ed1ef5e4ea808a554) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Align the zip-bomb limits of the OOXML and iWork readers, so both are configured and fail the same way:
+
+  - OOXML: `OpcLimits` takes iWork's names, `maxEntrySize` (was `maxPartBytes`) and `maxTotalSize` (was `maxTotalBytes`), and every limit is optional (`?: number | undefined`; an explicit `undefined` keeps the default). The defaults are now iWork's: 10,000 entries, 256 MiB per part (was 100 MiB) and 512 MiB in total (was 500 MiB). The reader option is `limits?: OpcLimits` (was `Partial<OpcLimits>`).
+  - iWork: `ResolvedLimits` is renamed `ResolvedBundleLimits`, to match OOXML's new `ResolvedOpcLimits`. A limit failure becomes a `ParseError` with `code: "LimitExceeded"`, as OOXML's does, and every reader `ParseError`'s `reason` now names the `IworkError` reason (`Failed to read keynote: Truncated: …`).
+  - Both report a limit with the same messages: `more than N zip entries`, `<entry> is N bytes uncompressed, over the M-byte limit` and `the parts read exceed the N-byte total limit`.
