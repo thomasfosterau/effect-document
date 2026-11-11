@@ -79,6 +79,7 @@ import { Document, blocksToText, cellToText, inlinesToText } from "../schema/doc
 import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
+import { type FieldValues, fieldMatches, type OnlyWithin, type RuleNode } from "./rules.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 
 // ============================================================================
@@ -154,23 +155,58 @@ interface Ctx {
   readonly rec: Recorder;
   /** The target profile's structural rules (#126). */
   readonly rules: ReadonlyArray<NotWithin>;
+  /** The target profile's `onlyWithin` rules, for features it allows only inside certain nodes (#126). */
+  readonly onlyWithin: ReadonlyArray<OnlyWithin>;
+  /** The target profile's `fieldValues` rules (#126). */
+  readonly fieldValues: ReadonlyArray<FieldValues>;
+  /** The target profile's features, to allow an `onlyWithin` feature again inside its node. */
+  readonly profile: ReadonlySet<Feature>;
 }
 
 /**
- * The context for the contents of a kept block of the feature `within`: the
- * features a rule keeps out of it are no longer allowed there, and their loss
- * entries give the rule's reason (#197).
+ * The context for the contents of a kept node (`node`, of the feature
+ * `within`): the features an `onlyWithin` rule allows only inside such a node
+ * are allowed again (#126), and the features a `notWithin` rule keeps out of
+ * it are no longer allowed there, their loss entries giving the rule's reason
+ * (#197).
  */
-const inside = (within: Feature, ctx: Ctx): Ctx => {
-  const rules = ctx.rules.filter((r) => r.within === within && ctx.allowed.has(r.feature));
-  if (Arr.isReadonlyArrayEmpty(rules)) return ctx;
+const inside = (within: Feature, node: RuleNode, ctx: Ctx): Ctx => {
+  const admitted = ctx.onlyWithin.filter(
+    (r) =>
+      r.within === within &&
+      ctx.profile.has(r.feature) &&
+      !ctx.allowed.has(r.feature) &&
+      (r.where === undefined || fieldMatches(node, r.where)),
+  );
+  const rules = ctx.rules.filter(
+    (r) =>
+      r.within === within &&
+      (ctx.allowed.has(r.feature) || admitted.some((a) => a.feature === r.feature)),
+  );
+  if (Arr.isReadonlyArrayEmpty(rules) && Arr.isReadonlyArrayEmpty(admitted)) return ctx;
   const excluded = new Set(rules.map((r) => r.feature));
   return {
-    allowed: new Set([...ctx.allowed].filter((f) => !excluded.has(f))),
+    ...ctx,
+    allowed: new Set(
+      [...ctx.allowed, ...admitted.map((r) => r.feature)].filter((f) => !excluded.has(f)),
+    ),
     rec: ctx.rec.within(new Map(rules.map((r) => [r.feature, r.reason]))),
-    rules: ctx.rules,
   };
 };
+
+/**
+ * The `fieldValues` rule `node` (of `feature`) breaks, if any: the profile
+ * allows the feature, but not with the value one of the node's fields holds.
+ */
+const brokenFieldRule = (feature: Feature, node: RuleNode, ctx: Ctx): FieldValues | undefined =>
+  ctx.fieldValues.find((r) => r.feature === feature && !fieldMatches(node, r));
+
+/** The context for narrowing a node as if the profile lacked `rule.feature`, with the rule's reason. */
+const breaking = (rule: FieldValues, ctx: Ctx): Ctx => ({
+  ...ctx,
+  allowed: new Set([...ctx.allowed].filter((f) => f !== rule.feature)),
+  rec: ctx.rec.within(new Map([[rule.feature, rule.reason]])),
+});
 
 /** One populated attribute facet, kept if the target allows it, else recorded as dropped. */
 const keepFacet = <A>(
@@ -573,8 +609,10 @@ const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
 const shape =
   <S extends Shape>(feature: Feature, detail: string, rebuild: (s: S, ctx: Ctx) => Shape) =>
   (s: S, ctx: Ctx): Shape[] => {
-    if (ctx.allowed.has(feature)) return [rebuild(s, ctx)];
-    ctx.rec.drop(feature, detail);
+    const broken = ctx.allowed.has(feature) ? brokenFieldRule(feature, s, ctx) : undefined;
+    if (ctx.allowed.has(feature) && broken === undefined)
+      return [rebuild(s, inside(feature, s, ctx))];
+    (broken === undefined ? ctx : breaking(broken, ctx)).rec.drop(feature, detail);
     return [];
   };
 
@@ -819,9 +857,11 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
 
 const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
   const feature = blockFeature(b._tag);
-  return ctx.allowed.has(feature)
-    ? dispatchTag(KEEP, b, inside(feature, ctx))
-    : dispatchTag(FALLBACK, b, feature, ctx);
+  if (!ctx.allowed.has(feature)) return dispatchTag(FALLBACK, b, feature, ctx);
+  const broken = brokenFieldRule(feature, b, ctx);
+  return broken === undefined
+    ? dispatchTag(KEEP, b, inside(feature, b, ctx))
+    : dispatchTag(FALLBACK, b, feature, breaking(broken, ctx));
 };
 
 /**
@@ -829,7 +869,19 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  * dropped or down-converted.
  */
 export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): NarrowResult<To> => {
-  const ctx: Ctx = { allowed: to.features, rec: new Recorder(), rules: to.notWithin };
+  // a feature an `onlyWithin` rule admits only inside certain nodes starts
+  // out disallowed; `inside` allows it again within such a node (#126)
+  const confined = to.onlyWithin.filter((r) => to.features.has(r.feature));
+  const ctx: Ctx = {
+    allowed: Arr.isReadonlyArrayEmpty(confined)
+      ? to.features
+      : new Set([...to.features].filter((f) => !confined.some((r) => r.feature === f))),
+    rec: new Recorder(undefined, new Map(confined.map((r) => [r.feature, r.reason]))),
+    rules: to.notWithin,
+    onlyWithin: to.onlyWithin,
+    fieldValues: to.fieldValues,
+    profile: to.features,
+  };
   let blocks = [...doc.blocks];
 
   const worksheets = blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));

@@ -26,7 +26,10 @@ import {
   withIdFeatures,
 } from "../schema/feature.ts";
 import { ProfileViolation } from "../io/errors.ts";
-import { collectFeaturesWithin, unsupportedFeatures } from "./collect.ts";
+import { collectFeaturesWithin, placementViolations, unsupportedFeatures } from "./collect.ts";
+import type { FieldValues, OnlyWithin } from "./rules.ts";
+
+export type { FieldMatch, FieldValues, OnlyWithin, RuleValue } from "./rules.ts";
 
 // ============================================================================
 // Phantom-typed document
@@ -111,6 +114,10 @@ export interface NotWithin {
 export interface ProfileOptions {
   /** Features the profile allows, but not inside certain nodes (see {@link NotWithin}). */
   readonly notWithin?: ReadonlyArray<NotWithin> | undefined;
+  /** Features the profile allows only inside certain nodes (see {@link OnlyWithin}). */
+  readonly onlyWithin?: ReadonlyArray<OnlyWithin> | undefined;
+  /** Restrictions on the fields of nodes the profile allows (see {@link FieldValues}). */
+  readonly fieldValues?: ReadonlyArray<FieldValues> | undefined;
 }
 
 /** A named subset of the schema: the features it allows, its attribute policy, and the checks and schema derived from them. */
@@ -125,6 +132,10 @@ export interface Profile<F extends Feature> {
    * built in code may break one; `validate` and `narrow` check them.
    */
   readonly notWithin: ReadonlyArray<NotWithin>;
+  /** Structural rules: features the profile allows only inside certain nodes (#126); checked as `notWithin` is. */
+  readonly onlyWithin: ReadonlyArray<OnlyWithin>;
+  /** Structural rules: the values a node's fields may hold (#126); checked as `notWithin` is. */
+  readonly fieldValues: ReadonlyArray<FieldValues>;
   /** Which attribute facets are allowed (derived from `features`). */
   readonly attributes: AttrPolicy;
   /** Type guard: does this document conform to the profile? */
@@ -168,13 +179,16 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
   type F = WithIdFeatures<FS[number]>;
   const set: ReadonlySet<Feature> = new Set(withIdFeatures(features));
   const notWithin = options?.notWithin ?? [];
-  /** The features a document uses outside the profile, or inside a node a rule keeps them out of. */
+  const onlyWithin = options?.onlyWithin ?? [];
+  const fieldValues = options?.fieldValues ?? [];
+  /** The features a document uses outside the profile, or where a structural rule keeps them out. */
   const violations = (doc: Document): Feature[] =>
     Arr.dedupe([
       ...unsupportedFeatures(doc, set),
       ...notWithin
         .filter((rule) => collectFeaturesWithin(doc, rule.within).has(rule.feature))
         .map((rule) => rule.feature),
+      ...placementViolations(doc, onlyWithin, fieldValues),
     ]);
   const conforms = (doc: Document): boolean => Arr.isReadonlyArrayEmpty(violations(doc));
   const is = (doc: Document): doc is Doc<F> => conforms(doc);
@@ -190,7 +204,17 @@ export const defineProfile = <const FS extends ReadonlyArray<Feature>>(
     }),
   );
 
-  return { id, features: set, notWithin, attributes: attrPolicyOf(set), is, validate, schema };
+  return {
+    id,
+    features: set,
+    notWithin,
+    onlyWithin,
+    fieldValues,
+    attributes: attrPolicyOf(set),
+    is,
+    validate,
+    schema,
+  };
 };
 
 /**
