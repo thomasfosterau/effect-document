@@ -63,6 +63,31 @@ const deepRoundTrip = Effect.gen(function* () {
 
 The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet holds only the rows it has, each row's cells by position, a plain number, string or boolean standing for its unstyled cell and `undefined` for a gap, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
 
+### Embedded resources
+
+A document can carry binary resources (images, fonts, embedded files) in a media bag beside its blocks, as Pandoc's `MediaBag` does. A node refers to one with a `resource:<id>` URL where it would put any other URL (`Image.target.url`, `Picture.src`), so external URLs keep working. The bytes encode to JSON as base64. A document with resources uses the `doc.resources` feature: `Html`, `Presentation` and `Full` allow it, and `narrow` to any other profile drops each resource, reporting it at the path `["resources", id]` and leaving the `resource:` URLs as they are. To keep the files, take `doc.resources` before narrowing.
+
+```ts
+import {
+  Image,
+  Resource,
+  document,
+  imageInfo,
+  para,
+  str,
+  withResource,
+} from "@thomasfosterau/effect-document";
+
+const logo = new Resource({ mediaType: "image/png", bytes: pngBytes, filename: "logo.png" });
+const { document: withLogo, url } = withResource(document([]), logo); // the same bytes get the same URL
+const doc = document(
+  [para([new Image({ alt: [str("logo")], target: { url } })])],
+  {},
+  withLogo.resources,
+);
+imageInfo(pngBytes); // Option.some({ mediaType: "image/png", width, height, dpi })
+```
+
 ## Profiles
 
 A **feature** names one capability (`block.header`, `cell.date`, `attr.style`); a **profile** is a named set of them. A document is phantom-typed `Doc<F>` with the features it may use, and because the phantom is covariant, "is a subset of" is ordinary assignability: widening is free, and handing a writer a document that is too rich is a compile-time error.
@@ -171,6 +196,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `BlockFeature` | type | Block-level node features (prose). |
 | `SheetFeature` | type | Spreadsheet features (the `Worksheet` block and its typed cells). |
 | `DeckFeature` | type | Presentation features (the `SlideShow` block, its slides and shapes). |
+| `DocFeature` | type | Document-level features: `doc.resources`, a media bag (#113). |
 | `AttrFeature` | type | Cross-cutting attribute-facet features (which kinds of `Attributes` are allowed). |
 | `IdFeature` | type | Per-node id facets (`attr.id.header`, `attr.id.link`, …): an id allowed on one kind of node only. |
 | `ID_FEATURE` | const | Each node's id facet, keyed by its tag (`TableCell` and `Slide` for the untagged ones). |
@@ -186,6 +212,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `ALL_BLOCK_FEATURES` | const | Every prose block feature, for assembling profiles. |
 | `ALL_SHEET_FEATURES` | const | Every spreadsheet feature (worksheets and cell types), for assembling profiles. |
 | `ALL_DECK_FEATURES` | const | Every presentation feature (slide shows and shapes), for assembling profiles. |
+| `ALL_DOC_FEATURES` | const | Every document-level feature, for assembling profiles. |
 | `ALL_ATTR_FEATURES` | const | Every attribute facet feature, for assembling profiles. |
 | `ALL_ID_FEATURES` | const | Every per-node id facet. |
 | `ALL_FEATURES` | const | Every feature in the schema - the maximal ("Full") profile's allow-set. |
@@ -274,7 +301,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `SlideShow` | class | A presentation deck. |
 | `Block` | const | Any block-level node (prose, spreadsheet, or presentation). |
 | `Meta` | const | Document metadata (title, author, arbitrary key/values). |
-| `Document` | class | A complete document. |
+| `Document` | class | A complete document: metadata, blocks and, when it embeds any, its media bag (`resources`). |
 | `str` | function | A `Str`. |
 | `emph` | function | An `Emph` (emphasis, usually italic) around `content`. |
 | `strong` | function | A `Strong` (strong emphasis, usually bold) around `content`. |
@@ -292,7 +319,22 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `textBox` | function | A `TextBox` shape holding prose blocks. |
 | `slide` | function | A `Slide` of `shapes`, with optional speaker `notes`. |
 | `slideShow` | function | A `SlideShow` block. |
-| `document` | function | Construct a document from blocks (with optional metadata). |
+| `document` | function | Construct a document from blocks, with optional metadata and media bag. |
+| `resourceOf` | function | The resource a `resource:` URL in a document refers to, as an `Option`. |
+| `withResource` | function | A document with a resource added to its media bag (deduplicated by content), and the URL to refer to it by. |
+| `WithResource` | interface | What `withResource` returns. |
+| `Resource` | class | One binary resource: its bytes (base64 in JSON), media type and optional file name. |
+| `ResourceEncoded` | type | The JSON form of a `Resource`. |
+| `Resources` | const | A document's media bag: resources by id. |
+| `RESOURCE_SCHEME` | const | `"resource:"`, the scheme of a reference into the media bag. |
+| `resourceUrl` / `resourceIdOf` | function | A resource id to its `resource:` URL, and back (`None` for any other URL). |
+| `addResource` / `AddedResource` | function / interface | Add a resource to a media bag under its content id, returning the existing id for content it already holds. |
+| `contentId` | function | An id derived from a resource's bytes. |
+| `sameResource` | function | Whether two resources hold the same bytes of the same media type. |
+| `imageInfo` | function | A PNG, JPEG, GIF or SVG's media type, pixel size and recorded resolution, read from its header. |
+| `ImageInfo` / `Dpi` | interface | What `imageInfo` returns. |
+| `emuExtent` / `EmuExtent` | function / interface | An image's natural size in EMUs (DOCX and PPTX extents). |
+| `DEFAULT_DPI` / `EMU_PER_INCH` | const | 96, the resolution assumed when none is recorded; 914 400 EMUs to the inch. |
 | `space` / `softBreak` / `lineBreak` | function | A `Space`, `SoftBreak` or `LineBreak`. |
 | `underline` / `strikeout` / `superscript` / `subscript` / `smallCaps` | function | The formatting inlines around content. |
 | `quoted` / `code` / `math` / `rawInline` | function | `Quoted` content (double quotes by default), inline `Code` (optional attributes), TeX `Math` (inline by default) and a format's verbatim `RawInline`. |

@@ -44,7 +44,7 @@ export const LossEntry = Schema.Struct({
   action: Schema.Literals(["dropped", "converted"]),
   /** How bad it is: see {@link LossSeverity}. */
   severity: LossSeverity,
-  /** Where it was: the path from the document's blocks (see {@link LossPathSegment}); empty for the document as a whole. */
+  /** Where it was: the path from the document's blocks (see {@link LossPathSegment}), or `["resources", id]` for a resource of its media bag (#113); empty for the document as a whole. */
   path: Schema.Array(LossPathSegment),
   /** A short human-readable explanation. */
   detail: Schema.String,

@@ -9,6 +9,8 @@ export * from "./attributes.ts";
 export * from "./ast.ts";
 export * from "./document.ts";
 export * from "./builders.ts";
+export * from "./resource.ts";
+export * from "./image.ts";
 export * from "./sheet.ts";
 export * from "./depth.ts";
 export * from "./codec.ts";

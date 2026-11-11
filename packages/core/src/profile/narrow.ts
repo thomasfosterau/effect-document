@@ -10,6 +10,7 @@
  * e.g. writing an Excel workbook to CSV.
  */
 
+import * as Option from "effect/Option";
 import * as Rec from "effect/Record";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
@@ -78,6 +79,7 @@ import {
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
 import { cellOf, denseRows, rowCellsOf, rowIndexes, sheetRow } from "../schema/sheet.ts";
+import { type Resources, resourceUrl } from "../schema/resource.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { type FieldValues, fieldMatches, type OnlyWithin, type RuleNode } from "./rules.ts";
@@ -981,13 +983,42 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
   }
 
   const narrowed = narrowBlocks(blocks, ctx);
+  const resources = narrowResources(doc, ctx);
   // `narrowBlocks` rebuilt every node through the `ctx.allowed` check, so the
   // tree uses only the target profile's features.
-  const document = trustAs<To>(new Document({ meta: doc.meta, blocks: narrowed }));
+  const document = trustAs<To>(
+    Option.match(resources, {
+      onNone: () => new Document({ meta: doc.meta, blocks: narrowed }),
+      onSome: (kept) => new Document({ meta: doc.meta, blocks: narrowed, resources: kept }),
+    }),
+  );
   return {
     document,
     loss: lossReport(ctx.rec.entries),
   };
+};
+
+/**
+ * The media bag the target keeps (#113): `doc`'s when it allows
+ * `doc.resources`, otherwise none, each resource reported at the path
+ * `["resources", id]`. The `resource:` URLs that referred to them are left as
+ * they are, so a caller that wants the files (Pandoc's `--extract-media`)
+ * takes `doc.resources` before narrowing.
+ */
+const narrowResources = (doc: Document, ctx: Ctx): Option.Option<Resources> => {
+  const resources = doc.resources;
+  if (resources === undefined || Rec.isEmptyRecord(resources)) return Option.none();
+  if (ctx.allowed.has("doc.resources")) return Option.some(resources);
+  const rec = ctx.rec.at("resources");
+  Rec.toEntries(resources).forEach(([id, r]) =>
+    rec
+      .at(id)
+      .drop(
+        "doc.resources",
+        `embedded ${r.mediaType} (${r.bytes.length} bytes); references to ${resourceUrl(id)} are left dangling`,
+      ),
+  );
+  return Option.none();
 };
 
 /** Narrow within an Effect. */
