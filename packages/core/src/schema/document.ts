@@ -112,7 +112,12 @@ export const table = (options: {
   readonly headers?: ReadonlyArray<string> | undefined;
   readonly rows: ReadonlyArray<ReadonlyArray<ReadonlyArray<Block>>>;
 }): Table => {
-  const colCount = Math.max(options.headers?.length ?? 0, ...options.rows.map((r) => r.length));
+  // a fold, not `Math.max(...widths)`: a spread of every row overflows the
+  // stack on a large table (#225)
+  const colCount = options.rows.reduce(
+    (w, r) => Math.max(w, r.length),
+    options.headers?.length ?? 0,
+  );
   const head =
     options.headers === undefined
       ? []

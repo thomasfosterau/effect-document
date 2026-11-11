@@ -307,7 +307,7 @@ export const ocrGlyphs = (
     return [a * u + c * v + e, b * u + d * v + f];
   };
   return linesOf(words).map((line) => {
-    const left = Math.min(...line.words.map((w) => w.left));
+    const left = line.words.reduce((m, w) => Math.min(m, w.left), Number.POSITIVE_INFINITY);
     const heights = Arr.sort(
       line.words.map((w) => w.bottom - w.top),
       byNumber,

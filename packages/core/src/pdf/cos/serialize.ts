@@ -280,7 +280,9 @@ export const rewritePdf = (
     if (!objects.has(num) && object !== null) objects.set(num, { object, gen: 0 });
   }
   // a repaired trailer may hold the catalog or info dictionary directly
-  let free = Math.max(0, ...objects.keys()) + 1;
+  // a fold, not `Math.max(...keys)`: a spread of every object number
+  // overflows the stack on a file with that many objects (#225)
+  let free = Arr.reduce(objects.keys(), 0, (m, num) => Math.max(m, num)) + 1;
   const indirect = (o: PdfObject | undefined): PdfRef | undefined => {
     if (o === undefined || o === null) return undefined;
     if (isRef(o)) return o;

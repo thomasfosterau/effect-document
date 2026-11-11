@@ -385,6 +385,17 @@ describe("PdfFile", () => {
     expect(blocksToText(run(makePdfReader().read(bytes(out))).blocks)).toBe("Packed objects");
   });
 
+  test("rewritePdf takes more objects than a spread's argument limit (#225)", () => {
+    const file = PdfFile.open(xrefStreamPdf());
+    const count = 300_000;
+    // oxlint-disable-next-line effect/avoid-native-object-helpers -- rewritePdf's `overrides` is a ReadonlyMap (its public API)
+    const overrides = new Map<number, PdfObject>(
+      Array.from({ length: count }, (_, k) => [100 + k, k]),
+    );
+    const again = PdfFile.open(rewritePdf(file, overrides));
+    expect(again.get(100 + count - 1)).toBe(count - 1);
+  });
+
   test("PdfBuilder writes a file PdfFile can read back", () => {
     const pdf = new PdfBuilder();
     const pages = pdf.alloc();

@@ -237,6 +237,20 @@ describe("sparse worksheet (#185)", () => {
       "Schema validation failed",
     );
   });
+
+  test("the constructors reject a plain object as a cell (#228)", () => {
+    // `Reflect.construct` passes input the types would refuse, as untyped
+    // callers (JavaScript, JSON) can
+    const notACell = { col: 0 };
+    expect(() => Reflect.construct(SheetRow, [{ index: 0, cells: [notACell] }])).toThrow(
+      "Schema validation failed",
+    );
+    expect(() =>
+      Reflect.construct(Worksheet, [{ name: "S", columns: [], rows: [[notACell]], merges: [] }]),
+    ).toThrow("Schema validation failed");
+    // a cell node and a plain cell are still accepted
+    expect(new SheetRow({ index: 0, cells: [cell.text("a"), 1] }).cells).toHaveLength(2);
+  });
 });
 
 describe("plain rows (#227)", () => {

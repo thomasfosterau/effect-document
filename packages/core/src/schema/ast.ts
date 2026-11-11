@@ -11,6 +11,7 @@
  */
 
 import * as Arr from "effect/Array";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { Attributes, Style, attrField } from "./attributes.ts";
@@ -789,9 +790,41 @@ export type PlainCell = typeof PlainCell.Type;
  * in), written `null` in JSON. A {@link CellBlank} is kept only when a format
  * has something to say about an empty cell, such as its style.
  */
+
+/**
+ * A row position's cell node on the type side: an instance of one of the
+ * {@link SheetCell} classes. It is declared, not `Schema.toType(SheetCell)`,
+ * because the union's constructor converts what it is given: `{ col: 0 }` is a
+ * valid `CellBlank` constructor input (the tag has a default and `style` is
+ * optional), so `new SheetRow` turned it into a blank cell where decoding
+ * rejects it (#228).
+ */
+const SheetCellInstance = Schema.declare(
+  (u): u is SheetCell => {
+    if (!Predicate.isObject(u)) return false;
+    const proto: unknown = Object.getPrototypeOf(u);
+    return (
+      proto === CellText.prototype ||
+      proto === CellNumber.prototype ||
+      proto === CellBoolean.prototype ||
+      proto === CellDate.prototype ||
+      proto === CellError.prototype ||
+      proto === CellBlank.prototype ||
+      proto === CellFormula.prototype ||
+      proto === CellRichText.prototype
+    );
+  },
+  {
+    identifier: "SheetCellInstance",
+    title: "a SheetCell",
+    description: "An instance of one of the SheetCell classes (CellText, CellNumber, …).",
+    expected: "a SheetCell (CellText | CellNumber | … | CellRichText)",
+  },
+);
+
 export const RowCell = Schema.NullOr(Schema.Union([PlainCell, SheetCell])).pipe(
   Schema.decodeTo(
-    Schema.UndefinedOr(Schema.Union([PlainCell, Schema.toType(SheetCell)])),
+    Schema.UndefinedOr(Schema.Union([PlainCell, SheetCellInstance])),
     SchemaTransformation.transform({
       decode: (cell) => cell ?? undefined,
       encode: (cell) => cell ?? null,

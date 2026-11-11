@@ -394,7 +394,7 @@ const buildList = (items: ReadonlyArray<Item>, size: number): Block[] => {
 const codeText = (group: ReadonlyArray<Line>): string => {
   const first = group[0];
   if (first === undefined) return "";
-  const left = Math.min(...group.map((l) => l.x0));
+  const left = group.reduce((m, l) => Math.min(m, l.x0), Number.POSITIVE_INFINITY);
   const step = Math.abs(
     median(
       group
