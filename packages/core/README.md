@@ -155,6 +155,8 @@ const program = Effect.gen(function* () {
 
 For text whose separator isn't known, `Csv.sniffDialect(text)` reads the first 64 KiB and returns `CsvReaderOptions` for it: the separator (comma, semicolon, tab or pipe), the line break, how many preamble lines to skip, and whether the first row is a header (the reader's own rule). It also gives a confidence and an evidence string. A line the sample cuts off isn't judged, so the options it returns read the whole file as they read the sample.
 
+For a preview of a large file, pass `maxRows`: the CSV reader then reads at most that many records after `skipRows` (a header row counts as one) and never looks at the rest of the input. The XLSX reader keeps at most that many rows of each sheet. A document cut short says so in `meta.truncated` (`{ maxRows, sheets }`): `isTruncated(doc)` and `truncationOf(doc)` read it, so a preview never passes for the whole file.
+
 ## API reference
 
 The root entry re-exports everything; the subpaths expose one area each.
@@ -410,6 +412,11 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `DetectOptions` | interface | Options for `detect`: the formats to choose among, and the hints. |
 | `Detectable` | interface | What `detect` needs of a format: its id, and its sniffer, extensions and MIME types. |
 | `HINT_WEIGHT` | const | How much a matching extension or MIME type adds to a candidate's confidence (0.001). |
+| `isTruncated` | function | Whether a document is a truncated preview read rather than the whole file. |
+| `truncationOf` | function | What a truncated preview read left out: its `maxRows` and the worksheets it cut. |
+| `markTruncated` | function | Mark a document as a truncated preview (`meta.truncated`), keeping its profile: for readers. |
+| `Truncation` | interface | A preview read's limit and the worksheets it cut. |
+| `TRUNCATED_META_KEY` | const | The metadata key a truncated preview read sets (`"truncated"`). |
 
 Every node class also has a `*Encoded` interface: its JSON form (`ParaEncoded`, `WorksheetEncoded`, …), which is what `Schema.encode` produces.
 
