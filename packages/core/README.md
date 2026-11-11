@@ -264,6 +264,14 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `slide` | function | A `Slide` of `shapes`, with optional speaker `notes`. |
 | `slideShow` | function | A `SlideShow` block. |
 | `document` | function | Construct a document from blocks (with optional metadata). |
+| `space` / `softBreak` / `lineBreak` | function | A `Space`, `SoftBreak` or `LineBreak`. |
+| `underline` / `strikeout` / `superscript` / `subscript` / `smallCaps` | function | The formatting inlines around content. |
+| `quoted` / `code` / `math` / `rawInline` | function | `Quoted` content (double quotes by default), inline `Code` (optional attributes), TeX `Math` (inline by default) and a format's verbatim `RawInline`. |
+| `image` / `note` / `span` | function | An `Image` (alt inlines, optional title), a `Note` of blocks and a `Span` of inlines with attributes. |
+| `blockQuote` / `div` / `figure` / `definitionList` / `lineBlock` / `horizontalRule` / `rawBlock` | function | The remaining prose blocks. |
+| `picture` / `placeholder` | function | A `Picture` shape and a `Placeholder` shape. |
+| `textInlines` | function | A string as `Str` / `Space` / `SoftBreak` inlines, as Pandoc's `text` builder splits it. |
+| `normalizeInlines` | function | Inlines with adjacent `Str`s merged, empty ones dropped and whitespace runs collapsed (shallow). |
 | `inlinesToText` | function | Collapse a sequence of inlines to plain text. |
 | `cellToText` | function | Collapse a single spreadsheet cell to plain text. |
 | `shapeToText` | function | Collapse a single slide shape to plain text. |
