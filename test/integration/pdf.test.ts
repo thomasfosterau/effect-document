@@ -38,15 +38,25 @@ const report = trustAs<FeaturesOf<typeof Docx.profile>>(
 const docxBytes = () => run(Docx.makeDocxWriter().write(report));
 
 describe("DOCX -> PDF (narrowing)", () => {
-  test("keeps headings, links, lists and styling; drops the table and says so", () => {
+  test("keeps headings, links, lists and styling; turns the table into paragraphs and says so", () => {
     const { content, loss } = run(
       convert({ from: Docx.format, to: Pdf.format, input: docxBytes() }),
     );
-    expect(loss.entries.map((e) => e.feature)).toContain("block.table");
+    expect(loss.entries.filter((e) => e.feature === "block.table").map((e) => e.action)).toEqual([
+      "converted",
+    ]);
     const back = run(Pdf.makePdfReader().read(content));
     expect(Pdf.Pdf.is(back)).toBe(true);
-    expect(back.blocks.map((b) => b._tag)).toEqual(["Header", "Para", "BulletList"]);
+    // the table's rows come back as paragraphs (#111)
+    expect(back.blocks.map((b) => b._tag)).toEqual([
+      "Header",
+      "Para",
+      "BulletList",
+      "Para",
+      "Para",
+    ]);
     expect(blocksToText(back.blocks)).toContain("See the site for details.");
+    expect(blocksToText(back.blocks)).toContain("1 2");
   });
 });
 
