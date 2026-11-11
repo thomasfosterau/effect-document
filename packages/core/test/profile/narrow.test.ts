@@ -186,6 +186,8 @@ describe("narrow: structural rules (notWithin, #197)", () => {
         feature: "inline.strong",
         action: "converted",
         detail: "Strong unwrapped to its text: headings are bold",
+        severity: "converted",
+        path: [0, 1],
       },
     ]);
     expect(BoldHeadings.is(out)).toBe(true);
@@ -261,6 +263,8 @@ describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
         feature: "block.header",
         action: "converted",
         detail: "heading converted to a paragraph: headings are slide titles",
+        severity: "converted",
+        path: [0, 0, 0, 0],
       },
     ]);
     expect(Titles.is(out)).toBe(true);
@@ -283,6 +287,8 @@ describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
         feature: "block.header",
         action: "converted",
         detail: "heading converted to a paragraph: titles have one level",
+        severity: "converted",
+        path: [0, 0, 0, 0],
       },
     ]);
   });
@@ -332,6 +338,8 @@ describe("per-node id facets (#184)", () => {
         feature: "attr.id.link",
         action: "dropped",
         detail: "format does not support ids on Link nodes",
+        severity: "dropped-formatting",
+        path: [1, 0],
       },
     ]);
   });
