@@ -10,11 +10,13 @@ import { type Format } from "../index.ts";
 import { Pdf, type PdfFeature, PdfWrite, type PdfWriteFeature } from "./profile.ts";
 import { makePdfReader } from "./reader.ts";
 import { makePdfWriter } from "./writer.ts";
+import { sniffPdf } from "./sniff.ts";
 
 export * from "./profile.ts";
 export * from "./reader.ts";
 export * from "./ocr.ts";
 export * from "./writer.ts";
+export * from "./sniff.ts";
 export { decodeTextString, glyphToUnicode } from "./text/encodings.ts";
 export {
   type PageImage,
@@ -32,6 +34,9 @@ export const profile = Pdf;
 /** The PDF format bundle, for use with `convert`. */
 export const format: Format<PdfFeature, PdfWriteFeature> = {
   id: "pdf",
+  sniff: sniffPdf,
+  extensions: ["pdf"],
+  mimeTypes: ["application/pdf"],
   readProfile: Pdf,
   writeProfile: PdfWrite,
   reader: makePdfReader(),

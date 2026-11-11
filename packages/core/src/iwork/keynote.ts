@@ -31,6 +31,9 @@ import {
 } from "../index.ts";
 import { componentPaths } from "./bundle.ts";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { sniffKeynote } from "./sniff.ts";
+
+export { sniffKeynote } from "./sniff.ts";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
 import { storageParagraphs } from "./text.ts";
 
@@ -89,6 +92,9 @@ export const profile = Keynote;
 /** The Keynote format bundle (read-only) for use with `convert`. */
 export const format: Format<KeynoteFeature> = {
   id: "keynote",
+  sniff: sniffKeynote,
+  extensions: ["key"],
+  mimeTypes: ["application/vnd.apple.keynote"],
   readProfile: Keynote,
   writeProfile: Keynote,
   reader: makeKeynoteReader(),

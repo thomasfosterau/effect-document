@@ -14,6 +14,7 @@
  * and a page break ends the paragraph.
  */
 
+import { sniffOpc } from "../shared/sniff.ts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as HashMap from "effect/HashMap";
@@ -52,6 +53,7 @@ import {
   TableRow,
   trustAs,
   Underline,
+  type Sniffer,
 } from "../../index.ts";
 import {
   OpcError,
@@ -728,3 +730,15 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
 export const DocxReaderTag = makeReaderTag<DocxFeature>("docx");
 /** A Layer providing the default DOCX reader for {@link DocxReaderTag}. */
 export const DocxReaderLive = Layer.succeed(DocxReaderTag, makeDocxReader());
+
+/**
+ * The DOCX sniffer, for `detect` (#188): a zip whose main part (found as
+ * the reader finds it) is declared a WordprocessingML main part, which is what
+ * the reader requires.
+ */
+export const sniffDocx: Sniffer = (content) =>
+  sniffOpc(content, {
+    name: "WordprocessingML",
+    fallback: "word/document.xml",
+    contentTypes: MAIN_CONTENT_TYPES,
+  });

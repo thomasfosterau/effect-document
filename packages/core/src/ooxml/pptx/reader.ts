@@ -11,6 +11,7 @@
  * relationship or part is missing fails the read, as in XLSX.
  */
 
+import { sniffOpc } from "../shared/sniff.ts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,6 +40,7 @@ import {
   TextBox,
   trustAs,
   Underline,
+  type Sniffer,
 } from "../../index.ts";
 import {
   OpcError,
@@ -266,3 +268,15 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
 export const PptxReaderTag = makeReaderTag<PptxReadFeature>("pptx");
 /** A Layer providing the default PPTX reader for {@link PptxReaderTag}. */
 export const PptxReaderLive = Layer.succeed(PptxReaderTag, makePptxReader());
+
+/**
+ * The PPTX sniffer, for `detect` (#188): a zip whose main part (found as
+ * the reader finds it) is declared a PresentationML main part, which is what
+ * the reader requires.
+ */
+export const sniffPptx: Sniffer = (content) =>
+  sniffOpc(content, {
+    name: "PresentationML",
+    fallback: "ppt/presentation.xml",
+    contentTypes: MAIN_CONTENT_TYPES,
+  });
