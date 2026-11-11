@@ -62,7 +62,7 @@ catalog:
   # against (first-party; exempt from the release-age hold below). A
   # devDependency here; consumers get it as an optional peer
   # (`catalogs.peers` below).
-  "@thomasfosterau/effect-parse": ^0.4.1
+  "@thomasfosterau/effect-parse": ^0.5.0
   "@types/node": ^26.6.6
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
   # The leading actively maintained JavaScript library for each format, which
@@ -127,7 +127,7 @@ catalogs:
     # `/iwork*` (test/module-graph.test.ts). Caret, not `>=`: on 0.x a minor
     # release may break the combinator API the grammars are written against;
     # the floor is the release the grammars were last moved to.
-    "@thomasfosterau/effect-parse": ^0.4.1
+    "@thomasfosterau/effect-parse": ^0.5.0
     # The owner's policy: every published package peers on `effect ^4.0.0`,
     # raised only when one of that package's own dependencies requires more
     # (name the dependency here). None does: the only Effect-line peer,
