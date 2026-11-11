@@ -8,7 +8,7 @@
 
 import { type Format } from "../../index.ts";
 import { Docx, type DocxFeature } from "./profile.ts";
-import { makeDocxReader, type DocxReaderOptions } from "./reader.ts";
+import { makeDocxReader, sniffDocx, type DocxReaderOptions } from "./reader.ts";
 import { makeDocxWriter, type DocxWriterOptions } from "./writer.ts";
 
 export * from "./profile.ts";
@@ -27,6 +27,9 @@ export interface DocxFormatOptions {
 /** Create a DOCX Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: DocxFormatOptions): Format<DocxFeature> => ({
   id: "docx",
+  sniff: sniffDocx,
+  extensions: ["docx", "docm", "dotx", "dotm"],
+  mimeTypes: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
   readProfile: Docx,
   writeProfile: Docx,
   reader: makeDocxReader(options?.reader),

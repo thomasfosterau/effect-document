@@ -9,6 +9,7 @@ import { type Profile } from "../profile/profile.ts";
 import type { Feature } from "../schema/feature.ts";
 import type { Reader } from "./reader.ts";
 import type { Writer } from "./writer.ts";
+import type { Sniffer } from "./detect.ts";
 
 /** A format bundle for `convert`: its id, its profile, and its reader and/or writer. */
 export interface Format<R extends Feature, W extends Feature = R> {
@@ -26,6 +27,16 @@ export interface Format<R extends Feature, W extends Feature = R> {
   readonly reader?: Reader<R> | undefined;
   /** Writer implementation, if this format supports writing. */
   readonly writer?: Writer<W> | undefined;
+  /**
+   * How to recognise this format's content, for `detect` (#188): a pure
+   * check of the bytes or text, never the file name. A format without one is
+   * never a `detect` candidate.
+   */
+  readonly sniff?: Sniffer | undefined;
+  /** File extensions without the dot (`"xlsx"`, `"xlsm"`), lower case; `detect`'s tie-breaker only. */
+  readonly extensions?: ReadonlyArray<string> | undefined;
+  /** MIME types; `detect`'s tie-breaker only. */
+  readonly mimeTypes?: ReadonlyArray<string> | undefined;
 }
 
 /** A `Format` for some (existentially-quantified) profiles. */

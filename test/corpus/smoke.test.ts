@@ -21,11 +21,14 @@ import * as Predicate from "effect/Predicate";
 import * as Rec from "effect/Record";
 import * as Schema from "effect/Schema";
 import { afterAll, describe, expect, test } from "vite-plus/test";
-import { bytes, type Content, type ParseError } from "@thomasfosterau/effect-document";
+import { bytes, type Content, detect, type ParseError } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-document/csv";
 import { makeCsvReader } from "@thomasfosterau/effect-document/csv";
 import { Keynote, Numbers, Pages } from "@thomasfosterau/effect-document/iwork";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
 import { makePdfReader } from "@thomasfosterau/effect-document/pdf";
+import * as Rtf from "@thomasfosterau/effect-document/rtf";
 import { makeRtfReader } from "@thomasfosterau/effect-document/rtf";
 
 /** What the smoke run needs of a reader, whatever its profile. */
@@ -47,6 +50,31 @@ const READERS = {
 } satisfies Record<string, () => AnyReader>;
 
 type Format = keyof typeof READERS;
+
+/** Every format `detect` chooses among (#188), and the one each extension should be detected as. */
+const DETECTABLE = [
+  Csv.format,
+  Csv.tsvFormat,
+  Xlsx.format,
+  Docx.format,
+  Pptx.format,
+  Pdf.format,
+  Rtf.format,
+  Numbers.format,
+  Pages.format,
+  Keynote.format,
+];
+const EXPECTED_FORMAT: Record<Format, string> = {
+  csv: "csv",
+  xlsx: "xlsx",
+  docx: "docx",
+  pptx: "pptx",
+  pdf: "pdf",
+  rtf: "rtf",
+  numbers: "numbers",
+  pages: "pages",
+  key: "keynote",
+};
 
 const FORMATS: ReadonlyArray<string> = Rec.keys(READERS);
 const isFormat = (extension: string): extension is Format => FORMATS.includes(extension);
@@ -114,6 +142,10 @@ const { root, files } = await Effect.runPromise(corpusFiles);
 
 /** Files read and rejected, per format. */
 const counts: Record<string, { read: number; rejected: number }> = {};
+/** Files `detect` ranked right first, per format (#188). */
+const detected: Record<string, number> = {};
+/** The files `detect` did not rank as their format first: what it ranked first instead, if anything. */
+const misdetections: Array<{ readonly file: string; readonly detected: string }> = [];
 /** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
 const rejections: Array<{ readonly file: string; readonly reason: string }> = [];
 
@@ -130,6 +162,11 @@ describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
         const fs = yield* FileSystem.FileSystem;
         const reader: AnyReader = READERS[format]();
         const data = yield* fs.readFile(path);
+        // detection never fails: a wrong guess is recorded, not a test failure
+        const [best] = yield* detect(bytes(data), { formats: DETECTABLE });
+        if (best?.format.id === EXPECTED_FORMAT[format])
+          detected[format] = (detected[format] ?? 0) + 1;
+        else misdetections.push({ file: name, detected: best?.format.id ?? "nothing" });
         return yield* reader.read(bytes(data)).pipe(Effect.timeout(TIMEOUT));
       }).pipe(Effect.provide(NodeServices.layer)),
     );
@@ -153,17 +190,22 @@ describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const formats = Rec.map(counts, ({ read, rejected }) => ({
+        const formats = Rec.map(counts, ({ read, rejected }, format) => ({
           files: read + rejected,
           read,
           rejected,
           readRate: Math.round((read / (read + rejected)) * 1000) / 1000,
+          detectRate: Math.round(((detected[format] ?? 0) / (read + rejected)) * 1000) / 1000,
         }));
         yield* Console.table(formats);
         const report = yield* Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))({
           formats,
           rejections: Arr.sort(
             rejections,
+            Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
+          ),
+          misdetections: Arr.sort(
+            misdetections,
             Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
           ),
         });

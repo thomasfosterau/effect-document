@@ -17,6 +17,7 @@
  * referenced many times) cannot add up to an unbounded allocation.
  */
 
+import { sniffOpc } from "../shared/sniff.ts";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
@@ -33,6 +34,7 @@ import {
   worksheetFromRows,
   trustAs,
   Worksheet,
+  type Sniffer,
 } from "../../index.ts";
 import { collectText } from "./cellTypes.ts";
 import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
@@ -263,3 +265,15 @@ export const XlsxReaderLive = Layer.succeed(XlsxReaderTag, makeXlsxReader());
 /** Layer providing an XLSX Reader with custom options. */
 export const makeXlsxReaderLayer = (options?: XlsxReaderOptions) =>
   Layer.succeed(XlsxReaderTag, makeXlsxReader(options));
+
+/**
+ * The XLSX sniffer, for `detect` (#188): a zip whose main part (found as
+ * the reader finds it) is declared a SpreadsheetML main part, which is what
+ * the reader requires.
+ */
+export const sniffXlsx: Sniffer = (content) =>
+  sniffOpc(content, {
+    name: "SpreadsheetML",
+    fallback: "xl/workbook.xml",
+    contentTypes: WORKBOOK_CONTENT_TYPES,
+  });
