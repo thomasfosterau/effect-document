@@ -105,6 +105,28 @@ const BoldHeadings = defineProfile(
 );
 ```
 
+Two more kinds of rule say where a feature may appear and what a node's fields may hold. `onlyWithin` allows a feature only inside a given node, optionally one whose field holds one of a set of values; `fieldValues` restricts a node's own field. PPTX keeps a heading only as a slide's title, so its profile allows `block.header` only at level 1 and only in a title placeholder. Anywhere else, `is` and `validate` reject it, and `narrow` converts it to a paragraph with the rule's reason:
+
+```ts
+const Titles = defineProfile(
+  "titles",
+  ["deck.slideShow", "shape.placeholder", "block.header", "inline.str"],
+  {
+    onlyWithin: [
+      {
+        feature: "block.header",
+        within: "shape.placeholder",
+        where: { field: "placeholderType", oneOf: ["title", "ctrTitle"] },
+        reason: "headings are slide titles",
+      },
+    ],
+    fieldValues: [
+      { feature: "block.header", field: "level", oneOf: [1], reason: "titles have one level" },
+    ],
+  },
+);
+```
+
 The built-in profiles are `Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation` and `Full` (on `Profiles`, or as named exports from `./profiles`); each format package adds its own (`Docx`, `Pptx`, `Rtf`, `Pdf`, …).
 
 ## Reading, writing and converting
@@ -307,8 +329,12 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Doc` | type | A `Document` statically restricted to the features `F`. |
 | `FeaturesOf` | type | The feature set of a profile, as a phantom-bearing type. |
 | `Profile` | interface | A named subset of the schema. |
-| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`). |
+| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`). |
 | `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
+| `OnlyWithin` | interface | A structural rule: a feature the profile allows only inside a given node (one whose fields satisfy `where`, when given). |
+| `FieldValues` | interface | A structural rule: the values a node's field may hold. |
+| `FieldMatch` | interface | A condition on one of a node's own fields: it holds one of `oneOf`. |
+| `RuleValue` | type | A value a structural rule compares a node's field with: a string, number or boolean. |
 | `ProfileOptions` | interface | Options for `defineProfile`: structural rules beyond the feature set. |
 | `trustAs` | function | Assert (unsafely) that a document belongs to a profile, branding it without a runtime check. |
 | `collectFeatures` | function | The set of features a document uses. |
@@ -683,7 +709,8 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `pptxFeatures` | const | The features the PPTX profile allows, as a list. |
 | `Pptx` | const | The PPTX (PresentationML) profile. |
 | `PptxFeature` | type | The features the PPTX profile allows, as a type. |
-| `PptxRead` | const | What the PPTX reader produces. |
+| `TITLE_PLACEHOLDER_TYPES` | const | The placeholder types whose text is a slide's title, which the reader takes as headers. |
+| `PptxRead` | const | What the PPTX reader produces: the `Pptx` profile itself, now that its title-placeholder headers are in it (#196). |
 | `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
 | `PptxReaderOptions` | interface | Options for the PPTX reader. |
 | `makePptxReader` | function | Create a PPTX Reader. |

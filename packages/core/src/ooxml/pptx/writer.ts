@@ -53,7 +53,7 @@ import {
   slideRelsXml,
   themeXml,
 } from "./parts.ts";
-import { Pptx, type PptxFeature } from "./profile.ts";
+import { Pptx, type PptxFeature, TITLE_PLACEHOLDER_TYPES } from "./profile.ts";
 
 interface Fmt {
   b?: boolean | undefined;
@@ -123,13 +123,8 @@ const MAX_LVL = 8;
  * whose text the reader takes as headers, so headers there need no bold.
  */
 const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
-  if (isNodeIn(Pptx, b)) return pptxBlock(b, lvl, inTitle);
-  // Outside the profile, in a document handed over with `trustAs`: a header
-  // is a bold paragraph (the reader takes only title-placeholder text as
-  // headers); anything else is dropped.
-  if (Predicate.isTagged(b, "Header"))
-    return aPara("<a:buNone/>", inlineRuns(b.content, inTitle ? {} : { b: true }));
-  return "";
+  // outside the profile, in a document handed over with `trustAs`: dropped
+  return isNodeIn(Pptx, b) ? pptxBlock(b, lvl, inTitle) : "";
 };
 
 /**
@@ -176,6 +171,11 @@ const pptxBlock = (b: BlockOf<PptxFeature>, lvl: number, inTitle: boolean): stri
   Match.valueTags(b, {
     Para: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
     Plain: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
+    // A slide's title: plain title text, which the reader takes back as a
+    // level-1 header (#196). The profile allows a header nowhere else; one
+    // outside a title placeholder, in a document that breaks the profile's
+    // rules, is a bold paragraph, the nearest PPTX has.
+    Header: (h) => aPara("<a:buNone/>", inlineRuns(h.content, inTitle ? {} : { b: true })),
     BulletList: (l) => listParas(l.items, () => BULLET, lvl, inTitle),
     // The first item's `startAt` starts a new list, so adjacent ordered lists
     // stay separate (#196), and carries the list's start.
@@ -206,8 +206,7 @@ const shapeXml = (shape: Shape, idx: number): string => {
     : "";
   const txBox = Predicate.isTagged(shape, "TextBox") ? ' txBox="1"' : "";
   const content = shapeContent(shape);
-  const inTitle =
-    isPlaceholder && (shape.placeholderType === "title" || shape.placeholderType === "ctrTitle");
+  const inTitle = isPlaceholder && TITLE_PLACEHOLDER_TYPES.includes(shape.placeholderType);
   const paras =
     content.map((b) => blockToParas(b, 0, inTitle)).join("") ||
     "<a:p><a:pPr><a:buNone/></a:pPr></a:p>";
