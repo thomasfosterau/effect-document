@@ -162,26 +162,32 @@ export class OpcReader {
   constructor(data: Uint8Array, limits?: OpcLimits) {
     this.data = data;
     this.limits = resolveLimits(limits);
-    // List the central directory without inflating anything.
-    // oxlint-disable-next-line effect/avoid-try-catch -- fflate reports an unreadable archive only by throwing; this is the narrowest scope to give it the package's own tagged kind (#127)
-    try {
-      unzipSync(data, {
-        filter: (file) => {
-          if (this.entries.size >= this.limits.maxEntries) {
-            throw new OpcError("LimitExceeded", `more than ${this.limits.maxEntries} zip entries`);
-          }
-          this.entries.set(file.name.toLowerCase(), {
-            name: file.name,
-            originalSize: file.originalSize,
-          });
-          return false;
-        },
-      });
-    } catch (cause) {
-      if (cause instanceof OpcError) throw cause;
-      // fflate's own failure: the bytes aren't a zip it can list (#127)
-      throw new OpcError("InvalidContainer", `not a readable zip: ${String(cause)}`);
-    }
+    // List the central directory without inflating anything. fflate reports
+    // an unreadable archive only by throwing: it becomes the package's own
+    // tagged kind (#127), and an OpcError thrown from the filter stays as it is.
+    const listed = Result.try({
+      try: () =>
+        unzipSync(data, {
+          filter: (file) => {
+            if (this.entries.size >= this.limits.maxEntries) {
+              throw new OpcError(
+                "LimitExceeded",
+                `more than ${this.limits.maxEntries} zip entries`,
+              );
+            }
+            this.entries.set(file.name.toLowerCase(), {
+              name: file.name,
+              originalSize: file.originalSize,
+            });
+            return false;
+          },
+        }),
+      catch: (cause) =>
+        cause instanceof OpcError
+          ? cause
+          : new OpcError("InvalidContainer", `not a readable zip: ${String(cause)}`),
+    });
+    if (Result.isFailure(listed)) throw listed.failure;
   }
 
   /** The package's part names (as stored in the zip). */
