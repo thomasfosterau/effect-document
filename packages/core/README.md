@@ -130,6 +130,13 @@ const Titles = defineProfile(
 );
 ```
 
+Profiles combine, at the type level and at run time alike. `unionProfiles` and `intersectProfiles` combine two profiles, `withoutFeatures` and `extendProfile` remove or add features, `isSubProfile(a, b)` (and the type `IsSubProfile<A, B>`) asks whether every document `a` accepts `b` accepts too, and `profileOf(doc)` is the smallest profile a document fits. Structural rules follow the operation: a union keeps only the rules both sides share, an intersection keeps every rule of either, and removing a feature drops the rules about it.
+
+```ts
+const DocxWithoutNotes = withoutFeatures("docx-no-notes", Docx, ["inline.note"] as const);
+isSubProfile(profileOf(doc), Rtf); // can RTF hold this document losslessly?
+```
+
 The built-in profiles are `Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation` and `Full` (on `Profiles`, or as named exports from `./profiles`); each format package adds its own (`Docx`, `Pptx`, `Rtf`, `Pdf`, …).
 
 ## Reading, writing and converting
@@ -346,6 +353,13 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Profile` | interface | A named subset of the schema. |
 | `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`). |
 | `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
+| `unionProfiles` | function | A profile allowing what either of two allows, keeping only the structural rules both share. |
+| `intersectProfiles` | function | A profile allowing only what both of two allow, under every structural rule of either. |
+| `withoutFeatures` | function | A profile without some features and the structural rules about them. |
+| `extendProfile` | function | A profile with some features added, keeping its structural rules. |
+| `isSubProfile` | function | Whether every document one profile accepts, another accepts too (features and the rules that apply). |
+| `IsSubProfile` | type | Whether one profile's features are all another's, at the type level. |
+| `profileOf` | function | The smallest profile a document conforms to: exactly the features it uses. |
 | `OnlyWithin` | interface | A structural rule: a feature the profile allows only inside a given node (one whose fields satisfy `where`, when given). |
 | `FieldValues` | interface | A structural rule: the values a node's field may hold. |
 | `FieldMatch` | interface | A condition on one of a node's own fields: it holds one of `oneOf`. |

@@ -7,5 +7,6 @@ export * from "./profile.ts";
 export * from "./collect.ts";
 export * from "./loss.ts";
 export * from "./narrow.ts";
+export * from "./algebra.ts";
 /** The built-in profiles (`Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation`, `Full`) as one namespace. */
 export * as Profiles from "./profiles.ts";
