@@ -84,7 +84,10 @@ Profiles.Csv.is(sheet); // false: CSV has no date cells
 
 // narrow to a subset, learning exactly what was lost
 const { document: csv, loss } = narrow(sheet, Profiles.Csv);
-loss.entries; // [{ feature: "cell.date", action: "converted", detail: "date cell converted to ISO text" }]
+loss.entries;
+// [{ feature: "cell.date", action: "converted", severity: "converted",
+//    path: [0, "B1"], detail: "date cell converted to ISO text" }]
+loss.summary; // the same, grouped: [{ feature: "cell.date", action: "converted", count: 1, paths: [[0, "B1"]], … }]
 
 // validate instead, failing with the unsupported features
 const checked = Profiles.Csv.validate(sheet); // Effect<Doc<CsvFeature>, ProfileViolation>
@@ -150,7 +153,9 @@ const program = Effect.gen(function* () {
 });
 ```
 
-Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
+Each loss entry says where it was (`path`: block indexes from the document's top, then a list item, slide, shape or table row index, a part such as `"notes"`, or a worksheet cell's A1 address) and how bad it is (`severity`: `dropped-content`, `dropped-formatting` or `converted`); `summary` groups the entries by feature, so 10,000 date cells are one item with a count. `LossReport` is a `Schema`, so a report encodes to JSON for logs and CLI output. `convert` takes `onLoss`: `"allow"` (the default), `"warn"` (logs a warning per summary item with `Effect.logWarning`, annotated with the formats, feature and count) or `"fail"` (writes nothing and fails with a `ConversionError` whose `loss` is the report).
+
+Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer, or a loss under `onLoss: "fail"`). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
 
 ## Detecting a format and finding its tables
 
@@ -382,8 +387,14 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `collectFeatures` | function | The set of features a document uses. |
 | `collectFeaturesWithin` | function | The features a document uses inside nodes of a given feature. |
 | `unsupportedFeatures` | function | Features the document uses that are not in `allowed`. |
-| `LossEntry` | interface | One thing `narrow` could not keep. |
-| `LossReport` | interface | Everything a narrowing (or a conversion) dropped or down-converted. |
+| `LossEntry` | schema | One thing `narrow` could not keep: the feature, the action, its severity, its path and why. |
+| `LossReport` | schema | Everything a narrowing (or a conversion) dropped or down-converted: the entries, their summary, and whether there are none. |
+| `LossSummaryItem` | schema | How many times a feature was lost the same way, and where the first few were. |
+| `LossSeverity` | schema | How bad a loss is: `dropped-content`, `dropped-formatting` or `converted`. |
+| `LossPathSegment` | schema | One step of a loss entry's path: a child's index, a part's name or a cell's A1 address. |
+| `LOSS_SUMMARY_PATHS` | const | How many paths a summary item keeps (5). |
+| `lossReport` | function | The report for a list of entries: their summary, and whether there are none. |
+| `severityOf` | function | The severity of losing a feature by an action. |
 | `NarrowResult` | interface | The narrowed document and the loss report for it. |
 | `widen` | function | Widen a document to a superset profile. |
 | `narrow` | function | Narrow a document so it conforms to `to`, recording everything that had to be dropped or down-converted. |
@@ -410,7 +421,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `SourcePosition` | schema | Best-effort source position of a parse failure: `row`, `column`, `part`, `offset`, `component`, `object`, `sheet`, `cell`. |
 | `WriteError` | class | A writer failed to render a document into target content. |
 | `ProfileViolation` | class | A document used features outside a profile's allowed set. |
-| `ConversionError` | class | A conversion pipeline could not be assembled or a bridge step failed. |
+| `ConversionError` | class | A conversion pipeline could not be assembled, a bridge step failed, or `onLoss: "fail"` refused a lossy conversion (its `loss` holds the report). |
 | `Text` | interface | Textual content. |
 | `Bytes` | interface | Binary content. |
 | `Content` | type | Raw content accepted by readers and produced by writers. |
