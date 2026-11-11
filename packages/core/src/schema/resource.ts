@@ -57,13 +57,9 @@ const hex32 = (n: number): string => (n >>> 0).toString(16).padStart(8, "0");
  * rarely, share one: `addResource` compares the bytes and suffixes the id then.
  */
 export const contentId = (bytes: Uint8Array): string => {
-  let fnv = 0x811c9dc5;
-  let mul = 0;
-  // oxlint-disable-next-line effect/imperative-loops -- once per byte of a resource that may be megabytes: a fold would allocate an accumulator per byte
-  for (const byte of bytes) {
-    fnv = Math.imul(fnv ^ byte, 0x01000193);
-    mul = (Math.imul(mul, 31) + byte) | 0;
-  }
+  // two folds of one number each, so no accumulator is allocated per byte
+  const fnv = bytes.reduce((h, byte) => Math.imul(h ^ byte, 0x01000193), 0x811c9dc5);
+  const mul = bytes.reduce((h, byte) => (Math.imul(h, 31) + byte) | 0, 0);
   return `${hex32(fnv)}${hex32(mul)}-${bytes.length.toString(16)}`;
 };
 

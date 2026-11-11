@@ -67,26 +67,30 @@ const sized = (
     ? Option.some({ mediaType, width, height, dpi })
     : Option.none();
 
-/** A PNG's `IHDR` size and `pHYs` resolution (when its unit is the metre). */
-const png = (b: Uint8Array): Option.Option<ImageInfo> => {
-  if (b.length < 24 || ascii(b, 12, 4) !== "IHDR") return Option.none();
-  let dpi = Option.none<Dpi>();
-  // chunks: length, type, data, CRC; the resolution comes before the image data
-  // oxlint-disable-next-line effect/imperative-loops -- a byte-level chunk walk: each step's offset is the length the step before it read
-  for (let i = 8; i + 8 <= b.length;) {
-    const length = u32be(b, i);
-    const type = ascii(b, i + 4, 4);
-    if (type === "IDAT" || type === "IEND") break;
-    if (type === "pHYs" && length >= 9 && b[i + 16] === 1) {
-      dpi = Option.some({
-        x: Math.round(u32be(b, i + 8) * INCHES_PER_METRE),
-        y: Math.round(u32be(b, i + 12) * INCHES_PER_METRE),
-      });
-    }
-    i += 12 + length;
+/** How many PNG chunks are read before the image data: real files put `pHYs` within the first few. */
+const MAX_PNG_CHUNKS = 64;
+
+/** The `pHYs` resolution among the chunks from offset `i`, before the image data; `None` past the bound. */
+const pngDpi = (b: Uint8Array, i: number, left: number): Option.Option<Dpi> => {
+  if (left === 0 || i + 8 > b.length) return Option.none();
+  const length = u32be(b, i);
+  const type = ascii(b, i + 4, 4);
+  if (type === "IDAT" || type === "IEND") return Option.none();
+  if (type === "pHYs" && length >= 9 && b[i + 16] === 1) {
+    return Option.some({
+      x: Math.round(u32be(b, i + 8) * INCHES_PER_METRE),
+      y: Math.round(u32be(b, i + 12) * INCHES_PER_METRE),
+    });
   }
-  return sized("image/png", u32be(b, 16), u32be(b, 20), dpi);
+  // chunks: length, type, data, CRC
+  return pngDpi(b, i + 12 + length, left - 1);
 };
+
+/** A PNG's `IHDR` size and `pHYs` resolution (when its unit is the metre). */
+const png = (b: Uint8Array): Option.Option<ImageInfo> =>
+  b.length < 24 || ascii(b, 12, 4) !== "IHDR"
+    ? Option.none()
+    : sized("image/png", u32be(b, 16), u32be(b, 20), pngDpi(b, 8, MAX_PNG_CHUNKS));
 
 /** A GIF's logical screen size. */
 const gif = (b: Uint8Array): Option.Option<ImageInfo> =>
@@ -115,24 +119,29 @@ const bareMarkerLength = (marker: number): number =>
 /** Whether a JPEG marker ends the header before any frame: end of image, or the start of scan data. */
 const endsHeader = (marker: number): boolean => marker === 0xd9 || marker === 0xda;
 
-/** A JPEG's frame size, from its first start-of-frame segment, and its JFIF density. */
-const jpeg = (b: Uint8Array): Option.Option<ImageInfo> => {
-  let dpi = Option.none<Dpi>();
-  // oxlint-disable-next-line effect/imperative-loops -- a byte-level segment walk: each step's offset is the length the step before it read
-  for (let i = 2; i + 4 <= b.length;) {
-    const marker = b[i + 1] ?? 0;
-    if (b[i] !== 0xff || endsHeader(marker)) return Option.none();
-    const bare = bareMarkerLength(marker);
-    if (bare > 0) {
-      i += bare;
-      continue;
-    }
-    if (marker === 0xe0) dpi = jfifDpi(b, i + 4);
-    if (isStartOfFrame(marker)) return sized("image/jpeg", u16be(b, i + 7), u16be(b, i + 5), dpi);
-    i += 2 + u16be(b, i + 2);
-  }
-  return Option.none();
+/** How many JPEG markers are read before the frame: real files reach `SOFn` within a few dozen. */
+const MAX_JPEG_MARKERS = 256;
+
+/** The frame size from the marker at offset `i`, carrying the JFIF density seen; `None` past the bound. */
+const jpegFrame = (
+  b: Uint8Array,
+  i: number,
+  dpi: Option.Option<Dpi>,
+  left: number,
+): Option.Option<ImageInfo> => {
+  if (left === 0 || i + 4 > b.length) return Option.none();
+  const marker = b[i + 1] ?? 0;
+  if (b[i] !== 0xff || endsHeader(marker)) return Option.none();
+  const bare = bareMarkerLength(marker);
+  if (bare > 0) return jpegFrame(b, i + bare, dpi, left - 1);
+  if (isStartOfFrame(marker)) return sized("image/jpeg", u16be(b, i + 7), u16be(b, i + 5), dpi);
+  const seen = marker === 0xe0 ? jfifDpi(b, i + 4) : dpi;
+  return jpegFrame(b, i + 2 + u16be(b, i + 2), seen, left - 1);
 };
+
+/** A JPEG's frame size, from its first start-of-frame segment, and its JFIF density. */
+const jpeg = (b: Uint8Array): Option.Option<ImageInfo> =>
+  jpegFrame(b, 2, Option.none(), MAX_JPEG_MARKERS);
 
 /** How many bytes of an SVG are searched for its root element. */
 const SVG_SAMPLE_BYTES = 4096;
