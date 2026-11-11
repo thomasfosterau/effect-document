@@ -111,6 +111,10 @@ jobs:
     permissions:
       contents: read
     env:
+      # A zone west of UTC, so nothing in the suites may read the host's
+      # zone: the runners are UTC, and every OOXML write once failed west of it
+      # (fflate's zip timestamps are local time; #117)
+      TZ: America/Los_Angeles
       NODE_OPTIONS: --max-old-space-size=2048
       VITEST_MAX_WORKERS: 2
     steps:
