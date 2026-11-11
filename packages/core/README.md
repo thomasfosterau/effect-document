@@ -981,9 +981,9 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 
 Read-only Apple iWork readers: Keynote (`.key`, slide text), Pages (`.pages`, body text) and Numbers (`.numbers`, sheet structure), plus the container codec they are built on.
 
-> **Experimental.** iWork files are reverse-engineered binary bundles, so these readers are best-effort and read _text_ only: Keynote yields each slide's text, Pages its body paragraphs, Numbers its sheets without cell values. Writing needs Apple's proprietary object-graph schemas and is not supported. Password-protected documents are detected and refused.
+> **Experimental.** iWork files are reverse-engineered binary bundles, so these readers are best-effort and read _text_ only: Keynote yields each slide's text in the show's order (its slide tree, nested slides after their parent), Pages its body paragraphs, Numbers its sheets without cell values. Writing needs Apple's proprietary object-graph schemas and is not supported. Password-protected documents are detected and refused.
 >
-> Known limits until the object resolver (#101) lands (#99): the Pages reader takes the text of every storage in the file, so headers, footers, footnotes, text boxes, table cells and template text are mixed into the body; Keynote slides come in component-id order, not the show's slide order; a file from another iWork app (a `.key` read as Pages) is read rather than refused; and Numbers reports no loss for the cell values it does not read.
+> Known limits (#99): the Pages reader takes the text of every storage in the file, so headers, footers, footnotes, text boxes, table cells and template text are mixed into the body; a file from another iWork app (a `.key` read as Pages) is read rather than refused; and Numbers reports no loss for the cell values it does not read.
 
 #### Usage
 

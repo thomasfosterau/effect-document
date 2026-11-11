@@ -56,7 +56,8 @@ const iworkPosition = (e: IworkError): SourcePosition | undefined =>
  * object and offset. A `LimitExceeded` error (a zip or Snappy bomb) keeps its
  * class in `code`, as the OOXML readers' limit failures do.
  */
-const toParseError = (format: string, e: IworkError): ParseError =>
+/** An `IworkError` as the `ParseError` a reader fails with, its cause kept. */
+export const toParseError = (format: string, e: IworkError): ParseError =>
   new ParseError({
     format,
     reason: `Failed to read ${format}: ${e.reason}: ${e.message}`,
