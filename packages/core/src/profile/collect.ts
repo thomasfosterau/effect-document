@@ -6,6 +6,7 @@
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
+import * as Rec from "effect/Record";
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block,
@@ -225,6 +226,7 @@ export const collectFeatures = (doc: Document): Set<Feature> => {
   let worksheetCount = 0;
   for (const b of doc.blocks) if (Predicate.isTagged(b, "Worksheet")) worksheetCount += 1;
   if (worksheetCount > 1) acc.add("sheet.multiple");
+  if (doc.resources !== undefined && !Rec.isEmptyRecord(doc.resources)) acc.add("doc.resources");
 
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
