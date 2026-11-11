@@ -92,3 +92,57 @@ describe("profile algebra (#126)", () => {
     expect(isSubProfile(Own, Headed)).toBe(false);
   });
 });
+
+const TITLES = {
+  feature: "block.header",
+  within: "shape.placeholder",
+  where: { field: "kind", oneOf: ["title", "ctrTitle"] },
+  reason: "titles only",
+} as const;
+const UNSCOPED = {
+  feature: "block.header",
+  within: "shape.placeholder",
+  reason: "any placeholder",
+} as const;
+const LEVELS = {
+  feature: "block.header",
+  field: "level",
+  oneOf: [1, 2],
+  reason: "two levels",
+} as const;
+const Deck = defineProfile(
+  "deck",
+  ["deck.slideShow", "shape.placeholder", "block.header", "inline.str"],
+  {
+    onlyWithin: [TITLES],
+    fieldValues: [LEVELS],
+  },
+);
+const LooseDeck = defineProfile(
+  "loose-deck",
+  ["deck.slideShow", "shape.placeholder", "block.header", "inline.str"],
+  { onlyWithin: [UNSCOPED] },
+);
+
+describe("profile algebra over onlyWithin and fieldValues rules (#126)", () => {
+  test("a rule's condition is part of its identity: a union keeps only identical rules", () => {
+    expect(unionProfiles("same", Deck, Deck).onlyWithin).toEqual([TITLES]);
+    expect(unionProfiles("same", Deck, Deck).fieldValues).toEqual([LEVELS]);
+    const Either = unionProfiles("either", Deck, LooseDeck);
+    expect(Either.onlyWithin).toEqual([]);
+    expect(Either.fieldValues).toEqual([]);
+  });
+
+  test("an intersection keeps every rule once", () => {
+    const Both = intersectProfiles("both", Deck, LooseDeck);
+    expect(Both.onlyWithin).toEqual([TITLES, UNSCOPED]);
+    expect(Both.fieldValues).toEqual([LEVELS]);
+    expect(intersectProfiles("self", Deck, Deck).onlyWithin).toEqual([TITLES]);
+  });
+
+  test("a profile with fewer rules is not a sub-profile of one with more", () => {
+    expect(isSubProfile(Deck, LooseDeck)).toBe(false);
+    expect(isSubProfile(intersectProfiles("both", Deck, LooseDeck), LooseDeck)).toBe(true);
+    expect(isSubProfile(LooseDeck, Deck)).toBe(false);
+  });
+});
