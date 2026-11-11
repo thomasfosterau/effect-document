@@ -42,6 +42,7 @@
     "@changesets/cli",
     "@changesets/changelog-github",
     "@vitest/coverage-istanbul",
+    "@arethetypeswrong/cli",
     "fallow"
   ],
   "rules": {

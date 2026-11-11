@@ -71,7 +71,7 @@ export class CMap {
       const len =
         matched ||
         (Arr.isReadonlyArrayNonEmpty(spaces)
-          ? Math.min(...spaces.map((s) => s.len))
+          ? spaces.reduce((m, s) => Math.min(m, s.len), Number.POSITIVE_INFINITY)
           : fallbackLength);
       const n = Math.min(len, bytes.length - pos);
       out.push({ code: bytesToCode(bytes.subarray(pos, pos + n)), len: n });

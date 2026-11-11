@@ -49,6 +49,13 @@ describe("schema constructors", () => {
     expect(rowsOf(ws)[1]).toMatchObject({ index: 1 });
     expect(rowsOf(ws)[1]!.cells[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
   });
+
+  test("table takes more rows than a spread's argument limit (#225)", () => {
+    const rows = Array.from({ length: 300_000 }, (_, k) => (k === 7 ? [[], [], []] : [[]]));
+    const t = table({ rows });
+    expect(t.body).toHaveLength(300_000);
+    expect(t.colSpecs).toHaveLength(3);
+  });
 });
 
 describe("text collapse", () => {
