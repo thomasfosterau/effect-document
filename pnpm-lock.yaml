@@ -58,8 +58,8 @@ catalogs:
       specifier: ^3.0.1
       version: 3.0.2
     docx:
-      specifier: ^9.5.1
-      version: 9.15.2
+      specifier: ^9.15.3
+      version: 9.15.3
     exceljs:
       specifier: ^4.4.0
       version: 4.4.0
@@ -202,7 +202,7 @@ importers:
         version: 3.0.2
       docx:
         specifier: 'catalog:'
-        version: 9.15.2
+        version: 9.15.3
       effect:
         specifier: 4.1.2
         version: 4.1.2
@@ -1926,8 +1926,8 @@ packages:
   dingbat-to-unicode@1.0.2:
     resolution: {integrity: sha512-R0bRerYzy/EZP6QzD3Hkl6JjUDA1Mnn+pd928w0nWjPzihnbAR6dcjGJGiRyznj5E4S1duEKzWrTqw02DPcdzg==}
 
-  docx@9.15.2:
-    resolution: {integrity: sha512-G/R41dlYE5RS3TG2ybX1DIodQv+TchMspmdvrrovFyzTpvLZe0pLKVqiGosBhZszLkRonrK9+zxJDPWHDYx4NA==}
+  docx@9.15.3:
+    resolution: {integrity: sha512-3FnU6K5cuvGXEAn24yhvP3mfrZ1G8k9+hH8pSVDYsMR+mGmfK/t0NR5AwoMQodnaaxiRt2e+SvckffcJe/NvTQ==}
     engines: {node: '>=16'}
 
   dom-accessibility-api@0.5.16:
@@ -4408,9 +4408,9 @@ snapshots:
 
   dingbat-to-unicode@1.0.2: {}
 
-  docx@9.15.2:
+  docx@9.15.3:
     dependencies:
-      '@types/node': 26.6.5
+      '@types/node': 26.6.6
       fflate: 0.8.3
       nanoid: 6.0.2
 

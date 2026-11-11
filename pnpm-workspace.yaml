@@ -76,7 +76,7 @@ catalog:
   csv-parse: ^7.0.3
   csv-stringify: ^6.9.0
   d3-dsv: ^3.0.1
-  docx: ^9.5.1
+  docx: ^9.15.3
   exceljs: ^4.4.0
   mammoth: ^1.12.0
   papaparse: ^5.5.3
