@@ -172,6 +172,12 @@ const DECK: Partial<Record<Feature, Block[]>> = {
   "shape.placeholder": [
     slideShow([slide([new Placeholder({ placeholderType: "body", content: [para([s("x")])] })])]),
   ],
+  // a deck's heading is a slide's title, in a title placeholder (#196)
+  "block.header": [
+    slideShow([
+      slide([new Placeholder({ placeholderType: "title", content: [header(1, [s("x")])] })]),
+    ]),
+  ],
 };
 
 /** The kind of document a format holds, which decides how a feature's sample is wrapped. */
