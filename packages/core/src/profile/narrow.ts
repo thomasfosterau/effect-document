@@ -76,32 +76,22 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
-import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
+import { cellOf, denseRows, rowCellsOf, rowIndexes, sheetRow } from "../schema/sheet.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
 import { type FieldValues, fieldMatches, type OnlyWithin, type RuleNode } from "./rules.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
+import {
+  type LossEntry,
+  type LossPathSegment,
+  type LossReport,
+  lossReport,
+  severityOf,
+} from "./loss.ts";
 
 // ============================================================================
 // Loss report
 // ============================================================================
-
-/** One thing `narrow` could not keep: the feature, whether it was dropped or converted, and why. */
-export interface LossEntry {
-  /** The feature that could not be represented. */
-  readonly feature: Feature;
-  /** What happened: dropped, or down-converted to something simpler. */
-  readonly action: "dropped" | "converted";
-  /** A short human-readable explanation. */
-  readonly detail: string;
-}
-
-/** Everything a narrowing (or a conversion) dropped or down-converted. */
-export interface LossReport {
-  readonly entries: ReadonlyArray<LossEntry>;
-  /** True when nothing was lost (the narrowing was a no-op). */
-  readonly isLossless: boolean;
-}
 
 /** The narrowed document and the loss report for it. */
 export interface NarrowResult<To extends Feature> {
@@ -126,29 +116,81 @@ export const widen = <To extends Feature, From extends To = To>(doc: Doc<From>):
 // narrow
 // ============================================================================
 
+/**
+ * Where `narrow` records losses: one shared list of entries, seen from a
+ * position in the document. `at` gives the recorder for a child (sharing the
+ * entries), and an entry's path is read up the chain only when one is
+ * recorded, so positions cost nothing where nothing is lost.
+ */
 class Recorder {
   readonly entries: LossEntry[];
   /** Why features are lost here, beyond the generic detail: the reasons of the rules in force. */
   private readonly reasons: ReadonlyMap<Feature, string>;
-  constructor(entries: LossEntry[] = [], reasons: ReadonlyMap<Feature, string> = new Map()) {
+  private readonly parent: Recorder | undefined;
+  private readonly segment: LossPathSegment | undefined;
+  constructor(
+    entries: LossEntry[] = [],
+    reasons: ReadonlyMap<Feature, string> = new Map(),
+    parent?: Recorder,
+    segment?: LossPathSegment,
+  ) {
     this.entries = entries;
     this.reasons = reasons;
+    this.parent = parent;
+    this.segment = segment;
   }
   private detail(feature: Feature, detail: string): string {
     const reason = this.reasons.get(feature);
     return reason === undefined ? detail : `${detail}: ${reason}`;
   }
+  /** The path from the document's blocks to this position (read up the chain, as deep as the node). */
+  private path(): LossPathSegment[] {
+    const up = this.parent === undefined ? [] : this.parent.path();
+    if (this.segment !== undefined) up.push(this.segment);
+    return up;
+  }
+  private record(feature: Feature, action: LossEntry["action"], detail: string): void {
+    this.entries.push({
+      feature,
+      action,
+      severity: severityOf(feature, action),
+      path: this.path(),
+      detail: this.detail(feature, detail),
+    });
+  }
   drop(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "dropped", detail: this.detail(feature, detail) });
+    this.record(feature, "dropped", detail);
   }
   convert(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "converted", detail: this.detail(feature, detail) });
+    this.record(feature, "converted", detail);
   }
-  /** A recorder sharing these entries that adds `reasons` to the details of their features. */
+  /** A recorder at the same position that adds `reasons` to the details of their features. */
   within(reasons: ReadonlyMap<Feature, string>): Recorder {
-    return new Recorder(this.entries, new Map([...this.reasons, ...reasons]));
+    return new Recorder(
+      this.entries,
+      new Map([...this.reasons, ...reasons]),
+      this.parent,
+      this.segment,
+    );
+  }
+  /** The recorder for the child at `segment` of this position. */
+  at(segment: LossPathSegment): Recorder {
+    return new Recorder(this.entries, this.reasons, this, segment);
   }
 }
+
+/** The context for the child at `segment`. */
+const at = (ctx: Ctx, segment: LossPathSegment): Ctx => ({ ...ctx, rec: ctx.rec.at(segment) });
+
+/** A 0-based column's letters: 0 is `A`, 25 `Z`, 26 `AA`. */
+const columnLetters = (col: number): string => {
+  const last = String.fromCodePoint(65 + (col % 26));
+  // (`Math` here is the schema's math inline, so the division is spelled out)
+  return col < 26 ? last : columnLetters((col - (col % 26)) / 26 - 1) + last;
+};
+
+/** A worksheet cell's A1 address, from its 0-based column and row. */
+const cellAddress = (col: number, row: number): string => `${columnLetters(col)}${row + 1}`;
 
 interface Ctx {
   readonly allowed: ReadonlySet<Feature>;
@@ -260,7 +302,7 @@ const narrowAttr = (
 // ---- inlines --------------------------------------------------------------
 
 const narrowInlines = (inlines: ReadonlyArray<Inline>, ctx: Ctx): Inline[] =>
-  inlines.flatMap((i) => narrowInline(i, ctx));
+  inlines.flatMap((n, i) => narrowInline(n, at(ctx, i)));
 
 /**
  * A formatting wrapper: kept with its narrowed content when the profile has
@@ -497,10 +539,11 @@ const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
  * A row position narrowed: a gap as it is, a node narrowed, and a plain cell
  * narrowed as the node it stands for, kept plain when that node is kept.
  */
-const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
+const narrowPosition = (position: RowCell, ctx: Ctx, col: number, row: number): RowCell => {
   const node = cellOf(position);
-  if (node === undefined) return position;
-  const narrowed = narrowCell(node, ctx);
+  if (node === undefined || keepsCell(node, ctx)) return position;
+  // the cell's address only for a cell that is narrowed: the rest cost nothing
+  const narrowed = narrowCell(node, at(ctx, cellAddress(col, row)));
   return narrowed === node ? position : narrowed;
 };
 
@@ -508,9 +551,9 @@ const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
  * A row with its cells narrowed: the row itself when every cell is kept
  * unchanged, and a plain row stays a plain row (#227).
  */
-const narrowRow = (r: WorksheetRow, ctx: Ctx): WorksheetRow => {
+const narrowRow = (r: WorksheetRow, row: number, ctx: Ctx): WorksheetRow => {
   const old = rowCellsOf(r);
-  const cells = old.map((c) => narrowPosition(c, ctx));
+  const cells = old.map((c, col) => narrowPosition(c, ctx, col, row));
   if (cells.every((c, i) => c === old[i])) return r;
   return isPlainRow(r) ? cells : new SheetRow({ index: r.index, cells, height: r.height });
 };
@@ -538,7 +581,8 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
       return new SheetColumn({ width: c.width });
     });
   }
-  const rows = w.rows.map((r) => narrowRow(r, ctx));
+  const indexes = rowIndexes(w);
+  const rows = w.rows.map((r, i) => narrowRow(r, indexes[i] ?? i, ctx));
   // nothing narrowed: the worksheet itself (nodes are immutable)
   if (
     w.attr === undefined &&
@@ -656,17 +700,18 @@ const SHAPE: TagHandlers<Shape, [Ctx], Shape[]> = {
 const narrowShape = (s: Shape, ctx: Ctx): Shape[] => dispatchTag(SHAPE, s, ctx);
 
 const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
-  const slides = d.slides.map((sl) => {
+  const slides = d.slides.map((sl, n) => {
+    const here = at(ctx, n);
     let notes = sl.notes;
-    if (notes !== undefined && !ctx.allowed.has("deck.notes")) {
-      ctx.rec.drop("deck.notes", "speaker notes dropped");
+    if (notes !== undefined && !here.allowed.has("deck.notes")) {
+      at(here, "notes").rec.drop("deck.notes", "speaker notes dropped");
       notes = undefined;
     }
     return new Slide({
-      attr: narrowAttr(sl.attr, "Slide", ctx),
+      attr: narrowAttr(sl.attr, "Slide", here),
       layout: sl.layout,
-      shapes: sl.shapes.flatMap((sh) => narrowShape(sh, ctx)),
-      notes: notes === undefined ? undefined : narrowBlocks(notes, ctx),
+      shapes: sl.shapes.flatMap((sh, k) => narrowShape(sh, at(here, k))),
+      notes: notes === undefined ? undefined : narrowBlocks(notes, at(here, "notes")),
     });
   });
   return new SlideShow({ attr: narrowAttr(d.attr, "SlideShow", ctx), size: d.size, slides });
@@ -676,26 +721,26 @@ const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
 
 const narrowTableRow = (r: TableRow, ctx: Ctx): TableRow =>
   new TableRow({
-    cells: r.cells.map(
-      (c) =>
-        new TableCell({
-          attr: narrowAttr(c.attr, "TableCell", ctx),
-          align: c.align,
-          rowSpan: c.rowSpan,
-          colSpan: c.colSpan,
-          content: narrowBlocks(c.content, ctx),
-        }),
-    ),
+    cells: r.cells.map((c, k) => narrowTableCell(c, at(ctx, k))),
+  });
+
+const narrowTableCell = (c: TableCell, ctx: Ctx): TableCell =>
+  new TableCell({
+    attr: narrowAttr(c.attr, "TableCell", ctx),
+    align: c.align,
+    rowSpan: c.rowSpan,
+    colSpan: c.colSpan,
+    content: narrowBlocks(c.content, ctx),
   });
 
 const narrowTable = (t: Table, ctx: Ctx): Table =>
   new Table({
     attr: narrowAttr(t.attr, "Table", ctx),
-    caption: t.caption === undefined ? undefined : narrowInlines(t.caption, ctx),
+    caption: t.caption === undefined ? undefined : narrowInlines(t.caption, at(ctx, "caption")),
     colSpecs: t.colSpecs,
-    head: t.head.map((r) => narrowTableRow(r, ctx)),
-    body: t.body.map((r) => narrowTableRow(r, ctx)),
-    foot: t.foot.map((r) => narrowTableRow(r, ctx)),
+    head: t.head.map((r, i) => narrowTableRow(r, at(at(ctx, "head"), i))),
+    body: t.body.map((r, i) => narrowTableRow(r, at(at(ctx, "body"), i))),
+    foot: t.foot.map((r, i) => narrowTableRow(r, at(at(ctx, "foot"), i))),
   });
 
 // ---- blocks ---------------------------------------------------------------
@@ -703,7 +748,7 @@ const narrowTable = (t: Table, ctx: Ctx): Table =>
 const blockFeature = (tag: Block["_tag"]): Feature => TAG_FEATURE[tag];
 
 const narrowBlocks = (blocks: ReadonlyArray<Block>, ctx: Ctx): Block[] =>
-  blocks.flatMap((b) => narrowBlock(b, ctx));
+  blocks.flatMap((b, i) => narrowBlock(b, at(ctx, i)));
 
 /** A slide shape's block content, for flattening a deck into prose. */
 const shapeBlocks = (sh: Shape): ReadonlyArray<Block> =>
@@ -818,13 +863,13 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
       start: b.start,
       numberStyle: b.numberStyle,
       numberDelim: b.numberDelim,
-      items: b.items.map((it) => narrowBlocks(it, ctx)),
+      items: b.items.map((it, k) => narrowBlocks(it, at(ctx, k))),
     }),
   ],
   BulletList: (b, ctx) => [
     new BulletList({
       attr: narrowAttr(b.attr, "BulletList", ctx),
-      items: b.items.map((it) => narrowBlocks(it, ctx)),
+      items: b.items.map((it, k) => narrowBlocks(it, at(ctx, k))),
     }),
   ],
   Table: (b, ctx) => [narrowTable(b, ctx)],
@@ -834,15 +879,17 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
     new DefinitionList({
       attr: narrowAttr(b.attr, "DefinitionList", ctx),
       items: b.items.map(
-        (item) =>
+        (item, k) =>
           new DefinitionItem({
-            term: narrowInlines(item.term, ctx),
-            definitions: item.definitions.map((d) => narrowBlocks(d, ctx)),
+            term: narrowInlines(item.term, at(at(ctx, k), "term")),
+            definitions: item.definitions.map((d, j) => narrowBlocks(d, at(at(ctx, k), j))),
           }),
       ),
     }),
   ],
-  LineBlock: (b, ctx) => [new LineBlock({ lines: b.lines.map((l) => narrowInlines(l, ctx)) })],
+  LineBlock: (b, ctx) => [
+    new LineBlock({ lines: b.lines.map((l, k) => narrowInlines(l, at(ctx, k))) }),
+  ],
   CodeBlock: (b, ctx) => [
     new CodeBlock({
       attr: narrowAttr(b.attr, "CodeBlock", ctx),
@@ -904,7 +951,7 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
   const document = trustAs<To>(new Document({ meta: doc.meta, blocks: narrowed }));
   return {
     document,
-    loss: { entries: ctx.rec.entries, isLossless: Arr.isReadonlyArrayEmpty(ctx.rec.entries) },
+    loss: lossReport(ctx.rec.entries),
   };
 };
 
