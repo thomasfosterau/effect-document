@@ -8,7 +8,7 @@ Run the gates in [AGENTS.md](https://github.com/thomasfosterau/effect-document/b
 
 ## Changeset
 
-Name the changeset(s) under `.changeset/`, or say why none is needed (see [AGENTS.md](https://github.com/thomasfosterau/effect-document/blob/trunk/AGENTS.md#branches-and-pull-requests)).
+Name the changeset(s) under `.changeset/`, or say why none is needed (see [CONTRIBUTING.md](https://github.com/thomasfosterau/effect-document/blob/trunk/CONTRIBUTING.md#branches-and-pull-requests)).
 
 ## Notes
 

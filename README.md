@@ -102,7 +102,7 @@ PDF has no structure of its own to read - only glyphs at coordinates - so the PD
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Repository conventions are in [AGENTS.md](AGENTS.md), the release pipeline in [PUBLISHING.md](PUBLISHING.md) and the vulnerability-reporting policy in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Guidance for coding agents is in [AGENTS.md](AGENTS.md) (and Claude Code's own setup in [.claude/CLAUDE.md](.claude/CLAUDE.md)), the release pipeline in [PUBLISHING.md](PUBLISHING.md) and the vulnerability-reporting policy in [SECURITY.md](SECURITY.md).
 
 ## License
 
