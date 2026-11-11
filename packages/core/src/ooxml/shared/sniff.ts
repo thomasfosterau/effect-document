@@ -20,7 +20,7 @@ export interface OpcSignature {
 }
 
 /** Whether `bytes` opens as a zip: a local file header, or an empty archive's end record. */
-export const isZip = (bytes: Uint8Array): boolean =>
+const isZip = (bytes: Uint8Array): boolean =>
   bytes[0] === 0x50 && bytes[1] === 0x4b && (bytes[2] === 0x03 || bytes[2] === 0x05);
 
 /**
