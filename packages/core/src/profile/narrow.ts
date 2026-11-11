@@ -61,6 +61,7 @@ import {
   Slide,
   SlideShow,
   SmallCaps,
+  Space,
   Span,
   Str,
   Strikeout,
@@ -398,8 +399,13 @@ const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
           target: n.target,
         }),
       ];
-    ctx.rec.convert("inline.image", "Image reduced to its alt text");
-    return narrowInlines(n.alt, ctx);
+    // the alt text, then the URL in parentheses, so where the image was is kept (#111)
+    const alt = narrowInlines(n.alt, ctx);
+    const url = n.target.url === "" ? [] : [new Str({ text: `(${n.target.url})` })];
+    ctx.rec.convert("inline.image", "Image reduced to its alt text and URL");
+    return Arr.isReadonlyArrayNonEmpty(alt) && Arr.isReadonlyArrayNonEmpty(url)
+      ? [...alt, ...narrowInlines([new Space({}), ...url], ctx)]
+      : [...alt, ...narrowInlines(url, ctx)];
   },
   Code: textual(
     "inline.code",
@@ -806,13 +812,31 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
   },
   Table: (b, feature, ctx) => {
     if (ctx.allowed.has("sheet.worksheet")) return tableToWorksheet(b, ctx);
-    ctx.rec.drop(feature, "table dropped (target cannot represent tables)");
-    return [];
+    const rows = [...b.head, ...b.body, ...b.foot].map((r) =>
+      r.cells.map((c) => blocksToText(c.content)),
+    );
+    ctx.rec.convert(
+      feature,
+      `table converted to ${rows.length} paragraph(s), one per row, cells tab-separated`,
+    );
+    return rowParagraphs(rows, ctx);
   },
   Worksheet: (b, feature, ctx) => {
     if (ctx.allowed.has("block.table")) return worksheetToTable(b, ctx);
-    ctx.rec.drop(feature, "worksheet dropped (target cannot represent grids)");
-    return [];
+    const grid = denseRows(b);
+    if (Result.isFailure(grid)) {
+      ctx.rec.drop(
+        feature,
+        `worksheet "${b.name}" dropped: ${grid.failure.message}, too large to lay out as paragraphs`,
+      );
+      return [];
+    }
+    const rows = grid.success.map((row) => row.map(cellToText));
+    ctx.rec.convert(
+      feature,
+      `worksheet "${b.name}" converted to ${rows.length} paragraph(s), one per row, cells tab-separated`,
+    );
+    return rowParagraphs(rows, ctx);
   },
   SlideShow: (b, feature, ctx) => {
     ctx.rec.convert(feature, "slides flattened to their block content");
@@ -830,10 +854,21 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
     return [];
   },
   HorizontalRule: (_, feature, ctx) => {
-    ctx.rec.drop(feature, "horizontal rule dropped");
-    return [];
+    ctx.rec.convert(feature, "horizontal rule converted to a *** paragraph");
+    return narrowBlock(new Para({ content: [new Str({ text: "***" })] }), ctx);
   },
 };
+
+/**
+ * A grid's rows as paragraphs (#111), for a target with neither tables nor
+ * worksheets: one per row, its cells' text joined by tabs, so the data stays
+ * readable (and splittable) instead of being dropped. Re-narrowed, so a target
+ * without paragraphs gets what it has.
+ */
+const rowParagraphs = (rows: ReadonlyArray<ReadonlyArray<string>>, ctx: Ctx): Block[] =>
+  rows.flatMap((cells, index) =>
+    narrowBlock(new Para({ content: [new Str({ text: cells.join("\t") })] }), at(ctx, index)),
+  );
 
 /** Narrow the contents of a block the profile has. */
 const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
