@@ -3,14 +3,17 @@
  *
  * Reads text from Apple Keynote (.key) presentations: each `Slide-*.iwa`
  * component becomes a slide, and its `TSWP.StorageArchive` text is extracted
- * into a text-box of paragraphs. Slides follow their component ids in numeric
- * order; the true order (the show's slide tree) needs the object resolver.
+ * into a text-box of paragraphs. Slides follow the show's slide tree (#99),
+ * through the object resolver; a package without one keeps its components'
+ * numeric order.
  * Styling and exact title/body roles are not yet reconstructed.
  */
 
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import {
   type Block,
   type Content,
@@ -30,7 +33,8 @@ import {
   trustAs,
 } from "../index.ts";
 import { componentPaths } from "./bundle.ts";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { eachComponent, type IworkReaderOptions, openInput, toParseError } from "./read.ts";
+import { inShowOrder, showOrder } from "./show.ts";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
 import { storageParagraphs } from "./text.ts";
 
@@ -65,7 +69,21 @@ export const makeKeynoteReader = (options?: IworkReaderOptions): Reader<KeynoteF
   const read = (input: Content): Effect.Effect<Doc<KeynoteFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("keynote", input, options);
-      const paths = componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n));
+      const natural = componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n));
+      const order = yield* Result.match(showOrder(bundle), {
+        onSuccess: (ids) => Effect.succeed(ids),
+        onFailure: (e) =>
+          options?.lenient === true
+            ? Effect.as(
+                Effect.logWarning(`keynote: reading slides in component order: ${e.message}`),
+                Option.none<ReadonlyArray<bigint>>(),
+              )
+            : Effect.fail(toParseError("keynote", e)),
+      });
+      const paths = Option.match(order, {
+        onNone: () => natural,
+        onSome: (ids) => inShowOrder(natural, ids),
+      });
       const decoded = yield* eachComponent("keynote", bundle, paths, options, (obj) =>
         obj.messages.flatMap((msg) =>
           TSWP_STORAGE_ARCHIVE.has(msg.type) ? storageBlocks(msg.payload) : [],

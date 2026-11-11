@@ -7,6 +7,7 @@ import { decodeComponent, type IworkBundle, openBundle } from "../../src/iwork/b
 import { codecError } from "../../src/iwork/errors.ts";
 import { dataInfoOf, METADATA_COMPONENT, readPackageMetadata } from "../../src/iwork/metadata.ts";
 import { makeObjectResolver, referenceAt } from "../../src/iwork/resolver.ts";
+import { inShowOrder, showOrder } from "../../src/iwork/show.ts";
 import { KN_SLIDE_ARCHIVE } from "../../src/iwork/registry.ts";
 import { parseMessage } from "../../src/iwork/protobuf.ts";
 import { loadFixtures } from "./fixture.ts";
@@ -125,5 +126,32 @@ describe("referenceAt (#101)", () => {
     const message = parseMessage(new Uint8Array(lenField(3, varintField(1, 8060))));
     expect(referenceAt(message, 3)).toEqual(Option.some(8060n));
     expect(referenceAt(message, 4)).toEqual(Option.none());
+  });
+});
+
+describe("Keynote show order (#99)", () => {
+  test("a real deck's slide tree names its slide", () => {
+    expect(ok(showOrder(bundleOf("simple-oneslide.key")))).toEqual(Option.some([8060n]));
+  });
+
+  test("is None without a document root to start from", () => {
+    expect(
+      ok(showOrder(bundleWith({ "Index/Slide.iwa": fixture("simple-oneslide.iwa") }))),
+    ).toEqual(Option.none());
+  });
+
+  test("sorts slide components by their slide's place, unlisted ones last", () => {
+    const paths = [
+      "Index/Slide-1.iwa",
+      "Index/Slide-2.iwa",
+      "Index/Slide-2-2.iwa",
+      "Index/Slide-3.iwa",
+    ];
+    expect(inShowOrder(paths, [3n, 2n])).toEqual([
+      "Index/Slide-3.iwa",
+      "Index/Slide-2.iwa",
+      "Index/Slide-2-2.iwa",
+      "Index/Slide-1.iwa",
+    ]);
   });
 });
