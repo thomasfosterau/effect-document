@@ -83,11 +83,18 @@ const resolveLimits = (limits: OpcLimits | undefined): ResolvedOpcLimits => ({
   maxTotalSize: limits?.maxTotalSize ?? DEFAULT_OPC_LIMITS.maxTotalSize,
 });
 
-/** A package that breaks a resource limit or isn't the expected kind of package. */
-export class OpcError extends Error {
-  readonly kind: "LimitExceeded" | "WrongPackageType" | "MissingPart";
+/** Why a package can't be read: a broken limit, the wrong kind, a missing part, or not a zip at all. */
+export type OpcErrorKind =
+  | "LimitExceeded"
+  | "WrongPackageType"
+  | "MissingPart"
+  | "InvalidContainer";
 
-  constructor(kind: "LimitExceeded" | "WrongPackageType" | "MissingPart", message: string) {
+/** A package that breaks a resource limit, isn't the expected kind of package, or isn't a zip. */
+export class OpcError extends Error {
+  readonly kind: OpcErrorKind;
+
+  constructor(kind: OpcErrorKind, message: string) {
     super(message);
     this.kind = kind;
   }
@@ -156,18 +163,25 @@ export class OpcReader {
     this.data = data;
     this.limits = resolveLimits(limits);
     // List the central directory without inflating anything.
-    unzipSync(data, {
-      filter: (file) => {
-        if (this.entries.size >= this.limits.maxEntries) {
-          throw new OpcError("LimitExceeded", `more than ${this.limits.maxEntries} zip entries`);
-        }
-        this.entries.set(file.name.toLowerCase(), {
-          name: file.name,
-          originalSize: file.originalSize,
-        });
-        return false;
-      },
-    });
+    // oxlint-disable-next-line effect/avoid-try-catch -- fflate reports an unreadable archive only by throwing; this is the narrowest scope to give it the package's own tagged kind (#127)
+    try {
+      unzipSync(data, {
+        filter: (file) => {
+          if (this.entries.size >= this.limits.maxEntries) {
+            throw new OpcError("LimitExceeded", `more than ${this.limits.maxEntries} zip entries`);
+          }
+          this.entries.set(file.name.toLowerCase(), {
+            name: file.name,
+            originalSize: file.originalSize,
+          });
+          return false;
+        },
+      });
+    } catch (cause) {
+      if (cause instanceof OpcError) throw cause;
+      // fflate's own failure: the bytes aren't a zip it can list (#127)
+      throw new OpcError("InvalidContainer", `not a readable zip: ${String(cause)}`);
+    }
   }
 
   /** The package's part names (as stored in the zip). */

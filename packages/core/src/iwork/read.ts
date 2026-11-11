@@ -7,10 +7,16 @@
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
-import { type Content, contentToBytes, ParseError } from "../index.ts";
+import {
+  type Content,
+  contentToBytes,
+  ParseError,
+  type ParseErrorCode,
+  type SourcePosition,
+} from "../index.ts";
 import type { IworkObject } from "./archive.ts";
 import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.ts";
-import { type IworkError, isIworkError, withLocation } from "./errors.ts";
+import { type IworkError, type IworkErrorReason, isIworkError, withLocation } from "./errors.ts";
 
 /** Options shared by the Pages, Numbers and Keynote readers. */
 export interface IworkReaderOptions {
@@ -23,6 +29,28 @@ export interface IworkReaderOptions {
   readonly limits?: BundleLimits | undefined;
 }
 
+/** The `ParseError` code of each codec failure (#127); an I/O failure has none. */
+const IWORK_CODE = {
+  NotZip: "InvalidContainer",
+  NotIwork: "WrongFormat",
+  LegacyIwork09Unsupported: "Unsupported",
+  Encrypted: "Encrypted",
+  LimitExceeded: "LimitExceeded",
+  Truncated: "MalformedBinary",
+  Malformed: "MalformedBinary",
+  Io: undefined,
+} as const satisfies Record<IworkErrorReason, ParseErrorCode | undefined>;
+
+/** Where a codec failure happened, as a `ParseError` position (undefined when unknown). */
+const iworkPosition = (e: IworkError): SourcePosition | undefined =>
+  e.component === undefined && e.objectId === undefined && e.offset === undefined
+    ? undefined
+    : {
+        component: e.component,
+        object: e.objectId === undefined ? undefined : String(e.objectId),
+        offset: e.offset,
+      };
+
 /**
  * An `IworkError` as a reader's `ParseError`; the message names the component,
  * object and offset. A `LimitExceeded` error (a zip or Snappy bomb) keeps its
@@ -32,7 +60,8 @@ const toParseError = (format: string, e: IworkError): ParseError =>
   new ParseError({
     format,
     reason: `Failed to read ${format}: ${e.reason}: ${e.message}`,
-    code: e.reason === "LimitExceeded" ? "LimitExceeded" : undefined,
+    code: IWORK_CODE[e.reason],
+    position: iworkPosition(e),
     cause: e,
   });
 

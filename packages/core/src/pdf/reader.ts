@@ -30,12 +30,15 @@ import {
   makeReaderTag,
   type Meta,
   ParseError,
+  type ParseErrorCode,
   type Reader,
   trustAs,
 } from "../index.ts";
 import { describeCause } from "./describe.ts";
 import { PdfFile } from "./cos/file.ts";
 import { PdfSyntaxError } from "./cos/parser.ts";
+import { PdfFilterError } from "./cos/filters.ts";
+import { PdfEncryptedError } from "./cos/serialize.ts";
 import { isString, latin1ToBytes } from "./cos/objects.ts";
 import { decodeTextString } from "./text/encodings.ts";
 import { type PageText, extractPageText } from "./text/extract.ts";
@@ -70,8 +73,19 @@ export const readMeta = (file: PdfFile): Meta => {
   );
 };
 
-/** `"LimitExceeded"` when the parser refused input nested too deeply. */
-const limitCode = (cause: unknown) => (cause instanceof PdfSyntaxError ? cause.code : undefined);
+/**
+ * A PDF failure's `ParseError` code (#127): `LimitExceeded` when the parser
+ * refused input nested too deeply, `MalformedBinary` for any other syntax or
+ * filter failure, `Encrypted` for an encrypted file.
+ */
+const pdfCode = (cause: unknown): ParseErrorCode | undefined =>
+  cause instanceof PdfSyntaxError
+    ? (cause.code ?? "MalformedBinary")
+    : cause instanceof PdfFilterError
+      ? "MalformedBinary"
+      : cause instanceof PdfEncryptedError
+        ? "Encrypted"
+        : undefined;
 
 /** Open a PDF, failing with a `ParseError` if it can't be read or is encrypted. */
 export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
@@ -81,13 +95,20 @@ export const openPdf = (input: Content): Effect.Effect<PdfFile, ParseError> =>
       new ParseError({
         format: "pdf",
         reason: describeCause(cause),
-        code: limitCode(cause),
+        code: pdfCode(cause),
+        position: cause instanceof PdfSyntaxError ? { offset: cause.offset } : undefined,
         cause,
       }),
   }).pipe(
     Effect.flatMap((file) =>
       file.encrypted
-        ? Effect.fail(new ParseError({ format: "pdf", reason: "encrypted PDFs are not supported" }))
+        ? Effect.fail(
+            new ParseError({
+              format: "pdf",
+              reason: "encrypted PDFs are not supported",
+              code: "Encrypted",
+            }),
+          )
         : Effect.succeed(file),
     ),
   );
@@ -219,7 +240,8 @@ const attempt = <A>(f: () => A): Effect.Effect<A, ParseError> =>
       new ParseError({
         format: "pdf",
         reason: describeCause(cause),
-        code: limitCode(cause),
+        code: pdfCode(cause),
+        position: cause instanceof PdfSyntaxError ? { offset: cause.offset } : undefined,
         cause,
       }),
   });

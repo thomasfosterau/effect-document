@@ -194,7 +194,11 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
 
       if (Arr.isReadonlyArrayEmpty(sheetEntries)) {
-        return yield* new ParseError({ format: "xlsx", reason: "Workbook contains no sheets" });
+        return yield* new ParseError({
+          format: "xlsx",
+          reason: "Workbook contains no sheets",
+          code: "MissingPart",
+        });
       }
 
       // The cells every sheet read so far has allocated (sheets are read in
@@ -229,6 +233,8 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               return yield* new ParseError({
                 format: "xlsx",
                 reason: `Cannot resolve worksheet part for sheet "${name}" (relationship "${relId}")`,
+                code: "MissingPart",
+                position: { sheet: name },
               });
             }
 
@@ -240,6 +246,8 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
                 reason:
                   `Worksheet "${name}" holds more than the ${remaining} cells left of the ` +
                   `workbook's ${maxCells}-cell limit (maxCells)`,
+                code: "LimitExceeded",
+                position: { sheet: name, part: target },
               });
             }
             allocated += parsed.cells;

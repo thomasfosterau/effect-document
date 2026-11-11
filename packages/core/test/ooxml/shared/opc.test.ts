@@ -166,6 +166,7 @@ describe("readers (#55)", () => {
     });
     const error = Effect.runSync(Effect.flip(makeDocxReader().read(bytes(pkg))));
     expect(error.reason).toContain("/word/document.xml");
-    expect(error.position).toEqual({ row: 2, column: 2 });
+    expect(error.code).toBe("MalformedXml");
+    expect(error.position).toEqual({ row: 2, column: 2, part: "word/document.xml" });
   });
 });
