@@ -108,27 +108,28 @@ const jfifDpi = (b: Uint8Array, data: number): Option.Option<Dpi> => {
   return Option.none();
 };
 
+/** The length of a JPEG marker without a segment (a fill byte, `TEM`, `RST0`–`RST7`); 0 for a marker followed by one. */
+const bareMarkerLength = (marker: number): number =>
+  marker === 0xff ? 1 : marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7) ? 2 : 0;
+
+/** Whether a JPEG marker ends the header before any frame: end of image, or the start of scan data. */
+const endsHeader = (marker: number): boolean => marker === 0xd9 || marker === 0xda;
+
 /** A JPEG's frame size, from its first start-of-frame segment, and its JFIF density. */
 const jpeg = (b: Uint8Array): Option.Option<ImageInfo> => {
   let dpi = Option.none<Dpi>();
   // oxlint-disable-next-line effect/imperative-loops -- a byte-level segment walk: each step's offset is the length the step before it read
   for (let i = 2; i + 4 <= b.length;) {
-    if (b[i] !== 0xff) return Option.none();
     const marker = b[i + 1] ?? 0;
-    if (marker === 0xff) {
-      i += 1; // fill byte
-    } else if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      i += 2; // markers without a segment
-    } else if (marker === 0xd9 || marker === 0xda) {
-      return Option.none(); // end of image, or scan data, before any frame
-    } else {
-      const length = u16be(b, i + 2);
-      if (marker === 0xe0) dpi = jfifDpi(b, i + 4);
-      if (isStartOfFrame(marker)) {
-        return sized("image/jpeg", u16be(b, i + 7), u16be(b, i + 5), dpi);
-      }
-      i += 2 + length;
+    if (b[i] !== 0xff || endsHeader(marker)) return Option.none();
+    const bare = bareMarkerLength(marker);
+    if (bare > 0) {
+      i += bare;
+      continue;
     }
+    if (marker === 0xe0) dpi = jfifDpi(b, i + 4);
+    if (isStartOfFrame(marker)) return sized("image/jpeg", u16be(b, i + 7), u16be(b, i + 5), dpi);
+    i += 2 + u16be(b, i + 2);
   }
   return Option.none();
 };
