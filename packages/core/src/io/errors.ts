@@ -4,6 +4,7 @@
 
 import * as Schema from "effect/Schema";
 import { ALL_FEATURES } from "../schema/feature.ts";
+import { LossReport } from "../profile/loss.ts";
 
 /**
  * Best-effort source position of a parse failure (#127): as much of it as the
@@ -96,8 +97,14 @@ export class ProfileViolation extends Schema.TaggedError<ProfileViolation>()("Pr
   }
 }
 
-/** A conversion pipeline could not be assembled or a bridge step failed. */
+/**
+ * A conversion pipeline could not be assembled (a format without a reader or
+ * writer), a bridge step failed, or `convert` was told to fail on loss and
+ * there was some (its `loss` then holds the report).
+ */
 export class ConversionError extends Schema.TaggedError<ConversionError>()("ConversionError", {
   reason: Schema.String,
   cause: Schema.optional(Schema.Unknown),
+  /** What the conversion would have lost, when `convert`'s `onLoss: "fail"` refused it (#112). */
+  loss: Schema.optional(LossReport),
 }) {}
