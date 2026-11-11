@@ -40,7 +40,7 @@ catalog:
   # on any other component version, failing `pnpm install` itself. Read the
   # `components` table in node_modules/@effect/tsgo/dist/effect-tsgo.cjs
   # before bumping any of the three.
-  "@effect/tsgo": 0.67.3
+  "@effect/tsgo": 0.67.5
   # The Node `FileSystem` / `Path` layers the test suites and the runnable
   # examples read fixtures and write output through (dev-only: no published
   # package imports it). Exact, in lockstep with `effect` below: its own peer
