@@ -91,7 +91,7 @@ catalog:
   # refuses to run coverage on a mismatch.
   "@vitest/coverage-istanbul": 5.1.0
   effect: 4.1.2
-  fallow: 3.41.0
+  fallow: 3.42.0
   # ZIP (OOXML, iWork bundles) and DEFLATE (PDF `/FlateDecode`). A regular
   # dependency of effect-document: it has no dependencies of its own, is
   # `sideEffects: false`, and only the `/ooxml*`, `/pdf*` and `/iwork*`
