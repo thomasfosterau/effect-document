@@ -1,0 +1,39 @@
+name: Auto-assign
+
+# Assigns the owner to every pull request when it is opened, reopened or
+# marked ready for review, unless it already has an assignee. Dependabot's
+# PRs are skipped here: `.github/dependabot.yml` assigns them itself.
+#
+# `pull_request`, not `pull_request_target`: nothing here runs the PR's code
+# (there is no checkout), but the target event would hand a fork's PR a
+# write token for no gain. The cost is that a PR from a fork gets a read-only
+# token and is not assigned; every PR here comes from a branch of this repo.
+# A PR opened by the release workflow's GITHUB_TOKEN (the Changesets version
+# PR) triggers no workflow at all, so it is not assigned either.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+concurrency:
+  group: auto-assign-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# No permissions by default; the job grants only what assigning needs.
+permissions: {}
+
+jobs:
+  assign:
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      toJSON(github.event.pull_request.assignees) == '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Assign the owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr edit "$PR_URL" --add-assignee thomasfosterau
