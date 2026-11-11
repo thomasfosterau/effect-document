@@ -153,6 +153,8 @@ const program = Effect.gen(function* () {
 
 `candidateTables` lists every `Worksheet` and every prose `Table`, wherever it sits: in a `Div`, a `Figure`, a list item, another table's cell, or a slide's table shape. Each region gets a `locator` (the path shape of a loss entry), a name or caption, its size and a header guess. A prose table also comes flattened to a text grid, with its merged cells placed and listed in `spans`.
 
+For text whose separator isn't known, `Csv.sniffDialect(text)` reads the first 64 KiB and returns `CsvReaderOptions` for it: the separator (comma, semicolon, tab or pipe), the line break, how many preamble lines to skip, and whether the first row is a header (the reader's own rule). It also gives a confidence and an evidence string. A line the sample cuts off isn't judged, so the options it returns read the whole file as they read the sample.
+
 ## API reference
 
 The root entry re-exports everything; the subpaths expose one area each.
@@ -492,6 +494,9 @@ const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, 
 | `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
 | `sniffCsv` / `sniffTsv` | const | The CSV and TSV sniffers for `detect`: text whose lines split into the same number of fields, on a 64 KiB sample. |
 | `SNIFF_SAMPLE_BYTES` | const | How much of the input the CSV and TSV sniffers look at (64 KiB). |
+| `sniffDialect` | function | The dialect a bounded sample of text follows: separator, line break, preamble lines to skip and whether the first row is a header, as reader options with a confidence. |
+| `SniffedDialect` | interface | What `sniffDialect` found: the reader options, its confidence and its evidence. |
+| `SNIFF_SEPARATORS` | const | The separators `sniffDialect` tries: comma, semicolon, tab and pipe. |
 | `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
 | `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |
 | `makeCsvReaderLayer` | function | Layer providing a CSV Reader with custom options. |
