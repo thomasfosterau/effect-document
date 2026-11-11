@@ -922,6 +922,8 @@ Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whos
 - `decompressBlock` / `compressBlock` are Apple's non-standard Snappy block format; the compressor writes literals only, which every Snappy decoder accepts.
 - The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors.
 - `decodeArchiveStream` decodes archived objects and their messages.
+- `readPackageMetadata` reads `Index/Metadata.iwa` (`TSP.PackageMetadata`): the file format version, every component's path and the objects it refers to in other components, and every data file with its path under `Data/` (`None` for the app's own stock images, which the package does not hold).
+- `makeObjectResolver` finds an archived object by identifier across components, decoding each component at most once and only when a lookup needs it: the metadata's hints first, then a scan in natural order. `referenceAt` reads the identifier a `TSP.Reference` field names.
 
 `Registry` holds the few reverse-engineered message type ids the readers use; they come from the [keynote-parser](https://github.com/psobot/keynote-parser) v14.4 mapping and can drift between iWork versions.
 
@@ -1032,3 +1034,10 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `componentPaths` | function | The component paths matching a predicate (e.g. |
 | `decodeComponent` | function | Decode a single component's archived objects (none if it is absent). |
 | `decodeAll` | function | Decode every component's objects, flattened (a whole-document object scan). |
+| `METADATA_COMPONENT` | const | `"Index/Metadata.iwa"`, the component holding the package metadata. |
+| `PackageMetadata` / `ComponentInfo` / `ComponentReference` / `DataInfo` | interface | What `Index/Metadata.iwa` says about the package, its components and its data files. |
+| `readPackageMetadata` | function | A bundle's package metadata; `None` when it has none. |
+| `dataInfoOf` | function | The data file with an identifier, if the metadata lists it. |
+| `ObjectResolver` | interface | Finds archived objects by identifier across a bundle's components, decoding lazily. |
+| `makeObjectResolver` | function | A resolver over a bundle, reading its package metadata first. |
+| `referenceAt` | function | The object identifier a `TSP.Reference` field of a message names. |

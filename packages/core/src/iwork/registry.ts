@@ -29,6 +29,13 @@ export const TP_DOCUMENT_ARCHIVE = 10000;
 export const TN_DOCUMENT_ARCHIVE = 1;
 export const TN_SHEET_ARCHIVE = 2;
 
+/**
+ * `TSP.PackageMetadata` - the package's component and data-file lists, in
+ * `Index/Metadata.iwa` (#101). Type 11006 in every keynote-parser registry,
+ * 10.2 through 14.5.
+ */
+export const TSP_PACKAGE_METADATA = 11006;
+
 /** `TSP.Reference.identifier` - the object a reference points to. */
 export const REFERENCE_IDENTIFIER_FIELD = 1;
 

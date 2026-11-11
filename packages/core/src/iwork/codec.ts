@@ -28,3 +28,5 @@ export * from "./archive.ts";
 export * from "./bundle.ts";
 /** The handful of reverse-engineered iWork message type ids the readers use. */
 export * as Registry from "./registry.ts";
+export * from "./metadata.ts";
+export * from "./resolver.ts";
