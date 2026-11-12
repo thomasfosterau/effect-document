@@ -12,6 +12,7 @@ const OPC_CODE = {
   WrongPackageType: "WrongFormat",
   MissingPart: "MissingPart",
   InvalidContainer: "InvalidContainer",
+  Encrypted: "Encrypted",
 } as const satisfies Record<OpcErrorKind, ParseErrorCode>;
 
 /** A reader's `ParseError` for anything thrown while reading an OOXML package. */

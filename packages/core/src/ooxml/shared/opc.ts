@@ -6,6 +6,7 @@
  * relationships on the way in, and zip a set of parts on the way out.
  */
 
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ParseError as XmlSyntaxError } from "@thomasfosterau/effect-parse";
@@ -83,12 +84,18 @@ const resolveLimits = (limits: OpcLimits | undefined): ResolvedOpcLimits => ({
   maxTotalSize: limits?.maxTotalSize ?? DEFAULT_OPC_LIMITS.maxTotalSize,
 });
 
-/** Why a package can't be read: a broken limit, the wrong kind, a missing part, or not a zip at all. */
+/**
+ * Why a package can't be read: a broken limit, the wrong kind, a missing part,
+ * not a zip at all, or a Compound File Binary container in its place
+ * (`Encrypted`: a password-protected OOXML package, or a legacy binary Office
+ * file, #173).
+ */
 export type OpcErrorKind =
   | "LimitExceeded"
   | "WrongPackageType"
   | "MissingPart"
-  | "InvalidContainer";
+  | "InvalidContainer"
+  | "Encrypted";
 
 /** A package that breaks a resource limit, isn't the expected kind of package, or isn't a zip. */
 export class OpcError extends Error {
@@ -142,6 +149,47 @@ interface Entry {
   readonly originalSize: number;
 }
 
+/** The signature of a Compound File Binary (OLE2) container. */
+const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+/** The end-of-central-directory signature, `PK\x05\x06`. */
+const EOCD_SIGNATURE = [0x50, 0x4b, 0x05, 0x06];
+
+/** How far from the end the end-of-central-directory record can start: its 22 bytes plus a comment of up to 64 KiB. */
+const EOCD_SEARCH = 22 + 0xffff;
+
+/** Whether `sig` is at offset `at` of `b`. */
+const signatureAt = (b: Uint8Array, at: number, sig: ReadonlyArray<number>): boolean =>
+  sig.every((v, i) => b[at + i] === v);
+
+/**
+ * What is wrong with a would-be package before unzipping it, if anything
+ * fflate would only report as "invalid zip data" (#173): a Compound File
+ * Binary container (Office keeps an encrypted OOXML package in one, and the
+ * legacy `.xls` / `.doc` / `.ppt` are one), or a zip whose end-of-central-
+ * directory record is missing (a truncated or streamed archive).
+ */
+const containerProblem = (data: Uint8Array): Option.Option<OpcError> => {
+  if (signatureAt(data, 0, CFB_SIGNATURE)) {
+    return Option.some(
+      new OpcError(
+        "Encrypted",
+        "a Compound File Binary container, not a zip: an encrypted (password-protected) Office package, or a legacy binary .xls, .doc or .ppt file",
+      ),
+    );
+  }
+  const tail = data.subarray(Math.max(0, data.length - EOCD_SEARCH));
+  const hasEnd = tail.some((_, i) => signatureAt(tail, i, EOCD_SIGNATURE));
+  return signatureAt(data, 0, [0x50, 0x4b]) && !hasEnd
+    ? Option.some(
+        new OpcError(
+          "InvalidContainer",
+          "a zip without its central directory (truncated, or written as a stream and never finished)",
+        ),
+      )
+    : Option.none();
+};
+
 /**
  * A read-only view over an OPC package. Parts are inflated lazily, one at a
  * time when first read, within {@link OpcLimits}; part names match
@@ -162,6 +210,8 @@ export class OpcReader {
   constructor(data: Uint8Array, limits?: OpcLimits) {
     this.data = data;
     this.limits = resolveLimits(limits);
+    const notZip = containerProblem(data);
+    if (Option.isSome(notZip)) throw notZip.value;
     // List the central directory without inflating anything. fflate reports
     // an unreadable archive only by throwing: it becomes the package's own
     // tagged kind (#127), and an OpcError thrown from the filter stays as it is.

@@ -6,6 +6,7 @@
 
 import { describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import { strToU8, zipSync } from "fflate";
 import {
   bytes,
@@ -53,10 +54,40 @@ const ENCRYPTED_PDF = (() => {
   return bytes(strToU8(body));
 })();
 
+/** The first bytes of a Compound File Binary container, as an encrypted Office package has. */
+const CFB = bytes(
+  new Uint8Array([
+    0xd0,
+    0xcf,
+    0x11,
+    0xe0,
+    0xa1,
+    0xb1,
+    0x1a,
+    0xe1,
+    ...Array.from({ length: 504 }, () => 0),
+  ]),
+);
+
+/** The DOCX with its end-of-central-directory record cut off (22 bytes, no comment). */
+const TRUNCATED: Content = Predicate.isTagged(DOCX, "Bytes")
+  ? bytes(DOCX.bytes.subarray(0, DOCX.bytes.length - 22))
+  : DOCX;
+
 const CASES: ReadonlyArray<readonly [string, () => ParseError, ParseErrorCode]> = [
   [
     "OOXML: bytes that aren't a zip",
     () => failure(makeDocxReader(), NOT_A_ZIP),
+    "InvalidContainer",
+  ],
+  [
+    "OOXML: an encrypted package (a CFB container)",
+    () => failure(makeXlsxReader(), CFB),
+    "Encrypted",
+  ],
+  [
+    "OOXML: a zip without its central directory",
+    () => failure(makeDocxReader(), TRUNCATED),
     "InvalidContainer",
   ],
   ["OOXML: a DOCX read as PPTX", () => failure(makePptxReader(), DOCX), "WrongFormat"],
@@ -133,5 +164,14 @@ describe("ParseError codes (#127)", () => {
     expect(error.code).toBe("MalformedText");
     // CSV rows count from 0: the quote opens on the second row
     expect(error.position?.row).toBe(1);
+  });
+});
+
+describe("OOXML container failures say what they are (#173)", () => {
+  test("an encrypted package or legacy binary file is named as such", () => {
+    expect(failure(makeDocxReader(), CFB).reason).toMatch(/Compound File Binary.*encrypted/);
+  });
+  test("a truncated zip says its central directory is missing", () => {
+    expect(failure(makeDocxReader(), TRUNCATED).reason).toMatch(/without its central directory/);
   });
 });
