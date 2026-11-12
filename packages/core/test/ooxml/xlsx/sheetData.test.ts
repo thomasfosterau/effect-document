@@ -28,7 +28,7 @@ const scanned = (xml: string, maxCells: number) =>
       ({ root, target }) => findChild(root, "sheetData") === target,
     ),
     // the rows alone: whether a row had a `customHeight` is the scanner's own note (#66)
-    ({ value }) => Struct.omit(value, ["customHeights"]),
+    ({ value }) => Struct.omit(value, ["rowProps"]),
   );
 
 /** The rows the tree path reads, or the parser's failure. */

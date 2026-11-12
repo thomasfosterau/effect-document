@@ -10,6 +10,7 @@ import * as Rec from "effect/Record";
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block,
+  isPlainRow,
   type Inline,
   type SheetCell,
   type Shape,
@@ -123,10 +124,17 @@ const walkCell = (c: SheetCell, acc: Set<Feature>, stack: Stack): void => {
   if (Predicate.isTagged(c, "CellRichText")) pushInlines(c.runs, stack);
 };
 
+/** Whether a worksheet hides anything: itself, a column or a row (`sheet.hidden`, #66). */
+const hidesAnything = (w: Worksheet): boolean =>
+  w.visibility !== undefined ||
+  w.columns.some((col) => col.hidden === true) ||
+  w.rows.some((row) => !isPlainRow(row) && row.hidden === true);
+
 const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   if (Arr.isReadonlyArrayNonEmpty(w.merges)) acc.add("sheet.merges");
   if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
-  for (const col of w.columns) if (col.style !== undefined) acc.add("cell.style");
+  if (w.columns.some((col) => col.style !== undefined)) acc.add("cell.style");
+  if (hidesAnything(w)) acc.add("sheet.hidden");
   for (const row of w.rows)
     for (const position of rowCellsOf(row)) {
       const c = cellOf(position);

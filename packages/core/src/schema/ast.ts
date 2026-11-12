@@ -308,6 +308,7 @@ export type SheetCellEncoded =
 export interface SheetColumnEncoded {
   readonly width?: number | undefined;
   readonly style?: StyleE | undefined;
+  readonly hidden?: boolean | undefined;
 }
 /** The JSON (encoded) form of one position of a row: a cell, a plain cell's bare value, or `null` for a gap. */
 export type RowCellEncoded = SheetCellEncoded | number | string | boolean | null;
@@ -316,6 +317,7 @@ export interface SheetRowEncoded {
   readonly index: number;
   readonly cells: ReadonlyArray<RowCellEncoded>;
   readonly height?: number | undefined;
+  readonly hidden?: boolean | undefined;
 }
 /** The JSON (encoded) form of {@link MergeRange}. */
 export interface MergeRangeEncoded {
@@ -333,6 +335,7 @@ export interface WorksheetEncoded {
   /** A row, or a plain row's cells alone (#227). */
   readonly rows: ReadonlyArray<SheetRowEncoded | ReadonlyArray<RowCellEncoded>>;
   readonly merges: ReadonlyArray<MergeRangeEncoded>;
+  readonly visibility?: SheetVisibility | undefined;
 }
 
 // Presentation encoded forms
@@ -766,10 +769,14 @@ export const SheetCell: Schema.Codec<SheetCell, SheetCellEncoded> = Schema.Union
   CellRichText,
 ]);
 
-/** A column definition (width / default style). */
+/**
+ * A column definition: its width (in characters of the default font), its
+ * default style, and whether it is hidden (`true`; absent is shown).
+ */
 export class SheetColumn extends Schema.Class<SheetColumn>("SheetColumn")({
   width: Schema.optional(Schema.Number),
   style: styleField,
+  hidden: Schema.optional(Schema.Boolean),
 }) {}
 /** A 0-based row or column position in a worksheet. */
 const SheetIndex = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -856,13 +863,15 @@ const endsWithCell = Schema.makeFilter<ReadonlyArray<RowCell>>(
  * spellings are the same cell, though not `Equal`): read cells through
  * `cellOf`, `cellAt` or `rowEntries`, which always give the node. The last
  * position holds a cell, so `cells.length` is the row's width. A worksheet holds only the rows it has, so a row with
- * no cells exists only to carry a `height`. See `denseRows` for a grid and
+ * no cells exists only to carry a `height` or `hidden`. `height` is in
+ * points; `hidden: true` hides the row (absent is shown). See `denseRows` for a grid and
  * `rowEntries` for the cells a row holds with their columns.
  */
 export class SheetRow extends Schema.Class<SheetRow>("SheetRow")({
   index: SheetIndex,
   cells: Schema.Array(RowCell).check(endsWithCell),
   height: Schema.optional(Schema.Number),
+  hidden: Schema.optional(Schema.Boolean),
 }) {}
 /**
  * A plain row: a row's cells by position, as {@link SheetRow}'s `cells` are,
@@ -922,6 +931,15 @@ const rowsAscending = Schema.makeFilter<ReadonlyArray<WorksheetRow>>(
   },
 );
 
+/**
+ * How a hidden worksheet is hidden: `"hidden"`, which a user can show again
+ * from the app, or `"veryHidden"`, which only a program can (SpreadsheetML's
+ * `state`). A shown worksheet has no `visibility`.
+ */
+export const SheetVisibility = Schema.Literals(["hidden", "veryHidden"]);
+/** How a hidden worksheet is hidden, as a type. */
+export type SheetVisibility = typeof SheetVisibility.Type;
+
 /** A rectangular merged-cell range (0-based, inclusive). */
 export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
   fromRow: Schema.Number,
@@ -936,7 +954,8 @@ export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
  * `denseRows` derives the rectangular grid when a caller wants one. An entry
  * is a {@link SheetRow} or a {@link PlainRow} (its cells alone, standing for
  * the row one past the one before it): read rows through `rowsOf`,
- * `rowIndexes` and `rowCellsOf`, which handle both.
+ * `rowIndexes` and `rowCellsOf`, which handle both. A hidden worksheet has a
+ * {@link SheetVisibility}; a shown one has none.
  */
 export class Worksheet extends Schema.TaggedClass<Worksheet>()("Worksheet", {
   attr: attrField,
@@ -944,6 +963,7 @@ export class Worksheet extends Schema.TaggedClass<Worksheet>()("Worksheet", {
   columns: Schema.Array(SheetColumn),
   rows: Schema.Array(WorksheetRow).check(rowsAscending),
   merges: Schema.Array(MergeRange),
+  visibility: Schema.optional(SheetVisibility),
 }) {}
 
 // ============================================================================

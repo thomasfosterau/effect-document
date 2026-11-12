@@ -5,12 +5,15 @@
  */
 
 import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import {
   isPlainRow,
   type PlainCell,
+  type RowCell,
   type SheetCell,
+  SheetRow,
   sheetRow,
   sheetRowOf,
   type WorksheetRow,
@@ -154,50 +157,64 @@ export const parseWorksheetRows = (
 };
 
 // ============================================================================
-// Row heights (#66)
+// Row heights and hidden rows (#66)
 // ============================================================================
 
 /**
- * Rows' custom heights, in points, by 0-based row index, in document order: a
- * `<row>` whose `customHeight` is set (Excel's mark for a height the user
- * chose). A height Excel only computed (an `ht` without `customHeight`) is
- * not kept, so a sheet of wrapped text doesn't turn every row into a node.
+ * What a `<row>` sets that the schema keeps: its custom height in points (a
+ * `customHeight` row's `ht`, Excel's mark for a height the user chose; a
+ * height Excel only computed is not kept, so a sheet of wrapped text doesn't
+ * turn every row into a node) and whether it is hidden.
  */
-export type RowHeights = ReadonlyArray<readonly [index: number, height: number]>;
+export interface RowProp {
+  readonly index: number;
+  readonly height: Option.Option<number>;
+  readonly hidden: boolean;
+}
+
+/** The {@link RowProp}s of a sheet's rows that set either, by 0-based row index, in document order. */
+export type RowProps = ReadonlyArray<RowProp>;
 
 /** A `<row>`'s custom height from its `ht` and `customHeight` values, if it has one. */
-const customHeight = (ht: string | undefined, custom: string | undefined): number | undefined => {
-  if (custom !== "1" && custom !== "true") return undefined;
+const customHeight = (ht: string, custom: string): Option.Option<number> => {
   const height = Number(ht);
-  return ht !== undefined && Number.isFinite(height) && height >= 0 ? height : undefined;
+  return (custom === "1" || custom === "true") &&
+    ht !== "" &&
+    Number.isFinite(height) &&
+    height >= 0
+    ? Option.some(height)
+    : Option.none();
 };
 
 /** A `<row>`'s attribute by name, whichever way it was read. */
 type RowAttribute = (name: string) => string | undefined;
 
 /**
- * The custom heights of `rows` (each a `<row>`'s attributes), in order: a row
- * without an `r` follows the one before, as the rows themselves are read.
+ * The heights and hidden marks of `rows` (each a `<row>`'s attributes), in
+ * order: a row without an `r` follows the one before, as the rows themselves
+ * are read.
  */
-const heightsOf = (rows: ReadonlyArray<RowAttribute>): RowHeights =>
-  rows.reduce<{ index: number; heights: Array<[number, number]> }>(
+const propsOf = (rows: ReadonlyArray<RowAttribute>): RowProps =>
+  rows.reduce<{ index: number; props: Array<RowProp> }>(
     (acc, attr) => {
       const r = attr("r");
       acc.index = r === undefined ? acc.index + 1 : Number.parseInt(r, 10) - 1;
-      const height = customHeight(attr("ht"), attr("customHeight"));
-      if (height !== undefined && Number.isSafeInteger(acc.index) && acc.index >= 0)
-        acc.heights.push([acc.index, height]);
+      const height = customHeight(attr("ht") ?? "", attr("customHeight") ?? "");
+      const hiddenValue = attr("hidden");
+      const hidden = hiddenValue === "1" || hiddenValue === "true";
+      if ((Option.isSome(height) || hidden) && Number.isSafeInteger(acc.index) && acc.index >= 0)
+        acc.props.push({ index: acc.index, height, hidden });
       return acc;
     },
-    { index: -1, heights: [] },
-  ).heights;
+    { index: -1, props: [] },
+  ).props;
 
-/** The custom heights of a parsed worksheet's rows (the tree path). */
-export const treeRowHeights = (root: XmlElement): RowHeights => {
+/** The heights and hidden marks of a parsed worksheet's rows (the tree path). */
+export const treeRowProps = (root: XmlElement): RowProps => {
   const sheetData = findChild(root, "sheetData");
   return sheetData === undefined
     ? []
-    : heightsOf(
+    : propsOf(
         findChildren(sheetData, "row").map(
           (el): RowAttribute =>
             (name) =>
@@ -206,7 +223,7 @@ export const treeRowHeights = (root: XmlElement): RowHeights => {
       );
 };
 
-/** A `<row>` start tag and its attributes (for {@link textRowHeights}). */
+/** A `<row>` start tag and its attributes (for {@link textRowProps}). */
 const ROW_TAG = /<row(?=[\s/>])([^>]*)>/g;
 /** One attribute of a start tag: its name, then its value in either quote. */
 const ATTRIBUTE = /\s([A-Za-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
@@ -216,14 +233,14 @@ const attributesOf = (tag: string): ReadonlyMap<string, string> =>
   new Map(Array.from(tag.matchAll(ATTRIBUTE), (m) => [m[1] ?? "", m[2] ?? m[3] ?? ""] as const));
 
 /**
- * The custom heights of a worksheet part's rows read from its text, for the
- * `sheetData` scanner's path (which keeps no element tree); the reader calls
- * it only when the scanner saw a `customHeight` on a row. The scanner only
- * succeeds on plain markup (no comment, CDATA or prefix), so every `<row` in
- * the part is a row.
+ * The heights and hidden marks of a worksheet part's rows read from its
+ * text, for the `sheetData` scanner's path (which keeps no element tree); the
+ * reader calls it only when the scanner saw a `customHeight` or `hidden` on a
+ * row. The scanner only succeeds on plain markup (no comment, CDATA or
+ * prefix), so every `<row` in the part is a row.
  */
-export const textRowHeights = (xml: string): RowHeights =>
-  heightsOf(
+export const textRowProps = (xml: string): RowProps =>
+  propsOf(
     Array.from(xml.matchAll(ROW_TAG), (m): RowAttribute => {
       const attrs = attributesOf(m[1] ?? "");
       return (name) => attrs.get(name);
@@ -234,32 +251,37 @@ export const textRowHeights = (xml: string): RowHeights =>
 const cellsOfRow = (row: WorksheetRow): ReadonlyArray<SheetCell | PlainCell | undefined> =>
   isPlainRow(row) ? row : row.cells;
 
+/** A row with what `prop` sets: its height, and `hidden` only when it is hidden. */
+const rowWith = (index: number, cells: ReadonlyArray<RowCell>, prop: RowProp): SheetRow => {
+  const height = Option.getOrUndefined(prop.height);
+  return prop.hidden
+    ? new SheetRow({ index, cells: Array.from(cells), height, hidden: true })
+    : sheetRow(index, cells, height);
+};
+
 /**
- * `rows` with `heights` set: a row with a height becomes a `SheetRow`
- * carrying it, and a height for a row with no valued cells adds an empty
- * `SheetRow` (the one thing such a row is for); the rest keep their form,
- * plain where they follow on. `added` is how many rows the heights added,
- * which the reader counts toward `maxCells` as a cell each. The rows are
- * returned unchanged when there are no heights.
+ * `rows` with `props` set: a row with a height or a hidden mark becomes a
+ * `SheetRow` carrying it, and one for a row with no valued cells adds an
+ * empty `SheetRow` (the one thing such a row is for); the rest keep their
+ * form, plain where they follow on. `added` is how many rows the props
+ * added, which the reader counts toward `maxCells` as a cell each. The rows
+ * are returned unchanged when there are no props.
  */
-export const withRowHeights = (
-  rows: ReadonlyArray<WorksheetRow>,
-  heights: RowHeights,
-): RowsWithHeights => {
-  if (Arr.isReadonlyArrayEmpty(heights)) return { rows, added: 0 };
-  const heightAt = new Map(heights);
+export const withRowProps = (rows: ReadonlyArray<WorksheetRow>, props: RowProps): RowsWithProps => {
+  if (Arr.isReadonlyArrayEmpty(props)) return { rows, added: 0 };
+  const propAt = new Map(props.map((prop) => [prop.index, prop] as const));
   const cellsAt = new Map(
     rowIndexesOf(rows).map((index, k) => [index, cellsOfRow(rows[k] ?? [])] as const),
   );
   const present = cellsAt.size;
-  heightAt.forEach((_, index) => {
+  propAt.forEach((_, index) => {
     if (!cellsAt.has(index)) cellsAt.set(index, []);
   });
   const indexes = Arr.sort(Array.from(cellsAt.keys()), Order.Number);
   const out = indexes.map((index, k): WorksheetRow => {
     const cells = cellsAt.get(index) ?? [];
-    const height = heightAt.get(index);
-    if (height !== undefined) return sheetRow(index, cells, height);
+    const prop = propAt.get(index);
+    if (prop !== undefined) return rowWith(index, cells, prop);
     return index === (k === 0 ? 0 : (indexes[k - 1] ?? -2) + 1) && endsInCell(cells)
       ? Array.from(cells)
       : sheetRowOf(index, cells);
@@ -267,8 +289,8 @@ export const withRowHeights = (
   return { rows: out, added: cellsAt.size - present };
 };
 
-/** {@link withRowHeights}'s result: the rows, and how many rows the heights added. */
-export interface RowsWithHeights {
+/** {@link withRowProps}'s result: the rows, and how many rows the props added. */
+export interface RowsWithProps {
   readonly rows: ReadonlyArray<WorksheetRow>;
   readonly added: number;
 }

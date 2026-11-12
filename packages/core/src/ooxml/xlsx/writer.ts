@@ -26,6 +26,7 @@ import {
   rowIndexes,
   type SheetCell,
   sheetExtent,
+  type SheetVisibility,
   type Worksheet,
   WriteError,
   type Writer,
@@ -180,13 +181,36 @@ const appPropsXml = (): string =>
   `<Application>effect-document</Application>` +
   `</Properties>`;
 
-const workbookXml = (sheetNames: ReadonlyArray<string>, recalculate: boolean): string => {
-  const sheets = sheetNames
-    .map((name, i) => `<sheet name="${escapeAttr(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+/** A workbook's sheet as `<sheets>` lists it: its (sanitized) name and, when hidden, how. */
+interface SheetEntry {
+  readonly name: string;
+  readonly visibility: Option.Option<SheetVisibility>;
+}
+
+/**
+ * `<bookViews>` opening the workbook on its first shown sheet when the first
+ * sheet is hidden (Excel opens on `activeTab`, 0 by default, and a hidden
+ * active sheet is shown anyway); nothing otherwise.
+ */
+const bookViewsXml = (sheets: ReadonlyArray<SheetEntry>): string => {
+  const active = sheets.findIndex((s) => Option.isNone(s.visibility));
+  return active <= 0 ? "" : `<bookViews><workbookView activeTab="${active}"/></bookViews>`;
+};
+
+const workbookXml = (entries: ReadonlyArray<SheetEntry>, recalculate: boolean): string => {
+  const sheets = entries
+    .map(
+      ({ name, visibility }, i) =>
+        `<sheet name="${escapeAttr(name)}" sheetId="${i + 1}"${Option.match(visibility, {
+          onNone: () => "",
+          onSome: (state) => ` state="${state}"`,
+        })} r:id="rId${i + 1}"/>`,
+    )
     .join("");
   return (
     XML_DECL +
     `<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL_DOC}">` +
+    bookViewsXml(entries) +
     `<sheets>${sheets}</sheets>` +
     // Formulas without a cached result would show blank until recalculated.
     (recalculate ? `<calcPr fullCalcOnLoad="1"/>` : "") +
@@ -292,7 +316,8 @@ const worksheetXml = (
       });
       const height = isPlainRow(row) ? undefined : row.height;
       const ht = height === undefined ? "" : ` ht="${height}" customHeight="1"`;
-      return `<row r="${index + 1}"${ht}>${cells.join("")}</row>`;
+      const hidden = !isPlainRow(row) && row.hidden === true ? ' hidden="1"' : "";
+      return `<row r="${index + 1}"${ht}${hidden}>${cells.join("")}</row>`;
     })
     .join("");
   const hyperlinks = hyperlinksXml(links, escapeAttr);
@@ -339,6 +364,13 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           reason: `worksheet "${badHeight.name}" has a row height that is not a finite, non-negative number of points`,
         }),
       );
+    if (worksheets.every((ws) => ws.visibility !== undefined))
+      return Effect.fail(
+        new WriteError({
+          format: "xlsx",
+          reason: "every worksheet is hidden: a workbook must show at least one",
+        }),
+      );
     const merges = Result.all(worksheets.map((ws) => mergeCellsXml(ws.merges)));
     if (Result.isFailure(merges))
       return Effect.fail(new WriteError({ format: "xlsx", reason: merges.failure }));
@@ -366,7 +398,13 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           "_rels/.rels": rootRelsXml(),
           "docProps/core.xml": corePropsXml(),
           "docProps/app.xml": appPropsXml(),
-          "xl/workbook.xml": workbookXml(sheetNames, recalculate),
+          "xl/workbook.xml": workbookXml(
+            sheetNames.map((name, i) => ({
+              name,
+              visibility: Option.fromUndefinedOr(worksheets[i]?.visibility),
+            })),
+            recalculate,
+          ),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
           ...Object.fromEntries(

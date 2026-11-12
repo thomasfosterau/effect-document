@@ -23,6 +23,8 @@ import {
   worksheet,
   blocksToText,
   SheetColumn,
+  SheetRow,
+  isPlainRow,
   Worksheet,
 } from "../../src/schema/index.ts";
 import {
@@ -153,6 +155,64 @@ describe("narrow: column-level styling", () => {
     const { document: out, loss } = narrow(doc, Columns);
     expect(Columns.is(out)).toBe(true); // must actually conform
     expect(loss.entries.some((e) => e.feature === "cell.style")).toBe(true);
+  });
+});
+
+describe("narrow: hidden rows, columns and worksheets (#66)", () => {
+  // column and row metadata, but nothing hidden
+  const Shown = defineProfile("shown", [
+    "sheet.worksheet",
+    "sheet.multiple",
+    "sheet.columns",
+    "cell.text",
+  ] as const);
+
+  test("shows what the target can't hide, one loss entry for each kind", () => {
+    const hidden = new Worksheet({
+      name: "H",
+      columns: [new SheetColumn({ width: 10, hidden: true }), new SheetColumn({ hidden: true })],
+      rows: [new SheetRow({ index: 0, cells: [cell.text("a")], hidden: true, height: 30 })],
+      merges: [],
+      visibility: "veryHidden",
+    });
+    const { document: out, loss } = narrow(document([worksheet("S", [["x"]]), hidden]), Shown);
+    expect(Shown.is(out)).toBe(true);
+    const ws = out.blocks[1];
+    assert(Predicate.isTagged(ws, "Worksheet"));
+    expect(ws.visibility).toBeUndefined();
+    expect(ws.columns.map((c) => [c.width, c.hidden])).toEqual([
+      [10, undefined],
+      [undefined, undefined],
+    ]);
+    const [row] = ws.rows;
+    assert(row !== undefined && !isPlainRow(row));
+    expect([row.hidden, row.height]).toEqual([undefined, 30]);
+    expect(loss.entries.filter((e) => e.feature === "sheet.hidden").map((e) => e.detail)).toEqual([
+      'hidden worksheet "H" shown',
+      "hidden columns shown",
+      "hidden rows shown",
+    ]);
+  });
+
+  test("a profile with sheet.hidden keeps all three, losslessly", () => {
+    const Hides = defineProfile("hides", [
+      "sheet.worksheet",
+      "sheet.columns",
+      "sheet.hidden",
+      "cell.text",
+    ] as const);
+    const ws = new Worksheet({
+      name: "H",
+      columns: [new SheetColumn({ hidden: true })],
+      rows: [new SheetRow({ index: 0, cells: [cell.text("a")], hidden: true })],
+      merges: [],
+      visibility: "hidden",
+    });
+    const doc = document([ws]);
+    expect(Hides.is(doc)).toBe(true);
+    const { document: out, loss } = narrow(doc, Hides);
+    expect(out.blocks[0]).toBe(ws);
+    expect(loss.isLossless).toBe(true);
   });
 });
 

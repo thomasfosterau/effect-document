@@ -5,7 +5,8 @@
  * writer emits (ISO `t="d"` dates, non-grid sheets tagged `attr.data.kind`).
  *
  * Column widths (`<cols>`), merged ranges (`<mergeCells>`), custom row
- * heights (`<row ht customHeight="1">`) and rich shared strings (bold,
+ * heights (`<row ht customHeight="1">`), hidden rows, columns and worksheets
+ * (`hidden="1"`, `<sheet state>`) and rich shared strings (bold,
  * italic, underline, strikethrough and superscript / subscript runs)
  * round-trip (#66). Not (yet) preserved, so narrowed away on write with a
  * loss report: per-column styles, cell styles, attributes, run fonts, sizes
@@ -20,6 +21,8 @@ export const xlsxFeatures = [
   "sheet.multiple",
   "sheet.merges",
   "sheet.columns",
+  // hidden rows, columns and worksheets (#66): `hidden="1"` and `<sheet state>`
+  "sheet.hidden",
   "cell.text",
   "cell.number",
   "cell.boolean",
