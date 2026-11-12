@@ -69,18 +69,28 @@ export type LossSummaryItem = typeof LossSummaryItem.Type;
 export const LOSS_SUMMARY_PATHS = 5;
 
 /**
- * How bad a {@link Diagnostic} is: a {@link LossSeverity}, or `repaired`
+ * How bad a {@link Diagnostic} is: a {@link LossSeverity}; `repaired`
  * (nothing is lost: the input was malformed and was read anyway, as a PDF
- * whose cross-reference table was rebuilt).
+ * whose cross-reference table was rebuilt); or `notice` (nothing is lost:
+ * something about the input is worth knowing, as an iWork document from a
+ * version the reader has not been checked against).
  */
 export const DiagnosticSeverity = Schema.Literals([
   "dropped-content",
   "dropped-formatting",
   "converted",
   "repaired",
+  "notice",
 ]);
 /** How bad a diagnostic is, as a type. */
 export type DiagnosticSeverity = typeof DiagnosticSeverity.Type;
+
+/**
+ * Whether a diagnostic of `severity` loses nothing (`repaired` or `notice`):
+ * it leaves a report lossless and never fails `convert`'s `onLoss: "fail"`.
+ */
+export const losesNothing = (severity: DiagnosticSeverity): boolean =>
+  severity === "repaired" || severity === "notice";
 
 /**
  * A non-fatal issue a reader or writer met (#112): a component skipped, a
@@ -119,7 +129,7 @@ export const LossReport = Schema.Struct({
    * reported it (#112); empty from `narrow`, which reads and writes nothing.
    */
   diagnostics: Schema.Array(Diagnostic),
-  /** True when nothing was lost: no entries, and no diagnostic but `repaired` ones. */
+  /** True when nothing was lost: no entries, and no diagnostic but `repaired` or `notice` ones. */
   isLossless: Schema.Boolean,
 });
 /** Everything a narrowing (or a conversion) dropped or down-converted, as a type. */
@@ -171,6 +181,6 @@ export const lossReport = (
     summary: items,
     diagnostics,
     isLossless:
-      Arr.isReadonlyArrayEmpty(entries) && diagnostics.every((d) => d.severity === "repaired"),
+      Arr.isReadonlyArrayEmpty(entries) && diagnostics.every((d) => losesNothing(d.severity)),
   };
 };

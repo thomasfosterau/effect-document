@@ -13,7 +13,7 @@
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import { type Feature } from "../schema/feature.ts";
-import { type LossReport, lossReport } from "../profile/loss.ts";
+import { losesNothing, type LossReport, lossReport } from "../profile/loss.ts";
 import { narrow } from "../profile/narrow.ts";
 import { ConversionError, type ParseError, type WriteError } from "./errors.ts";
 import type { Content } from "./content.ts";
@@ -37,7 +37,7 @@ export interface ConvertOptions<A extends Feature, B extends Feature> {
    * `pandoc --fail-if-warnings`. The reader's diagnostics (#112) count, so
    * `"fail"` stops before writing; the writer's are known only once it has
    * run, so on one of those `"fail"` still returns no content. A `repaired`
-   * diagnostic loses nothing and never fails.
+   * or `notice` diagnostic loses nothing and never fails.
    */
   readonly onLoss?: "allow" | "warn" | "fail" | undefined;
 }
@@ -58,7 +58,7 @@ const describe = (loss: LossReport): string =>
   [
     ...loss.summary.map((item) => `${item.feature} (${item.action} ×${item.count})`),
     ...loss.diagnostics
-      .filter((d) => d.severity !== "repaired")
+      .filter((d) => !losesNothing(d.severity))
       .map((d) => `${d.code} (${d.severity}: ${d.detail})`),
   ].join(", ");
 
