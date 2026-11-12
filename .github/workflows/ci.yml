@@ -6,7 +6,7 @@ name: CI
 # examples, the audit), so a local `vp run ci` is exactly what runs here.
 #
 # It runs on Node 22, the floor `engines.node` (`>=22`) promises, the current
-# LTS and the latest released Node (`test`, a matrix that never cancels its
+# LTS and the latest released Node (job `ci`, a matrix that never cancels its
 # siblings). Rulesets require each leg by name: `ci (node 22)`,
 # `ci (node lts)` and `ci (node latest)`. (#164, Node 22's windows-1252 decoding, got
 # through when only `latest` ran, #181.)
