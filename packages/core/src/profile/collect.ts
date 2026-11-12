@@ -21,7 +21,13 @@ import { Document } from "../schema/document.ts";
 import { cellOf, rowCellsOf } from "../schema/sheet.ts";
 import { type Feature, featureOfTag, idFeatureOf } from "../schema/feature.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
-import { type FieldValues, fieldMatches, type OnlyWithin } from "./rules.ts";
+import {
+  breaksWhole,
+  type FieldValues,
+  fieldMatches,
+  type OnlyWithin,
+  type Whole,
+} from "./rules.ts";
 
 /** A node's attributes: every node that has them declares `attr` as `Attributes | undefined`. */
 const attrOf = (n: Inline | Block | Shape): Attributes | undefined =>
@@ -260,11 +266,28 @@ export const unsupportedFeatures = (doc: Document, allowed: ReadonlySet<Feature>
   return out;
 };
 
+/** The features of `whole` rules about rich cells (#67) that `ws`'s rich cells break. */
+const wholeViolations = (ws: Worksheet, whole: ReadonlyArray<Whole>): ReadonlyArray<Feature> => {
+  const rules = whole.filter((r) => r.within === "cell.richText");
+  if (Arr.isReadonlyArrayEmpty(rules)) return [];
+  return rules
+    .filter((rule) =>
+      ws.rows.some((row) =>
+        rowCellsOf(row).some((position) => {
+          const c = cellOf(position);
+          return Predicate.isTagged(c, "CellRichText") && breaksWhole(c.runs, rule);
+        }),
+      ),
+    )
+    .map((rule) => rule.feature);
+};
+
 /**
- * The features a document uses where a profile's `onlyWithin` or
- * `fieldValues` rules keep them out (#126): a node of an `onlyWithin` rule's
- * feature with no ancestor that is a qualifying `within` node, and a node of
- * a `fieldValues` rule's feature whose field holds another value. One walk,
+ * The features a document uses where a profile's `onlyWithin`, `fieldValues`
+ * or `whole` rules keep them out (#126, #67): a node of an `onlyWithin` rule's
+ * feature with no ancestor that is a qualifying `within` node, a node of a
+ * `fieldValues` rule's feature whose field holds another value, and a `whole`
+ * rule's feature over only part of a rich cell. One walk,
  * which carries for each `onlyWithin` rule whether it is inside a qualifying
  * node; without rules there is no walk.
  */
@@ -272,8 +295,14 @@ export const placementViolations = (
   doc: Document,
   onlyWithin: ReadonlyArray<OnlyWithin>,
   fieldValues: ReadonlyArray<FieldValues>,
+  whole: ReadonlyArray<Whole> = [],
 ): Feature[] => {
-  if (Arr.isReadonlyArrayEmpty(onlyWithin) && Arr.isReadonlyArrayEmpty(fieldValues)) return [];
+  if (
+    Arr.isReadonlyArrayEmpty(onlyWithin) &&
+    Arr.isReadonlyArrayEmpty(fieldValues) &&
+    Arr.isReadonlyArrayEmpty(whole)
+  )
+    return [];
   const out: Feature[] = [];
   const outside: ReadonlyArray<boolean> = onlyWithin.map(() => false);
   const stack: Array<{ readonly work: Work; readonly inside: ReadonlyArray<boolean> }> =
@@ -282,6 +311,7 @@ export const placementViolations = (
   for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
     const { work, inside } = item;
     const feature = featureOfTag(work.n._tag);
+    if (Predicate.isTagged(work.n, "Worksheet")) out.push(...wholeViolations(work.n, whole));
     fieldValues.forEach((rule) => {
       if (rule.feature === feature && !fieldMatches(work.n, rule)) out.push(rule.feature);
     });

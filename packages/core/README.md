@@ -155,6 +155,18 @@ const Titles = defineProfile(
 );
 ```
 
+A `whole` rule keeps a feature to the whole of a container's content (#67). XLSX links a whole cell, never part of its text, so its profiles say a `Link` in a rich cell is the cell's only run. `is` and `validate` reject a link over part of a cell, and `narrow` widens it over the whole cell (keeping the first link's target), reporting a `converted` loss with the rule's reason. The container is a rich cell's runs (`within: "cell.richText"`):
+
+```ts
+const Cells = defineProfile(
+  "cells",
+  ["sheet.worksheet", "cell.richText", "inline.str", "inline.link"],
+  {
+    whole: [{ feature: "inline.link", within: "cell.richText", reason: "whole cells only" }],
+  },
+);
+```
+
 Profiles combine, at the type level and at run time alike. `unionProfiles` and `intersectProfiles` combine two profiles, `withoutFeatures` and `extendProfile` remove or add features, `isSubProfile(a, b)` (and the type `IsSubProfile<A, B>`) asks whether every document `a` accepts `b` accepts too, and `profileOf(doc)` is the smallest profile a document fits. Structural rules follow the operation: a union keeps only the rules both sides share, an intersection keeps every rule of either, and removing a feature drops the rules about it.
 
 ```ts
@@ -441,7 +453,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Doc` | type | A `Document` statically restricted to the features `F`. |
 | `FeaturesOf` | type | The feature set of a profile, as a phantom-bearing type. |
 | `Profile` | interface | A named subset of the schema. |
-| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`). |
+| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`, `whole`). |
 | `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
 | `unionProfiles` | function | A profile allowing what either of two allows, keeping only the structural rules both share. |
 | `intersectProfiles` | function | A profile allowing only what both of two allow, under every structural rule of either. |
@@ -574,7 +586,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `inline.code`          |  –  |  –  |  –   |  –   |  –   |  –  | RW  |    –    |   –   |    –    |
 | `inline.math`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.rawInline`     |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `inline.link`          |  –  |  –  |  –   |  RW  |  –   |  –  | RW  |    –    |   –   |    –    |
+| `inline.link`          |  –  |  –  |  RW  |  RW  |  –   |  –  | RW  |    –    |   –   |    –    |
 | `inline.image`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.note`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.span`          |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -738,7 +750,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept) and rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept) rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept) and cell hyperlinks (a `CellRichText` whose one run is a `Link`: a URL through the sheet's `_rels`, a place in the workbook as `#Sheet!A1`, a tooltip as the target's `title`; a link on a cell that holds no text is dropped with an `xlsx.hyperlinkDropped` diagnostic). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

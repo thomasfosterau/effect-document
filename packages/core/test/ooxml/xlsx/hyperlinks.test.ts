@@ -10,6 +10,7 @@ import {
   type Diagnostic,
   document,
   link,
+  narrow,
   rowCellsOf,
   space,
   str,
@@ -18,7 +19,12 @@ import {
   type Worksheet,
   worksheet,
 } from "@thomasfosterau/effect-document";
-import { makeXlsxReader, makeXlsxWriter, type XlsxFeature } from "../../../src/ooxml/xlsx/index.ts";
+import {
+  makeXlsxReader,
+  makeXlsxWriter,
+  Xlsx,
+  type XlsxFeature,
+} from "../../../src/ooxml/xlsx/index.ts";
 
 const SHEET = "xl/worksheets/sheet1.xml";
 const RELS = "xl/worksheets/_rels/sheet1.xml.rels";
@@ -82,24 +88,33 @@ describe("XLSX hyperlinks (#67)", () => {
     expect(partOf(data, RELS)).toBe("");
   });
 
-  test("a link over part of a cell is written over the whole cell, and reported", () => {
+  test("narrow widens a link over part of a cell over the whole of it; the writer refuses one unwidened", () => {
     const partial = new CellRichText({
       runs: [str("see"), space(), strong([link([str("here")], "https://example.com")])],
     });
-    const [content, notes] = write([worksheet("S", [[partial]])]);
-    expect(notes.map((n) => [n.code, n.severity, n.path])).toEqual([
-      ["xlsx.hyperlinkWidened", "converted", ["S", "A1"]],
-    ]);
-    const [back] = read(bytesOf(content));
-    const [cell] = rowCellsOf(back.rows[0] ?? []);
+    const doc = document([worksheet("S", [[partial]])]);
+    // the Xlsx profile's `whole` rule keeps a link to a cell's only run
+    expect(Xlsx.is(doc)).toBe(false);
+    const { document: narrowed, loss } = narrow(doc, Xlsx);
+    expect(Xlsx.is(narrowed)).toBe(true);
+    expect(loss.entries.map((e) => [e.feature, e.action])).toEqual([["inline.link", "converted"]]);
+    expect(loss.entries[0]?.detail).toContain("SpreadsheetML links a whole cell");
+    const ws = narrowed.blocks[0];
+    assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"));
+    const [cell] = rowCellsOf(ws.rows[0] ?? []);
     assert(Predicate.isTagged(cell, "CellRichText"));
-    // the cell's text and bold come back, linked as a whole
     expect(cell.runs).toEqual([
       link(
         [str("see"), expect.objectContaining({ _tag: "Space" }), strong([str("here")])],
         "https://example.com",
       ),
     ]);
+    // the widened cell round-trips
+    const [content] = write([ws]);
+    expect(rowCellsOf(read(bytesOf(content))[0].rows[0] ?? [])).toEqual([cell]);
+    // built past the profile with trustAs, the writer refuses it rather than widen it silently
+    const error = Effect.runSync(Effect.flip(makeXlsxWriter().write(trustAs<XlsxFeature>(doc))));
+    expect(error.reason).toContain("S!A1 link only part of their text");
   });
 
   test("a range link covers each text cell in it; a cell that holds no text keeps its value and is reported", () => {

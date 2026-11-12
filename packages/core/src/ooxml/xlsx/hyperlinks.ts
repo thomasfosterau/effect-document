@@ -191,47 +191,19 @@ const linksIn = (inlines: ReadonlyArray<Inline>): ReadonlyArray<Link> =>
     return "content" in inline && Array.isArray(inline.content) ? linksIn(inline.content) : [];
   });
 
-/** Whether `inlines` hold text outside any link (a space between two links counts). */
-const textOutsideLinks = (inlines: ReadonlyArray<Inline>): boolean =>
-  inlines.some((inline) =>
-    Predicate.isTagged(inline, "Link")
-      ? false
-      : "content" in inline && Array.isArray(inline.content)
-        ? textOutsideLinks(inline.content)
-        : true,
-  );
-
-/** A cell hyperlink to write: its cell, where it points, and whether the cell's text was widened to it. */
+/** A cell hyperlink to write: its cell and where it points. */
 export interface CellHyperlink {
   readonly ref: string;
   readonly target: Target;
-  /** True when the cell's runs had text outside the link or more than one link (SpreadsheetML links the whole cell). */
-  readonly widened: boolean;
 }
 
 /**
- * The hyperlink a rich cell at `ref` is written with: its first link's
- * target, over the whole cell. None for a cell without a link.
+ * The hyperlink a rich cell at `ref` is written with: its link's target, over
+ * the whole cell. None for a cell without a link. The `Xlsx` profile's `whole`
+ * rule keeps a link to a rich cell's only run, which the writer checks first.
  */
 export const cellHyperlink = (cell: CellRichText, ref: string): Option.Option<CellHyperlink> =>
-  Option.map(Arr.head(linksIn(cell.runs)), (first) => {
-    const urls = new Set(linksIn(cell.runs).map((l) => l.target.url));
-    return {
-      ref,
-      target: first.target,
-      widened: urls.size > 1 || textOutsideLinks(cell.runs),
-    };
-  });
-
-/** The writer's diagnostic for a cell whose link was widened to the whole cell. */
-export const widenedDiagnostic = (sheet: string, ref: string): Diagnostic => ({
-  format: "xlsx",
-  stage: "write",
-  code: "xlsx.hyperlinkWidened",
-  severity: "converted",
-  path: [sheet, ref],
-  detail: `${sheet}!${ref} links only part of its text, or to more than one place: written as one link over the whole cell, to its first link's target`,
-});
+  Option.map(Arr.head(linksIn(cell.runs)), (first) => ({ ref, target: first.target }));
 
 /** A worksheet's hyperlinks as `<hyperlinks>` and the relationships its external ones need. */
 export interface HyperlinksXml {
