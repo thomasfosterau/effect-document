@@ -23,6 +23,7 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import {
   type Content,
   contentToBytes,
@@ -31,6 +32,7 @@ import {
   makeReaderTag,
   ParseError,
   type Reader,
+  withSheetLayout,
   worksheetFromRows,
   trustAs,
   Worksheet,
@@ -43,6 +45,7 @@ import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
 import { parseWorksheetRows, type WorksheetRows } from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
+import { readColumns, readMerges } from "./layout.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
@@ -141,7 +144,7 @@ const readWorksheetRows = (
   target: string,
   sharedStrings: ReadonlyArray<string>,
   maxCells: number,
-): Effect.Effect<WorksheetRows, ParseError> =>
+): Effect.Effect<{ readonly rows: WorksheetRows; readonly root: XmlElement }, ParseError> =>
   Effect.flatMap(
     Effect.try({
       try: () => {
@@ -159,11 +162,12 @@ const readWorksheetRows = (
       catch: (cause) => ooxmlParseError("xlsx", cause),
     }),
     Option.match({
-      onSome: ({ value }) => Effect.succeed(value),
+      onSome: ({ value, root }) => Effect.succeed({ rows: value, root }),
       onNone: () =>
-        Effect.map(parsePart(pkg, target, "sheetData"), (root) =>
-          parseWorksheetRows(root, sharedStrings, maxCells),
-        ),
+        Effect.map(parsePart(pkg, target, "sheetData"), (root) => ({
+          rows: parseWorksheetRows(root, sharedStrings, maxCells),
+          root,
+        })),
     }),
   );
 
@@ -268,7 +272,8 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             }
 
             const remaining = maxCells - allocated;
-            const parsed = yield* readWorksheetRows(pkg, target, sharedStrings, remaining);
+            const part = yield* readWorksheetRows(pkg, target, sharedStrings, remaining);
+            const parsed = part.rows;
             if (Predicate.isTagged(parsed, "TooLarge")) {
               return yield* new ParseError({
                 format: "xlsx",
@@ -280,14 +285,22 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            if (maxRows !== undefined && parsed.rows.length > maxRows) {
-              cut.push(name);
-              return worksheetFromRows(
-                name,
-                parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))),
-              );
-            }
-            return worksheetFromRows(name, parsed.rows);
+            const merges = readMerges(part.root);
+            if (Result.isFailure(merges))
+              return yield* new ParseError({
+                format: "xlsx",
+                reason: `Worksheet "${name}" has ${merges.failure}`,
+              });
+            const truncated = maxRows !== undefined && parsed.rows.length > maxRows;
+            if (truncated) cut.push(name);
+            const sheet = worksheetFromRows(
+              name,
+              truncated ? parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))) : parsed.rows,
+            );
+            const columns = readColumns(part.root);
+            return Arr.isReadonlyArrayEmpty(columns) && Arr.isReadonlyArrayEmpty(merges.success)
+              ? sheet
+              : withSheetLayout(sheet, columns, merges.success);
           }),
         { concurrency: 1 },
       );

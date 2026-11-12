@@ -10,6 +10,7 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import {
   bytes,
   type Content,
@@ -28,6 +29,7 @@ import { toA1 } from "./a1.ts";
 import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
 import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
+import { colsXml, mergeCellsXml } from "./layout.ts";
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
@@ -176,7 +178,7 @@ const sharedStringsXml = (table: SharedStrings): string => {
   );
 };
 
-const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
+const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings, merges: string): string => {
   // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
   // at its own index, and blank cells emit no <c>. <dimension> declares the
   // extent of the cells the sheet holds.
@@ -200,7 +202,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
     .join("");
   return (
     XML_DECL +
-    `<worksheet xmlns="${NS_MAIN}">${dimension}<sheetData>${rows}</sheetData></worksheet>`
+    `<worksheet xmlns="${NS_MAIN}">${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}</worksheet>`
   );
 };
 
@@ -224,10 +226,15 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
       return Effect.fail(
         new WriteError({ format: "xlsx", reason: "document contains no worksheets to write" }),
       );
+    const merges = Result.all(worksheets.map((ws) => mergeCellsXml(ws.merges)));
+    if (Result.isFailure(merges))
+      return Effect.fail(new WriteError({ format: "xlsx", reason: merges.failure }));
     return Effect.try({
       try: () => {
         const sharedStrings = new SharedStrings();
-        const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings));
+        const sheetXmls = worksheets.map((ws, i) =>
+          worksheetXml(ws, sharedStrings, merges.success[i] ?? ""),
+        );
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>

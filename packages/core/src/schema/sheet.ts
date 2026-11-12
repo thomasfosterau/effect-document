@@ -12,9 +12,11 @@ import * as Schema from "effect/Schema";
 import {
   CellBlank,
   isPlainRow,
+  MergeRange,
   PlainCell,
   type RowCell,
   SheetCell,
+  SheetColumn,
   SheetRow,
   Worksheet,
   type WorksheetRow,
@@ -23,6 +25,7 @@ import {
   isCellInstance,
   positional,
   trustedWorksheet,
+  trustedWorksheetLayout,
   trustedBoolean,
   trustedNumber,
   trustedRowOf,
@@ -482,6 +485,35 @@ export const worksheetFromRows = (
   Predicate.isString(name) && areWorksheetRows(rows, numberRows)
     ? trustedWorksheet(name, rows)
     : new Worksheet({ name, columns: [], rows, merges: [] });
+
+/**
+ * `ws` with its column definitions and merged ranges set, for a reader that
+ * builds a sheet's rows with {@link worksheetFromRows} and reads its layout
+ * apart (the XLSX reader's `<cols>` and `<mergeCells>`). The rows are kept as
+ * they are, unchecked again, since a `Worksheet`'s rows are already valid; the
+ * columns and merges are taken unchecked when they are `SheetColumn` and
+ * `MergeRange` instances, and otherwise checked as `new Worksheet` checks
+ * them, failing as it does.
+ *
+ * @example
+ * ```ts
+ * import { MergeRange, SheetColumn, withSheetLayout, worksheet } from "@thomasfosterau/effect-document"
+ *
+ * withSheetLayout(worksheet("S", [["a", "b"]]), [new SheetColumn({ width: 20 })], [
+ *   new MergeRange({ fromRow: 0, fromCol: 0, toRow: 0, toCol: 1 }),
+ * ])
+ * ```
+ */
+export const withSheetLayout = (
+  ws: Worksheet,
+  columns: ReadonlyArray<SheetColumn>,
+  merges: ReadonlyArray<MergeRange>,
+): Worksheet =>
+  columns.every((c) => c instanceof SheetColumn) && merges.every((m) => m instanceof MergeRange)
+    ? trustedWorksheetLayout(ws, columns, merges)
+    : ws.attr === undefined
+      ? new Worksheet({ name: ws.name, columns, rows: ws.rows, merges })
+      : new Worksheet({ attr: ws.attr, name: ws.name, columns, rows: ws.rows, merges });
 
 /** Whether rows are what `Worksheet` accepts unchanged (see {@link worksheetFromRows}). */
 const areWorksheetRows = (

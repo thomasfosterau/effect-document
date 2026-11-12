@@ -4,9 +4,10 @@
  * reader produces, which differs where the reader understands more than the
  * writer emits (ISO `t="d"` dates, non-grid sheets tagged `attr.data.kind`).
  *
- * Not (yet) preserved, so narrowed away on write with a loss report: column
- * widths, merges, row heights, cell styles, attributes, rich-text runs
- * (flattened) and dates (written as ISO text).
+ * Column widths (`<cols>`) and merged ranges (`<mergeCells>`) round-trip
+ * (#66). Not (yet) preserved, so narrowed away on write with a loss report:
+ * per-column styles, cell styles, attributes, rich-text runs (flattened) and
+ * dates (written as ISO text). Row heights are not yet written either (#66).
  */
 
 import { defineProfile, type FeaturesOf } from "../../index.ts";
@@ -15,6 +16,8 @@ import { defineProfile, type FeaturesOf } from "../../index.ts";
 export const xlsxFeatures = [
   "sheet.worksheet",
   "sheet.multiple",
+  "sheet.merges",
+  "sheet.columns",
   "cell.text",
   "cell.number",
   "cell.boolean",
