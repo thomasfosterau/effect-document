@@ -50,6 +50,7 @@ import {
   type FieldValues,
   type NotWithin,
   type OnlyWithin,
+  type Whole,
   type Profile,
   type SheetCell,
   sheetRow,
@@ -208,6 +209,8 @@ interface Ctx {
   readonly fieldValues: ReadonlyArray<FieldValues>;
   /** The profile's own features, to allow an `onlyWithin` feature again inside its node. */
   readonly profile: (f: Feature) => boolean;
+  /** Features that must be the whole of a container's content (#67). */
+  readonly whole: ReadonlyArray<Whole>;
 }
 
 /**
@@ -458,8 +461,17 @@ export interface ShapeOptions {
 const sheetOf = (name: string, ctx: Ctx): Arbitrary.Arbitrary<Worksheet> => {
   const kinds = CELL_FEATURES.filter(ctx.has);
   const valued = kinds.filter((f) => f !== "cell.blank");
-  // a rich cell's runs are inline content the profile allows, as a paragraph's are
-  const rich = Arbitrary.map(inlines(ctx, 2), (runs): SheetCell => new CellRichText({ runs }));
+  // a rich cell's runs are inline content the profile allows, as a paragraph's
+  // are, a feature a `whole` rule keeps to a cell's whole content (#67) only so
+  const whole = ctx.whole.filter((r) => r.within === "cell.richText").map((r) => r.feature);
+  const runs = inlines({ ...ctx, has: (f) => ctx.has(f) && !whole.includes(f) }, 2);
+  const linked = Arbitrary.map(runs, (content): ReadonlyArray<Inline> => [
+    new Link({ content, target: { url: "https://example.com/cell" } }),
+  ]);
+  const rich = Arbitrary.map(
+    whole.includes("inline.link") && ctx.has("inline.link") ? oneOf([runs, linked]) : runs,
+    (r): SheetCell => new CellRichText({ runs: r }),
+  );
   const arbitraryOf = (f: Feature): Arbitrary.Arbitrary<SheetCell> | undefined =>
     f === "cell.richText" ? rich : cellOf(f);
   const cells = kinds.flatMap((f) => {
@@ -577,6 +589,7 @@ export const arbitraryDocument = (
     onlyWithin: profile.onlyWithin,
     fieldValues: profile.fieldValues,
     profile: (f) => profile.features.has(f),
+    whole: profile.whole,
   };
   // enough body text to outweigh any generated run of headings or code
   const body = (text: string): ReadonlyArray<Block> =>

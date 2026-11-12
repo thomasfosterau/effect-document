@@ -10,8 +10,10 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import {
+  breaksWhole,
   bytes,
   type Content,
   type Diagnostic,
@@ -31,6 +33,13 @@ import {
 import { Xlsx, type XlsxFeature } from "./profile.ts";
 import { toA1 } from "./a1.ts";
 import { NON_FINITE_CELL, SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
+import {
+  type CellHyperlink,
+  cellHyperlink,
+  hyperlinksXml,
+  type HyperlinksXml,
+  REL_HYPERLINK,
+} from "./hyperlinks.ts";
 import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
 import { colsXml, mergeCellsXml } from "./layout.ts";
@@ -217,16 +226,40 @@ const sharedStringsXml = (table: SharedStrings): string => {
   );
 };
 
+/** A worksheet's part, and the relationships its hyperlinks need (#67). */
+interface SheetPart {
+  readonly xml: string;
+  readonly rels: HyperlinksXml["rels"];
+}
+
+/** A worksheet part's `_rels` part, for its external hyperlinks. */
+const sheetRelsXml = (rels: SheetPart["rels"]): string =>
+  XML_DECL +
+  `<Relationships xmlns="${NS_PKG_REL}">` +
+  rels
+    .map(
+      ({ id, url }) =>
+        `<Relationship Id="${id}" Type="${REL_HYPERLINK}" Target="${escapeAttr(url)}" TargetMode="External"/>`,
+    )
+    .join("") +
+  `</Relationships>`;
+
 /**
  * A worksheet's part. A `NaN` or `±Infinity` number, which SpreadsheetML
- * cannot hold, is written as `#NUM!` and reported in `notes` (#112).
+ * cannot hold, is written as `#NUM!` and reported in `notes` (#112). A rich
+ * cell that breaks the `Xlsx` profile's `whole` rule (a link over only part of
+ * it, which a document built through `trustAs` can hold) is listed in
+ * `partial` (as `Sheet!A1`), for the writer to refuse rather than widen it
+ * silently (#67).
  */
 const worksheetXml = (
   ws: Worksheet,
   sharedStrings: SharedStrings,
   merges: string,
   notes: Array<Diagnostic>,
-): string => {
+  partial: Array<string>,
+): SheetPart => {
+  const links: Array<CellHyperlink> = [];
   // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
   // at its own index, and blank cells emit no <c>. <dimension> declares the
   // extent of the cells the sheet holds.
@@ -243,6 +276,17 @@ const worksheetXml = (
         const rendered = cellToSpreadsheetMl(cell, sharedStrings);
         if (rendered === null) return [];
         if (rendered === NON_FINITE_CELL) notes.push(nonFinite(ws.name, toA1(col, index), cell));
+        const link = Predicate.isTagged(cell, "CellRichText")
+          ? cellHyperlink(cell, toA1(col, index))
+          : Option.none();
+        if (Option.isSome(link)) {
+          links.push(link.value);
+          if (
+            Predicate.isTagged(cell, "CellRichText") &&
+            Xlsx.whole.some((rule) => breaksWhole(cell.runs, rule))
+          )
+            partial.push(`${ws.name}!${link.value.ref}`);
+        }
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
         return [`<c r="${toA1(col, index)}"${typeAttr}>${rendered.inner}</c>`];
       });
@@ -251,10 +295,14 @@ const worksheetXml = (
       return `<row r="${index + 1}"${ht}>${cells.join("")}</row>`;
     })
     .join("");
-  return (
-    XML_DECL +
-    `<worksheet xmlns="${NS_MAIN}">${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}</worksheet>`
-  );
+  const hyperlinks = hyperlinksXml(links, escapeAttr);
+  const ns = hyperlinks.xml === "" ? "" : ` xmlns:r="${NS_REL_DOC}"`;
+  return {
+    xml:
+      XML_DECL +
+      `<worksheet xmlns="${NS_MAIN}"${ns}>${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}${hyperlinks.xml}</worksheet>`,
+    rels: hyperlinks.rels,
+  };
 };
 
 /** Whether a row's height can be written: none, or a finite, non-negative number of points. */
@@ -300,8 +348,9 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
         const names = worksheets.map((w) => w.name);
         const sheetNames = sanitizeSheetNames(names);
         const notes = renamedSheets(names, sheetNames);
+        const partial: Array<string> = [];
         const sheetXmls = worksheets.map((ws, i) =>
-          worksheetXml(ws, sharedStrings, merges.success[i] ?? "", notes),
+          worksheetXml(ws, sharedStrings, merges.success[i] ?? "", notes, partial),
         );
 
         const recalculate = worksheets.some((ws) =>
@@ -321,11 +370,22 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
           ...Object.fromEntries(
-            sheetXmls.map((xml, i) => [`xl/worksheets/sheet${i + 1}.xml`, xml]),
+            sheetXmls.flatMap((part, i) => {
+              const sheet = [`xl/worksheets/sheet${i + 1}.xml`, part.xml] as const;
+              return Arr.isReadonlyArrayEmpty(part.rels)
+                ? [sheet]
+                : [
+                    sheet,
+                    [
+                      `xl/worksheets/_rels/sheet${i + 1}.xml.rels`,
+                      sheetRelsXml(part.rels),
+                    ] as const,
+                  ];
+            }),
           ),
         };
 
-        return [bytes(zipParts(files, level)), notes] as const;
+        return [bytes(zipParts(files, level)), notes, partial] as const;
       },
       catch: (cause) =>
         new WriteError({
@@ -333,7 +393,18 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           reason: `Failed to generate xlsx package: ${String(cause)}`,
           cause,
         }),
-    }).pipe(Effect.flatMap(([content, notes]) => Effect.as(logDiagnostics(notes), content)));
+    }).pipe(
+      Effect.flatMap(([content, notes, partial]) =>
+        Arr.isReadonlyArrayNonEmpty(partial)
+          ? Effect.fail(
+              new WriteError({
+                format: "xlsx",
+                reason: `${partial.join(", ")} link only part of their text, which SpreadsheetML can't hold: narrow the document to the Xlsx profile first, which widens each link over its cell`,
+              }),
+            )
+          : Effect.as(logDiagnostics(notes), content),
+      ),
+    );
   };
 
   return { format: "xlsx", profile: Xlsx, write };

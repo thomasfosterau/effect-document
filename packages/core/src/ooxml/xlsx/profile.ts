@@ -12,7 +12,7 @@
  * and colours, and dates (written as ISO text).
  */
 
-import { defineProfile, type FeaturesOf } from "../../index.ts";
+import { defineProfile, type FeaturesOf, type ProfileOptions } from "../../index.ts";
 
 /** The features the XLSX profile allows, as a list. */
 export const xlsxFeatures = [
@@ -38,18 +38,34 @@ export const xlsxFeatures = [
   "inline.strikeout",
   "inline.superscript",
   "inline.subscript",
+  // a hyperlink (#67): over a whole cell, as the worksheet's <hyperlinks> holds it
+  "inline.link",
 ] as const;
 
+/**
+ * The structural rule both XLSX profiles keep (#67): SpreadsheetML links a
+ * whole cell (`<hyperlink ref>`), so a `Link` in a rich cell is its only run.
+ */
+const xlsxRules: ProfileOptions = {
+  whole: [
+    {
+      feature: "inline.link",
+      within: "cell.richText",
+      reason: "SpreadsheetML links a whole cell, not part of its text",
+    },
+  ],
+};
+
 /** What the XLSX writer preserves. */
-export const Xlsx = defineProfile("xlsx", xlsxFeatures);
+export const Xlsx = defineProfile("xlsx", xlsxFeatures, xlsxRules);
 /** The features the XLSX profile allows, as a type: the phantom of its documents. */
 export type XlsxFeature = FeaturesOf<typeof Xlsx>;
 
 /** What the XLSX reader produces. */
-export const XlsxRead = defineProfile("xlsx-read", [
-  ...xlsxFeatures,
-  "cell.date",
-  "attr.keyValue",
-] as const);
+export const XlsxRead = defineProfile(
+  "xlsx-read",
+  [...xlsxFeatures, "cell.date", "attr.keyValue"] as const,
+  xlsxRules,
+);
 /** The features of {@link XlsxRead}, what the XLSX reader produces, as a type. */
 export type XlsxReadFeature = FeaturesOf<typeof XlsxRead>;

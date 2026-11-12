@@ -1,7 +1,16 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { describe, expect, test } from "vite-plus/test";
-import { document, header, para, str, strong } from "../../src/schema/index.ts";
+import {
+  CellRichText,
+  document,
+  header,
+  link,
+  para,
+  str,
+  strong,
+  worksheet,
+} from "../../src/schema/index.ts";
 import {
   defineProfile,
   extendProfile,
@@ -144,5 +153,39 @@ describe("profile algebra over onlyWithin and fieldValues rules (#126)", () => {
     expect(isSubProfile(Deck, LooseDeck)).toBe(false);
     expect(isSubProfile(intersectProfiles("both", Deck, LooseDeck), LooseDeck)).toBe(true);
     expect(isSubProfile(LooseDeck, Deck)).toBe(false);
+  });
+});
+
+describe("whole rules (#67)", () => {
+  const Cells = defineProfile(
+    "cells",
+    ["sheet.worksheet", "cell.richText", "inline.str", "inline.link"] as const,
+    {
+      whole: [{ feature: "inline.link", within: "cell.richText", reason: "whole cells only" }],
+    },
+  );
+  const partly = document([
+    worksheet("S", [
+      [new CellRichText({ runs: [str("a"), link([str("b")], "https://example.com")] })],
+    ]),
+  ]);
+  const wholly = document([
+    worksheet("S", [[new CellRichText({ runs: [link([str("ab")], "https://example.com")] })]]),
+  ]);
+
+  test("conformance: a link that is a rich cell's only run conforms; one over part of it doesn't", () => {
+    expect(Cells.is(wholly)).toBe(true);
+    expect(Cells.is(partly)).toBe(false);
+  });
+
+  test("the algebra keeps a whole rule as it keeps the others", () => {
+    const Loose = defineProfile("loose", [...Cells.features]);
+    expect(unionProfiles("u", Cells, Loose).whole).toEqual([]);
+    expect(intersectProfiles("i", Cells, Loose).whole).toEqual(Cells.whole);
+    expect(withoutFeatures("w", Cells, ["inline.link"] as const).whole).toEqual([]);
+    expect(extendProfile("e", Cells, ["inline.emph"] as const).whole).toEqual(Cells.whole);
+    // Loose accepts a partial link Cells refuses
+    expect(isSubProfile(Cells, Loose)).toBe(true);
+    expect(isSubProfile(Loose, Cells)).toBe(false);
   });
 });

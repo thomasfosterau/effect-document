@@ -13,7 +13,7 @@ import type { Document } from "../schema/document.ts";
 import type { Feature, WithIdFeatures } from "../schema/feature.ts";
 import { collectFeatures } from "./collect.ts";
 import { defineProfile, type NotWithin, type Profile, type ProfileOptions } from "./profile.ts";
-import type { FieldValues, OnlyWithin } from "./rules.ts";
+import type { FieldValues, OnlyWithin, Whole } from "./rules.ts";
 
 /** Whether `A` is a sub-profile of `B` at the type level: every feature `A` allows, `B` allows too. Structural rules aren't seen here; {@link isSubProfile} checks them. */
 export type IsSubProfile<A extends Profile<Feature>, B extends Profile<Feature>> = [
@@ -28,6 +28,7 @@ const onlyWithinKey = (r: OnlyWithin): string =>
   `${r.feature}\u0000${r.within}\u0000${r.where?.field ?? ""}\u0000${(r.where?.oneOf ?? []).join("\u0001")}`;
 const fieldValuesKey = (r: FieldValues): string =>
   `${r.feature}\u0000${r.field}\u0000${r.oneOf.join("\u0001")}`;
+const wholeKey = (r: Whole): string => `${r.feature}\u0000${r.within}`;
 
 /** The rules of `rules` whose identity `others` also holds. */
 const shared = <R>(
@@ -51,6 +52,7 @@ const rulesOf = (p: Profile<Feature>): ProfileOptions => ({
   notWithin: p.notWithin,
   onlyWithin: p.onlyWithin,
   fieldValues: p.fieldValues,
+  whole: p.whole,
 });
 
 /** A profile's features, as a list typed by its phantom: `has` is the check that makes each one an `F`. */
@@ -71,6 +73,7 @@ export const unionProfiles = <A extends Feature, B extends Feature>(
     notWithin: shared(a.notWithin, b.notWithin, notWithinKey),
     onlyWithin: shared(a.onlyWithin, b.onlyWithin, onlyWithinKey),
     fieldValues: shared(a.fieldValues, b.fieldValues, fieldValuesKey),
+    whole: shared(a.whole, b.whole, wholeKey),
   });
 
 /**
@@ -89,6 +92,7 @@ export const intersectProfiles = <A extends Feature, B extends Feature>(
       notWithin: merged(a.notWithin, b.notWithin, notWithinKey),
       onlyWithin: merged(a.onlyWithin, b.onlyWithin, onlyWithinKey),
       fieldValues: merged(a.fieldValues, b.fieldValues, fieldValuesKey),
+      whole: merged(a.whole, b.whole, wholeKey),
     },
   );
 
@@ -117,6 +121,7 @@ export const withoutFeatures = <F extends Feature, const R extends ReadonlyArray
       notWithin: p.notWithin.filter(keeps),
       onlyWithin: p.onlyWithin.filter(keeps),
       fieldValues: p.fieldValues.filter(keeps),
+      whole: p.whole.filter(keeps),
     },
   );
 };
@@ -154,7 +159,8 @@ export const isSubProfile = (a: Profile<Feature>, b: Profile<Feature>): boolean 
   return (
     covered(b.notWithin, a.notWithin, notWithinKey) &&
     covered(b.onlyWithin, a.onlyWithin, onlyWithinKey) &&
-    covered(b.fieldValues, a.fieldValues, fieldValuesKey)
+    covered(b.fieldValues, a.fieldValues, fieldValuesKey) &&
+    covered(b.whole, a.whole, wholeKey)
   );
 };
 

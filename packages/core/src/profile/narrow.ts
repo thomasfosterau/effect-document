@@ -82,7 +82,15 @@ import { cellOf, denseRows, rowCellsOf, rowIndexes, sheetRow } from "../schema/s
 import { type Resources, resourceUrl } from "../schema/resource.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
-import { type FieldValues, fieldMatches, type OnlyWithin, type RuleNode } from "./rules.ts";
+import {
+  breaksWhole,
+  childInlines,
+  type FieldValues,
+  fieldMatches,
+  type OnlyWithin,
+  type RuleNode,
+  type Whole,
+} from "./rules.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
 import {
   type LossEntry,
@@ -206,6 +214,8 @@ interface Ctx {
   readonly fieldValues: ReadonlyArray<FieldValues>;
   /** The target profile's features, to allow an `onlyWithin` feature again inside its node. */
   readonly profile: ReadonlySet<Feature>;
+  /** The target profile's `whole` rules (#67). */
+  readonly whole: ReadonlyArray<Whole>;
 }
 
 /**
@@ -472,6 +482,41 @@ const typedCell =
 const cellText = (c: SheetCell, style: CellStyle): SheetCell =>
   new CellText({ value: cellToText(c), style });
 
+/** The first node of `feature` in `inlines`, depth first. */
+const firstOf = (inlines: ReadonlyArray<Inline>, feature: Feature): Inline | undefined =>
+  inlines.reduce<Inline | undefined>(
+    (found, inline) =>
+      found ??
+      (TAG_FEATURE[inline._tag] === feature ? inline : firstOf(childInlines(inline), feature)),
+    undefined,
+  );
+
+/**
+ * `runs` (a rich cell's) under the target's `whole` rules (#67): where a rule's
+ * feature covers only part of them, they are narrowed as if the profile
+ * lacked it (each such node unwrapped, a `converted` loss with the rule's
+ * reason), and a `Link` is then put back around all of them, keeping the
+ * first link's target and attributes. A feature other than a link has no
+ * target to keep, so it stays unwrapped.
+ */
+const keepWhole = (runs: ReadonlyArray<Inline>, ctx: Ctx): ReadonlyArray<Inline> =>
+  ctx.whole
+    .filter((rule) => rule.within === "cell.richText" && ctx.allowed.has(rule.feature))
+    .reduce((acc, rule) => {
+      if (!breaksWhole(acc, rule)) return acc;
+      const first = firstOf(acc, rule.feature);
+      const content = narrowInlines(acc, {
+        ...ctx,
+        allowed: new Set([...ctx.allowed].filter((f) => f !== rule.feature)),
+        rec: ctx.rec.within(
+          new Map([[rule.feature, `${rule.reason}; widened over the whole cell`]]),
+        ),
+      });
+      return Predicate.isTagged(first, "Link")
+        ? [new Link({ attr: first.attr, target: first.target, content })]
+        : content;
+    }, runs);
+
 const CELL: TagHandlers<SheetCell, [CellStyle, Ctx], SheetCell> = {
   CellText: (c, style) => new CellText({ value: c.value, style }),
   CellBlank: (_, style) => new CellBlank({ style }),
@@ -508,7 +553,8 @@ const CELL: TagHandlers<SheetCell, [CellStyle, Ctx], SheetCell> = {
   CellRichText: typedCell(
     "cell.richText",
     "rich-text cell flattened to text",
-    (c, style, ctx) => new CellRichText({ runs: narrowInlines(c.runs, ctx), style }),
+    (c, style, ctx) =>
+      new CellRichText({ runs: keepWhole(narrowInlines(c.runs, ctx), ctx), style }),
     (c, style) => new CellText({ value: inlinesToText(c.runs), style }),
   ),
 };
@@ -965,6 +1011,7 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
     onlyWithin: to.onlyWithin,
     fieldValues: to.fieldValues,
     profile: to.features,
+    whole: to.whole,
   };
   let blocks = [...doc.blocks];
 
