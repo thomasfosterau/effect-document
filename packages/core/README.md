@@ -982,9 +982,9 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 
 Read-only Apple iWork readers: Keynote (`.key`, slide text), Pages (`.pages`, body text) and Numbers (`.numbers`, sheet structure), plus the container codec they are built on.
 
-> **Experimental.** iWork files are reverse-engineered binary bundles, so these readers are best-effort and read _text_ only: Keynote yields each slide's text, Pages its body paragraphs, Numbers its sheets without cell values. Writing needs Apple's proprietary object-graph schemas and is not supported. Password-protected documents are detected and refused.
+> **Experimental.** iWork files are reverse-engineered binary bundles, so these readers are best-effort and read _text_ only: Keynote yields each slide's text in the show's order (its slide tree, nested slides after their parent), Pages its body paragraphs, Numbers its sheets without cell values. Writing needs Apple's proprietary object-graph schemas and is not supported. Password-protected documents are detected and refused.
 >
-> Known limits until the object resolver (#101) lands (#99): the Pages reader takes the text of every storage in the file, so headers, footers, footnotes, text boxes, table cells and template text are mixed into the body; Keynote slides come in component-id order, not the show's slide order; a file from another iWork app (a `.key` read as Pages) is read rather than refused; and Numbers reports no loss for the cell values it does not read.
+> Known limits (#99): the Pages reader takes the text of every storage in the file, so headers, footers, footnotes, text boxes, table cells and template text are mixed into the body; a file from another iWork app (a `.key` read as Pages) is read rather than refused; and Numbers reports no loss for the cell values it does not read.
 
 #### Usage
 
@@ -1057,6 +1057,8 @@ Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whos
 - `decompressBlock` / `compressBlock` are Apple's non-standard Snappy block format; the compressor writes literals only, which every Snappy decoder accepts.
 - The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors.
 - `decodeArchiveStream` decodes archived objects and their messages.
+- `readPackageMetadata` reads `Index/Metadata.iwa` (`TSP.PackageMetadata`): the file format version, every component's path and the objects it refers to in other components, and every data file with its path under `Data/` (`None` for the app's own stock images, which the package does not hold).
+- `makeObjectResolver` finds an archived object by identifier across components, decoding each component at most once and only when a lookup needs it: the metadata's hints first, then a scan in natural order. `referenceAt` reads the identifier a `TSP.Reference` field names.
 
 `Registry` holds the few reverse-engineered message type ids the readers use; they come from the [keynote-parser](https://github.com/psobot/keynote-parser) v14.4 mapping and can drift between iWork versions.
 
@@ -1170,3 +1172,10 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `componentPaths` | function | The component paths matching a predicate (e.g. |
 | `decodeComponent` | function | Decode a single component's archived objects (none if it is absent). |
 | `decodeAll` | function | Decode every component's objects, flattened (a whole-document object scan). |
+| `METADATA_COMPONENT` | const | `"Index/Metadata.iwa"`, the component holding the package metadata. |
+| `PackageMetadata` / `ComponentInfo` / `ComponentReference` / `DataInfo` | interface | What `Index/Metadata.iwa` says about the package, its components and its data files. |
+| `readPackageMetadata` | function | A bundle's package metadata; `None` when it has none. |
+| `dataInfoOf` | function | The data file with an identifier, if the metadata lists it. |
+| `ObjectResolver` | interface | Finds archived objects by identifier across a bundle's components, decoding lazily. |
+| `makeObjectResolver` | function | A resolver over a bundle, reading its package metadata first. |
+| `referenceAt` | function | The object identifier a `TSP.Reference` field of a message names. |

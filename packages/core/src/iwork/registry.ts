@@ -22,12 +22,39 @@ export const KN_PLACEHOLDER_ARCHIVE: ReadonlySet<number> = new Set([7, 12]);
 /** `KN.DocumentArchive` - the Keynote document root. */
 export const KN_DOCUMENT_ARCHIVE = 1;
 
+/** `KN.ShowArchive` - the show: its theme, size and slide tree (#99). */
+export const KN_SHOW_ARCHIVE = 2;
+
+/** `KN.SlideNodeArchive` - one node of the slide tree: a slide and the slides nested under it (#99). */
+export const KN_SLIDE_NODE_ARCHIVE = 4;
+
+/**
+ * Field numbers along the show's slide tree (keynote-parser `KNArchives.proto`,
+ * the same from 10.2 through 14.5): `KN.DocumentArchive.show`,
+ * `KN.ShowArchive.slideTree` (an embedded `KN.SlideTreeArchive`, not a
+ * reference), `SlideTreeArchive.slides` and its deprecated `rootSlideNode`,
+ * and `SlideNodeArchive.children` / `slide`.
+ */
+export const DOCUMENT_SHOW_FIELD = 2;
+export const SHOW_SLIDE_TREE_FIELD = 3;
+export const SLIDE_TREE_ROOT_NODE_FIELD = 1;
+export const SLIDE_TREE_SLIDES_FIELD = 2;
+export const SLIDE_NODE_CHILDREN_FIELD = 1;
+export const SLIDE_NODE_SLIDE_FIELD = 2;
+
 /** `TP.DocumentArchive` - the Pages document root. */
 export const TP_DOCUMENT_ARCHIVE = 10000;
 
 /** `TN.DocumentArchive` / `TN.SheetArchive` - the Numbers document/sheet roots. */
 export const TN_DOCUMENT_ARCHIVE = 1;
 export const TN_SHEET_ARCHIVE = 2;
+
+/**
+ * `TSP.PackageMetadata` - the package's component and data-file lists, in
+ * `Index/Metadata.iwa` (#101). Type 11006 in every keynote-parser registry,
+ * 10.2 through 14.5.
+ */
+export const TSP_PACKAGE_METADATA = 11006;
 
 /** `TSP.Reference.identifier` - the object a reference points to. */
 export const REFERENCE_IDENTIFIER_FIELD = 1;
