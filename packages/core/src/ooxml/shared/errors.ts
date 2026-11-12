@@ -3,8 +3,17 @@
  * the part name and the line/column of malformed XML.
  */
 
-import { ParseError } from "../../index.ts";
-import { OpcError, XmlPartError } from "./opc.ts";
+import { ParseError, type ParseErrorCode } from "../../index.ts";
+import { OpcError, type OpcErrorKind, XmlPartError } from "./opc.ts";
+
+/** The `ParseError` code of each package failure (#127). */
+const OPC_CODE = {
+  LimitExceeded: "LimitExceeded",
+  WrongPackageType: "WrongFormat",
+  MissingPart: "MissingPart",
+  InvalidContainer: "InvalidContainer",
+  Encrypted: "Encrypted",
+} as const satisfies Record<OpcErrorKind, ParseErrorCode>;
 
 /** A reader's `ParseError` for anything thrown while reading an OOXML package. */
 export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
@@ -13,7 +22,8 @@ export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
     return new ParseError({
       format,
       reason: cause.message,
-      position: { row: line, column },
+      code: "MalformedXml",
+      position: { row: line, column, part: cause.part },
       cause,
     });
   }
@@ -21,7 +31,7 @@ export const ooxmlParseError = (format: string, cause: unknown): ParseError => {
     return new ParseError({
       format,
       reason: `${cause.kind}: ${cause.message}`,
-      code: cause.kind === "LimitExceeded" ? "LimitExceeded" : undefined,
+      code: OPC_CODE[cause.kind],
       cause,
     });
   }

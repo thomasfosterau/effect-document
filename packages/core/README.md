@@ -128,7 +128,7 @@ const program = Effect.gen(function* () {
 });
 ```
 
-Failures are tagged errors in the error channel: `ParseError` (with the format and, where known, a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them.
+Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
 
 ## API reference
 
@@ -338,6 +338,8 @@ The root entry re-exports everything; the subpaths expose one area each.
 | Export | Kind | Description |
 | --- | --- | --- |
 | `ParseError` | class | A reader failed to parse source content into the document schema. |
+| `ParseErrorCode` | schema | What kind of failure a `ParseError` is, shared by every reader (`InvalidContainer`, `WrongFormat`, `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded`, `Unsupported`). |
+| `SourcePosition` | schema | Best-effort source position of a parse failure: `row`, `column`, `part`, `offset`, `component`, `object`, `sheet`, `cell`. |
 | `WriteError` | class | A writer failed to render a document into target content. |
 | `ProfileViolation` | class | A document used features outside a profile's allowed set. |
 | `ConversionError` | class | A conversion pipeline could not be assembled or a bridge step failed. |

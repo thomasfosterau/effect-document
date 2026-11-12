@@ -37,6 +37,7 @@ import {
   makeReaderTag,
   Para,
   ParseError,
+  type ParseErrorCode,
   type Reader,
   str,
   Strikeout,
@@ -386,8 +387,8 @@ const rtfTokens = Compiler.jit(Parser.repeat(rtfToken));
 // Interpreter
 // ============================================================================
 
-const fail = (reason: string): never => {
-  throw new ParseError({ format: "rtf", reason });
+const fail = (reason: string, code: ParseErrorCode = "MalformedText"): never => {
+  throw new ParseError({ format: "rtf", reason, code });
 };
 
 /**
@@ -396,7 +397,8 @@ const fail = (reason: string): never => {
  */
 const parseRtf = (rtf: string, binary: boolean): Block[] => {
   const source = rtf.replace(/^\ufeff/, "").trimStart();
-  if (!source.startsWith("{\\rtf")) fail("Not an RTF document: expected it to start with {\\rtf");
+  if (!source.startsWith("{\\rtf"))
+    fail("Not an RTF document: expected it to start with {\\rtf", "WrongFormat");
 
   const blocks: Block[] = [];
   let para: Inline[] = [];

@@ -279,6 +279,7 @@ const fromSyntaxError = (e: SyntaxError.ParseError, firstRow: number): ParseErro
   return new ParseError({
     format: "csv",
     reason: e.description ?? `expected ${SyntaxError.formatExpected(e.expected)}`,
+    code: "MalformedText",
     position: { row: firstRow + row, column },
     cause: e,
   });
@@ -300,6 +301,7 @@ const columnCountError = (row: number, actual: number, expected: number): ParseE
   new ParseError({
     format: "csv",
     reason: `Row ${row} has ${actual} columns, expected ${expected}`,
+    code: "MalformedText",
     position: { row },
   });
 
@@ -319,7 +321,8 @@ const headerError = (
         ? Option.some(`Header "${name}" appears in columns ${first + 1} and ${i + 1}`)
         : Option.none();
     }),
-    ([reason, column]) => new ParseError({ format: "csv", reason, position: { row, column } }),
+    ([reason, column]) =>
+      new ParseError({ format: "csv", reason, code: "MalformedText", position: { row, column } }),
   );
 
 /** Fail with a header check's error, if it found one. */
