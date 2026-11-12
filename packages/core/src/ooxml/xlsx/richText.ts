@@ -116,6 +116,32 @@ export const sharedStringOf = (si: XmlElement): string | CellRichText => {
   });
 };
 
+/** Line terminators in a run's text: SpreadsheetML stores a line break as a newline in a `<t>`. */
+const LINE_BREAKS = /\r\n|\r|\n/;
+
+/**
+ * A rich text element's (a comment's `<text>`, #67) text as lines of inlines,
+ * one line per line break in its runs, a line's runs under their marks as
+ * {@link sharedStringOf} nests them. A bare `<t>` is one unmarked run.
+ * Whitespace at the edges of a line is kept, and a blank line is an empty one.
+ */
+export const linesOfRichText = (el: XmlElement): ReadonlyArray<ReadonlyArray<Inline>> => {
+  const runs = findChildren(el, "r");
+  const marked = Arr.isReadonlyArrayNonEmpty(runs)
+    ? runs.map((r) => ({ text: textOf(r), marks: marksOf(r) }))
+    : [{ text: decodeXstring(findChild(el, "t")?.text ?? ""), marks: NO_MARKS }];
+  return marked.reduce<Array<Array<Inline>>>(
+    (lines, { text, marks }) => {
+      text.split(LINE_BREAKS).forEach((segment, k) => {
+        if (k > 0) lines.push([]);
+        lines.at(-1)?.push(...wrap(inlinesOfText(segment), marks));
+      });
+      return lines;
+    },
+    [[]],
+  );
+};
+
 /** A piece of a rich string's text under the marks around it. */
 interface Piece {
   readonly text: string;

@@ -6,7 +6,7 @@
  */
 
 import * as Predicate from "effect/Predicate";
-import type { Block, Inline, Shape } from "../schema/ast.ts";
+import type { Block, Comment, Inline, Shape } from "../schema/ast.ts";
 import { type Feature, featureOfTag } from "../schema/feature.ts";
 
 /** A value a structural rule compares a node's field with: a string, number or boolean. */
@@ -31,7 +31,7 @@ export interface FieldMatch {
 export interface OnlyWithin {
   /** The feature that is allowed only inside `within`. */
   readonly feature: Feature;
-  /** The block or shape feature (e.g. `"shape.placeholder"`) that may contain `feature`. */
+  /** The block, shape or review feature (e.g. `"shape.placeholder"`, `"review.comments"`) that may contain `feature`. */
   readonly within: Feature;
   /** A condition on the `within` node's own fields; without it, any such node will do. */
   readonly where?: FieldMatch | undefined;
@@ -52,8 +52,8 @@ export interface FieldValues extends FieldMatch {
   readonly reason: string;
 }
 
-/** A node a structural rule can name: a block, an inline or a slide shape. */
-export type RuleNode = Block | Inline | Shape;
+/** A node a structural rule can name: a block, an inline, a slide shape or a comment. */
+export type RuleNode = Block | Inline | Shape | Comment;
 
 /** Whether `node`'s own field `match.field` holds one of `match.oneOf`. */
 export const fieldMatches = (node: RuleNode, match: FieldMatch): boolean => {

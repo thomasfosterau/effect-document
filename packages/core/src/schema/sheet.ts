@@ -6,11 +6,14 @@
  */
 
 import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import type * as Types from "effect/Types";
 import {
   CellBlank,
+  CellComment,
   isPlainRow,
   MergeRange,
   PlainCell,
@@ -26,6 +29,7 @@ import {
   isCellInstance,
   positional,
   trustedWorksheet,
+  trustedWorksheetComments,
   trustedWorksheetLayout,
   trustedBoolean,
   trustedNumber,
@@ -489,7 +493,7 @@ export const worksheetFromRows = (
 
 /**
  * `ws` with its column definitions and merged ranges set (and its
- * `visibility`, which defaults to its own), for a reader that
+ * `visibility`, which defaults to its own; its comments are kept), for a reader that
  * builds a sheet's rows with {@link worksheetFromRows} and reads its layout
  * apart (the XLSX reader's `<cols>` and `<mergeCells>`). The rows are kept as
  * they are, unchecked again, since a `Worksheet`'s rows are already valid; the
@@ -520,24 +524,76 @@ export const withSheetLayout = (
 };
 
 /**
- * {@link withSheetLayout}'s checking path: `new Worksheet` with `ws`'s name
- * and rows, and only the keys that are set (`attr`, `visibility`), so a valid
- * sheet has the keys the trusted path gives it.
+ * {@link withSheetLayout}'s checking path: `new Worksheet` with `ws`'s name,
+ * rows and comments, and only the keys that are set (`attr`, `visibility`,
+ * `comments`), so a valid sheet has the keys the trusted path gives it.
  */
 const checkedLayout = (
   ws: Worksheet,
   columns: ReadonlyArray<SheetColumn>,
   merges: ReadonlyArray<MergeRange>,
   visibility?: SheetVisibility,
+): Worksheet =>
+  rebuilt(
+    ws,
+    columns,
+    merges,
+    Option.fromUndefinedOr(visibility),
+    Option.fromUndefinedOr(ws.comments),
+  );
+
+/** The props `new Worksheet` takes, as one to be built up. */
+type WorksheetProps = Types.Mutable<ConstructorParameters<typeof Worksheet>[0]>;
+
+/**
+ * `ws` rebuilt through `new Worksheet`, which checks everything, with the
+ * given layout and comments and only the optional keys that are set.
+ */
+const rebuilt = (
+  ws: Worksheet,
+  columns: ReadonlyArray<SheetColumn>,
+  merges: ReadonlyArray<MergeRange>,
+  visibility: Option.Option<SheetVisibility>,
+  comments: Option.Option<ReadonlyArray<CellComment>>,
 ): Worksheet => {
-  const { attr, name, rows } = ws;
-  if (attr === undefined)
-    return visibility === undefined
-      ? new Worksheet({ name, columns, rows, merges })
-      : new Worksheet({ name, columns, rows, merges, visibility });
-  return visibility === undefined
-    ? new Worksheet({ attr, name, columns, rows, merges })
-    : new Worksheet({ attr, name, columns, rows, merges, visibility });
+  const props: WorksheetProps = { name: ws.name, columns, rows: ws.rows, merges };
+  if (ws.attr !== undefined) props.attr = ws.attr;
+  if (Option.isSome(visibility)) props.visibility = visibility.value;
+  if (Option.isSome(comments)) props.comments = comments.value;
+  return new Worksheet(props);
+};
+
+/**
+ * `ws` with its cell comments set (#67): a reader that builds a sheet's rows
+ * and layout first and reads its comments apart (the XLSX reader's) adds them
+ * here. The rows are kept as they are, unchecked again; the comments are
+ * taken unchecked when they are `CellComment` instances, and otherwise
+ * checked as `new Worksheet` checks them. A sheet given none is returned as
+ * it is, so it keeps no `comments` key.
+ *
+ * @example
+ * ```ts
+ * import { CellComment, Comment, withSheetComments, worksheet } from "@thomasfosterau/effect-document"
+ *
+ * withSheetComments(worksheet("S", [["a"]]), [
+ *   new CellComment({ row: 0, col: 0, comment: new Comment({ content: [], replies: [] }) }),
+ * ])
+ * ```
+ */
+export const withSheetComments = (
+  ws: Worksheet,
+  comments: ReadonlyArray<CellComment>,
+): Worksheet => {
+  if (Arr.isReadonlyArrayEmpty(comments)) return ws;
+  if (comments.every((c) => c instanceof CellComment))
+    return trustedWorksheetComments(ws, comments);
+  return rebuilt(
+    ws,
+    ws.columns,
+    ws.merges,
+    Option.fromUndefinedOr(ws.visibility),
+    Option.some(comments),
+  );
 };
 
 /** Whether rows are what `Worksheet` accepts unchanged (see {@link worksheetFromRows}). */

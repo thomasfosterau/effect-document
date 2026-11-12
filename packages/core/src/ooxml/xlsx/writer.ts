@@ -34,13 +34,7 @@ import {
 import { Xlsx, type XlsxFeature } from "./profile.ts";
 import { toA1 } from "./a1.ts";
 import { NON_FINITE_CELL, SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
-import {
-  type CellHyperlink,
-  cellHyperlink,
-  hyperlinksXml,
-  type HyperlinksXml,
-  REL_HYPERLINK,
-} from "./hyperlinks.ts";
+import { type CellHyperlink, cellHyperlink, hyperlinksXml, REL_HYPERLINK } from "./hyperlinks.ts";
 import {
   metadataDiagnostics,
   NS_CONTENT_TYPES,
@@ -54,6 +48,15 @@ import {
 } from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
 import { colsXml, mergeCellsXml } from "./layout.ts";
+import {
+  CT_COMMENTS,
+  CT_VML_DRAWING,
+  type CommentsXml,
+  commentsXml,
+  REL_COMMENTS,
+  REL_VML_DRAWING,
+  unkeptDiagnostic,
+} from "./comments.ts";
 
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
@@ -145,17 +148,28 @@ const nonFinite = (sheet: string, address: string, cell: SheetCell): Diagnostic 
 // Part generation
 // ============================================================================
 
-const contentTypesXml = (sheetCount: number): string => {
-  const overrides = Array.from(
-    { length: sheetCount },
-    (_, i) =>
-      `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`,
-  ).join("");
+/**
+ * `[Content_Types].xml`: the sheets, and, for the `commentParts` sheets that
+ * have comments (numbered from 1), their comments parts and the `vml`
+ * extension of the drawings that show them.
+ */
+const contentTypesXml = (sheetCount: number, commentParts: number): string => {
+  const overrides =
+    Array.from(
+      { length: sheetCount },
+      (_, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT_WORKSHEET}"/>`,
+    ).join("") +
+    Array.from(
+      { length: commentParts },
+      (_, i) => `<Override PartName="/xl/comments${i + 1}.xml" ContentType="${CT_COMMENTS}"/>`,
+    ).join("");
   return (
     XML_DECL +
     `<Types xmlns="${NS_CONTENT_TYPES}">` +
     `<Default Extension="rels" ContentType="${CT_RELS}"/>` +
     `<Default Extension="xml" ContentType="application/xml"/>` +
+    (commentParts > 0 ? `<Default Extension="vml" ContentType="${CT_VML_DRAWING}"/>` : "") +
     `<Override PartName="/xl/workbook.xml" ContentType="${CT_WORKBOOK}"/>` +
     overrides +
     `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_SHARED_STRINGS}"/>` +
@@ -240,23 +254,54 @@ const sharedStringsXml = (table: SharedStrings): string => {
   );
 };
 
-/** A worksheet's part, and the relationships its hyperlinks need (#67). */
-interface SheetPart {
-  readonly xml: string;
-  readonly rels: HyperlinksXml["rels"];
+/** A relationship of a worksheet part: its id, type, target and whether the target is outside the package. */
+interface SheetRel {
+  readonly id: string;
+  readonly type: string;
+  readonly target: string;
+  readonly external: boolean;
 }
 
-/** A worksheet part's `_rels` part, for its external hyperlinks. */
+/** A worksheet's part, and the relationships it needs: its hyperlinks' (#67) and its comments'. */
+interface SheetPart {
+  readonly xml: string;
+  readonly rels: ReadonlyArray<SheetRel>;
+}
+
+/** A worksheet part's `_rels` part. */
 const sheetRelsXml = (rels: SheetPart["rels"]): string =>
   XML_DECL +
   `<Relationships xmlns="${NS_PKG_REL}">` +
   rels
     .map(
-      ({ id, url }) =>
-        `<Relationship Id="${id}" Type="${REL_HYPERLINK}" Target="${escapeAttr(url)}" TargetMode="External"/>`,
+      ({ id, type, target, external }) =>
+        `<Relationship Id="${id}" Type="${type}" Target="${escapeAttr(target)}"${external ? ' TargetMode="External"' : ""}/>`,
     )
     .join("") +
   `</Relationships>`;
+
+/**
+ * The relationships of a worksheet's comments, numbered after its `taken`
+ * hyperlink relationships: the comments part and the VML drawing (#67), the
+ * drawing's id being the one `<legacyDrawing>` names.
+ */
+const commentRels = (part: number, taken: number) => ({
+  rels: [
+    {
+      id: `rId${taken + 1}`,
+      type: REL_COMMENTS,
+      target: `../comments${part}.xml`,
+      external: false,
+    },
+    {
+      id: `rId${taken + 2}`,
+      type: REL_VML_DRAWING,
+      target: `../drawings/vmlDrawing${part}.vml`,
+      external: false,
+    },
+  ],
+  drawingId: `rId${taken + 2}`,
+});
 
 /**
  * A worksheet's part. A `NaN` or `±Infinity` number, which SpreadsheetML
@@ -264,7 +309,8 @@ const sheetRelsXml = (rels: SheetPart["rels"]): string =>
  * cell that breaks the `Xlsx` profile's `whole` rule (a link over only part of
  * it, which a document built through `trustAs` can hold) is listed in
  * `partial` (as `Sheet!A1`), for the writer to refuse rather than widen it
- * silently (#67).
+ * silently (#67). A sheet whose comments are written as part `commentPart`
+ * (from 1; 0 for none) points its `<legacyDrawing>` at their drawing.
  */
 const worksheetXml = (
   ws: Worksheet,
@@ -272,6 +318,7 @@ const worksheetXml = (
   merges: string,
   notes: Array<Diagnostic>,
   partial: Array<string>,
+  commentPart: number,
 ): SheetPart => {
   const links: Array<CellHyperlink> = [];
   // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
@@ -311,12 +358,25 @@ const worksheetXml = (
     })
     .join("");
   const hyperlinks = hyperlinksXml(links, escapeAttr);
-  const ns = hyperlinks.xml === "" ? "" : ` xmlns:r="${NS_REL_DOC}"`;
+  const linkRels: ReadonlyArray<SheetRel> = hyperlinks.rels.map(({ id, url }) => ({
+    id,
+    type: REL_HYPERLINK,
+    target: url,
+    external: true,
+  }));
+  const commented =
+    commentPart > 0 ? Option.some(commentRels(commentPart, linkRels.length)) : Option.none();
+  const ns = hyperlinks.xml === "" && Option.isNone(commented) ? "" : ` xmlns:r="${NS_REL_DOC}"`;
+  // <legacyDrawing> follows <hyperlinks> in a worksheet's element order
+  const legacyDrawing = Option.match(commented, {
+    onNone: () => "",
+    onSome: ({ drawingId }) => `<legacyDrawing r:id="${drawingId}"/>`,
+  });
   return {
     xml:
       XML_DECL +
-      `<worksheet xmlns="${NS_MAIN}"${ns}>${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}${hyperlinks.xml}</worksheet>`,
-    rels: hyperlinks.rels,
+      `<worksheet xmlns="${NS_MAIN}"${ns}>${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}${hyperlinks.xml}${legacyDrawing}</worksheet>`,
+    rels: [...linkRels, ...Option.match(commented, { onNone: () => [], onSome: (c) => c.rels })],
   };
 };
 
@@ -364,15 +424,43 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
     const merges = Result.all(worksheets.map((ws) => mergeCellsXml(ws.merges)));
     if (Result.isFailure(merges))
       return Effect.fail(new WriteError({ format: "xlsx", reason: merges.failure }));
+    // each sheet with comments, numbered from 1 as Excel numbers their parts
+    const withComments = worksheets.map((ws) => Arr.isReadonlyArrayNonEmpty(ws.comments ?? []));
+    const commentPart = withComments.map((has, i) =>
+      has ? withComments.slice(0, i + 1).filter(Boolean).length : 0,
+    );
+    const comments = Result.all(
+      worksheets.map((ws, i): Result.Result<Option.Option<CommentsXml>, string> =>
+        commentPart[i] === 0
+          ? Result.succeed(Option.none())
+          : Result.mapBoth(commentsXml(ws.comments ?? [], commentPart[i] ?? 0), {
+              onSuccess: Option.some,
+              onFailure: (reason) => `worksheet "${ws.name}": ${reason}`,
+            }),
+      ),
+    );
+    if (Result.isFailure(comments))
+      return Effect.fail(new WriteError({ format: "xlsx", reason: comments.failure }));
     return Effect.try({
       try: () => {
         const sharedStrings = new SharedStrings();
         const names = worksheets.map((w) => w.name);
         const sheetNames = sanitizeSheetNames(names);
         const notes = renamedSheets(names, sheetNames);
+        comments.success.forEach((part, i) => {
+          if (Option.isSome(part) && Arr.isReadonlyArrayNonEmpty(part.value.unkept))
+            notes.push(unkeptDiagnostic(names[i] ?? "", part.value.unkept));
+        });
         const partial: Array<string> = [];
         const sheetXmls = worksheets.map((ws, i) =>
-          worksheetXml(ws, sharedStrings, merges.success[i] ?? "", notes, partial),
+          worksheetXml(
+            ws,
+            sharedStrings,
+            merges.success[i] ?? "",
+            notes,
+            partial,
+            commentPart[i] ?? 0,
+          ),
         );
 
         const recalculate = worksheets.some((ws) =>
@@ -384,7 +472,10 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
         );
 
         const files = {
-          "[Content_Types].xml": contentTypesXml(worksheets.length),
+          "[Content_Types].xml": contentTypesXml(
+            worksheets.length,
+            commentPart.reduce((n, part) => Math.max(n, part), 0),
+          ),
           "_rels/.rels": rootRelsXml(),
           ...propsParts(doc.meta),
           "xl/workbook.xml": workbookXml(
@@ -396,8 +487,17 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           ),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
-          ...Object.fromEntries(
-            sheetXmls.flatMap((part, i) => {
+          ...Object.fromEntries([
+            ...comments.success.flatMap((part, i) =>
+              Option.match(part, {
+                onNone: () => [],
+                onSome: ({ comments: xml, vml }) => [
+                  [`xl/comments${commentPart[i]}.xml`, XML_DECL + xml] as const,
+                  [`xl/drawings/vmlDrawing${commentPart[i]}.vml`, vml] as const,
+                ],
+              }),
+            ),
+            ...sheetXmls.flatMap((part, i) => {
               const sheet = [`xl/worksheets/sheet${i + 1}.xml`, part.xml] as const;
               return Arr.isReadonlyArrayEmpty(part.rels)
                 ? [sheet]
@@ -409,7 +509,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
                     ] as const,
                   ];
             }),
-          ),
+          ]),
         };
 
         return [

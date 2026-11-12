@@ -11,8 +11,10 @@ import * as Predicate from "effect/Predicate";
 import {
   type Block,
   BlockQuote,
+  CellComment,
   CellRichText,
   CellText,
+  Comment,
   Code,
   CodeBlock,
   DefinitionList,
@@ -58,6 +60,7 @@ import {
   SmallCaps,
   Strikeout,
   strong,
+  withSheetComments,
   Subscript,
   Superscript,
   table,
@@ -177,6 +180,24 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
   "cell.formula": [sheet("S", [[cell.formula("1+1", "2")]])],
   "cell.richText": [sheet("S", [[new CellRichText({ runs: [strong([s("x")])] })]])],
   "cell.style": [sheet("S", [[new CellText({ value: "x", style: { font: { bold: true } } })]])],
+  "review.comments": [
+    withSheetComments(sheet("S", [[cell.text("x"), cell.text("y")]]), [
+      new CellComment({
+        row: 1,
+        col: 0,
+        comment: new Comment({
+          author: "Ann",
+          content: [para([strong([s("Ann:")])]), para([s("first line")])],
+          replies: [],
+        }),
+      }),
+      new CellComment({
+        row: 1,
+        col: 1,
+        comment: new Comment({ content: [para([s("no author")])], replies: [] }),
+      }),
+    ]),
+  ],
   "inline.link": [
     sheet("S", [
       [

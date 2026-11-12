@@ -14,6 +14,7 @@ import {
   ALL_DOC_FEATURES,
   ALL_FEATURES,
   ALL_INLINE_FEATURES,
+  ALL_REVIEW_FEATURES,
   ALL_SHEET_FEATURES,
 } from "../schema/feature.ts";
 import { defineProfile } from "./profile.ts";
@@ -31,12 +32,29 @@ export const csvFeatures = [
 /** The CSV profile: one worksheet of text, number, boolean and blank cells (with an optional header row). */
 export const Csv = defineProfile("csv", csvFeatures);
 
-/** A full spreadsheet (XLSX/ODS): multi-sheet, all cell types, styling, merges. */
-export const Spreadsheet = defineProfile("spreadsheet", [
-  ...ALL_SHEET_FEATURES,
-  ...ALL_INLINE_FEATURES, // rich-text cell runs
-  ...ALL_ATTR_FEATURES,
-]);
+/**
+ * A full spreadsheet (XLSX/ODS): multi-sheet, all cell types, styling,
+ * merges, and cell comments (#67). A comment's body is blocks, so the prose
+ * blocks are allowed, but only inside a comment (`onlyWithin`): a spreadsheet
+ * document is still worksheets at its top level.
+ */
+export const Spreadsheet = defineProfile(
+  "spreadsheet",
+  [
+    ...ALL_SHEET_FEATURES,
+    ...ALL_INLINE_FEATURES, // rich-text cell runs
+    ...ALL_REVIEW_FEATURES,
+    ...ALL_BLOCK_FEATURES, // comment bodies, see `onlyWithin`
+    ...ALL_ATTR_FEATURES,
+  ],
+  {
+    onlyWithin: ALL_BLOCK_FEATURES.map((feature) => ({
+      feature,
+      within: "review.comments",
+      reason: "a spreadsheet holds prose blocks only in a comment",
+    })),
+  },
+);
 
 // ---- prose documents ------------------------------------------------------
 

@@ -16,13 +16,16 @@ import * as DateTime from "effect/DateTime";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Match from "effect/Match";
+import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import type * as Types from "effect/Types";
 import {
   type Block,
   BlockQuote,
   CellBlank,
   CellBoolean,
+  CellComment,
   CellDate,
   CellError,
   CellFormula,
@@ -31,6 +34,7 @@ import {
   CellText,
   Code,
   CodeBlock,
+  Comment,
   Div,
   Document,
   Emph,
@@ -87,11 +91,11 @@ const int = (minimum: number, maximum: number): Arbitrary.Arbitrary<number> =>
 
 /** One of `options`, chosen uniformly. */
 const oneOf = <A>(options: ReadonlyArray<Arbitrary.Arbitrary<A>>): Arbitrary.Arbitrary<A> =>
-  Arbitrary.flatMap(int(0, options.length - 1), (i) => options[i]!);
+  Arbitrary.flatMap(int(0, options.length - 1), (i) => Arr.getUnsafe(options, i));
 
 /** One of the constant `values`. */
 const pick = <A>(values: ReadonlyArray<A>): Arbitrary.Arbitrary<A> =>
-  Arbitrary.map(int(0, values.length - 1), (i) => values[i]!);
+  Arbitrary.map(int(0, values.length - 1), (i) => Arr.getUnsafe(values, i));
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -192,7 +196,7 @@ const inlines = (
           minLength: parts.length,
           maxLength: parts.length,
         }),
-        (gaps) => parts.flatMap((part, i) => (i === 0 ? [part] : [gaps[i]!, part])),
+        (gaps) => parts.flatMap((part, i) => (i === 0 ? [part] : [Arr.getUnsafe(gaps, i), part])),
       ),
   );
 };
@@ -457,6 +461,84 @@ export interface ShapeOptions {
   readonly columnTyped?: boolean | undefined;
 }
 
+/**
+ * A comment of a profile with `review.comments` (#67): its body is blocks the
+ * profile allows inside a comment (an `onlyWithin` rule may admit them only
+ * there), with sometimes an author. A profile with `review.threads` also gets
+ * the rest of a thread: initials, a date, a resolved mark and replies. Without
+ * it only the author is generated, as a format that keeps no threads keeps
+ * nothing else of a comment either.
+ */
+const commentOf = (ctx: Ctx) => {
+  const within = inside(
+    admit(ctx, "review.comments", () => true),
+    "review.comments",
+  );
+  const threads = ctx.has("review.threads");
+  // the fields of a comment: its body, a word for the author and one for the
+  // initials, a date (in seconds) and bits that decide which of them it has
+  const fields = Arbitrary.all([
+    blocks(within, 1, 2),
+    word,
+    word,
+    int(0, 2_000_000_000),
+    int(0, 31),
+  ]);
+  const build = (
+    [content, author, initials, seconds, bits]: readonly [
+      ReadonlyArray<Block>,
+      string,
+      string,
+      number,
+      number,
+    ],
+    replies: ReadonlyArray<Comment>,
+  ): Comment => {
+    const props: Types.Mutable<ConstructorParameters<typeof Comment>[0]> = { content, replies };
+    if (bits % 2 === 1) props.author = author;
+    if (threads && bits % 4 >= 2) props.initials = initials;
+    if (threads && bits % 8 >= 4)
+      props.date = DateTime.toDateUtc(DateTime.makeUnsafe(seconds * 1000));
+    if (threads && bits % 16 >= 8) props.resolved = bits >= 16;
+    return new Comment(props);
+  };
+  // (a profile without threads gets no replies: its arrays are never longer than none)
+  return Arbitrary.flatMap(fields, (found) =>
+    Arbitrary.map(Arbitrary.array(fields, { maxLength: threads ? 2 : 0 }), (answers) =>
+      build(
+        found,
+        answers.map((answer) => build(answer, [])),
+      ),
+    ),
+  );
+};
+
+/**
+ * Up to three comments on distinct cells of a `rows` × `columns` grid, in
+ * row-major order (the order a format that keeps them reads them back in), for
+ * a profile with `review.comments`; none otherwise.
+ */
+const commentsOf = (
+  ctx: Ctx,
+  rows: number,
+  columns: number,
+): Arbitrary.Arbitrary<ReadonlyArray<CellComment>> =>
+  ctx.has("review.comments")
+    ? Arbitrary.map(
+        Arbitrary.array(Arbitrary.all([int(0, rows - 1), int(0, columns - 1), commentOf(ctx)]), {
+          maxLength: 3,
+        }),
+        (found) =>
+          Arr.sort(
+            Arr.dedupeWith(found, ([r1, c1], [r2, c2]) => r1 === r2 && c1 === c2),
+            Order.combine(
+              Order.mapInput(Order.Number, ([row]: (typeof found)[number]) => row),
+              Order.mapInput(Order.Number, ([, col]: (typeof found)[number]) => col),
+            ),
+          ).map(([row, col, comment]) => new CellComment({ row, col, comment })),
+      )
+    : Arbitrary.Constant<ReadonlyArray<CellComment>>([]);
+
 /** A worksheet of a rectangular grid of cells the profile allows. */
 const sheetOf = (name: string, ctx: Ctx): Arbitrary.Arbitrary<Worksheet> => {
   const kinds = CELL_FEATURES.filter(ctx.has);
@@ -489,21 +571,27 @@ const sheetOf = (name: string, ctx: Ctx): Arbitrary.Arbitrary<Worksheet> => {
         ? Arbitrary.array(pick(valued), { minLength: cols, maxLength: cols })
         : Arbitrary.Constant<ReadonlyArray<Feature>>([]),
       (columnKinds) =>
-        Arbitrary.map(
+        Arbitrary.flatMap(
           Arbitrary.array(
             Arbitrary.all(
               Arr.makeBy(cols, (c) =>
-                ctx.options.columnTyped === true ? columnCell(columnKinds[c]!) : anyCell,
+                ctx.options.columnTyped === true
+                  ? columnCell(Arr.getUnsafe(columnKinds, c))
+                  : anyCell,
               ),
             ),
             { minLength: rowCount, maxLength: rowCount },
           ),
           (rows) =>
-            new Worksheet({
-              name,
-              columns: [],
-              rows: rows.map((cellsOfRow, index) => sheetRow(index, cellsOfRow)),
-              merges: [],
+            Arbitrary.map(commentsOf(ctx, rowCount, cols), (comments) => {
+              const props: Types.Mutable<ConstructorParameters<typeof Worksheet>[0]> = {
+                name,
+                columns: [],
+                rows: rows.map((cellsOfRow, index) => sheetRow(index, cellsOfRow)),
+                merges: [],
+              };
+              if (Arr.isReadonlyArrayNonEmpty(comments)) props.comments = comments;
+              return new Worksheet(props);
             }),
         ),
     ),
