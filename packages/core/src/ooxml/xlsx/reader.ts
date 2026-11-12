@@ -38,7 +38,8 @@ import {
   type Sniffer,
   markTruncated,
 } from "../../index.ts";
-import { collectText } from "./cellTypes.ts";
+import type { SharedString } from "./cellText.ts";
+import { sharedStringOf } from "./richText.ts";
 import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
 import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
@@ -129,8 +130,8 @@ const parsePart = (
 // Sheet parsing
 // ============================================================================
 
-const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
-  findChildren(root, "si").map(collectText);
+const parseSharedStrings = (root: XmlElement): ReadonlyArray<SharedString> =>
+  findChildren(root, "si").map(sharedStringOf);
 
 /**
  * A worksheet part's rows: its `sheetData` read straight into rows by
@@ -141,7 +142,7 @@ const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
 const readWorksheetRows = (
   pkg: OpcReader,
   target: string,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
   maxCells: number,
 ): Effect.Effect<{ readonly rows: WorksheetRows; readonly root: XmlElement }, ParseError> =>
   Effect.flatMap(
@@ -208,7 +209,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const sharedStringsRel = relationships.find((rel) =>
         rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX),
       );
-      const sharedStrings: ReadonlyArray<string> =
+      const sharedStrings: ReadonlyArray<SharedString> =
         sharedStringsRel === undefined
           ? []
           : parseSharedStrings(yield* parsePart(pkg, sharedStringsRel.target));
