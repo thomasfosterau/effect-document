@@ -29,6 +29,10 @@ import {
   parseMessage,
   readVarint,
 } from "./protobuf.ts";
+import { FIELDS } from "./schema.generated.ts";
+
+const ARCHIVE_INFO = FIELDS["TSP.ArchiveInfo"];
+const MESSAGE_INFO = FIELDS["TSP.MessageInfo"];
 
 /** One archived message: its `MessageInfo.type` id and raw payload. */
 export interface IworkMessage {
@@ -73,14 +77,14 @@ export const decodeArchiveStream = (data: Uint8Array): IworkObject[] => {
     const archiveInfo = parseIn(data, data.subarray(lenRes.pos, lenRes.pos + lenRes.value));
     pos = lenRes.pos + lenRes.value;
 
-    const identifier = getBigInt(archiveInfo, 1);
+    const identifier = getBigInt(archiveInfo, ARCHIVE_INFO.identifier);
     if (identifier === undefined)
       throw codecError("Malformed", "ArchiveInfo has no identifier", recordAt);
     const messages: IworkMessage[] = [];
-    for (const miBytes of getAllBytes(archiveInfo, 2)) {
+    for (const miBytes of getAllBytes(archiveInfo, ARCHIVE_INFO.message_infos)) {
       const mi = parseIn(data, miBytes);
-      const type = getVarint(mi, 1);
-      const length = getVarint(mi, 3);
+      const type = getVarint(mi, MESSAGE_INFO.type);
+      const length = getVarint(mi, MESSAGE_INFO.length);
       if (type === undefined || length === undefined) {
         const missing = type === undefined ? "type" : "length";
         throw withLocation(codecError("Malformed", `MessageInfo has no ${missing}`, recordAt), {

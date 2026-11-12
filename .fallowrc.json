@@ -20,6 +20,7 @@
     "packages/core/src/iwork/numbers.ts",
     "packages/core/src/iwork/keynote.ts",
     "packages/core/src/iwork/codec.ts",
+    "packages/core/scripts/generate-iwork-schema.ts",
     "packages/core/test/**/*.test.ts",
     "test/**/*.test.ts",
     "test/**/*.types.ts",

@@ -29,7 +29,7 @@ export default defineConfig({
     "*.{js,ts,css,json,md}": "vp check --fix",
   },
   fmt: {
-    ignorePatterns: ["**/dist/**", "**/docs/**", "**/coverage/**"],
+    ignorePatterns: ["**/dist/**", "**/docs/**", "**/coverage/**", "**/vendor/**"],
     overrides: [
       {
         files: ["**/*.md"],
@@ -40,7 +40,13 @@ export default defineConfig({
     ],
   },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/docs/**", "**/coverage/**", "**/node_modules/**"],
+    ignorePatterns: [
+      "**/dist/**",
+      "**/docs/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "**/vendor/**",
+    ],
     extends: [recommended, effect.configs.recommended],
     // Oxlint's own plugins beyond its defaults (typescript, unicorn, oxc):
     // the import graph, promise handling, the Vitest suites and JSDoc
@@ -158,7 +164,7 @@ export default defineConfig({
       // `node:*` are the only things that work there. The Effect preset's
       // service rules have no satisfiable fix in these files.
       {
-        files: ["**/vite.config.ts", "**/vitest.config.ts", "vite.package.ts", "scripts/**"],
+        files: ["**/vite.config.ts", "**/vitest.config.ts", "vite.package.ts", "**/scripts/**"],
         rules: {
           "effect/avoid-node-imports": "off",
           "effect/avoid-sync-fs": "off",
