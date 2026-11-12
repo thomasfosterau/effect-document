@@ -306,6 +306,16 @@ export default defineConfig({
   },
   run: {
     tasks: {
+      // The whole CI gate, in order, failing fast: what `.github/workflows/
+      // ci.yml` runs on every Node in its matrix (`vp run ci`), and what to
+      // run locally before a push. Steps 2-11 of AGENTS.md's Verification.
+      // `test:interop` skips each tool it doesn't find unless INTEROP=1 (CI's
+      // `lts` leg), and `test:validate` needs xmllint, which fails it under CI.
+      ci: {
+        command:
+          "vp check && vp run --concurrency-limit 2 check && vp run -r test:unit && vp run test:integration && vp run corpora:fetch && vp run test:validate && vp run test:corpus && vp run test:interop && vp run -r build && vp run check:dist && vp run examples && vp run check:pack && pnpm audit --audit-level high",
+        cache: false,
+      },
       // The CI typecheck gate, as one task: the package's `check` (`src`
       // under tsconfig.json, the tests under tsconfig.test.json) plus the
       // root tsconfig.test.json (the integration suite, `examples/` and
@@ -431,8 +441,8 @@ export default defineConfig({
       // Opens our writers' output in independent tools (`test/interop`):
       // LibreOffice converts every DOCX, XLSX, PPTX and RTF sample to PDF,
       // qpdf and pdftotext check the PDF samples, pandoc reads the DOCX
-      // ones. A missing tool skips its tests unless INTEROP=1 (CI's optional
-      // `interop` job installs them all and sets it).
+      // ones. A missing tool skips its tests unless INTEROP=1 (CI's `lts` leg
+      // installs them all and sets it).
       "test:interop": {
         command: "vp test run --project interop",
         cache: false,
@@ -482,7 +492,7 @@ export default defineConfig({
         },
       },
       // Interoperability (#134): our output opened by LibreOffice, qpdf,
-      // pdftotext and pandoc. Run by CI's optional `interop` job.
+      // pdftotext and pandoc. In `vp run ci`; CI's `lts` leg installs them all.
       {
         resolve: { alias: integrationAliases },
         test: {

@@ -1,42 +1,51 @@
 name: CI
 
-# ONE required job, ONE required check: the pipeline's task graph lives in
-# vite.config.ts (the root `check`, `check:dist`, `test:integration` and
-# `examples` tasks and every package's `test:unit` / `build`), not in GitHub
-# Actions `needs:`. Copied in shape from the effect-web library: nothing here
-# needs a database, a stage or a credential, so every PR class runs the whole
-# gate.
+# One workflow, one command: `vp run ci`, the task in vite.config.ts that runs
+# the whole gate in order (format and lint, types, unit and integration tests,
+# the corpora and writer validation, the build, the dist and pack checks, the
+# examples, the audit), so a local `vp run ci` is exactly what runs here.
 #
-# The `ci` job runs on the Node.js setup-vp resolves from the root
-# package.json's `engines.node` (`>=22`). That range is also the consumer floor,
-# so the `node-floor` job reruns the runtime gates (unit and integration
-# tests) on Node 22, which `latest` alone never exercises: #164 (Node 22's
-# `TextDecoder("windows-1252")` decoding 0x80–0x9F as C1 controls) got
-# through that way (#181). It pins 22.18.0, the oldest Node 22 the toolchain
-# itself runs on (vite-plus's `engines.node` is `^22.18.0 || ^24.11.0 ||
-# >=26.0.0`), the same pin effect-ai-ext's `node-floor` job uses.
+# It runs on Node 22, the floor `engines.node` (`>=22`) promises, the current
+# LTS and the latest released Node (job `ci`, a matrix that never cancels its
+# siblings). Rulesets require each leg by name: `ci (node 22)`,
+# `ci (node lts)` and `ci (node latest)`. (#164, Node 22's windows-1252 decoding, got
+# through when only `latest` ran, #181.)
+#
+# The `lts` leg also installs LibreOffice, qpdf, poppler and pandoc and sets
+# INTEROP=1, so `test:interop` (our writers' output opened by those tools,
+# #134) runs there and a missing tool fails it; the other legs skip it.
+#
+# The suites run in a zone west of UTC, so nothing may read the host's zone:
+# the runners are UTC, and every OOXML write once failed west of it (#117).
 
 on:
   pull_request:
-    branches: [trunk]
-    types: [opened, reopened, synchronize, ready_for_review]
   push:
     branches: [trunk]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/trunk' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # No permissions by default; each job grants only read access.
 permissions: {}
 
 jobs:
   ci:
+    name: ci (node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The first, uncached LibreOffice install can be slow on the apt mirror.
+    timeout-minutes: 45
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", lts, latest]
     env:
+      TZ: America/Los_Angeles
+      INTEROP: ${{ matrix.node == 'lts' && '1' || '0' }}
       # A modest ceiling for every Node process in the pipeline. NODE_OPTIONS
       # is inherited by every child, including each vitest fork.
       NODE_OPTIONS: --max-old-space-size=2048
@@ -46,143 +55,48 @@ jobs:
         with:
           persist-credentials: false
       # Vite+ at the catalog's vite-plus pin (read from pnpm-workspace.yaml),
-      # Node.js from engines.node and the pnpm packageManager names, the
-      # store cached on pnpm-lock.yaml, then the install (frozen in CI).
-      - name: Setup Vite+ and install dependencies
+      # the matrix's Node.js, and the pnpm cache keyed on pnpm-lock.yaml.
+      - name: Setup Vite+
         uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
+          node-version: ${{ matrix.node }}
           cache: true
-          run-install: true
-      - name: Restore the Vite+ task cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: node_modules/.vite/task-cache
-          key: vp-task-v1-${{ runner.os }}-${{ github.sha }}
-          restore-keys: |
-            vp-task-v1-${{ runner.os }}-
-      - name: Format and lint
-        run: pnpm exec vp check
-      - name: Type gates (src + tests + examples)
-        run: pnpm exec vp run --concurrency-limit 2 check
-      - name: Unit tests
-        run: pnpm exec vp run -r test:unit
-      - name: Integration tests (cross-format conversions)
-        run: pnpm exec vp run test:integration
-      # Public corpora pinned in corpora.json (#133): fetched, never
-      # committed, and cached by their pins.
+          run-install: false
+      # Public corpora pinned in corpora.json (#133): fetched by `vp run ci`,
+      # never committed, and cached by their pins.
       - name: Restore the corpus cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .corpora
           key: corpora-v1-${{ hashFiles('corpora.json') }}
-      - name: Fetch the pinned corpora
-        run: pnpm exec vp run corpora:fetch
-      # Writer output checked by independent tools (#134): every OOXML part
-      # against the ECMA-376 schemas (fetched above as a corpus).
-      - name: Validate writer output (xmllint, ECMA-376)
-        run: |
-          command -v xmllint || { sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxml2-utils; }
-          pnpm exec vp run test:validate
-      # Every reader over every corpus file: no defects, no hangs.
-      - name: Corpus smoke tests
-        run: pnpm exec vp run test:corpus
-      - name: Corpus read rates
-        if: always()
-        run: |
-          if [ -f .corpora/report.json ]; then
-            {
-              echo '### Corpus read rates'
-              echo '```json'
-              node -e 'console.log(JSON.stringify(require("./.corpora/report.json").formats, null, 2))'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Build
-        run: pnpm exec vp run -r build
-      - name: Dist import guard (no effect/unstable)
-        run: pnpm exec vp run check:dist
-      # Runs every program under examples/ against the built dist/.
-      - name: Run the examples
-        run: pnpm exec vp run examples
-      # Packs every package, lints the tarballs (publint, attw) and imports
-      # and type-checks them from a scratch consumer project.
-      - name: Packed-package smoke test
-        run: pnpm exec vp run check:pack
-      - name: Audit
-        run: pnpm audit --audit-level high
-
-  node-floor:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      # A zone west of UTC, so nothing in the suites may read the host's
-      # zone: the runners are UTC, and every OOXML write once failed west of it
-      # (fflate's zip timestamps are local time; #117)
-      TZ: America/Los_Angeles
-      NODE_OPTIONS: --max-old-space-size=2048
-      VITEST_MAX_WORKERS: 2
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Setup Vite+ and install dependencies
-        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
-        with:
-          node-version: 22.18.0
-          cache: true
-          run-install: true
-      - name: Node version
-        run: node --version
-      - name: Unit tests
-        run: pnpm exec vp run -r test:unit
-      - name: Integration tests (cross-format conversions)
-        run: pnpm exec vp run test:integration
-
-  # Optional, not a required check (#134): our writers' output opened by
-  # independent tools. LibreOffice converts every DOCX, XLSX, PPTX and RTF
-  # feature sample to PDF, qpdf and pdftotext check the PDF samples, and
-  # pandoc reads the DOCX ones. INTEROP=1 makes a missing tool a failure.
-  interop:
-    runs-on: ubuntu-latest
-    # The first, uncached install of LibreOffice can be slow on the runners'
-    # apt mirror (a 20-minute limit ran out mid-download); later runs restore
-    # the packages from the cache below.
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    env:
-      NODE_OPTIONS: --max-old-space-size=2048
-      INTEROP: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Vite+ at the catalog's vite-plus pin (read from pnpm-workspace.yaml),
-      # Node.js from engines.node and the pnpm packageManager names, the
-      # store cached on pnpm-lock.yaml, then the install (frozen in CI).
-      - name: Setup Vite+ and install dependencies
-        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
-        with:
-          cache: true
-          run-install: true
-      # The downloaded .deb files, keyed by this workflow (which names the
-      # packages), so a rerun installs without fetching ~150 MB again.
+      # System tools, not checks, which ubuntu-latest lacks and a Vite+ task
+      # can't apt-install: xmllint for `test:validate` on every leg, and on
+      # `lts` the interop tools for `test:interop`. Their .deb files are
+      # cached, keyed by this workflow (which names them): a first, uncached
+      # LibreOffice download is ~150 MB.
       - name: Restore the apt package cache
+        if: matrix.node == 'lts'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/apt-cache
           key: interop-apt-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
           restore-keys: |
             interop-apt-v1-${{ runner.os }}-
-      - name: Install LibreOffice, qpdf, poppler and pandoc
+      - name: Install system tools
+        env:
+          WITH_INTEROP: ${{ matrix.node == 'lts' }}
         run: |
+          packages="libxml2-utils"
+          if [ "$WITH_INTEROP" = true ]; then
+            packages="$packages libreoffice-writer libreoffice-calc libreoffice-impress qpdf poppler-utils pandoc"
+          fi
           mkdir -p ~/apt-cache/partial
           sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" \
-            libreoffice-writer libreoffice-calc libreoffice-impress qpdf poppler-utils pandoc
+          # shellcheck disable=SC2086 # the package list is split on purpose
+          sudo apt-get install -yq --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" $packages
           # apt writes the cache as root; the cache action saves it as the runner user
           sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
-      - name: Interop tests
-        run: pnpm exec vp run test:interop
+      - name: Install dependencies
+        run: vp install --frozen-lockfile
+      - name: CI
+        run: vp run ci
