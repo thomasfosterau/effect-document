@@ -111,7 +111,7 @@ describe("OpcReader (#55)", () => {
   });
 
   test("the zip timestamp is the DOS epoch in local fields, whatever the zone", () => {
-    // fflate reads these local fields; CI's node-floor job runs this west of UTC
+    // fflate reads these local fields; CI runs this west of UTC (TZ in ci.yml)
     const t = zipMtime();
     expect([t.getFullYear(), t.getMonth(), t.getDate(), t.getHours(), t.getMinutes()]).toEqual([
       1980, 0, 1, 0, 0,

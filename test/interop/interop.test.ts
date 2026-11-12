@@ -9,9 +9,9 @@
  *   word of the sample's text in it.
  * - `pandoc` reads every DOCX sample and finds every word of its text.
  *
- * The tools are not dependencies: this suite runs in CI's optional `interop`
- * job, which installs them. Elsewhere a missing tool skips its tests, unless
- * `INTEROP=1` asks for all of them (the job sets it).
+ * The tools are not dependencies, and CI installs none of them: `vp run ci`
+ * runs this suite, and a missing tool skips its tests, unless `INTEROP=1` asks
+ * for all of them (install them first).
  */
 import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
