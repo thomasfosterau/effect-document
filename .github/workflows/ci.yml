@@ -62,6 +62,10 @@ jobs:
         with:
           path: .corpora
           key: corpora-v1-${{ hashFiles('corpora.json') }}
+      # A system tool, not a check: `test:validate` (in `vp run ci`) runs
+      # xmllint, which ubuntu-latest lacks and a Vite+ task can't apt-install.
+      - name: Install xmllint
+        run: command -v xmllint || { sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxml2-utils; }
       - name: Install dependencies
         run: vp install --frozen-lockfile
       - name: CI
