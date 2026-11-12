@@ -163,6 +163,35 @@ describe("XLSX column widths and merged ranges (#66)", () => {
     expect(error.reason).toContain('"nonsense"');
   });
 
+  test("a preview read keeps only the merges over the rows it kept, clipped to the last", async () => {
+    const tall = worksheet("S", [
+      ["a", "b"],
+      ["c", "d"],
+      ["e", "f"],
+      ["g", "h"],
+    ]);
+    const merges = [merge(0, 0, 0, 1), merge(1, 0, 3, 0), merge(3, 1, 3, 1)];
+    const written = bytesOf(
+      await run(makeXlsxWriter().write(trustAs(document([withSheetLayout(tall, [], merges)])))),
+    );
+    const doc = await run(makeXlsxReader({ maxRows: 2 }).read(bytes(written)));
+    const ws = doc.blocks[0];
+    assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"), "a worksheet");
+    expect(ws.merges).toEqual([merge(0, 0, 0, 1), merge(1, 0, 1, 0)]);
+  });
+
+  test("a bad merge ref's ParseError is MalformedXml, at its sheet and part", async () => {
+    const written = bytesOf(await run(makeXlsxWriter().write(trustAs(document([SHEET])))));
+    const edited = editSheet(written, (xml) =>
+      xml.replace(
+        "</sheetData>",
+        '</sheetData><mergeCells count="1"><mergeCell ref="nonsense"/></mergeCells>',
+      ),
+    );
+    const error = await run(Effect.flip(makeXlsxReader().read(bytes(edited))));
+    expect(error).toMatchObject({ code: "MalformedXml", position: { sheet: "S" } });
+  });
+
   test("the writer refuses a merge whose corners are not cell positions", async () => {
     const bad = [merge(0, 0, -1, 2), merge(1.5, 0, 2, 2), merge(2, 2, 1, 1)];
     await Promise.all(

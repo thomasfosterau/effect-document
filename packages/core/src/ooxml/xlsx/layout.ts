@@ -7,7 +7,13 @@
 
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
-import { MergeRange, SheetColumn } from "../../index.ts";
+import {
+  MergeRange,
+  rowIndexes,
+  SheetColumn,
+  withSheetLayout,
+  type Worksheet,
+} from "../../index.ts";
 import { parseA1Range, toA1 } from "./a1.ts";
 import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
@@ -43,7 +49,7 @@ const spanOf = (col: XmlElement): ReadonlyArray<ColumnSpan> => {
  * `SheetColumn` without a width. A `<col>` without a width (a style or
  * visibility only) adds nothing: neither is in the profile yet.
  */
-export const readColumns = (root: XmlElement): ReadonlyArray<SheetColumn> => {
+const readColumns = (root: XmlElement): ReadonlyArray<SheetColumn> => {
   const cols = findChild(root, "cols");
   const spans = cols === undefined ? [] : findChildren(cols, "col").flatMap(spanOf);
   if (Arr.isReadonlyArrayEmpty(spans)) return [];
@@ -64,7 +70,7 @@ export const readColumns = (root: XmlElement): ReadonlyArray<SheetColumn> => {
  * failure naming the first `ref` that is not an A1 range (Excel refuses such a
  * file too).
  */
-export const readMerges = (root: XmlElement): Result.Result<ReadonlyArray<MergeRange>, string> => {
+const readMerges = (root: XmlElement): Result.Result<ReadonlyArray<MergeRange>, string> => {
   const merges = findChild(root, "mergeCells");
   const refs = merges === undefined ? [] : findChildren(merges, "mergeCell");
   return Result.all(
@@ -84,6 +90,30 @@ export const readMerges = (root: XmlElement): Result.Result<ReadonlyArray<MergeR
     }),
   );
 };
+
+/**
+ * The merges that start at or above row `lastRow`, each cut to end there: what
+ * a preview read (`maxRows`) keeps of a sheet's merges, so a truncated sheet
+ * holds no range over rows it doesn't have. None when `lastRow` is -1 (no rows).
+ */
+const mergesWithin = (
+  merges: ReadonlyArray<MergeRange>,
+  lastRow: number,
+): ReadonlyArray<MergeRange> =>
+  merges.flatMap((m) =>
+    m.fromRow > lastRow
+      ? []
+      : m.toRow <= lastRow
+        ? [m]
+        : [
+            new MergeRange({
+              fromRow: m.fromRow,
+              fromCol: m.fromCol,
+              toRow: lastRow,
+              toCol: m.toCol,
+            }),
+          ],
+  );
 
 /** A merged range's A1 reference, or why it has none (a corner that is not a cell position, or corners out of order). */
 const mergeRef = (m: MergeRange): Result.Result<string, string> => {
@@ -135,3 +165,23 @@ export const colsXml = (columns: ReadonlyArray<SheetColumn>): string => {
         )
         .join("")}</cols>`;
 };
+
+/**
+ * `sheet` (its rows already read) with the layout its part's `root` declares:
+ * its column widths and merged ranges, set without checking the rows again. A
+ * `truncated` sheet (a preview read, `maxRows`) keeps only the merges over the
+ * rows it kept ({@link mergesWithin}). A failure names a merge `ref` that is not
+ * an A1 range.
+ */
+export const withLayoutOf = (
+  sheet: Worksheet,
+  root: XmlElement,
+  truncated: boolean,
+): Result.Result<Worksheet, string> =>
+  Result.map(readMerges(root), (merges) => {
+    const columns = readColumns(root);
+    const kept = truncated ? mergesWithin(merges, rowIndexes(sheet).at(-1) ?? -1) : merges;
+    return Arr.isReadonlyArrayEmpty(columns) && Arr.isReadonlyArrayEmpty(kept)
+      ? sheet
+      : withSheetLayout(sheet, columns, kept);
+  });

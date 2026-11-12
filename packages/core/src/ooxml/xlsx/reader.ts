@@ -32,7 +32,6 @@ import {
   makeReaderTag,
   ParseError,
   type Reader,
-  withSheetLayout,
   worksheetFromRows,
   trustAs,
   Worksheet,
@@ -45,7 +44,7 @@ import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
 import { parseWorksheetRows, type WorksheetRows } from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
-import { readColumns, readMerges } from "./layout.ts";
+import { withLayoutOf } from "./layout.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
@@ -171,6 +170,14 @@ const readWorksheetRows = (
     }),
   );
 
+/**
+ * A sheet with no cell grid, keeping its place and name in the workbook,
+ * tagged with what it is (`attr.data.kind`): a chartsheet, a dialogsheet, a
+ * macrosheet, or a sheet the workbook links no part to (`"unlinked"`).
+ */
+const emptySheet = (name: string, kind: string): Worksheet =>
+  new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] });
+
 // ============================================================================
 // Reader
 // ============================================================================
@@ -236,14 +243,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
               // their place and name as an empty sheet tagged with its kind.
               const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
-              if (kind !== undefined)
-                return new Worksheet({
-                  attr: { data: { kind } },
-                  name,
-                  columns: [],
-                  rows: [],
-                  merges: [],
-                });
+              if (kind !== undefined) return emptySheet(name, kind);
             }
 
             if (relId === undefined || relId === "") {
@@ -251,13 +251,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // module LibreOffice left behind, Apache POI bug 60825): there
               // is nothing to read, so keep its place and name as an empty
               // sheet tagged as unlinked, rather than failing the workbook.
-              return new Worksheet({
-                attr: { data: { kind: "unlinked" } },
-                name,
-                columns: [],
-                rows: [],
-                merges: [],
-              });
+              return emptySheet(name, "unlinked");
             }
 
             const target =
@@ -285,22 +279,24 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            const merges = readMerges(part.root);
-            if (Result.isFailure(merges))
-              return yield* new ParseError({
-                format: "xlsx",
-                reason: `Worksheet "${name}" has ${merges.failure}`,
-              });
             const truncated = maxRows !== undefined && parsed.rows.length > maxRows;
             if (truncated) cut.push(name);
-            const sheet = worksheetFromRows(
-              name,
-              truncated ? parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))) : parsed.rows,
+            const laidOut = withLayoutOf(
+              worksheetFromRows(
+                name,
+                truncated ? parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))) : parsed.rows,
+              ),
+              part.root,
+              truncated,
             );
-            const columns = readColumns(part.root);
-            return Arr.isReadonlyArrayEmpty(columns) && Arr.isReadonlyArrayEmpty(merges.success)
-              ? sheet
-              : withSheetLayout(sheet, columns, merges.success);
+            if (Result.isFailure(laidOut))
+              return yield* new ParseError({
+                format: "xlsx",
+                reason: `Worksheet "${name}" has ${laidOut.failure}`,
+                code: "MalformedXml",
+                position: { sheet: name, part: target },
+              });
+            return laidOut.success;
           }),
         { concurrency: 1 },
       );
