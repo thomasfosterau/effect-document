@@ -6,8 +6,9 @@
  *
  * Column widths (`<cols>`) and merged ranges (`<mergeCells>`) round-trip
  * (#66). Not (yet) preserved, so narrowed away on write with a loss report:
- * per-column styles, cell styles, attributes, rich-text runs (flattened) and
- * dates (written as ISO text). Row heights are not yet written either (#66).
+ * per-column styles, cell styles, attributes, run fonts, sizes and colours, and
+ * dates (written as ISO text). Rich shared strings round-trip their bold,
+ * italic, underline, strikethrough and superscript / subscript runs (#66). Row heights are not yet written either (#66).
  */
 
 import { defineProfile, type FeaturesOf } from "../../index.ts";
@@ -24,6 +25,18 @@ export const xlsxFeatures = [
   "cell.error",
   "cell.blank",
   "cell.formula",
+  // a rich shared string (#66): runs of text under bold, italic, underline,
+  // strikethrough and superscript / subscript marks
+  "cell.richText",
+  "inline.str",
+  "inline.space",
+  "inline.softBreak",
+  "inline.strong",
+  "inline.emph",
+  "inline.underline",
+  "inline.strikeout",
+  "inline.superscript",
+  "inline.subscript",
 ] as const;
 
 /** What the XLSX writer preserves. */

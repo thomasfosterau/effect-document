@@ -9,6 +9,7 @@ import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import { type PlainCell, type SheetCell, sheetRowOf, type WorksheetRow } from "../../index.ts";
 import { parseA1 } from "./a1.ts";
+import type { SharedString } from "./cellText.ts";
 import { spreadsheetMlToCell } from "./cellTypes.ts";
 import { translateFormula } from "./formula.ts";
 import { findChild, findChildren, type XmlElement } from "./xml.ts";
@@ -77,7 +78,7 @@ export const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<
  */
 export const parseWorksheetRows = (
   root: XmlElement,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
   maxCells: number,
 ): WorksheetRows => {
   const sheetData = findChild(root, "sheetData");
