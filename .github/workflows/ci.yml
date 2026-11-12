@@ -7,9 +7,8 @@ name: CI
 # needs a database, a stage or a credential, so every PR class runs the whole
 # gate.
 #
-# The `ci` job runs on the latest stable Node (`node-version: "*"` with
-# `check-latest: true` in the setup action; never `latest`, which resolves to
-# a Node pre-release). The packages' `engines.node` (`>=22`) is the consumer floor,
+# The `ci` job runs on the Node.js setup-vp resolves from the root
+# package.json's `engines.node` (`>=22`). That range is also the consumer floor,
 # so the `node-floor` job reruns the runtime gates (unit and integration
 # tests) on Node 22, which `latest` alone never exercises: #164 (Node 22's
 # `TextDecoder("windows-1252")` decoding 0x80–0x9F as C1 controls) got
@@ -46,7 +45,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup
+      # Vite+ at the catalog's vite-plus pin (read from pnpm-workspace.yaml),
+      # Node.js from engines.node and the pnpm packageManager names, the
+      # store cached on pnpm-lock.yaml, then the install (frozen in CI).
+      - name: Setup Vite+ and install dependencies
+        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          cache: true
+          run-install: true
       - name: Restore the Vite+ task cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -117,9 +123,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup
+      - name: Setup Vite+ and install dependencies
+        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
           node-version: 22.18.0
+          cache: true
+          run-install: true
       - name: Node version
         run: node --version
       - name: Unit tests
@@ -146,7 +155,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup
+      # Vite+ at the catalog's vite-plus pin (read from pnpm-workspace.yaml),
+      # Node.js from engines.node and the pnpm packageManager names, the
+      # store cached on pnpm-lock.yaml, then the install (frozen in CI).
+      - name: Setup Vite+ and install dependencies
+        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
+        with:
+          cache: true
+          run-install: true
       # The downloaded .deb files, keyed by this workflow (which names the
       # packages), so a rerun installs without fetching ~150 MB again.
       - name: Restore the apt package cache
