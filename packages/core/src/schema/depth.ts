@@ -9,9 +9,17 @@
  */
 
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
-import { type Block, type Inline, isPlainRow, type Shape } from "./ast.ts";
+import {
+  type Block,
+  type CellComment,
+  type Comment,
+  type Inline,
+  isPlainRow,
+  type Shape,
+} from "./ast.ts";
 import type { Document } from "./document.ts";
 
 /** A node that counts as one level of nesting. */
@@ -30,6 +38,23 @@ export type NestedNode = Block | Inline | Shape;
  * depth (#191), but `narrow` and the writers still recurse.
  */
 export const DEFAULT_MAX_NESTING_DEPTH = 128;
+
+/**
+ * The blocks of a worksheet's comments (#67): each comment's body and those of
+ * its replies, replies of replies and so on, collected with a work list so a
+ * long reply chain can't overflow the stack. They count as directly inside
+ * the worksheet.
+ */
+const commentBlocks = (comments: ReadonlyArray<CellComment>): ReadonlyArray<Block> =>
+  Arr.unfold(
+    comments.map((c) => c.comment),
+    (pending): Option.Option<readonly [ReadonlyArray<Block>, Array<Comment>]> => {
+      const [next, ...rest] = pending;
+      return next === undefined
+        ? Option.none()
+        : Option.some([next.content, [...rest, ...next.replies]] as const);
+    },
+  ).flat();
 
 /** The blocks, inlines and shapes directly inside a node. */
 export const nestedChildren = (node: NestedNode): ReadonlyArray<NestedNode> => {
@@ -84,11 +109,14 @@ export const nestedChildren = (node: NestedNode): ReadonlyArray<NestedNode> => {
       ];
     }),
     Match.tag("Worksheet", (n) => {
-      return n.rows.flatMap((r) =>
-        (isPlainRow(r) ? r : r.cells).flatMap((c) =>
-          Predicate.isTagged(c, "CellRichText") ? c.runs : [],
+      return [
+        ...n.rows.flatMap((r) =>
+          (isPlainRow(r) ? r : r.cells).flatMap((c) =>
+            Predicate.isTagged(c, "CellRichText") ? c.runs : [],
+          ),
         ),
-      );
+        ...commentBlocks(n.comments ?? []),
+      ];
     }),
     Match.tag("SlideShow", (n) => {
       return n.slides.flatMap((s) => [...(s.notes ?? []), ...s.shapes]);

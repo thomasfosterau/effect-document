@@ -1,6 +1,8 @@
 import { assert, describe, expect, test } from "vite-plus/test";
+import * as Arr from "effect/Array";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -8,7 +10,9 @@ import {
   type Block,
   BlockQuote,
   BulletList,
+  CellComment,
   CellRichText,
+  Comment,
   Cite,
   Citation,
   DefinitionItem,
@@ -43,6 +47,7 @@ import {
   strong,
   table,
   textBox,
+  withSheetComments,
   worksheet,
 } from "../../src/index.ts";
 
@@ -101,7 +106,22 @@ const chains: ReadonlyArray<readonly [string, (b: Block) => Block]> = [
     (b) =>
       worksheet("S", [[cell.text("a"), new CellRichText({ runs: [new Note({ content: [b] })] })]]),
   ],
+  [
+    "comment bodies",
+    (b) => worksheetWithComment(new Comment({ author: "A", content: [x(), b], replies: [] }), "S"),
+  ],
 ];
+
+/** A sheet with one comment on A1. */
+const worksheetWithComment = (comment: Comment, name: string): Block =>
+  withSheetComments(worksheet(name, [["a"]]), [new CellComment({ row: 0, col: 0, comment })]);
+
+/** A comment whose replies chain `n` deep, each reply a comment with a body of its own. */
+const replyChain = (n: number): Comment =>
+  Array.from({ length: n }).reduce<Comment>(
+    (inner, _, i) => new Comment({ author: `r${i}`, content: [x()], replies: [inner] }),
+    new Comment({ content: [x()], replies: [] }),
+  );
 
 const DEEP = 5_000;
 
@@ -178,6 +198,42 @@ describe("the stack-safe Document codec (#191)", () => {
     // (no `toEqual` or `JSON.stringify` here: both recurse, and overflow first)
     expect(nestingDepth(back)).toBe(nestingDepth(doc));
     expect(Result.isSuccess(encodeDocumentResult(back))).toBe(true);
+  });
+
+  test("a reply chain 5,000 deep encodes and decodes (#67)", () => {
+    const doc = document([worksheetWithComment(replyChain(DEEP), "S")]);
+    const back = ok(decodeDocumentResult(encoded(doc)));
+    const sheet = back.blocks[0];
+    assert(Predicate.isTagged(sheet, "Worksheet"));
+    // walk down the chain by loop: `toEqual` would recurse and overflow
+    const levels = Arr.unfold(Option.fromUndefinedOr(sheet.comments?.[0]?.comment), (found) =>
+      Option.map(found, (c) => [1, Option.fromUndefinedOr(c.replies[0])] as const),
+    );
+    expect(levels).toHaveLength(DEEP + 1);
+  });
+
+  test("a comment's author, initials, date and resolved mark agree with the Schema codec (#67)", () => {
+    const doc = document([
+      worksheetWithComment(
+        new Comment({
+          author: "Ann",
+          initials: "A",
+          date: DateTime.toDateUtc(DateTime.makeUnsafe(0)),
+          resolved: true,
+          content: [x()],
+          replies: [new Comment({ author: "Bo", content: [x()], replies: [] })],
+        }),
+        "S",
+      ),
+    ]);
+    expect(toJson(encoded(doc))).toBe(schemaJson(doc));
+    const json = Schema.encodeUnknownSync(Document)(doc);
+    const back = ok(decodeDocumentResult(json));
+    expect(back).toEqual(Schema.decodeSync(Document)(json));
+    expect(back).toEqual(doc);
+    expect(toJson(json)).toContain('"date":"1970-01-01T00:00:00.000Z"');
+    // a sheet without comments has no key for them
+    expect(toJson(encoded(document([worksheet("S", [["a"]])])))).not.toContain("comments");
   });
 
   test("50,000 nested inlines encode and decode", () => {

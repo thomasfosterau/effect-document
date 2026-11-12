@@ -34,6 +34,7 @@ import * as Schema from "effect/Schema";
 import * as Str from "effect/String";
 import {
   type Block,
+  type Comment,
   type Document,
   type Inline,
   type SheetCell,
@@ -66,6 +67,16 @@ export interface NormalShape {
   readonly content: ReadonlyArray<NormalBlock>;
 }
 
+/**
+ * A normalised comment (#67): who wrote it, when, whether it is resolved and
+ * its initials (`meta`, one string), its body in normal form, and its replies.
+ */
+export interface NormalComment {
+  readonly meta: string;
+  readonly content: ReadonlyArray<NormalBlock>;
+  readonly replies: ReadonlyArray<NormalComment>;
+}
+
 /** A normalised block. */
 export type NormalBlock =
   | { readonly _tag: "Para"; readonly text: ReadonlyArray<Token> }
@@ -92,6 +103,8 @@ export type NormalBlock =
       readonly _tag: "Sheet";
       readonly name: string;
       readonly rows: ReadonlyArray<ReadonlyArray<NormalCell>>;
+      /** The sheet's comments with their cells (#67); empty when it has none. */
+      readonly comments: ReadonlyArray<{ readonly cell: string; readonly comment: NormalComment }>;
     }
   | { readonly _tag: "Slides"; readonly slides: ReadonlyArray<ReadonlyArray<NormalShape>> }
   | { readonly _tag: "Other"; readonly node: string };
@@ -284,6 +297,10 @@ const normalizeBlock = (block: Block): NormalBlock =>
       _tag: "Sheet",
       name: sheet.name,
       rows: normalizeGrid(sheet),
+      comments: (sheet.comments ?? []).map(({ row, col, comment }) => ({
+        cell: `${row},${col}`,
+        comment: normalizeComment(comment),
+      })),
     })),
     Match.tag("SlideShow", ({ slides }): NormalBlock => ({
       _tag: "Slides",
@@ -291,6 +308,18 @@ const normalizeBlock = (block: Block): NormalBlock =>
     })),
     Match.orElse((node): NormalBlock => ({ _tag: "Other", node: node._tag })),
   );
+
+/** A comment in normal form (#67): its body normalised as any blocks are. */
+const normalizeComment = (comment: Comment): NormalComment => ({
+  meta: [
+    comment.author ?? "",
+    comment.initials ?? "",
+    comment.date?.toISOString() ?? "",
+    String(comment.resolved ?? ""),
+  ].join("|"),
+  content: normalizeBlocks(comment.content),
+  replies: comment.replies.map(normalizeComment),
+});
 
 /** Blocks in normal form. */
 const normalizeBlocks = (blocks: ReadonlyArray<Block>): Normal => blocks.map(normalizeBlock);

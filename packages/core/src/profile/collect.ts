@@ -10,6 +10,7 @@ import * as Rec from "effect/Record";
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block,
+  type Comment,
   isPlainRow,
   type Inline,
   type SheetCell,
@@ -41,7 +42,7 @@ const addTag = (tag: string, acc: Set<Feature>): void => {
 
 /** A node's attribute facets, its id as the id facet of `node` (its tag) (#184). */
 const addAttr = (attr: Attributes | undefined, node: string, acc: Set<Feature>): void => {
-  for (const f of usedAttrFeatures(attr)) acc.add(f === "attr.id" ? idFeatureOf(node) : f);
+  usedAttrFeatures(attr).forEach((f) => acc.add(f === "attr.id" ? idFeatureOf(node) : f));
 };
 
 // Each walk adds a node's own features and pushes its children onto an
@@ -50,16 +51,17 @@ const addAttr = (attr: Attributes | undefined, node: string, acc: Set<Feature>):
 type Work =
   | { readonly k: "block"; readonly n: Block }
   | { readonly k: "inline"; readonly n: Inline }
-  | { readonly k: "shape"; readonly n: Shape };
+  | { readonly k: "shape"; readonly n: Shape }
+  | { readonly k: "comment"; readonly n: Comment };
 
 type Stack = Work[];
 
 const pushInlines = (ns: ReadonlyArray<Inline>, stack: Stack): void => {
-  for (const n of ns) stack.push({ k: "inline", n });
+  ns.forEach((n) => stack.push({ k: "inline", n }));
 };
 
 const pushBlocks = (ns: ReadonlyArray<Block>, stack: Stack): void => {
-  for (const n of ns) stack.push({ k: "block", n });
+  ns.forEach((n) => stack.push({ k: "block", n }));
 };
 
 type Walk<N extends { readonly _tag: string }> = TagHandlers<N, [Set<Feature>, Stack], void>;
@@ -85,10 +87,10 @@ const INLINE_CHILDREN: Walk<Inline> = {
   Span: inlineContent,
   Cite: (n, _, stack) => {
     pushInlines(n.content, stack);
-    for (const c of n.citations) {
+    n.citations.forEach((c) => {
       pushInlines(c.prefix, stack);
       pushInlines(c.suffix, stack);
-    }
+    });
   },
   Image: (n, _, stack) => pushInlines(n.alt, stack),
   Note: (n, _, stack) => pushBlocks(n.content, stack),
@@ -110,12 +112,12 @@ const walkInline = (n: Inline, acc: Set<Feature>, stack: Stack): void => {
 const walkTable = (t: Table, acc: Set<Feature>, stack: Stack): void => {
   if (t.caption !== undefined) pushInlines(t.caption, stack);
   const rows = [...t.head, ...t.body, ...t.foot];
-  for (const row of rows) {
-    for (const cellNode of row.cells) {
+  rows.forEach((row) =>
+    row.cells.forEach((cellNode) => {
       addAttr(cellNode.attr, "TableCell", acc);
       pushBlocks(cellNode.content, stack);
-    }
-  }
+    }),
+  );
 };
 
 const walkCell = (c: SheetCell, acc: Set<Feature>, stack: Stack): void => {
@@ -130,16 +132,36 @@ const hidesAnything = (w: Worksheet): boolean =>
   w.columns.some((col) => col.hidden === true) ||
   w.rows.some((row) => !isPlainRow(row) && row.hidden === true);
 
+/**
+ * The feature a walked node stands for: its tag's, or `review.comments` for a
+ * comment (which has no tag), so a structural rule can name "inside a
+ * comment" as it names "inside a heading" (#67).
+ */
+const workFeature = (work: Work): Feature | undefined =>
+  work.k === "comment" ? "review.comments" : featureOfTag(work.n._tag);
+
+/** A comment's body goes on the stack, and so do its replies; a reply or a resolved mark makes it a thread. */
+const walkComment = (c: Comment, acc: Set<Feature>, stack: Stack): void => {
+  if (Arr.isReadonlyArrayNonEmpty(c.replies) || c.resolved !== undefined) acc.add("review.threads");
+  pushBlocks(c.content, stack);
+  c.replies.forEach((reply) => stack.push({ k: "comment", n: reply }));
+};
+
 const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
+  if (w.comments !== undefined && Arr.isReadonlyArrayNonEmpty(w.comments)) {
+    acc.add("review.comments");
+    w.comments.forEach(({ comment }) => stack.push({ k: "comment", n: comment }));
+  }
   if (Arr.isReadonlyArrayNonEmpty(w.merges)) acc.add("sheet.merges");
   if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
   if (w.columns.some((col) => col.style !== undefined)) acc.add("cell.style");
   if (hidesAnything(w)) acc.add("sheet.hidden");
-  for (const row of w.rows)
-    for (const position of rowCellsOf(row)) {
+  w.rows.forEach((row) =>
+    rowCellsOf(row).forEach((position) => {
       const c = cellOf(position);
       if (c !== undefined) walkCell(c, acc, stack);
-    }
+    }),
+  );
 };
 
 const SHAPE_CHILDREN: Walk<Shape> = {
@@ -156,14 +178,14 @@ const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
 };
 
 const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
-  for (const sl of d.slides) {
+  d.slides.forEach((sl) => {
     addAttr(sl.attr, "Slide", acc);
     if (sl.notes !== undefined) {
       acc.add("deck.notes");
       pushBlocks(sl.notes, stack);
     }
-    for (const sh of sl.shapes) stack.push({ k: "shape", n: sh });
-  }
+    sl.shapes.forEach((sh) => stack.push({ k: "shape", n: sh }));
+  });
 };
 
 const blockContent = (
@@ -176,7 +198,7 @@ const listItems = (
   _: Set<Feature>,
   stack: Stack,
 ) => {
-  for (const item of n.items) pushBlocks(item, stack);
+  n.items.forEach((item) => pushBlocks(item, stack));
 };
 
 const BLOCK_CHILDREN: Walk<Block> = {
@@ -184,7 +206,7 @@ const BLOCK_CHILDREN: Walk<Block> = {
   Para: inlineContent,
   Header: inlineContent,
   LineBlock: (b, _, stack) => {
-    for (const line of b.lines) pushInlines(line, stack);
+    b.lines.forEach((line) => pushInlines(line, stack));
   },
   CodeBlock: leaf,
   RawBlock: leaf,
@@ -198,10 +220,10 @@ const BLOCK_CHILDREN: Walk<Block> = {
   OrderedList: listItems,
   BulletList: listItems,
   DefinitionList: (b, _, stack) => {
-    for (const item of b.items) {
+    b.items.forEach((item) => {
       pushInlines(item.term, stack);
-      for (const def of item.definitions) pushBlocks(def, stack);
-    }
+      item.definitions.forEach((def) => pushBlocks(def, stack));
+    });
   },
   Table: walkTable,
   Worksheet: walkWorksheet,
@@ -222,6 +244,8 @@ const walk = (work: Work, acc: Set<Feature>, stack: Stack): void => {
     walkInline(work.n, acc, stack);
   } else if (work.k === "shape") {
     walkShape(work.n, acc, stack);
+  } else {
+    walkComment(work.n, acc, stack);
   }
 };
 
@@ -258,7 +282,7 @@ export const collectFeaturesWithin = (doc: Document, within: Feature): Set<Featu
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
   drain(stack, new Set(), (work) => {
-    if (featureOfTag(work.n._tag) !== within) return;
+    if (workFeature(work) !== within) return;
     // the node's own features go nowhere; its descendants' are what's inside it
     const sub: Stack = [];
     walk(work, new Set(), sub);
@@ -269,9 +293,7 @@ export const collectFeaturesWithin = (doc: Document, within: Feature): Set<Featu
 
 /** Features the document uses that are not in `allowed`. */
 export const unsupportedFeatures = (doc: Document, allowed: ReadonlySet<Feature>): Feature[] => {
-  const out: Feature[] = [];
-  for (const f of collectFeatures(doc)) if (!allowed.has(f)) out.push(f);
-  return out;
+  return [...collectFeatures(doc)].filter((f) => !allowed.has(f));
 };
 
 /** The features of `whole` rules about rich cells (#67) that `ws`'s rich cells break. */
@@ -318,7 +340,7 @@ export const placementViolations = (
   const scratch = new Set<Feature>();
   for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
     const { work, inside } = item;
-    const feature = featureOfTag(work.n._tag);
+    const feature = workFeature(work);
     if (Predicate.isTagged(work.n, "Worksheet")) out.push(...wholeViolations(work.n, whole));
     fieldValues.forEach((rule) => {
       if (rule.feature === feature && !fieldMatches(work.n, rule)) out.push(rule.feature);

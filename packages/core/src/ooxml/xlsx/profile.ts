@@ -8,7 +8,10 @@
  * heights (`<row ht customHeight="1">`), hidden rows, columns and worksheets
  * (`hidden="1"`, `<sheet state>`) and rich shared strings (bold,
  * italic, underline, strikethrough and superscript / subscript runs)
- * round-trip (#66). Not (yet) preserved, so narrowed away on write with a
+ * round-trip (#66), and so do cell comments (#67): legacy notes
+ * (`xl/commentsN.xml` with the VML drawing Excel shows them with), whose body
+ * is paragraphs. Threaded comments (replies, a resolved mark) are read
+ * (`review.threads`, in the read profile only) but not yet written. Not (yet) preserved, so narrowed away on write with a
  * loss report: per-column styles, cell styles, attributes, run fonts, sizes
  * and colours, and dates (written as ISO text).
  */
@@ -43,13 +46,37 @@ export const xlsxFeatures = [
   "inline.subscript",
   // a hyperlink (#67): over a whole cell, as the worksheet's <hyperlinks> holds it
   "inline.link",
+  // a cell comment (#67): a legacy note, whose body is paragraphs (`block.para`,
+  // allowed only inside a comment: see `xlsxRules`)
+  "review.comments",
+  "block.para",
 ] as const;
 
 /**
- * The structural rule both XLSX profiles keep (#67): SpreadsheetML links a
- * whole cell (`<hyperlink ref>`), so a `Link` in a rich cell is its only run.
+ * The structural rules both XLSX profiles keep (#67): paragraphs only inside
+ * a cell comment, and, as SpreadsheetML links a whole cell
+ * (`<hyperlink ref>`), a `Link` in a rich cell is its only run.
  */
 const xlsxRules: ProfileOptions = {
+  notWithin: [
+    {
+      feature: "inline.link",
+      within: "review.comments",
+      reason: "a SpreadsheetML comment holds text, not links",
+    },
+    {
+      feature: "inline.softBreak",
+      within: "review.comments",
+      reason: "a line break in a SpreadsheetML comment starts a new paragraph",
+    },
+  ],
+  onlyWithin: [
+    {
+      feature: "block.para",
+      within: "review.comments",
+      reason: "a workbook holds paragraphs only in a cell comment",
+    },
+  ],
   whole: [
     {
       feature: "inline.link",
@@ -67,7 +94,7 @@ export type XlsxFeature = FeaturesOf<typeof Xlsx>;
 /** What the XLSX reader produces. */
 export const XlsxRead = defineProfile(
   "xlsx-read",
-  [...xlsxFeatures, "cell.date", "attr.keyValue"] as const,
+  [...xlsxFeatures, "cell.date", "attr.keyValue", "review.threads"] as const,
   xlsxRules,
 );
 /** The features of {@link XlsxRead}, what the XLSX reader produces, as a type. */

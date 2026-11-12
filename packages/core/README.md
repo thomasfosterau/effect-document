@@ -309,6 +309,9 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `RawInline` | class | Raw inline content in a named target format (e.g. |
 | `Target` | const | A link target. |
 | `Link` | class | A hyperlink. |
+| `Comment` | class | A review comment: author, initials, date, resolved mark, body blocks and replies (#67). |
+| `CellComment` | class | A `Comment` anchored to a worksheet cell by its 0-based row and column. |
+| `withSheetComments` | function | A worksheet with its cell comments set. |
 | `Image` | class | An image; `alt` is its alternate-text inlines. |
 | `Note` | class | A footnote/endnote, containing block content. |
 | `Span` | class | A generic inline container carrying attributes. |
@@ -591,7 +594,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `inline.note`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.span`          |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
 | `block.plain`          |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
-| `block.para`           |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
+| `block.para`           |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
 | `block.lineBlock`      |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `block.codeBlock`      |  –  |  –  |  –   |  RW  |  –   |  –  | RW  |    –    |   –   |    –    |
 | `block.rawBlock`       |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -625,6 +628,8 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `shape.table`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.placeholder`    |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    –    |   –   |    –    |
 | `doc.resources`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `review.comments`      |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `review.threads`       |  –  |  –  |  R   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.id`              |  –  |  –  |  –   | R*W* |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.classes`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.keyValue`        |  –  |  –  |  R   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -751,7 +756,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept) and cell hyperlinks (a `CellRichText` whose one run is a `Link`: a URL through the sheet's `_rels`, a place in the workbook as `#Sheet!A1`, a tooltip as the target's `title`; a link on a cell that holds no text is dropped with an `xlsx.hyperlinkDropped` diagnostic). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept) and cell hyperlinks (a `CellRichText` whose one run is a `Link`: a URL through the sheet's `_rels`, a place in the workbook as `#Sheet!A1`, a tooltip as the target's `title`; a link on a cell that holds no text is dropped with an `xlsx.hyperlinkDropped` diagnostic) and cell comments (`Worksheet.comments`, a `CellComment` per commented cell holding a `Comment`: legacy notes in `xl/commentsN.xml` with the VML drawing Excel shows them with, a paragraph per line of text with bold / italic / underline / strikethrough runs and an author; Excel's threaded comments are read too, a thread with its replies, resolved mark, dates and authors from `person.xml`, replacing the legacy placeholder beside it, but the writer writes legacy notes only, so `narrow` to `Xlsx` folds a thread into its comment as "Author: text" paragraphs; a comment's date and initials are not written and are reported as `xlsx.commentMetadataDropped`). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

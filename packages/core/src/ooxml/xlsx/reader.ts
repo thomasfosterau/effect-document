@@ -25,6 +25,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import {
+  type CellComment,
   type Content,
   contentToBytes,
   type Doc,
@@ -34,6 +35,8 @@ import {
   ParseError,
   type Reader,
   worksheetFromRows,
+  withSheetComments,
+  rowIndexes,
   trustAs,
   type SheetVisibility,
   Worksheet,
@@ -57,6 +60,13 @@ import {
 import { scanSheetData } from "./sheetData.ts";
 import { withLayoutOf } from "./layout.ts";
 import { readHyperlinks, unlinkedDiagnostic, withHyperlinks } from "./hyperlinks.ts";
+import {
+  type CommentSources,
+  commentsDiagnostic,
+  readPersons,
+  readSheetComments,
+  REL_PERSONS,
+} from "./comments.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
@@ -236,6 +246,80 @@ const sheetHyperlinks = (
   );
 
 /**
+ * The person lookup comment threads need (#67): the workbook's `person.xml`,
+ * read the first time a thread asks and not at all for a workbook without
+ * threaded comments.
+ */
+const commentSources = (
+  pkg: OpcReader,
+  workbookRels: ReadonlyArray<{ readonly type: string; readonly target: string }>,
+): CommentSources => {
+  // read on first use: a one-element memo
+  const memo: Array<Readonly<Record<string, string>>> = [];
+  return {
+    pkg,
+    persons: () => {
+      const hit = memo[0];
+      if (hit !== undefined) return hit;
+      const rel = workbookRels.find((r) => r.type === REL_PERSONS);
+      const root = rel === undefined ? null : pkg.xml(rel.target);
+      const people = root === null ? {} : readPersons(root);
+      memo.push(people);
+      return people;
+    },
+  };
+};
+
+/**
+ * `sheet` with the comments its part's relationships lead to (#67), read after
+ * the rows and layout and only when the sheet has any: legacy notes and
+ * threaded comments (see `comments.ts`). A malformed comments part fails the
+ * read as a bad merge `ref` does, positioned at the sheet and part; a comment
+ * that can't be placed is left out with an `xlsx.commentDropped` diagnostic.
+ * A preview read (`truncated`) keeps the comments on the rows it kept.
+ */
+const sheetWithComments = (
+  sources: CommentSources,
+  name: string,
+  target: string,
+  sheet: Worksheet,
+  truncated: boolean,
+): Effect.Effect<Worksheet, ParseError> =>
+  Effect.flatMap(
+    Effect.try({
+      try: () => readSheetComments(sources, sources.pkg.rels(target)),
+      catch: (cause) => inSheet(ooxmlParseError("xlsx", cause), name),
+    }),
+    ({ comments, notes }) => {
+      const kept = truncated ? onKeptRows(comments, sheet) : comments;
+      const commented = withSheetComments(sheet, kept);
+      return Arr.isReadonlyArrayEmpty(notes)
+        ? Effect.succeed(commented)
+        : Effect.as(logDiagnostic(commentsDiagnostic(name, notes)), commented);
+    },
+  );
+
+/** The comments on the rows `sheet` kept: its last row's index is looked up only when there are comments to cut. */
+const onKeptRows = (
+  comments: ReadonlyArray<CellComment>,
+  sheet: Worksheet,
+): ReadonlyArray<CellComment> => {
+  if (Arr.isReadonlyArrayEmpty(comments)) return comments;
+  const lastRow = rowIndexes(sheet).at(-1) ?? -1;
+  return comments.filter((c) => c.row <= lastRow);
+};
+
+/** `error` positioned at the sheet it was read from, besides the part it names. */
+const inSheet = (error: ParseError, sheet: string): ParseError =>
+  new ParseError({
+    format: error.format,
+    reason: error.reason,
+    code: error.code,
+    position: { ...error.position, sheet },
+    cause: error.cause,
+  });
+
+/**
  * The rows a read keeps of a sheet's: all of them, or the first `maxRows`
  * for a preview read, saying whether any were cut.
  */
@@ -312,6 +396,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
           ? []
           : parseSharedStrings(yield* parsePart(pkg, sharedStringsRel.target));
 
+      const sources = commentSources(pkg, relationships);
       const workbookRoot = yield* parsePart(pkg, workbookPath);
       const sheetsEl = findChild(workbookRoot, "sheets");
       const sheetEntries = sheetsEl === undefined ? [] : findChildren(sheetsEl, "sheet");
@@ -390,7 +475,13 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
                 code: "MalformedXml",
                 position: { sheet: name, part: target },
               });
-            return laidOut.success;
+            return yield* sheetWithComments(
+              sources,
+              name,
+              target,
+              laidOut.success,
+              preview.truncated,
+            );
           }),
         { concurrency: 1 },
       );

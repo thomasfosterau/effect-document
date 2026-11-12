@@ -30,6 +30,7 @@ import {
   BulletList,
   CellBlank,
   CellBoolean,
+  CellComment,
   CellDate,
   CellError,
   CellFormula,
@@ -40,6 +41,7 @@ import {
   Cite,
   Code,
   CodeBlock,
+  Comment,
   DefinitionItem,
   DefinitionList,
   Div,
@@ -205,6 +207,25 @@ const TABLE = kind(Table, [
   many("body", TABLE_ROW),
   many("foot", TABLE_ROW),
 ]);
+/**
+ * A comment: its body blocks, and its replies, which are comments again. The
+ * replies' kind is the comment's own, so it is read lazily (a getter), after
+ * the constant exists.
+ */
+const COMMENT: Kind = kind(Comment, [
+  blocks("content"),
+  {
+    key: "replies",
+    depth: 1,
+    get ref(): Ref {
+      return COMMENT;
+    },
+    optional: false,
+    gaps: false,
+    plainRows: false,
+  },
+]);
+const CELL_COMMENT = kind(CellComment, [one("comment", COMMENT)]);
 const SHEET_ROW = kind(SheetRow, [positions("cells", "SheetCell")]);
 const SLIDE = kind(Slide, [many("shapes", "Shape"), many("notes", "Block", true)]);
 const DOCUMENT = kind(Document, [blocks("blocks")]);
@@ -247,7 +268,7 @@ const BLOCK_KINDS: ReadonlyArray<Kind> = [
   kind(Figure, [blocks("caption"), blocks("content")]),
   kind(Div, [blocks("content")]),
   TABLE,
-  kind(Worksheet, [sheetRows("rows", SHEET_ROW)]),
+  kind(Worksheet, [sheetRows("rows", SHEET_ROW), many("comments", CELL_COMMENT, true)]),
   kind(SlideShow, [many("slides", SLIDE)]),
 ];
 

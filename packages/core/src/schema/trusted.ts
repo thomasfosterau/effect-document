@@ -34,6 +34,7 @@ import {
   CellNumber,
   CellRichText,
   CellText,
+  type CellComment,
   type MergeRange,
   type PlainCell,
   type RowCell,
@@ -244,9 +245,9 @@ export const trustedWorksheet = (name: string, rows: ReadonlyArray<WorksheetRow>
 
 /**
  * `ws` with `columns`, `merges` and `visibility` in place of its own, its
- * rows taken as they are (a `Worksheet`'s rows are already valid); the keys
- * in the order `new Worksheet` gives them, `attr` only when `ws` has one and
- * `visibility` only when it is set.
+ * rows and comments taken as they are (a `Worksheet`'s are already valid); the
+ * keys in the order `new Worksheet` gives them, `attr` only when `ws` has one,
+ * `visibility` only when it is set and `comments` only when `ws` has them.
  */
 export const trustedWorksheetLayout = (
   ws: Worksheet,
@@ -262,5 +263,27 @@ export const trustedWorksheetLayout = (
   out.rows = ws.rows;
   out.merges = merges;
   if (visibility !== undefined) out.visibility = visibility;
+  if (ws.comments !== undefined) out.comments = ws.comments;
+  return out;
+};
+
+/**
+ * `ws` with `comments` (non-empty `CellComment` instances) in place of its
+ * own, everything else taken as it is, in the order `new Worksheet` gives the
+ * keys.
+ */
+export const trustedWorksheetComments = (
+  ws: Worksheet,
+  comments: ReadonlyArray<CellComment>,
+): Worksheet => {
+  const out: Types.Mutable<Worksheet> = Object.create(Worksheet.prototype);
+  out._tag = "Worksheet";
+  if (ws.attr !== undefined) out.attr = ws.attr;
+  out.name = ws.name;
+  out.columns = ws.columns;
+  out.rows = ws.rows;
+  out.merges = ws.merges;
+  if (ws.visibility !== undefined) out.visibility = ws.visibility;
+  out.comments = comments;
   return out;
 };

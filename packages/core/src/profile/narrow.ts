@@ -23,6 +23,7 @@ import {
   BulletList,
   CellBlank,
   CellBoolean,
+  CellComment,
   CellDate,
   CellError,
   CellFormula,
@@ -33,6 +34,7 @@ import {
   Citation,
   Code,
   CodeBlock,
+  Comment,
   DefinitionItem,
   DefinitionList,
   Div,
@@ -353,7 +355,12 @@ const always = (n: Inline): Inline[] => [n];
 const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
   Str: always,
   Space: always,
-  SoftBreak: always,
+  // kept by every profile, except where one of its `notWithin` rules keeps it out of a node (#67)
+  SoftBreak: (n, ctx) => {
+    if (ctx.allowed.has("inline.softBreak") || !ctx.profile.has("inline.softBreak")) return [n];
+    ctx.rec.convert("inline.softBreak", "line break reduced to a space");
+    return [new Space({})];
+  },
   LineBreak: always,
   Emph: wrapper("inline.emph", "Emph unwrapped to its text", (_, content) => new Emph({ content })),
   Strong: wrapper(
@@ -654,6 +661,85 @@ const narrowColumns = (
   );
 };
 
+// ---- comments (#67) -------------------------------------------------------
+
+/** "Author: text" for a reply's paragraph (just the text when the reply has no author). */
+const replyText = (reply: Comment): string => {
+  const text = blocksToText(reply.content);
+  return reply.author === undefined ? text : `${reply.author}: ${text}`;
+};
+
+/** A comment's replies, replies of replies after them, in thread order (depth first). */
+const flattenReplies = (comment: Comment): ReadonlyArray<Comment> =>
+  comment.replies.flatMap((reply) => [reply, ...flattenReplies(reply)]);
+
+/**
+ * A comment with its thread folded into it: each reply (and the replies to
+ * those) a paragraph "Author: text" after its body, and no resolved mark,
+ * for a target that has comments but not threads. A comment that is no thread
+ * is returned as it is.
+ */
+const foldThread = (comment: Comment, ctx: Ctx): Comment => {
+  if (comment.resolved === undefined && Arr.isReadonlyArrayEmpty(comment.replies)) return comment;
+  const replies = flattenReplies(comment);
+  ctx.rec.convert(
+    "review.threads",
+    Arr.isReadonlyArrayEmpty(replies)
+      ? "resolved mark dropped"
+      : `${replies.length} repl${replies.length === 1 ? "y" : "ies"} folded into the comment${comment.resolved === undefined ? "" : ", resolved mark dropped"}`,
+  );
+  return new Comment({
+    author: comment.author,
+    initials: comment.initials,
+    date: comment.date,
+    content: [
+      ...comment.content,
+      ...replies.map((reply) => new Para({ content: [new Str({ text: replyText(reply) })] })),
+    ],
+    replies: [],
+  });
+};
+
+/**
+ * A comment kept by a target with comments: its thread folded unless the
+ * target has threads, its body narrowed as blocks inside a comment (the
+ * features a profile allows only there are allowed again), and its replies
+ * narrowed likewise.
+ */
+const narrowComment = (comment: Comment, ctx: Ctx): Comment => {
+  const folded = ctx.allowed.has("review.threads") ? comment : foldThread(comment, ctx);
+  const within = inside("review.comments", folded, ctx);
+  return new Comment({
+    author: folded.author,
+    initials: folded.initials,
+    date: folded.date,
+    resolved: folded.resolved,
+    content: narrowBlocks(folded.content, at(within, "content")),
+    replies: folded.replies.map((reply, i) => narrowComment(reply, at(at(ctx, "replies"), i))),
+  });
+};
+
+/**
+ * A worksheet's comments narrowed: without `review.comments` each is dropped,
+ * reported at its cell's address; with it, each is kept, narrowed, and the
+ * list is the sheet's own when nothing changed.
+ */
+const narrowComments = (
+  comments: ReadonlyArray<CellComment>,
+  ctx: Ctx,
+): ReadonlyArray<CellComment> => {
+  if (!ctx.allowed.has("review.comments")) {
+    comments.forEach((c) => {
+      at(ctx, cellAddress(c.col, c.row)).rec.drop("review.comments", "comment dropped");
+    });
+    return [];
+  }
+  return comments.map((c) => {
+    const comment = narrowComment(c.comment, at(ctx, cellAddress(c.col, c.row)));
+    return new CellComment({ row: c.row, col: c.col, comment });
+  });
+};
+
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
   const has = (f: Feature) => ctx.allowed.has(f);
   let merges = w.merges;
@@ -671,12 +757,14 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
   if (show && w.rows.some(isHiddenRow)) ctx.rec.drop("sheet.hidden", "hidden rows shown");
   const indexes = rowIndexes(w);
   const rows = w.rows.map((r, i) => narrowRow(r, indexes[i] ?? i, ctx, show));
+  const comments = w.comments === undefined ? undefined : narrowComments(w.comments, ctx);
   // nothing narrowed: the worksheet itself (nodes are immutable)
   if (
     w.attr === undefined &&
     visibility === w.visibility &&
     columns === w.columns &&
     merges === w.merges &&
+    w.comments === undefined &&
     rows.every((r, i) => r === w.rows[i])
   )
     return w;
@@ -687,8 +775,40 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     rows,
     merges,
     visibility,
+    comments: comments === undefined || Arr.isReadonlyArrayEmpty(comments) ? undefined : comments,
   });
 };
+
+/**
+ * A worksheet's comments as the notes a prose table keeps them in (#67): for
+ * each commented cell of `grid`, a `Note` after the cell's text holding the
+ * comments' blocks, each reply a paragraph "Author: text", keyed by
+ * `"row,col"`. Each comment is reported `converted`; one on a cell outside the
+ * grid (a blank cell past the rows the sheet holds) has no table cell and is
+ * reported `dropped`.
+ */
+const noteComments = (
+  w: Worksheet,
+  grid: ReadonlyArray<ReadonlyArray<SheetCell>>,
+  ctx: Ctx,
+): Readonly<Record<string, ReadonlyArray<readonly [key: string, note: Note]>>> =>
+  Arr.groupBy(
+    (w.comments ?? []).flatMap((c) => {
+      const here = at(ctx, cellAddress(c.col, c.row));
+      if (grid[c.row]?.[c.col] === undefined) {
+        here.rec.drop("review.comments", "comment on a cell outside the table dropped");
+        return [];
+      }
+      const replies = flattenReplies(c.comment).map(
+        (reply) => new Para({ content: [new Str({ text: replyText(reply) })] }),
+      );
+      here.rec.convert("review.comments", "comment converted to a note in the table cell");
+      return [
+        [`${c.row},${c.col}`, new Note({ content: [...c.comment.content, ...replies] })] as const,
+      ];
+    }),
+    ([key]) => key,
+  );
 
 const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
   // A prose table has no column positions, so it takes the dense view; a
@@ -702,13 +822,21 @@ const worksheetToTable = (w: Worksheet, ctx: Ctx): Block[] => {
     );
     return [];
   }
+  const noted = noteComments(w, grid.success, ctx);
   const rows = grid.success.map(
-    (row) =>
+    (row, r) =>
       new TableRow({
         cells: row.map(
-          (c) =>
+          (c, col) =>
             new TableCell({
-              content: [new Plain({ content: [new Str({ text: cellToText(c) })] })],
+              content: [
+                new Plain({
+                  content: [
+                    new Str({ text: cellToText(c) }),
+                    ...(noted[`${r},${col}`] ?? []).map(([, note]) => note),
+                  ],
+                }),
+              ],
             }),
         ),
       }),
@@ -916,6 +1044,12 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
       return [];
     }
     const rows = grid.success.map((row) => row.map(cellToText));
+    (b.comments ?? []).forEach((c) => {
+      at(ctx, cellAddress(c.col, c.row)).rec.drop(
+        "review.comments",
+        "comment dropped: the worksheet became paragraphs",
+      );
+    });
     ctx.rec.convert(
       feature,
       `worksheet "${b.name}" converted to ${rows.length} paragraph(s), one per row, cells tab-separated`,

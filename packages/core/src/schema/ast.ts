@@ -326,6 +326,21 @@ export interface MergeRangeEncoded {
   readonly toRow: number;
   readonly toCol: number;
 }
+/** The JSON (encoded) form of {@link Comment}. */
+export interface CommentEncoded {
+  readonly author?: string | undefined;
+  readonly initials?: string | undefined;
+  readonly date?: string | undefined; // ISO-8601 (Date encodes to string)
+  readonly resolved?: boolean | undefined;
+  readonly content: ReadonlyArray<BlockEncoded>;
+  readonly replies: ReadonlyArray<CommentEncoded>;
+}
+/** The JSON (encoded) form of {@link CellComment}. */
+export interface CellCommentEncoded {
+  readonly row: number;
+  readonly col: number;
+  readonly comment: CommentEncoded;
+}
 /** The JSON (encoded) form of {@link Worksheet}. */
 export interface WorksheetEncoded {
   readonly _tag: "Worksheet";
@@ -336,6 +351,7 @@ export interface WorksheetEncoded {
   readonly rows: ReadonlyArray<SheetRowEncoded | ReadonlyArray<RowCellEncoded>>;
   readonly merges: ReadonlyArray<MergeRangeEncoded>;
   readonly visibility?: SheetVisibility | undefined;
+  readonly comments?: ReadonlyArray<CellCommentEncoded> | undefined;
 }
 
 // Presentation encoded forms
@@ -948,6 +964,37 @@ export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
   toCol: Schema.Number,
 }) {}
 /**
+ * A review comment (#67): a note a reviewer attached to something, with who
+ * wrote it, when, and whether the discussion is resolved. Its `content` is
+ * blocks, as a note's is, and `replies` are the comments that answer it, in
+ * order, so a thread is one `Comment` with its replies. It is not tied to a
+ * place: a {@link CellComment} anchors one to a worksheet cell (and prose
+ * comments, #115, will anchor it in a document's text).
+ */
+export class Comment extends Schema.Class<Comment, { readonly brand: unique symbol }>("Comment")({
+  author: Schema.optional(Schema.String),
+  initials: Schema.optional(Schema.String),
+  date: Schema.optional(Schema.DateFromString),
+  resolved: Schema.optional(Schema.Boolean),
+  content: BlockArray,
+  replies: Schema.Array(Schema.suspend((): Schema.Codec<Comment, CommentEncoded> => Comment)),
+}) {}
+
+/**
+ * A {@link Comment} anchored to the worksheet cell at 0-based `row` and `col`
+ * (#67). A worksheet lists its comments in `comments`, not on the cells, so a
+ * cell without one costs nothing; the cell may be blank or beyond the rows the
+ * sheet holds, as a note can sit on an empty cell.
+ */
+export class CellComment extends Schema.Class<CellComment, { readonly brand: unique symbol }>(
+  "CellComment",
+)({
+  row: SheetIndex,
+  col: SheetIndex,
+  comment: Comment,
+}) {}
+
+/**
  * A spreadsheet worksheet: a named, sparse grid of typed cells. `rows` holds
  * only the rows that have cells (or a height), in strictly ascending `index`
  * order, so a sheet's size follows the cells it holds rather than its extent;
@@ -955,7 +1002,9 @@ export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
  * is a {@link SheetRow} or a {@link PlainRow} (its cells alone, standing for
  * the row one past the one before it): read rows through `rowsOf`,
  * `rowIndexes` and `rowCellsOf`, which handle both. A hidden worksheet has a
- * {@link SheetVisibility}; a shown one has none.
+ * {@link SheetVisibility}; a shown one has none. Its cell comments (#67) are
+ * `comments`, one {@link CellComment} per commented cell; a sheet without any
+ * has no `comments` key.
  */
 export class Worksheet extends Schema.TaggedClass<Worksheet>()("Worksheet", {
   attr: attrField,
@@ -964,6 +1013,7 @@ export class Worksheet extends Schema.TaggedClass<Worksheet>()("Worksheet", {
   rows: Schema.Array(WorksheetRow).check(rowsAscending),
   merges: Schema.Array(MergeRange),
   visibility: Schema.optional(SheetVisibility),
+  comments: Schema.optional(Schema.Array(CellComment)),
 }) {}
 
 // ============================================================================

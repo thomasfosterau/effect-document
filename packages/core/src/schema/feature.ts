@@ -91,6 +91,16 @@ export type DeckFeature =
 export type DocFeature = "doc.resources";
 
 /**
+ * Review features (#67): what reviewers add beside the content.
+ * `review.comments` is a comment attached to something (a worksheet cell, for
+ * now); `review.threads` is a comment with replies or a resolved mark, a
+ * discussion rather than a note. A comment's body is blocks, so a profile
+ * allowing comments allows the blocks its comments use, usually only inside
+ * them (an `onlyWithin` rule on `review.comments`).
+ */
+export type ReviewFeature = "review.comments" | "review.threads";
+
+/**
  * Cross-cutting attribute-facet features (which kinds of `Attributes` are
  * allowed). `attr.id` allows an id on every node; see {@link IdFeature} for
  * an id on one kind of node only.
@@ -133,6 +143,7 @@ export type Feature =
   | SheetFeature
   | DeckFeature
   | DocFeature
+  | ReviewFeature
   | AttrFeature
   | IdFeature;
 
@@ -346,6 +357,12 @@ export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
 /** Every document-level feature (#113), for assembling profiles. */
 export const ALL_DOC_FEATURES: ReadonlyArray<DocFeature> = ["doc.resources"];
 
+/** Every review feature (#67), for assembling profiles. */
+export const ALL_REVIEW_FEATURES: ReadonlyArray<ReviewFeature> = [
+  "review.comments",
+  "review.threads",
+];
+
 /** Every per-node id facet (#184). */
 export const ALL_ID_FEATURES: ReadonlyArray<IdFeature> = Rec.values(ID_FEATURE);
 
@@ -368,6 +385,7 @@ export const ALL_FEATURES: ReadonlyArray<Feature> = [
   ...ALL_SHEET_FEATURES,
   ...ALL_DECK_FEATURES,
   ...ALL_DOC_FEATURES,
+  ...ALL_REVIEW_FEATURES,
   ...ALL_ATTR_FEATURES,
   ...ALL_ID_FEATURES,
 ];
