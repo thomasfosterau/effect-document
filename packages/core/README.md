@@ -155,6 +155,20 @@ const program = Effect.gen(function* () {
 
 For text whose separator isn't known, `Csv.sniffDialect(text)` reads the first 64 KiB and returns `CsvReaderOptions` for it: the separator (comma, semicolon, tab or pipe), the line break, how many preamble lines to skip, and whether the first row is a header (the reader's own rule). It also gives a confidence and an evidence string. A line the sample cuts off isn't judged, so the options it returns read the whole file as they read the sample.
 
+For bytes whose text encoding isn't known, `detectEncoding` (from `/encoding`) looks at the first 64 KiB. A byte-order mark settles it; otherwise UTF-16 is told by its zero bytes, then UTF-8 if the sample is valid UTF-8, and Windows-1252 if it is not. The guess comes with a `confidence` and an `evidence` string ("not valid UTF-8 at byte 312; read as Windows-1252") for a UI to show and the user to override. `decodeText(content, { encoding })` then decodes with that encoding, or the detected one, strictly: a byte the encoding doesn't define fails with a `ParseError` (code `MalformedText`, at its byte offset) rather than becoming U+FFFD. Hand the `Text` it gives to any text reader. `contentToText` and the readers still decode bytes as UTF-8; this is the opt-in path.
+
+```ts
+import { bytes } from "@thomasfosterau/effect-document";
+import { decodeText, detectEncoding } from "@thomasfosterau/effect-document/encoding";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+
+const program = Effect.gen(function* () {
+  const guess = yield* detectEncoding(bytes(data)); // { encoding: "windows-1252", confidence: 0.5, evidence: "…", bom: false }
+  const input = yield* decodeText(bytes(data), { encoding: guess.encoding });
+  return yield* Csv.makeCsvReader().read(input);
+});
+```
+
 For a preview of a large file, pass `maxRows`: the CSV reader then reads at most that many records after `skipRows` (a header row counts as one) and never looks at the rest of the input. The XLSX reader keeps at most that many rows of each sheet. A document cut short says so in `meta.truncated` (`{ maxRows, sheets }`): `isTruncated(doc)` and `truncationOf(doc)` read it, so a preview never passes for the whole file.
 
 ## API reference
@@ -419,6 +433,19 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `TRUNCATED_META_KEY` | const | The metadata key a truncated preview read sets (`"truncated"`). |
 
 Every node class also has a `*Encoded` interface: its JSON form (`ParaEncoded`, `WorksheetEncoded`, …), which is what `Schema.encode` produces.
+
+### `@thomasfosterau/effect-document/encoding`
+
+Text encoding detection and decoding (#188), on `@thomasfosterau/effect-ext`'s `/Encoding`, a dependency only this entry loads.
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `detectEncoding` | function | The encoding bytes look like, from their first 64 KiB: a byte-order mark, UTF-16 by its zero bytes, valid UTF-8, or Windows-1252, with a confidence and evidence. Never fails. |
+| `DetectedEncoding` | interface | What `detectEncoding` found: `encoding`, `confidence`, `evidence` and whether there is a byte-order mark (`bom`). |
+| `decodeText` | function | Content as `Text`, decoded strictly with the encoding given or detected, a byte-order mark stripped; fails with a `ParseError` (`MalformedText`, `Unsupported`). |
+| `DecodeTextOptions` | interface | `decodeText`'s options: the `encoding` to decode with. |
+| `ENCODING_NAMES` | const | The encodings `decodeText` takes, by their WHATWG names. |
+| `ENCODING_SAMPLE_BYTES` | const | How much of the input `detectEncoding` looks at: 64 KiB. |
 
 ## Formats
 

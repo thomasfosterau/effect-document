@@ -23,10 +23,11 @@ One package, [`@thomasfosterau/effect-document`](packages/core/README.md): the s
 | `/csv` | CSV / TSV reader and writer: dialects, quoting, comments, type inference, chunked streaming, seeded synthetic data. | `effect`, `@thomasfosterau/effect-parse` |
 | `/ooxml` (also `/ooxml/xlsx`, `/ooxml/docx`, `/ooxml/pptx`) | XLSX, DOCX and PPTX readers and writers on SpreadsheetML / WordprocessingML / PresentationML. | `effect`, `@thomasfosterau/effect-parse` |
 | `/rtf` | RTF reader and writer: paragraphs and headings with bold / italic / underline / strikeout runs. | `effect`, `@thomasfosterau/effect-parse` |
+| `/encoding` | Text encoding detection (byte-order mark, UTF-8, UTF-16 by its zero bytes, Windows-1252) and strict decoding, for bytes of unknown encoding. | `effect` |
 | `/pdf` (also `/pdf/cos`) | PDF reader (structure recovered from the layout) and writer (standard 14 fonts), on a self-contained PDF object layer. | `effect` |
 | `/iwork` (also `/iwork/pages`, `/iwork/numbers`, `/iwork/keynote`, `/iwork/codec`) | Experimental, read-only Keynote / Pages / Numbers readers and the iWork container codec. | `effect`, `@thomasfosterau/effect-parse` |
 
-`effect` is a peer. `@thomasfosterau/effect-parse` is an optional peer: install it to use `/csv`, `/rtf`, `/ooxml*` or `/iwork*`. `fflate` (ZIP and DEFLATE) is a dependency that only `/ooxml*`, `/pdf*` and `/iwork*` load.
+`effect` is a peer. `@thomasfosterau/effect-parse` is an optional peer: install it to use `/csv`, `/rtf`, `/ooxml*` or `/iwork*`. `fflate` (ZIP and DEFLATE) is a dependency that only `/ooxml*`, `/pdf*` and `/iwork*` load, and `@thomasfosterau/effect-ext` (its `/Encoding`) one that only `/encoding` loads.
 
 ## Install
 

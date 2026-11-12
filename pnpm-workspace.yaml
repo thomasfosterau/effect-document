@@ -62,6 +62,10 @@ catalog:
   # against (first-party; exempt from the release-age hold below). A
   # devDependency here; consumers get it as an optional peer
   # (`catalogs.peers` below).
+  # Encoding detection and decoding for `./encoding` (#188, owner decision:
+  # depend on effect-ext's `/Encoding`, which imports only `effect`; its other
+  # peers are optional and per subpath). First-party, a dependency.
+  "@thomasfosterau/effect-ext": ^0.2.0
   "@thomasfosterau/effect-parse": ^0.5.0
   "@types/node": ^26.6.6
   # ---- Benchmark baselines (bench/ only; never a published dependency) ----
