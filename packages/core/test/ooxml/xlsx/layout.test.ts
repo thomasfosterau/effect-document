@@ -10,11 +10,14 @@ import {
   type Content,
   document,
   MergeRange,
+  rowsOf,
+  sheetRow,
   SheetColumn,
   trustAs,
   withSheetLayout,
   Worksheet,
   worksheet,
+  worksheetFromRows,
 } from "@thomasfosterau/effect-document";
 import { makeXlsxReader, makeXlsxWriter } from "../../../src/ooxml/xlsx/index.ts";
 import { MAX_COLUMNS } from "../../../src/ooxml/xlsx/layout.ts";
@@ -200,6 +203,81 @@ describe("XLSX column widths and merged ranges (#66)", () => {
           Effect.flip(makeXlsxWriter().write(trustAs(document([withSheetLayout(SHEET, [], [m])])))),
         );
         expect(error._tag).toBe("WriteError");
+      }),
+    );
+  });
+});
+
+/** Each row's index, height and cell count, whatever its form. */
+const shape = (ws: Worksheet) =>
+  rowsOf(ws).map((r) => [r.index, r.height, r.cells.length] as const);
+
+describe("XLSX custom row heights (#66)", () => {
+  const HEIGHTS = worksheetFromRows("S", [
+    sheetRow(0, [cell.text("tall")], 30),
+    ["plain"],
+    sheetRow(3, [], 12.5),
+    sheetRow(4, [cell.number(1)]),
+  ]);
+
+  test("round-trip, a row with only a height included, with ht and customHeight", async () => {
+    const written = bytesOf(await run(makeXlsxWriter().write(trustAs(document([HEIGHTS])))));
+    const xml = sheetXml(written);
+    expect(xml).toContain('<row r="1" ht="30" customHeight="1">');
+    expect(xml).toContain('<row r="4" ht="12.5" customHeight="1"></row>');
+    expect(xml).toContain('<row r="2">');
+    const back = await firstSheet(written);
+    expect(shape(back)).toEqual(shape(HEIGHTS));
+    // the row after a height row still follows on, so it stays plain
+    expect(Array.isArray(back.rows[1])).toBe(true);
+  });
+
+  test("the scanner's path and the tree's give the same heights", async () => {
+    const written = bytesOf(await run(makeXlsxWriter().write(trustAs(document([HEIGHTS])))));
+    // a comment before sheetData leaves the whole part to the tree path
+    const viaTree = await firstSheet(
+      editSheet(written, (xml) => xml.replace("<sheetData>", "<!-- tree --><sheetData>")),
+    );
+    const viaScanner = await firstSheet(written);
+    expect(shape(viaTree)).toEqual(shape(viaScanner));
+  });
+
+  test('keeps only heights marked custom, and reads customHeight="true"', async () => {
+    const written = bytesOf(await run(makeXlsxWriter().write(trustAs(document([SHEET])))));
+    const edited = editSheet(written, (xml) =>
+      xml
+        .replace('<row r="1">', '<row r="1" ht="15">')
+        .replace('<row r="2">', `<row r="2" ht='20' customHeight='true'>`),
+    );
+    const back = await firstSheet(edited);
+    expect(shape(back)).toEqual([
+      [0, undefined, 4],
+      [1, 20, 4],
+    ]);
+  });
+
+  test("a row with only a height counts toward maxCells", async () => {
+    const tall = worksheetFromRows(
+      "S",
+      Array.from({ length: 5 }, (_, i) => sheetRow(i, [], 20)),
+    );
+    const written = bytesOf(await run(makeXlsxWriter().write(trustAs(document([tall])))));
+    const error = await run(Effect.flip(makeXlsxReader({ maxCells: 4 }).read(bytes(written))));
+    expect(error.code).toBe("LimitExceeded");
+    expect(rowsOf(await firstSheet(written))).toHaveLength(5);
+  });
+
+  test("the writer refuses a height that is not a finite, non-negative number", async () => {
+    await Promise.all(
+      [Number.NaN, -1, Infinity].map(async (height) => {
+        const error = await run(
+          Effect.flip(
+            makeXlsxWriter().write(
+              trustAs(document([worksheetFromRows("S", [sheetRow(0, ["x"], height)])])),
+            ),
+          ),
+        );
+        expect(error.reason).toContain("row height");
       }),
     );
   });

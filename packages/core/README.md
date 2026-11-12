@@ -612,7 +612,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font) and merged ranges (`<mergeCells>`). Dates are written as ISO-8601 text and read back as text; styles and row heights are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`) and custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

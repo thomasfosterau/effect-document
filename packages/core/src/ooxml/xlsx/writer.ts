@@ -18,6 +18,7 @@ import {
   makeWriterTag,
   rowCellsOf,
   rowEntries,
+  isPlainRow,
   rowIndexes,
   sheetExtent,
   type Worksheet,
@@ -197,7 +198,9 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings, merges: strin
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
         return [`<c r="${toA1(col, index)}"${typeAttr}>${rendered.inner}</c>`];
       });
-      return `<row r="${index + 1}">${cells.join("")}</row>`;
+      const height = isPlainRow(row) ? undefined : row.height;
+      const ht = height === undefined ? "" : ` ht="${height}" customHeight="1"`;
+      return `<row r="${index + 1}"${ht}>${cells.join("")}</row>`;
     })
     .join("");
   return (
@@ -205,6 +208,10 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings, merges: strin
     `<worksheet xmlns="${NS_MAIN}">${dimension}${colsXml(ws.columns)}<sheetData>${rows}</sheetData>${merges}</worksheet>`
   );
 };
+
+/** Whether a row's height can be written: none, or a finite, non-negative number of points. */
+const isRowHeight = (height: number | undefined): boolean =>
+  height === undefined || (Number.isFinite(height) && height >= 0);
 
 // ============================================================================
 // Writer
@@ -225,6 +232,16 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
     if (Arr.isReadonlyArrayEmpty(worksheets))
       return Effect.fail(
         new WriteError({ format: "xlsx", reason: "document contains no worksheets to write" }),
+      );
+    const badHeight = worksheets.find((ws) =>
+      ws.rows.some((row) => !isPlainRow(row) && !isRowHeight(row.height)),
+    );
+    if (badHeight !== undefined)
+      return Effect.fail(
+        new WriteError({
+          format: "xlsx",
+          reason: `worksheet "${badHeight.name}" has a row height that is not a finite, non-negative number of points`,
+        }),
       );
     const merges = Result.all(worksheets.map((ws) => mergeCellsXml(ws.merges)));
     if (Result.isFailure(merges))

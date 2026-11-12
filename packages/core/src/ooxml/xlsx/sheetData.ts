@@ -76,6 +76,8 @@ interface Scan {
   last: RowCellsSoFar;
   lastIndex: number;
   cells: number;
+  /** Whether a `<row>` read so far has a `customHeight` attribute (#66): only then are heights read. */
+  customHeights: boolean;
 }
 
 /** The end of the plain name at `p` (a letter, then letters and digits), or `NONE`. */
@@ -91,6 +93,15 @@ const nameEnd = (xml: string, p: number): number => {
 /** Whether `xml` from `start` to `end` is exactly `name`. */
 const isName = (xml: string, start: number, end: number, name: string): boolean =>
   end - start === name.length && xml.startsWith(name, start);
+
+/** Whether the tag just read has an attribute called `name` (its names are in `scan.names`). */
+const hasAttribute = (scan: Scan, name: string): boolean => {
+  const { names, xml } = scan;
+  // oxlint-disable-next-line effect/imperative-loops -- over a row tag's few attributes, once per row of a large part (bench/xlsx.bench.ts: a whole-part search instead cost 2.6 ms a 20k-row read)
+  for (let i = 0; i < names.length; i += 2)
+    if (isName(xml, names[i] ?? 0, names[i + 1] ?? 0, name)) return true;
+  return false;
+};
 
 /** Whether the name from `start` to `end` was already given in this tag. */
 const isDuplicate = (scan: Scan, start: number, end: number): boolean => {
@@ -372,6 +383,9 @@ const rowContent = (scan: Scan, rowIndex: number): boolean => {
   return true;
 };
 
+/** The scanner's rows, and whether any `<row>` has a `customHeight` (so its heights are worth reading). */
+export type ScannedRows = WorksheetRows & { readonly customHeights?: boolean };
+
 /**
  * The rows of a worksheet's `sheetData`, read from `from` (the index past its
  * start tag) to its closing tag, with at most `maxCells` cell positions; none
@@ -383,7 +397,7 @@ export const scanSheetData = (
   from: number,
   sharedStrings: ReadonlyArray<string>,
   maxCells: number,
-): Option.Option<ScannedContent<WorksheetRows>> => {
+): Option.Option<ScannedContent<ScannedRows>> => {
   const scan: Scan = {
     xml,
     sharedStrings,
@@ -399,11 +413,14 @@ export const scanSheetData = (
     last: NO_ROW,
     lastIndex: NONE - 1,
     cells: 0,
+    customHeights: false,
   };
   let rowIndex = -1;
   // oxlint-disable-next-line effect/imperative-loops -- once per row of a large part (bench/xlsx.bench.ts)
   while (!closeTag(scan, "sheetData")) {
     if (!openTag(scan, "row")) return Option.none();
+    if (!scan.customHeights && scan.names.length > 2)
+      scan.customHeights = hasAttribute(scan, "customHeight");
     const r = scan.rStart;
     if (r === NONE) rowIndex++;
     else {
@@ -414,6 +431,11 @@ export const scanSheetData = (
   }
   return Option.some({
     end: scan.p,
-    value: { _tag: "Rows", rows: rowsInOrder(scan.rows), cells: scan.cells },
+    value: {
+      _tag: "Rows",
+      rows: rowsInOrder(scan.rows),
+      cells: scan.cells,
+      customHeights: scan.customHeights,
+    },
   });
 };
