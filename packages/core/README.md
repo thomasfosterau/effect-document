@@ -433,16 +433,16 @@ Generated from each format's read and write profiles by `test/integration/featur
 
 | Feature                | CSV | TSV | XLSX | DOCX | PPTX | RTF | PDF | Keynote | Pages | Numbers |
 | ---------------------- | :-: | :-: | :--: | :--: | :--: | :-: | :-: | :-----: | :---: | :-----: |
-| `inline.str`           |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
-| `inline.space`         |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
-| `inline.softBreak`     |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
+| `inline.str`           |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
+| `inline.space`         |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
+| `inline.softBreak`     |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    R    |   R   |    –    |
 | `inline.lineBreak`     |  –  |  –  |  –   |  RW  |  RW  | RW  |  R  |    R    |   R   |    –    |
-| `inline.emph`          |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
-| `inline.strong`        |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
-| `inline.underline`     |  –  |  –  |  –   |  RW  |  RW  | RW  |  R  |    –    |   –   |    –    |
-| `inline.strikeout`     |  –  |  –  |  –   |  RW  |  RW  | RW  |  R  |    –    |   –   |    –    |
-| `inline.superscript`   |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
-| `inline.subscript`     |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
+| `inline.emph`          |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
+| `inline.strong`        |  –  |  –  |  RW  |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
+| `inline.underline`     |  –  |  –  |  RW  |  RW  |  RW  | RW  |  R  |    –    |   –   |    –    |
+| `inline.strikeout`     |  –  |  –  |  RW  |  RW  |  RW  | RW  |  R  |    –    |   –   |    –    |
+| `inline.superscript`   |  –  |  –  |  RW  |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
+| `inline.subscript`     |  –  |  –  |  RW  |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.smallCaps`     |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.quoted`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.cite`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -478,7 +478,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `cell.error`           |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `cell.blank`           | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `cell.formula`         |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `cell.richText`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `cell.richText`        |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `cell.style`           |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `deck.slideShow`       |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    R    |   –   |    –    |
 | `deck.notes`           |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -612,7 +612,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`) and custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept) and rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

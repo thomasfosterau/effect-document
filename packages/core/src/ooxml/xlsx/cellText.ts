@@ -8,7 +8,11 @@
 import * as Arr from "effect/Array";
 import * as HashMap from "effect/HashMap";
 import * as Option from "effect/Option";
-import { cell, type SheetCell } from "../../index.ts";
+import * as Predicate from "effect/Predicate";
+import { cell, type CellRichText, type SheetCell } from "../../index.ts";
+
+/** A shared string: its text, or a `CellRichText` for an `<si>` of formatted runs (#66). */
+export type SharedString = string | CellRichText;
 
 /**
  * Decode SpreadsheetML's `_xHHHH_` escapes (ST_Xstring), which carry
@@ -32,14 +36,17 @@ export const cellOfText = (
   type: string,
   v: Option.Option<string>,
   inline: Option.Option<string>,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
 ): SheetCell => {
   if (type === "inlineStr") return Option.match(inline, { onNone: cell.blank, onSome: cell.text });
   const read = HashMap.get(CELL_READERS, type);
   return Option.isSome(read) ? read.value(v, sharedStrings) : numberCell(v);
 };
 
-type CellReader = (v: Option.Option<string>, sharedStrings: ReadonlyArray<string>) => SheetCell;
+type CellReader = (
+  v: Option.Option<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
+) => SheetCell;
 
 /** A cell whose `<v>`, when present, maps to a cell through `f`. */
 const valued =
@@ -67,7 +74,10 @@ const CELL_READERS = HashMap.make<ReadonlyArray<readonly [string, CellReader]>>(
     (v, sharedStrings) =>
       Option.match(
         Option.flatMap(v, (text) => Arr.get(sharedStrings, Number.parseInt(text, 10))),
-        { onNone: cell.blank, onSome: cell.text },
+        {
+          onNone: cell.blank,
+          onSome: (entry) => (Predicate.isString(entry) ? cell.text(entry) : entry),
+        },
       ),
   ],
   ["str", valued((v) => cell.text(decodeXstring(v)))],

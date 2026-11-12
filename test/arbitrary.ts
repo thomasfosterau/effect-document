@@ -26,6 +26,7 @@ import {
   CellError,
   CellFormula,
   CellNumber,
+  CellRichText,
   CellText,
   Code,
   CodeBlock,
@@ -376,6 +377,7 @@ const CELL_FEATURES: ReadonlyArray<Feature> = [
   "cell.blank",
   "cell.formula",
   "cell.date",
+  "cell.richText",
 ];
 
 /**
@@ -416,13 +418,20 @@ const sheetOf = (
 ): Arbitrary.Arbitrary<Worksheet> => {
   const kinds = CELL_FEATURES.filter(has);
   const valued = kinds.filter((f) => f !== "cell.blank");
+  // a rich cell's runs are inline content the profile allows, as a paragraph's are
+  const rich = Arbitrary.map(
+    inlines({ has, options, rules: [] }, 2),
+    (runs): SheetCell => new CellRichText({ runs }),
+  );
+  const arbitraryOf = (f: Feature): Arbitrary.Arbitrary<SheetCell> | undefined =>
+    f === "cell.richText" ? rich : cellOf(f);
   const cells = kinds.flatMap((f) => {
-    const a = cellOf(f);
+    const a = arbitraryOf(f);
     return a === undefined ? [] : [a];
   });
   const anyCell = oneOf(cells);
   const columnCell = (feature: Feature): Arbitrary.Arbitrary<SheetCell> => {
-    const own = cellOf(feature)!;
+    const own = arbitraryOf(feature)!;
     return has("cell.blank") ? oneOf([own, own, own, cellOf("cell.blank")!]) : own;
   };
   return Arbitrary.flatMap(Arbitrary.all([int(1, 4), int(1, 5)]), ([cols, rowCount]) =>

@@ -18,7 +18,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import type { PlainCell, SheetCell } from "../../index.ts";
 import { parseA1 } from "./a1.ts";
-import { cellOfText, decodeXstring } from "./cellText.ts";
+import { cellOfText, decodeXstring, type SharedString } from "./cellText.ts";
 import { type ScannedContent, unescapeXml } from "../shared/xml.ts";
 import {
   place,
@@ -57,7 +57,7 @@ const isSpaceCode = (c: number): boolean => c === 32 || c === 9 || c === 10 || c
  */
 interface Scan {
   readonly xml: string;
-  readonly sharedStrings: ReadonlyArray<string>;
+  readonly sharedStrings: ReadonlyArray<SharedString>;
   readonly maxCells: number;
   /** The index the scan has reached. */
   p: number;
@@ -395,7 +395,7 @@ export type ScannedRows = WorksheetRows & { readonly customHeights?: boolean };
 export const scanSheetData = (
   xml: string,
   from: number,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
   maxCells: number,
 ): Option.Option<ScannedContent<ScannedRows>> => {
   const scan: Scan = {

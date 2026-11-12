@@ -310,6 +310,22 @@ const normalizeShape = (shape: Shape): NormalShape =>
     Match.orElse((node) => ({ _tag: node._tag, placeholder: "", content: [] })),
   );
 
+/** Inline content as the text a cell holds: words as they are, a space as one, a break as a line break. */
+const cellText = (inlines: ReadonlyArray<Inline>): string =>
+  inlines
+    .map((i) =>
+      Predicate.isTagged(i, "Str")
+        ? i.text
+        : Predicate.isTagged(i, "Space")
+          ? " "
+          : Predicate.isTagged(i, "SoftBreak") || Predicate.isTagged(i, "LineBreak")
+            ? "\n"
+            : Predicate.hasProperty(i, "content") && Array.isArray(i.content)
+              ? cellText(i.content)
+              : "",
+    )
+    .join("");
+
 const normalizeCell = (cell: SheetCell): NormalCell =>
   Match.value(cell).pipe(
     Match.tag("CellText", "CellError", ({ _tag, value }) => ({ _tag, value })),
@@ -321,7 +337,14 @@ const normalizeCell = (cell: SheetCell): NormalCell =>
       value: `${formula} = ${result ?? ""}`,
     })),
     Match.tag("CellDate", ({ value }) => ({ _tag: "CellDate", value: value.toISOString() })),
-    Match.orElse((node) => ({ _tag: node._tag, value: "" })),
+    // a rich cell is its runs in normal form; one with no mark says what a text cell does
+    Match.tag("CellRichText", ({ runs }): NormalCell => {
+      const tokens = normalizeInlines(runs);
+      return tokens.some((t) => "marks" in t && t.marks !== "")
+        ? { _tag: "CellRichText", value: encodeJson(tokens) }
+        : { _tag: "CellText", value: cellText(runs) };
+    }),
+    Match.exhaustive,
   );
 
 /**

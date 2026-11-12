@@ -4,11 +4,12 @@
  * reader produces, which differs where the reader understands more than the
  * writer emits (ISO `t="d"` dates, non-grid sheets tagged `attr.data.kind`).
  *
- * Column widths (`<cols>`), merged ranges (`<mergeCells>`) and custom row
- * heights (`<row ht customHeight="1">`) round-trip (#66). Not (yet)
- * preserved, so narrowed away on write with a loss report: per-column
- * styles, cell styles, attributes, rich-text runs (flattened) and dates
- * (written as ISO text).
+ * Column widths (`<cols>`), merged ranges (`<mergeCells>`), custom row
+ * heights (`<row ht customHeight="1">`) and rich shared strings (bold,
+ * italic, underline, strikethrough and superscript / subscript runs)
+ * round-trip (#66). Not (yet) preserved, so narrowed away on write with a
+ * loss report: per-column styles, cell styles, attributes, run fonts, sizes
+ * and colours, and dates (written as ISO text).
  */
 
 import { defineProfile, type FeaturesOf } from "../../index.ts";
@@ -25,6 +26,18 @@ export const xlsxFeatures = [
   "cell.error",
   "cell.blank",
   "cell.formula",
+  // a rich shared string (#66): runs of text under bold, italic, underline,
+  // strikethrough and superscript / subscript marks
+  "cell.richText",
+  "inline.str",
+  "inline.space",
+  "inline.softBreak",
+  "inline.strong",
+  "inline.emph",
+  "inline.underline",
+  "inline.strikeout",
+  "inline.superscript",
+  "inline.subscript",
 ] as const;
 
 /** What the XLSX writer preserves. */

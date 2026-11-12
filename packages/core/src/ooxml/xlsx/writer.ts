@@ -169,7 +169,11 @@ const workbookRelsXml = (sheetCount: number): string => {
 const sharedStringsXml = (table: SharedStrings): string => {
   const strings = table.strings;
   const items = strings
-    .map((s) => `<si><t xml:space="preserve">${escapeXstring(s)}</t></si>`)
+    .map((s) =>
+      Predicate.isString(s)
+        ? `<si><t xml:space="preserve">${escapeXstring(s)}</t></si>`
+        : `<si>${s.runsXml}</si>`,
+    )
     .join("");
   return (
     XML_DECL +
