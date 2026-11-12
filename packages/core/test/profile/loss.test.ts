@@ -95,7 +95,7 @@ describe("loss report paths, severity and summary (#112)", () => {
 
   test("a lossless narrowing has an empty summary", () => {
     const report = narrow(document([para([str("a")])]), Profiles.Full).loss;
-    expect(report).toEqual({ entries: [], summary: [], isLossless: true });
+    expect(report).toEqual({ entries: [], summary: [], diagnostics: [], isLossless: true });
     expect(lossReport([])).toEqual(report);
   });
 

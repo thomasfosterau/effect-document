@@ -68,13 +68,58 @@ export type LossSummaryItem = typeof LossSummaryItem.Type;
 /** How many paths a {@link LossSummaryItem} keeps. */
 export const LOSS_SUMMARY_PATHS = 5;
 
+/**
+ * How bad a {@link Diagnostic} is: a {@link LossSeverity}, or `repaired`
+ * (nothing is lost: the input was malformed and was read anyway, as a PDF
+ * whose cross-reference table was rebuilt).
+ */
+export const DiagnosticSeverity = Schema.Literals([
+  "dropped-content",
+  "dropped-formatting",
+  "converted",
+  "repaired",
+]);
+/** How bad a diagnostic is, as a type. */
+export type DiagnosticSeverity = typeof DiagnosticSeverity.Type;
+
+/**
+ * A non-fatal issue a reader or writer met (#112): a component skipped, a
+ * value written in another form, a name changed. Unlike a {@link LossEntry}
+ * it is not a document feature, so it has no `feature`: its `code` names the
+ * kind of issue (`"iwork.componentSkipped"`, `"xlsx.sheetRenamed"`), stable
+ * so a caller can match on it. Readers and writers log one as an annotated
+ * warning (`logDiagnostic` in the I/O layer), and `convert` collects them
+ * into its report.
+ */
+export const Diagnostic = Schema.Struct({
+  /** The format whose reader or writer reported it (`"xlsx"`, `"keynote"`). */
+  format: Schema.String,
+  /** Whether it happened reading or writing. */
+  stage: Schema.Literals(["read", "write"]),
+  /** The kind of issue, `<format>.<issue>`; stable API, for matching. */
+  code: Schema.String,
+  /** How bad it is: see {@link DiagnosticSeverity}. */
+  severity: DiagnosticSeverity,
+  /** Where it was, as a {@link LossEntry}'s path (a sheet name and A1 address, a component name); empty for the whole file. */
+  path: Schema.Array(LossPathSegment),
+  /** A short human-readable explanation. */
+  detail: Schema.String,
+});
+/** A non-fatal issue a reader or writer met, as a type. */
+export type Diagnostic = typeof Diagnostic.Type;
+
 /** Everything a narrowing (or a conversion) dropped or down-converted, with a `Schema` for JSON. */
 export const LossReport = Schema.Struct({
   /** Every loss, in document order. */
   entries: Schema.Array(LossEntry),
   /** The entries grouped by feature and action, in order of first appearance: 10,000 date cells are one item. */
   summary: Schema.Array(LossSummaryItem),
-  /** True when nothing was lost (the narrowing was a no-op). */
+  /**
+   * What the reader and writer reported along the way, in the order they
+   * reported it (#112); empty from `narrow`, which reads and writes nothing.
+   */
+  diagnostics: Schema.Array(Diagnostic),
+  /** True when nothing was lost: no entries, and no diagnostic but `repaired` ones. */
   isLossless: Schema.Boolean,
 });
 /** Everything a narrowing (or a conversion) dropped or down-converted, as a type. */
@@ -96,8 +141,14 @@ export const severityOf = (feature: Feature, action: LossEntry["action"]): LossS
       ? "dropped-formatting"
       : "dropped-content";
 
-/** The report for `entries`: their summary, and whether there are none. */
-export const lossReport = (entries: ReadonlyArray<LossEntry>): LossReport => {
+/**
+ * The report for `entries` and `diagnostics` (none by default): the entries'
+ * summary, and whether anything was lost.
+ */
+export const lossReport = (
+  entries: ReadonlyArray<LossEntry>,
+  diagnostics: ReadonlyArray<Diagnostic> = [],
+): LossReport => {
   const items: Array<{ -readonly [K in keyof LossSummaryItem]: LossSummaryItem[K] }> = [];
   entries.forEach((e) => {
     // a summary holds one item per lost feature and action, so a scan is short
@@ -115,5 +166,11 @@ export const lossReport = (entries: ReadonlyArray<LossEntry>): LossReport => {
       if (item.paths.length < LOSS_SUMMARY_PATHS) item.paths = [...item.paths, e.path];
     }
   });
-  return { entries, summary: items, isLossless: Arr.isReadonlyArrayEmpty(entries) };
+  return {
+    entries,
+    summary: items,
+    diagnostics,
+    isLossless:
+      Arr.isReadonlyArrayEmpty(entries) && diagnostics.every((d) => d.severity === "repaired"),
+  };
 };

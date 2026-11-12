@@ -10,6 +10,7 @@ import * as Result from "effect/Result";
 import {
   type Content,
   contentToBytes,
+  logDiagnostic,
   ParseError,
   type ParseErrorCode,
   type SourcePosition,
@@ -21,8 +22,9 @@ import { type IworkError, type IworkErrorReason, isIworkError, withLocation } fr
 /** Options shared by the Pages, Numbers and Keynote readers. */
 export interface IworkReaderOptions {
   /**
-   * Skip a component that fails to decode, logging a warning
-   * (`Effect.logWarning`), instead of failing the whole read. Defaults to false.
+   * Skip a component that fails to decode instead of failing the whole read,
+   * reporting it as an `iwork.componentSkipped` diagnostic (#112: a warning
+   * log record that `convert` collects into its report). Defaults to false.
    */
   readonly lenient?: boolean | undefined;
   /** Zip-bomb limits for opening the bundle (see `BundleLimits`). */
@@ -103,9 +105,14 @@ export const eachComponent = <A>(
       if (Result.isSuccess(result)) return Effect.succeed([{ name, items: result.success }]);
       if (options?.lenient === true)
         return Effect.as(
-          Effect.logWarning(
-            `${format}: skipping a component that failed to decode: ${result.failure.message}`,
-          ),
+          logDiagnostic({
+            format,
+            stage: "read",
+            code: "iwork.componentSkipped",
+            severity: "dropped-content",
+            path: [name],
+            detail: `skipping component ${name}, which failed to decode: ${result.failure.message}`,
+          }),
           [],
         );
       return Effect.fail(toParseError(format, result.failure));

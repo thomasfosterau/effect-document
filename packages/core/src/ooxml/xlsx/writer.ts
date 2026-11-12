@@ -13,11 +13,14 @@ import * as Layer from "effect/Layer";
 import {
   bytes,
   type Content,
+  type Diagnostic,
   type Doc,
+  logDiagnostics,
   makeWriterTag,
   rowCellsOf,
   rowEntries,
   rowIndexes,
+  type SheetCell,
   sheetExtent,
   type Worksheet,
   WriteError,
@@ -25,7 +28,7 @@ import {
 } from "../../index.ts";
 import { Xlsx, type XlsxFeature } from "./profile.ts";
 import { toA1 } from "./a1.ts";
-import { SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
+import { NON_FINITE_CELL, SharedStrings, cellToSpreadsheetMl, escapeXstring } from "./cellTypes.ts";
 import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
 
@@ -89,6 +92,37 @@ export const sanitizeSheetNames = (names: ReadonlyArray<string>): ReadonlyArray<
     return name;
   });
 };
+
+/** The diagnostic for a sheet whose name `sanitizeSheetNames` changed (#112). */
+const renamedSheets = (
+  names: ReadonlyArray<string>,
+  written: ReadonlyArray<string>,
+): Array<Diagnostic> =>
+  names.flatMap((name, i) => {
+    const as = written[i] ?? name;
+    return as === name
+      ? []
+      : [
+          {
+            format: "xlsx",
+            stage: "write",
+            code: "xlsx.sheetRenamed",
+            severity: "converted",
+            path: [name],
+            detail: `sheet "${name}" written as "${as}", a name Excel accepts`,
+          } as const,
+        ];
+  });
+
+/** The diagnostic for a number cell SpreadsheetML cannot hold, written as `#NUM!` (#112). */
+const nonFinite = (sheet: string, address: string, cell: SheetCell): Diagnostic => ({
+  format: "xlsx",
+  stage: "write",
+  code: "xlsx.nonFiniteNumber",
+  severity: "converted",
+  path: [sheet, address],
+  detail: `${Predicate.isTagged(cell, "CellNumber") ? String(cell.value) : "a number"} in ${sheet}!${address} written as #NUM!`,
+});
 
 // ============================================================================
 // Part generation
@@ -176,7 +210,15 @@ const sharedStringsXml = (table: SharedStrings): string => {
   );
 };
 
-const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
+/**
+ * A worksheet's part. A `NaN` or `±Infinity` number, which SpreadsheetML
+ * cannot hold, is written as `#NUM!` and reported in `notes` (#112).
+ */
+const worksheetXml = (
+  ws: Worksheet,
+  sharedStrings: SharedStrings,
+  notes: Array<Diagnostic>,
+): string => {
   // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
   // at its own index, and blank cells emit no <c>. <dimension> declares the
   // extent of the cells the sheet holds.
@@ -192,6 +234,7 @@ const worksheetXml = (ws: Worksheet, sharedStrings: SharedStrings): string => {
       const cells = rowEntries(row).flatMap(([col, cell]) => {
         const rendered = cellToSpreadsheetMl(cell, sharedStrings);
         if (rendered === null) return [];
+        if (rendered === NON_FINITE_CELL) notes.push(nonFinite(ws.name, toA1(col, index), cell));
         const typeAttr = rendered.type === null ? "" : ` t="${rendered.type}"`;
         return [`<c r="${toA1(col, index)}"${typeAttr}>${rendered.inner}</c>`];
       });
@@ -227,7 +270,10 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
     return Effect.try({
       try: () => {
         const sharedStrings = new SharedStrings();
-        const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings));
+        const names = worksheets.map((w) => w.name);
+        const sheetNames = sanitizeSheetNames(names);
+        const notes = renamedSheets(names, sheetNames);
+        const sheetXmls = worksheets.map((ws) => worksheetXml(ws, sharedStrings, notes));
 
         const recalculate = worksheets.some((ws) =>
           ws.rows.some((row) =>
@@ -242,10 +288,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           "_rels/.rels": rootRelsXml(),
           "docProps/core.xml": corePropsXml(),
           "docProps/app.xml": appPropsXml(),
-          "xl/workbook.xml": workbookXml(
-            sanitizeSheetNames(worksheets.map((w) => w.name)),
-            recalculate,
-          ),
+          "xl/workbook.xml": workbookXml(sheetNames, recalculate),
           "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
           ...Object.fromEntries(
@@ -253,7 +296,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           ),
         };
 
-        return bytes(zipParts(files, level));
+        return [bytes(zipParts(files, level)), notes] as const;
       },
       catch: (cause) =>
         new WriteError({
@@ -261,7 +304,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           reason: `Failed to generate xlsx package: ${String(cause)}`,
           cause,
         }),
-    });
+    }).pipe(Effect.flatMap(([content, notes]) => Effect.as(logDiagnostics(notes), content)));
   };
 
   return { format: "xlsx", profile: Xlsx, write };
