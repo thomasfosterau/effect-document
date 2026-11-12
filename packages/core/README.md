@@ -499,7 +499,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `block.orderedList`    |  –  |  –  |  –   |  RW  |  RW  |  –  | RW  |    –    |   –   |    –    |
 | `block.bulletList`     |  –  |  –  |  –   |  RW  |  RW  |  –  | RW  |    –    |   –   |    –    |
 | `block.definitionList` |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `block.header`         |  –  |  –  |  –   |  RW  |  R   | RW  | RW  |    –    |   –   |    –    |
+| `block.header`         |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
 | `block.horizontalRule` |  –  |  –  |  –   |  –   |  –   |  –  |  R  |    –    |   –   |    –    |
 | `block.figure`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `block.div`            |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
