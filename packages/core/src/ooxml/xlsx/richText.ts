@@ -80,7 +80,7 @@ const TOKENS = /(\s*\n\s*)|(\s+)|(\S+)/g;
  * A run's text as inlines, keeping its edge whitespace (unlike `textInlines`,
  * which trims): `"Hello "` before a bold `"World"` keeps its space.
  */
-const inlinesOfText = (text: string): ReadonlyArray<Inline> =>
+export const inlinesOfText = (text: string): ReadonlyArray<Inline> =>
   Array.from(text.matchAll(TOKENS), ([, newline, , word]): Inline =>
     word !== undefined ? str(word) : newline !== undefined ? softBreak() : space(),
   );
@@ -135,6 +135,8 @@ const piecesOf = (inlines: ReadonlyArray<Inline>, marks: Marks): ReadonlyArray<P
       Match.tag("Strikeout", (n) => piecesOf(n.content, { ...marks, strike: true })),
       Match.tag("Superscript", (n) => piecesOf(n.content, { ...marks, vertAlign: "superscript" })),
       Match.tag("Subscript", (n) => piecesOf(n.content, { ...marks, vertAlign: "subscript" })),
+      // a link's text is the cell's: the link itself is the worksheet's <hyperlinks> (#67)
+      Match.tag("Link", (n) => piecesOf(n.content, marks)),
       // anything else is outside the XLSX profile, and narrow replaces it before a write
       Match.orElse(() => []),
     ),

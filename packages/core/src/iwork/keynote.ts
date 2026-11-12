@@ -33,7 +33,13 @@ import {
   trustAs,
 } from "../index.ts";
 import { componentPaths } from "./bundle.ts";
-import { eachComponent, type IworkReaderOptions, openInput, toParseError } from "./read.ts";
+import {
+  eachComponent,
+  type IworkReaderOptions,
+  openInput,
+  reportFormatVersion,
+  toParseError,
+} from "./read.ts";
 import { inShowOrder, showOrder } from "./show.ts";
 import { sniffKeynote } from "./sniff.ts";
 
@@ -72,6 +78,7 @@ export const makeKeynoteReader = (options?: IworkReaderOptions): Reader<KeynoteF
   const read = (input: Content): Effect.Effect<Doc<KeynoteFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("keynote", input, options);
+      yield* reportFormatVersion("keynote", bundle);
       const natural = componentPaths(bundle, (n) => SLIDE_COMPONENT.test(n));
       const order = yield* Result.match(showOrder(bundle), {
         onSuccess: (ids) => Effect.succeed(ids),

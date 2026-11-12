@@ -4,11 +4,14 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import {
   bytes,
+  CellRichText,
   type Content,
   document,
+  link,
   rowsOf,
   SheetColumn,
   SheetRow,
+  str,
   trustAs,
   withSheetLayout,
   Worksheet,
@@ -115,6 +118,19 @@ describe("XLSX hidden rows and columns (#66)", () => {
       new SheetColumn({ hidden: true }),
     ]);
   });
+});
+
+test("a hidden row keeps its hidden mark when the reader links one of its cells (#67)", async () => {
+  const linkedCell = new CellRichText({ runs: [link([str("site")], "https://example.com")] });
+  const sheet = worksheetFromRows("S", [
+    ["shown"],
+    new SheetRow({ index: 1, cells: [linkedCell], hidden: true }),
+  ]);
+  const [back] = await sheetsOf(await write([sheet]));
+  assert(back !== undefined);
+  const row = rowsOf(back)[1];
+  expect(row?.hidden).toBe(true);
+  expect(row?.cells).toEqual([linkedCell]);
 });
 
 describe("XLSX hidden worksheets (#66)", () => {

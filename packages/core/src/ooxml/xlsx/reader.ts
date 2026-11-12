@@ -29,6 +29,7 @@ import {
   contentToBytes,
   type Doc,
   document,
+  logDiagnostic,
   makeReaderTag,
   ParseError,
   type Reader,
@@ -55,6 +56,7 @@ import {
 } from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
 import { withLayoutOf } from "./layout.ts";
+import { readHyperlinks, unlinkedDiagnostic, withHyperlinks } from "./hyperlinks.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
@@ -207,6 +209,33 @@ const tooLarge = (name: string, target: string, remaining: number, maxCells: num
   });
 
 /**
+ * A sheet's `rows` with the hyperlinks its part (`root`, at `target`) declares
+ * set on their cells (#67), and an `xlsx.hyperlinkDropped` diagnostic for the
+ * cells that hold no text to link. The rows are returned unchanged for a
+ * sheet without hyperlinks.
+ */
+const sheetHyperlinks = (
+  pkg: OpcReader,
+  name: string,
+  target: string,
+  rows: ReadonlyArray<WorksheetRow>,
+  root: XmlElement,
+): Effect.Effect<ReadonlyArray<WorksheetRow>, ParseError> =>
+  Effect.flatMap(
+    Effect.try({
+      try: () =>
+        findChild(root, "hyperlinks") === undefined
+          ? { rows, unlinked: [] }
+          : withHyperlinks(rows, readHyperlinks(root, pkg.rels(target))),
+      catch: (cause) => ooxmlParseError("xlsx", cause),
+    }),
+    ({ rows: linked, unlinked }) =>
+      Arr.isReadonlyArrayEmpty(unlinked)
+        ? Effect.succeed(linked)
+        : Effect.as(logDiagnostic(unlinkedDiagnostic(name, unlinked)), linked),
+  );
+
+/**
  * The rows a read keeps of a sheet's: all of them, or the first `maxRows`
  * for a preview read, saying whether any were cut.
  */
@@ -347,8 +376,9 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             allocated += parsed.cells + sized.added;
             const preview = previewRows(sized.rows, maxRows);
             if (preview.truncated) cut.push(name);
+            const linked = yield* sheetHyperlinks(pkg, name, target, preview.rows, part.root);
             const laidOut = withLayoutOf(
-              worksheetFromRows(name, preview.rows),
+              worksheetFromRows(name, linked),
               part.root,
               preview.truncated,
               visibility,

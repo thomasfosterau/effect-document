@@ -28,7 +28,7 @@ import {
   Worksheet,
 } from "../index.ts";
 import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.ts";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { eachComponent, type IworkReaderOptions, openInput, reportFormatVersion } from "./read.ts";
 import { sniffNumbers } from "./sniff.ts";
 
 export { sniffNumbers } from "./sniff.ts";
@@ -96,6 +96,7 @@ export const makeNumbersReader = (options?: IworkReaderOptions): Reader<NumbersF
   const read = (input: Content): Effect.Effect<Doc<NumbersFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("numbers", input, options);
+      yield* reportFormatVersion("numbers", bundle);
       const decoded = yield* eachComponent(
         "numbers",
         bundle,

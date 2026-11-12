@@ -177,6 +177,23 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
   "cell.formula": [sheet("S", [[cell.formula("1+1", "2")]])],
   "cell.richText": [sheet("S", [[new CellRichText({ runs: [strong([s("x")])] })]])],
   "cell.style": [sheet("S", [[new CellText({ value: "x", style: { font: { bold: true } } })]])],
+  "inline.link": [
+    sheet("S", [
+      [
+        new CellRichText({
+          runs: [
+            new Link({
+              content: [s("site")],
+              target: { url: "https://example.com/a?b=1&c=2", title: "tip" },
+            }),
+          ],
+        }),
+        new CellRichText({
+          runs: [new Link({ content: [s("cell")], target: { url: "#S!A1" } })],
+        }),
+      ],
+    ]),
+  ],
 };
 
 /** A deck-level sample for each presentation feature. */

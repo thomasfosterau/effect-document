@@ -155,6 +155,18 @@ const Titles = defineProfile(
 );
 ```
 
+A `whole` rule keeps a feature to the whole of a container's content (#67). XLSX links a whole cell, never part of its text, so its profiles say a `Link` in a rich cell is the cell's only run. `is` and `validate` reject a link over part of a cell, and `narrow` widens it over the whole cell (keeping the first link's target), reporting a `converted` loss with the rule's reason. The container is a rich cell's runs (`within: "cell.richText"`):
+
+```ts
+const Cells = defineProfile(
+  "cells",
+  ["sheet.worksheet", "cell.richText", "inline.str", "inline.link"],
+  {
+    whole: [{ feature: "inline.link", within: "cell.richText", reason: "whole cells only" }],
+  },
+);
+```
+
 Profiles combine, at the type level and at run time alike. `unionProfiles` and `intersectProfiles` combine two profiles, `withoutFeatures` and `extendProfile` remove or add features, `isSubProfile(a, b)` (and the type `IsSubProfile<A, B>`) asks whether every document `a` accepts `b` accepts too, and `profileOf(doc)` is the smallest profile a document fits. Structural rules follow the operation: a union keeps only the rules both sides share, an intersection keeps every rule of either, and removing a feature drops the rules about it.
 
 ```ts
@@ -187,7 +199,7 @@ const program = Effect.gen(function* () {
 
 Each loss entry says where it was (`path`: block indexes from the document's top, then a list item, slide, shape or table row index, a part such as `"notes"`, or a worksheet cell's A1 address) and how bad it is (`severity`: `dropped-content`, `dropped-formatting` or `converted`); `summary` groups the entries by feature, so 10,000 date cells are one item with a count. `LossReport` is a `Schema`, so a report encodes to JSON for logs and CLI output. `convert` takes `onLoss`: `"allow"` (the default), `"warn"` (logs a warning per summary item with `Effect.logWarning`, annotated with the formats, feature and count) or `"fail"` (writes nothing and fails with a `ConversionError` whose `loss` is the report).
 
-Readers and writers report what they meet along the way as **diagnostics** (#112): a `Diagnostic` has the `format`, the `stage` (`read` or `write`), a stable `code` (`xlsx.nonFiniteNumber` for a `NaN` written as `#NUM!`, `xlsx.sheetRenamed` for a sheet name Excel refuses, `iwork.componentSkipped` for a component a lenient iWork read skipped), a `severity` (a loss severity, or `repaired` when nothing was lost), a `path` and a `detail`. Each is a warning log record annotated with the diagnostic (`logDiagnostic`, under `DIAGNOSTIC_ANNOTATION`), so no signature changes: `convert` gathers them into `loss.diagnostics`, and any diagnostic but a `repaired` one makes the report lossy and fails `onLoss: "fail"` (one from the writer is known only once it has run, but no content is returned). A direct `reader.read` or `writer.write` call shows them through the app's loggers; `collectDiagnostics(effect)` returns them beside the result. A `MinimumLogLevel` above `Warn` filters them out before any logger, `convert`'s included.
+Readers and writers report what they meet along the way as **diagnostics** (#112): a `Diagnostic` has the `format`, the `stage` (`read` or `write`), a stable `code` (`xlsx.nonFiniteNumber` for a `NaN` written as `#NUM!`, `xlsx.sheetRenamed` for a sheet name Excel refuses, `iwork.componentSkipped` for a component a lenient iWork read skipped, `iwork.unknownFormatVersion` for an iWork document from a version the reader has not been checked against), a `severity` (a loss severity; or, when nothing was lost, `repaired` for malformed input read anyway, or `notice` for something worth knowing), a `path` and a `detail`. Each is a warning log record annotated with the diagnostic (`logDiagnostic`, under `DIAGNOSTIC_ANNOTATION`), so no signature changes: `convert` gathers them into `loss.diagnostics`, and any diagnostic but a `repaired` or `notice` one (`losesNothing`) makes the report lossy and fails `onLoss: "fail"` (one from the writer is known only once it has run, but no content is returned). A direct `reader.read` or `writer.write` call shows them through the app's loggers; `collectDiagnostics(effect)` returns them beside the result. A `MinimumLogLevel` above `Warn` filters them out before any logger, `convert`'s included.
 
 Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer, or a loss under `onLoss: "fail"`). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
 
@@ -441,7 +453,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Doc` | type | A `Document` statically restricted to the features `F`. |
 | `FeaturesOf` | type | The feature set of a profile, as a phantom-bearing type. |
 | `Profile` | interface | A named subset of the schema. |
-| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`). |
+| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`, `whole`). |
 | `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
 | `unionProfiles` | function | A profile allowing what either of two allows, keeping only the structural rules both share. |
 | `intersectProfiles` | function | A profile allowing only what both of two allow, under every structural rule of either. |
@@ -574,7 +586,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `inline.code`          |  –  |  –  |  –   |  –   |  –   |  –  | RW  |    –    |   –   |    –    |
 | `inline.math`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.rawInline`     |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `inline.link`          |  –  |  –  |  –   |  RW  |  –   |  –  | RW  |    –    |   –   |    –    |
+| `inline.link`          |  –  |  –  |  RW  |  RW  |  –   |  –  | RW  |    –    |   –   |    –    |
 | `inline.image`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.note`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `inline.span`          |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -739,7 +751,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) and rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept) and cell hyperlinks (a `CellRichText` whose one run is a `Link`: a URL through the sheet's `_rels`, a place in the workbook as `#Sheet!A1`, a tooltip as the target's `title`; a link on a cell that holds no text is dropped with an `xlsx.hyperlinkDropped` diagnostic). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 
@@ -1142,6 +1154,8 @@ Every reader takes `IworkReaderOptions`:
 
 - `limits` (`BundleLimits`): `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed entry (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` takes its default (`DEFAULT_BUNDLE_LIMITS`). A zip bomb fails with `LimitExceeded` instead of exhausting memory, and the reader's `ParseError` has `code: "LimitExceeded"`. The names, defaults and messages are the same as the OOXML readers' `limits`. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
 - `lenient`: skip a component that fails to decode, reporting an `iwork.componentSkipped` diagnostic (a logged warning that `convert` collects), instead of failing the whole read.
+
+A document whose `fileFormatVersion` (from `Index/Metadata.iwa`) has a major version outside the range its reader is known to read is still read, with an `iwork.unknownFormatVersion` `notice` diagnostic. The ranges are provisional, the majors of the documents the readers have been run on: Numbers 11 to 26 (its version follows the app's), Keynote 3. Pages has no range yet, so it is not checked.
 
 #### Documents saved as a directory
 
