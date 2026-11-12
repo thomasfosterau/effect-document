@@ -146,6 +146,37 @@ const counts: Record<string, { read: number; rejected: number }> = {};
 const detected: Record<string, number> = {};
 /** The files `detect` did not rank as their format first: what it ranked first instead, if anything. */
 const misdetections: Array<{ readonly file: string; readonly detected: string }> = [];
+/** CSV files whose sniffed dialect (from the sample) a scan of the whole file agrees with (#188 §3). */
+let dialectAgreed = 0;
+/** CSV files where it doesn't: no dialect sniffed, the whole-file scan failing, or its rows less even than the sample promised. */
+const dialectDisagreements: Array<{ readonly file: string; readonly reason: string }> = [];
+
+/**
+ * Whether the dialect `Csv.sniffDialect` finds in `text`'s sample agrees with
+ * a scan of the whole text in that dialect: the scan succeeds, and the share
+ * of its rows at their most common width is at least the sniff's confidence
+ * (the share of sampled lines it saw at that width). The reason when not.
+ */
+const dialectAgreement = (text: string) =>
+  Effect.gen(function* () {
+    const sniffed = yield* Csv.sniffDialect(text);
+    if (Option.isNone(sniffed)) return Option.some("no dialect sniffed");
+    const { options, confidence } = sniffed.value;
+    const scanned = yield* Effect.option(
+      Csv.scanCsv(text, options.dialect, { skipRows: options.skipRows }),
+    );
+    if (Option.isNone(scanned))
+      return Option.some("the whole-file scan in the sniffed dialect failed");
+    const widths = scanned.value.rows.map((row) => row.length);
+    const modal = Math.max(0, ...widths.map((w) => widths.filter((x) => x === w).length));
+    const even = Arr.isReadonlyArrayEmpty(widths) ? 1 : modal / widths.length;
+    return even + 1e-9 >= confidence
+      ? Option.none()
+      : Option.some(
+          `separator ${options.dialect.separator === "\t" ? "tab" : `"${options.dialect.separator}"`}: ${Math.round(even * 100)}% of the whole file's rows at one width, the sample ${Math.round(confidence * 100)}%`,
+        );
+  });
+
 /** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
 const rejections: Array<{ readonly file: string; readonly reason: string }> = [];
 
@@ -167,6 +198,12 @@ describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
         if (best?.format.id === EXPECTED_FORMAT[format])
           detected[format] = (detected[format] ?? 0) + 1;
         else misdetections.push({ file: name, detected: best?.format.id ?? "nothing" });
+        if (format === "csv") {
+          const disagreement = yield* dialectAgreement(new TextDecoder().decode(data));
+          if (Option.isSome(disagreement))
+            dialectDisagreements.push({ file: name, reason: disagreement.value });
+          else dialectAgreed++;
+        }
         return yield* reader.read(bytes(data)).pipe(Effect.timeout(TIMEOUT));
       }).pipe(Effect.provide(NodeServices.layer)),
     );
@@ -208,6 +245,7 @@ describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
             misdetections,
             Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
           ),
+          dialects: { agreed: dialectAgreed, disagreements: dialectDisagreements },
         });
         yield* fs.writeFileString(path.join(root, ".corpora", "report.json"), `${report}\n`);
       }).pipe(Effect.provide(NodeServices.layer)),
