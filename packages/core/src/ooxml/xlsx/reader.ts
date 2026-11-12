@@ -227,6 +227,20 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
                 });
             }
 
+            if (relId === undefined || relId === "") {
+              // The workbook lists the sheet but links no part to it (a VBA
+              // module LibreOffice left behind, Apache POI bug 60825): there
+              // is nothing to read, so keep its place and name as an empty
+              // sheet tagged as unlinked, rather than failing the workbook.
+              return new Worksheet({
+                attr: { data: { kind: "unlinked" } },
+                name,
+                columns: [],
+                rows: [],
+                merges: [],
+              });
+            }
+
             const target =
               rel !== undefined && rel.type.endsWith(REL_WORKSHEET_SUFFIX) ? rel.target : undefined;
             if (target === undefined) {

@@ -438,3 +438,20 @@ describe("nesting limit (#110)", () => {
     expect(result.failure).toMatchObject(limitExceeded);
   });
 });
+
+describe("a file without its %PDF- header (#173)", () => {
+  test("is read when it starts with object definitions, repaired by the object scan", () => {
+    const whole = pdfBytes("Headless", "T");
+    // drop the header line (and the binary comment after it), as pdf.js's bug1606566.pdf has none
+    const start = bytesToLatin1(whole).search(/\d+ \d+ obj/);
+    const file = PdfFile.open(whole.subarray(start));
+    expect(file.repaired).toBe(true);
+    expect(file.version).toBe("1.4");
+  });
+
+  test("anything else without one is still refused", () => {
+    const failed = Result.try(() => PdfFile.open(enc("hello, not a PDF")));
+    assert(Result.isFailure(failed));
+    expect(String(failed.failure)).toMatch(/missing %PDF- header/);
+  });
+});

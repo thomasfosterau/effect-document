@@ -300,6 +300,36 @@ describe("XLSX reader fixes (#60)", () => {
     expect(sheets[1]!.rows).toEqual([]);
   });
 
+  test("a sheet the workbook lists without a part reads as an empty unlinked sheet (POI 60825)", async () => {
+    const xlsx = bytes(
+      zipSync({
+        "_rels/.rels": strToU8(
+          `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+        ),
+        "xl/workbook.xml": strToU8(
+          `<workbook xmlns="${NS_MAIN}" xmlns:r="${REL}"><sheets>` +
+            `<sheet name="Data" sheetId="1" r:id="rId1"/><sheet name="Module" sheetId="2" r:id=""/>` +
+            `</sheets></workbook>`,
+        ),
+        "xl/_rels/workbook.xml.rels": strToU8(
+          `<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+        ),
+        "xl/worksheets/sheet1.xml": strToU8(sheetXml(`<row r="1"><c r="A1"><v>1</v></c></row>`)),
+      }),
+    );
+    const sheets = await readSheets(xlsx);
+    expect(sheets.map((s) => [s.name, s.attr?.data?.["kind"], s.rows.length])).toEqual([
+      ["Data", undefined, 1],
+      ["Module", "unlinked", 0],
+    ]);
+  });
+
+  test("a sheet whose relationship doesn't resolve still fails the read", async () => {
+    const xlsx = packageWith([{ name: "S", xml: sheetXml(""), type: "nonsense" }]);
+    const failed = await Effect.runPromise(Effect.flip(makeXlsxReader().read(xlsx)));
+    expect(failed.reason).toMatch(/Cannot resolve worksheet part/);
+  });
+
   test("cells and rows without r follow the previous one", async () => {
     const xlsx = packageWith(
       sheetXml(
