@@ -8,7 +8,7 @@
 
 import { type Format } from "../../index.ts";
 import { Pptx, type PptxFeature, PptxRead, type PptxReadFeature } from "./profile.ts";
-import { makePptxReader, type PptxReaderOptions } from "./reader.ts";
+import { makePptxReader, sniffPptx, type PptxReaderOptions } from "./reader.ts";
 import { makePptxWriter, type PptxWriterOptions } from "./writer.ts";
 
 export * from "./profile.ts";
@@ -27,6 +27,9 @@ export interface PptxFormatOptions {
 /** Create a PPTX Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: PptxFormatOptions): Format<PptxReadFeature, PptxFeature> => ({
   id: "pptx",
+  sniff: sniffPptx,
+  extensions: ["pptx", "pptm", "ppsx", "potx"],
+  mimeTypes: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
   readProfile: PptxRead,
   writeProfile: Pptx,
   reader: makePptxReader(options?.reader),

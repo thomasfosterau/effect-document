@@ -26,6 +26,9 @@ import {
   trustAs,
 } from "../index.ts";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { sniffPages } from "./sniff.ts";
+
+export { sniffPages } from "./sniff.ts";
 import { TSWP_STORAGE_ARCHIVE } from "./registry.ts";
 import { storageParagraphs } from "./text.ts";
 
@@ -76,6 +79,9 @@ export const profile = Pages;
 /** The Pages format bundle (read-only) for use with `convert`. */
 export const format: Format<PagesFeature> = {
   id: "pages",
+  sniff: sniffPages,
+  extensions: ["pages"],
+  mimeTypes: ["application/vnd.apple.pages"],
   readProfile: Pages,
   writeProfile: Pages,
   reader: makePagesReader(),

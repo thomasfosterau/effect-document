@@ -29,6 +29,9 @@ import {
 } from "../index.ts";
 import { decodeUtf8, getAllBytes, getBigInt, getBytes, parseMessage } from "./protobuf.ts";
 import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { sniffNumbers } from "./sniff.ts";
+
+export { sniffNumbers } from "./sniff.ts";
 import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.ts";
 
 export type { IworkReaderOptions } from "./read.ts";
@@ -118,6 +121,9 @@ export const profile = Numbers;
 /** The Numbers format bundle (read-only, structure only) for use with `convert`. */
 export const format: Format<NumbersFeature> = {
   id: "numbers",
+  sniff: sniffNumbers,
+  extensions: ["numbers"],
+  mimeTypes: ["application/vnd.apple.numbers"],
   readProfile: Numbers,
   writeProfile: Numbers,
   reader: makeNumbersReader(),

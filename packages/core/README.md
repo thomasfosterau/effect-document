@@ -130,6 +130,33 @@ const program = Effect.gen(function* () {
 
 Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
 
+## Detecting a format and finding its tables
+
+For a file of unknown type, `detect` asks each format you pass which of them the content is, and ranks the answers. Each format's own sniffer looks at the bytes, never the name. A file name or MIME type in `hints` only breaks ties, so a `.csv` that is really a workbook comes back as XLSX. Each candidate carries a `confidence` (0 to 1) and an `evidence` string a UI can show. A sniffer stays within its reader's zip limits, and `detect` never fails.
+
+```ts
+import { bytes, candidateTables, detect } from "@thomasfosterau/effect-document";
+import * as Csv from "@thomasfosterau/effect-document/csv";
+import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
+import * as Pdf from "@thomasfosterau/effect-document/pdf";
+
+const program = Effect.gen(function* () {
+  const [best] = yield* detect(bytes(data), {
+    formats: [Csv.format, Csv.tsvFormat, Xlsx.format, Docx.format, Pptx.format, Pdf.format],
+    hints: { fileName: "upload.xlsx" },
+  });
+  // best?.format.id === "xlsx", best?.evidence: "ZIP with xl/workbook.xml (SpreadsheetML main part); extension .xlsx"
+  const doc = yield* best!.format.reader!.read(bytes(data));
+  return candidateTables(doc); // every worksheet and prose table, with a locator, its size and a header guess
+});
+```
+
+`candidateTables` lists every `Worksheet` and every prose `Table`, wherever it sits: in a `Div`, a `Figure`, a list item, another table's cell, or a slide's table shape. Each region gets a `locator` (the path shape of a loss entry), a name or caption, its size and a header guess. A prose table also comes flattened to a text grid, with its merged cells placed and listed in `spans`.
+
+For text whose separator isn't known, `Csv.sniffDialect(text)` reads the first 64 KiB and returns `CsvReaderOptions` for it: the separator (comma, semicolon, tab or pipe), the line break, how many preamble lines to skip, and whether the first row is a header (the reader's own rule). It also gives a confidence and an evidence string. A line the sample cuts off isn't judged, so the options it returns read the whole file as they read the sample.
+
+For a preview of a large file, pass `maxRows`: the CSV reader then reads at most that many records after `skipRows` (a header row counts as one) and never looks at the rest of the input. The XLSX reader keeps at most that many rows of each sheet. A document cut short says so in `meta.truncated` (`{ maxRows, sheets }`): `isTruncated(doc)` and `truncationOf(doc)` read it, so a preview never passes for the whole file.
+
 ## API reference
 
 The root entry re-exports everything; the subpaths expose one area each.
@@ -305,6 +332,12 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `decodeDocument` | function | Decode a document from its JSON form as `Schema.decodeUnknownEffect(Document)` does, at any nesting depth. |
 | `encodeDocumentResult` | function | `encodeDocument` as a synchronous `Result`. |
 | `decodeDocumentResult` | function | `decodeDocument` as a synchronous `Result`. |
+| `candidateTables` | function | Every tabular region of a document (worksheets, prose tables, slide table shapes), in document order, each with a locator, its size and a header guess. |
+| `TableRegion` | type | One tabular region: a `WorksheetRegion` or a `ProseTableRegion`. |
+| `WorksheetRegion` | interface | A worksheet as a candidate table: its locator, name, extent and header guess. |
+| `ProseTableRegion` | interface | A prose table as a candidate table: its locator, caption, size, head rows, text grid and merged cells. |
+| `CellSpan` | interface | A merged cell of a prose table: its top-left position and how far it spans. |
+| `TableLocator` | type | Where a region is in its document, as a loss entry's path is. |
 
 ### `@thomasfosterau/effect-document/profile`
 
@@ -365,12 +398,25 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Writer` | interface | Renders a document of its format's profile into `Content`, failing with a `WriteError`. |
 | `AnyWriter` | type | A `Writer` for some (existentially-quantified) profile. |
 | `makeWriterTag` | function | Create a Context tag for a format's Writer service. |
-| `Format` | interface | A format bundle for `convert`. |
+| `Format` | interface | A format bundle for `convert`, with an optional `sniff`, `extensions` and `mimeTypes` for `detect`. |
 | `AnyFormat` | type | A `Format` for some (existentially-quantified) profiles. |
 | `ConvertOptions` | interface | Options for `convert`. |
 | `ConvertResult` | interface | The rendered target content and what was lost getting there. |
 | `ConvertError` | type | Every way `convert` can fail. |
 | `convert` | function | Convert content from one format to another. |
+| `detect` | function | The formats some content may be, most likely first, each with its confidence and evidence; never fails. |
+| `Sniffer` | type | A format's recogniser: `Option.some` with its confidence when the content looks like the format. |
+| `Sniff` | interface | What a sniffer concluded: its confidence and evidence. |
+| `Candidate` | interface | One format `detect` thinks the content may be. |
+| `DetectHints` | interface | A file name and MIME type: tie-breakers only. |
+| `DetectOptions` | interface | Options for `detect`: the formats to choose among, and the hints. |
+| `Detectable` | interface | What `detect` needs of a format: its id, and its sniffer, extensions and MIME types. |
+| `HINT_WEIGHT` | const | How much a matching extension or MIME type adds to a candidate's confidence (0.001). |
+| `isTruncated` | function | Whether a document is a truncated preview read rather than the whole file. |
+| `truncationOf` | function | What a truncated preview read left out: its `maxRows` and the worksheets it cut. |
+| `markTruncated` | function | Mark a document as a truncated preview (`meta.truncated`), keeping its profile: for readers. |
+| `Truncation` | interface | A preview read's limit and the worksheets it cut. |
+| `TRUNCATED_META_KEY` | const | The metadata key a truncated preview read sets (`"truncated"`). |
 
 Every node class also has a `*Encoded` interface: its JSON form (`ParaEncoded`, `WorksheetEncoded`, …), which is what `Schema.encode` produces.
 
@@ -531,6 +577,11 @@ const doc = Csv.synthesizeDocument({ columns: ["id", "email"], quantity: 1_000, 
 | `CsvRows` | interface | A CSV table of typed values: its header row (or `null`) and its data rows. |
 | `readCsvRows` | function | Read CSV text into rows of typed values, typed as `read` types its cells. |
 | `makeCsvReader` | function | Create a CSV Reader with the given options baked in. |
+| `sniffCsv` / `sniffTsv` | const | The CSV and TSV sniffers for `detect`: text whose lines split into the same number of fields, on a 64 KiB sample. |
+| `SNIFF_SAMPLE_BYTES` | const | How much of the input the CSV and TSV sniffers look at (64 KiB). |
+| `sniffDialect` | function | The dialect a bounded sample of text follows: separator, line break, preamble lines to skip and whether the first row is a header, as reader options with a confidence. |
+| `SniffedDialect` | interface | What `sniffDialect` found: the reader options, its confidence and its evidence. |
+| `SNIFF_SEPARATORS` | const | The separators `sniffDialect` tries: comma, semicolon, tab and pipe. |
 | `CsvReaderTag` | const | Context tag for dependency-injection style usage. |
 | `CsvReaderLive` | const | Layer providing a CSV Reader with default options. |
 | `makeCsvReaderLayer` | function | Layer providing a CSV Reader with custom options. |
@@ -652,6 +703,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `XlsxReaderOptions` | interface | Options for the XLSX reader. |
 | `DEFAULT_MAX_CELLS` | const | The default `XlsxReaderOptions.maxCells`. |
 | `makeXlsxReader` | function | Create an XLSX Reader with the given options baked in. |
+| `sniffXlsx` | const | The XLSX sniffer for `detect`: a zip whose main part is a SpreadsheetML workbook. |
 | `XlsxReaderTag` | const | Context tag for dependency-injection style usage. |
 | `XlsxReaderLive` | const | Layer providing an XLSX Reader with default options. |
 | `makeXlsxReaderLayer` | function | Layer providing an XLSX Reader with custom options. |
@@ -675,6 +727,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `DocxFeature` | type | The features the DOCX profile allows, as a type. |
 | `DocxReaderOptions` | interface | Options for the DOCX reader. |
 | `makeDocxReader` | function | Create a DOCX Reader. |
+| `sniffDocx` | const | The DOCX sniffer for `detect`: a zip whose main part is a WordprocessingML document. |
 | `DocxReaderTag` | const | The Context tag for the DOCX reader, so a program can depend on a DOCX reader and have one provided. |
 | `DocxReaderLive` | const | A Layer providing the default DOCX reader for `DocxReaderTag`. |
 | `DocxWriterOptions` | interface | Options for the DOCX writer. |
@@ -697,6 +750,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
 | `PptxReaderOptions` | interface | Options for the PPTX reader. |
 | `makePptxReader` | function | Create a PPTX Reader. |
+| `sniffPptx` | const | The PPTX sniffer for `detect`: a zip whose main part is a PresentationML presentation. |
 | `PptxReaderTag` | const | The Context tag for the PPTX reader, so a program can depend on a PPTX reader and have one provided. |
 | `PptxReaderLive` | const | A Layer providing the default PPTX reader for `PptxReaderTag`. |
 | `PptxWriterOptions` | interface | Options for the PPTX writer. |
@@ -737,6 +791,7 @@ Headings are written as bold, larger paragraphs (RTF has no semantic headings). 
 | `Rtf` | const | The RTF profile. |
 | `RtfFeature` | type | The features the RTF profile allows, as a type. |
 | `makeRtfReader` | function | Create an RTF Reader. |
+| `sniffRtf` | const | The RTF sniffer for `detect`: text that opens with `{\rtf`. |
 | `RtfReaderTag` | const | The Context tag for the RTF reader, so a program can depend on an RTF reader and have one provided. |
 | `RtfReaderLive` | const | A Layer providing the default RTF reader for `RtfReaderTag`. |
 | `RtfWriterOptions` | interface | Options for the RTF writer. |
@@ -839,6 +894,7 @@ The object layer is synchronous and throws: `PdfSyntaxError` (with the byte `off
 | `pagesWithoutText` | function | The 1-based numbers of the pages that paint images but have no text. |
 | `PdfReaderOptions` | interface | Options for the PDF reader: the nesting-depth limit and the OCR engine. |
 | `makePdfReader` | function | Create a PDF Reader. |
+| `sniffPdf` | const | The PDF sniffer for `detect`: the `%PDF-` header in the first kilobyte. |
 | `PdfReaderTag` | const | The Context tag for the PDF reader, so a program can depend on a PDF reader and have one provided. |
 | `PdfReaderLive` | const | A Layer providing the default PDF reader for `PdfReaderTag`. |
 | `PdfOcrReaderLive` | const | A Layer providing a PDF reader for `PdfReaderTag` that OCRs scanned pages with the `OcrEngine` it requires. |
@@ -1018,6 +1074,7 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `Pages` | const | The Pages (read) profile. |
 | `PagesFeature` | type | The features the Pages profile allows, as a type. |
 | `makePagesReader` | function | Create a Pages Reader. |
+| `sniffPages` | const | The Pages sniffer for `detect`: an iWork package whose root is a `TP.DocumentArchive`. |
 | `profile` | const | The Pages profile (alias of `Pages`). |
 | `format` | const | The Pages format bundle (read-only) for use with `convert`. |
 | `PagesReaderTag` | const | The Context tag for the Pages reader, so a program can depend on a Pages reader and have one provided. |
@@ -1032,6 +1089,7 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `Numbers` | const | The Numbers (read) profile. |
 | `NumbersFeature` | type | The features the Numbers profile allows, as a type. |
 | `makeNumbersReader` | function | Create a Numbers Reader (structure only - sheet names, no cell values yet). |
+| `sniffNumbers` | const | The Numbers sniffer for `detect`: an iWork package with a Keynote/Numbers root and no slide components. |
 | `profile` | const | The Numbers profile (alias of `Numbers`). |
 | `format` | const | The Numbers format bundle (read-only, structure only) for use with `convert`. |
 | `NumbersReaderTag` | const | The Context tag for the Numbers reader, so a program can depend on a Numbers reader and have one provided. |
@@ -1046,6 +1104,7 @@ The root entry exports the namespaces `Pages`, `Numbers`, `Keynote` and `Codec`;
 | `Keynote` | const | The Keynote (read) profile. |
 | `KeynoteFeature` | type | The features the Keynote profile allows, as a type. |
 | `makeKeynoteReader` | function | Create a Keynote Reader. |
+| `sniffKeynote` | const | The Keynote sniffer for `detect`: an iWork package with slide components. |
 | `profile` | const | The Keynote profile (alias of `Keynote`). |
 | `format` | const | The Keynote format bundle (read-only) for use with `convert`. |
 | `KeynoteReaderTag` | const | The Context tag for the Keynote reader, so a program can depend on a Keynote reader and have one provided. |

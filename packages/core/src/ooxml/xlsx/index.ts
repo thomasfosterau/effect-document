@@ -11,7 +11,7 @@
 
 import { type Format } from "../../index.ts";
 import { Xlsx, type XlsxFeature, XlsxRead, type XlsxReadFeature } from "./profile.ts";
-import { makeXlsxReader, type XlsxReaderOptions } from "./reader.ts";
+import { makeXlsxReader, sniffXlsx, type XlsxReaderOptions } from "./reader.ts";
 import { makeXlsxWriter, type XlsxWriterOptions } from "./writer.ts";
 
 export * from "./a1.ts";
@@ -33,6 +33,9 @@ export interface XlsxFormatOptions {
 /** Create an XLSX Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: XlsxFormatOptions): Format<XlsxReadFeature, XlsxFeature> => ({
   id: "xlsx",
+  sniff: sniffXlsx,
+  extensions: ["xlsx", "xlsm", "xltx", "xltm"],
+  mimeTypes: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
   readProfile: XlsxRead,
   writeProfile: Xlsx,
   reader: makeXlsxReader(options?.reader),

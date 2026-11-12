@@ -11,12 +11,14 @@ import { Csv } from "../profile/profiles.ts";
 import { makeCsvReader, type CsvFeature, type CsvReaderOptions } from "./reader.ts";
 import { makeCsvWriter, type CsvWriterOptions } from "./writer.ts";
 import { TsvDialect } from "./dialect.ts";
+import { sniffCsv, sniffTsv } from "./sniff.ts";
 
 export * from "./dialect.ts";
 export * from "./scanner.ts";
 export * from "./reader.ts";
 export * from "./writer.ts";
 export * from "./synthesize.ts";
+export * from "./sniff.ts";
 
 /** The CSV profile: a single worksheet of text/number/boolean/blank cells. */
 export const profile = Csv;
@@ -30,6 +32,9 @@ export interface CsvFormatOptions {
 /** Create a CSV Format bundle with custom reader/writer options. */
 export const makeFormat = (options?: CsvFormatOptions): Format<CsvFeature> => ({
   id: "csv",
+  sniff: sniffCsv,
+  extensions: ["csv"],
+  mimeTypes: ["text/csv", "application/csv"],
   readProfile: Csv,
   writeProfile: Csv,
   reader: makeCsvReader(options?.reader),
@@ -48,6 +53,9 @@ export const format: Format<CsvFeature> = makeFormat();
 /** The TSV (tab-separated values) format bundle. */
 export const tsvFormat: Format<CsvFeature> = {
   id: "tsv",
+  sniff: sniffTsv,
+  extensions: ["tsv", "tab"],
+  mimeTypes: ["text/tab-separated-values"],
   readProfile: Csv,
   writeProfile: Csv,
   reader: makeCsvReader({ dialect: TsvDialect }),

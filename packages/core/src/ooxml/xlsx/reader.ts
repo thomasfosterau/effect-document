@@ -17,6 +17,7 @@
  * referenced many times) cannot add up to an unbounded allocation.
  */
 
+import { sniffOpc } from "../shared/sniff.ts";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
@@ -33,6 +34,8 @@ import {
   worksheetFromRows,
   trustAs,
   Worksheet,
+  type Sniffer,
+  markTruncated,
 } from "../../index.ts";
 import { collectText } from "./cellTypes.ts";
 import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
@@ -74,6 +77,15 @@ export interface XlsxReaderOptions {
   readonly maxCells?: number | undefined;
   /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
   readonly limits?: OpcLimits | undefined;
+  /**
+   * A preview read (#188): keep at most this many rows of each worksheet
+   * (rows the sheet holds, a header row counting as one). A workbook with a
+   * longer sheet is marked truncated in its metadata (`isTruncated`), naming
+   * the sheets cut, so a preview never passes for the whole file. The sheet
+   * is still parsed whole, within `maxCells`; only the document is bounded.
+   * Unset keeps every row.
+   */
+  readonly maxRows?: number | undefined;
 }
 
 /** Main-part content types of spreadsheet packages (workbook, macro-enabled, template). */
@@ -162,6 +174,7 @@ const readWorksheetRows = (
 /** Create an XLSX Reader with the given options baked in. */
 export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeature> => {
   const maxCells = options?.maxCells ?? DEFAULT_MAX_CELLS;
+  const maxRows = options?.maxRows;
 
   const read = (input: Content): Effect.Effect<Doc<XlsxReadFeature>, ParseError> =>
     Effect.gen(function* () {
@@ -204,6 +217,8 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       // The cells every sheet read so far has allocated (sheets are read in
       // order, one at a time), so maxCells bounds the workbook as a whole.
       let allocated = 0;
+      // the sheets a preview read cut short
+      const cut: Array<string> = [];
 
       const worksheets = yield* Effect.forEach(
         sheetEntries,
@@ -265,12 +280,22 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
+            if (maxRows !== undefined && parsed.rows.length > maxRows) {
+              cut.push(name);
+              return worksheetFromRows(
+                name,
+                parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))),
+              );
+            }
             return worksheetFromRows(name, parsed.rows);
           }),
         { concurrency: 1 },
       );
 
-      return trustAs<XlsxReadFeature>(document(worksheets));
+      const doc = trustAs<XlsxReadFeature>(document(worksheets));
+      return maxRows !== undefined && Arr.isReadonlyArrayNonEmpty(cut)
+        ? markTruncated(doc, { maxRows, sheets: cut })
+        : doc;
     });
 
   return { format: "xlsx", profile: XlsxRead, read };
@@ -285,3 +310,15 @@ export const XlsxReaderLive = Layer.succeed(XlsxReaderTag, makeXlsxReader());
 /** Layer providing an XLSX Reader with custom options. */
 export const makeXlsxReaderLayer = (options?: XlsxReaderOptions) =>
   Layer.succeed(XlsxReaderTag, makeXlsxReader(options));
+
+/**
+ * The XLSX sniffer, for `detect` (#188): a zip whose main part (found as
+ * the reader finds it) is declared a SpreadsheetML main part, which is what
+ * the reader requires.
+ */
+export const sniffXlsx: Sniffer = (content) =>
+  sniffOpc(content, {
+    name: "SpreadsheetML",
+    fallback: "xl/workbook.xml",
+    contentTypes: WORKBOOK_CONTENT_TYPES,
+  });

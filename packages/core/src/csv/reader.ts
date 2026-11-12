@@ -19,6 +19,8 @@ import {
   cell,
   type Content,
   contentToText,
+  markTruncated,
+  text as textContent,
   type Doc,
   document,
   type FeaturesOf,
@@ -119,7 +121,43 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
   readonly inferTypes?: boolean | undefined;
   /** Name of the produced worksheet (defaults to "Sheet1"). */
   readonly sheetName?: string | undefined;
+  /**
+   * A preview read (#188): read at most this many records after `skipRows`,
+   * a header row counting as one, and none of the rest of the input. When
+   * the input had more, the document's metadata says so (`truncated`, see
+   * `isTruncated`), so a preview never passes for the whole file. Types are
+   * inferred, and the header sniffed, from the rows read. Unset reads all.
+   */
+  readonly maxRows?: number | undefined;
 }
+
+/** The input cut after some records, and whether anything came after the cut. */
+interface RecordCut {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+/**
+ * The input up to the end of its first `records` records (lines, a line
+ * break inside `wrapper` quotes not ending one; CRLF, LF and a bare CR each
+ * end one), and whether anything came after them.
+ */
+const cutRecords = (source: string, records: number, wrapper: string): RecordCut => {
+  let seen = 0;
+  let quoted = false;
+  let at = 0;
+  // a linear scan to the cut: the rest of the input is never looked at
+  while (at < source.length && seen < records) {
+    const ch = source[at];
+    if (wrapper !== "" && ch === wrapper) quoted = !quoted;
+    else if (!quoted && (ch === "\n" || ch === "\r")) {
+      if (ch === "\r" && source[at + 1] === "\n") at += 1;
+      seen += 1;
+    }
+    at += 1;
+  }
+  return { text: source.slice(0, at), truncated: source.slice(at).trim() !== "" };
+};
 
 // ============================================================================
 // Inference
@@ -560,7 +598,23 @@ export const makeCsvReader = (options?: CsvReaderOptions): Reader<CsvFeature> =>
   const asDocument = (rows: ReadonlyArray<PlainRow>): Doc<CsvFeature> =>
     trustAs<CsvFeature>(document([worksheetOfTrustedRows(sheetName, rows)]));
 
-  const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
+  const maxRows = options?.maxRows;
+  /** A preview read: the first `maxRows` records only, the document marked when more followed. */
+  const read = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> => {
+    if (maxRows === undefined) return readAll(input);
+    return Effect.suspend(() => {
+      const cut = cutRecords(
+        contentToText(input),
+        (options?.skipRows ?? 0) + Math.max(0, Math.floor(maxRows)),
+        dialect.wrapper,
+      );
+      return Effect.map(readAll(textContent(cut.text)), (doc) =>
+        cut.truncated ? markTruncated(doc, { maxRows, sheets: [sheetName] }) : doc,
+      );
+    });
+  };
+
+  const readAll = (input: Content): Effect.Effect<Doc<CsvFeature>, ParseError> =>
     Effect.suspend(() => {
       const source = contentToText(input);
       return Option.match(
