@@ -22,7 +22,9 @@ import {
 import {
   Profiles,
   collectFeatures,
+  collectFeaturesWithin,
   defineProfile,
+  isThreadComment,
   narrow,
   type Profile,
 } from "../../src/profile/index.ts";
@@ -296,5 +298,29 @@ describe("narrow: comments (#67)", () => {
     const { document: out, loss } = narrow(doc, noDates);
     expect(loss.entries.map((e) => e.feature)).toEqual(["cell.date", "review.comments"]);
     expect(sheetOf(out).comments).toBeUndefined();
+  });
+});
+
+describe("threads as a container for structural rules (#67)", () => {
+  const thread = noteAt(0, 0, ["q"], { replies: [reply("Bo", "a")] });
+  const resolved = noteAt(1, 0, ["r"], { resolved: false });
+  const dated = noteAt(1, 1, ["n"], { date: DateTime.toDateUtc(DateTime.makeUnsafe(0)) });
+
+  test("a thread is a comment with replies or a resolved mark, and nothing else", () => {
+    expect([thread, resolved, dated].map((c) => isThreadComment(c.comment))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  test("a thread's comments, root and replies, are inside review.threads as well as review.comments", () => {
+    const doc = document([sheetWith([thread, noteAt(1, 1, ["note"])])]);
+    expect(collectFeaturesWithin(doc, "review.comments")).toContain("block.para");
+    expect(collectFeaturesWithin(doc, "review.threads").size).toBe(2);
+    // a plain note alone is no thread
+    expect(
+      collectFeaturesWithin(document([sheetWith([noteAt(1, 1, ["note"])])]), "review.threads").size,
+    ).toBe(0);
   });
 });

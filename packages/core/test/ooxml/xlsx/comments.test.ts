@@ -6,6 +6,7 @@ import * as Rec from "effect/Record";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { assert, describe, expect } from "vite-plus/test";
 import {
+  blocksToText,
   bytes,
   CellComment,
   collectDiagnostics,
@@ -42,6 +43,9 @@ const bytesOf = (c: Content): Uint8Array => {
 /** A part of a workbook, as text ("" when absent). */
 const partOf = (data: Uint8Array, path: string): string =>
   strFromU8(unzipSync(data)[path] ?? new Uint8Array());
+
+/** The names of a workbook's parts. */
+const partNames = (data: Uint8Array): ReadonlyArray<string> => Object.keys(unzipSync(data));
 
 const para = (...inlines: ConstructorParameters<typeof Para>[0]["content"]): Para =>
   new Para({ content: inlines });
@@ -143,7 +147,7 @@ describe("XLSX legacy comments (#67)", () => {
     Effect.gen(function* () {
       const [content] = yield* write([worksheet("S", [["a"]])]);
       const data = bytesOf(content);
-      expect(Object.keys(unzipSync(data)).filter((n) => /comments|vml/.test(n))).toEqual([]);
+      expect(partNames(data).filter((n) => /comments|vml/.test(n))).toEqual([]);
       expect(partOf(data, "[Content_Types].xml")).not.toContain("vml");
       expect(partOf(data, "xl/worksheets/sheet1.xml")).not.toContain("legacyDrawing");
     }),
@@ -190,51 +194,14 @@ describe("XLSX legacy comments (#67)", () => {
   );
 
   it.effect(
-    "the writer refuses what it can't write: a thread, two comments on a cell, a cell outside the sheet",
+    "the writer refuses what it can't write: two comments on a cell, a cell outside the sheet",
     () =>
       Effect.gen(function* () {
-        const thread = new CellComment({
-          row: 0,
-          col: 0,
-          comment: new Comment({
-            content: [para(str("q"))],
-            replies: [new Comment({ content: [para(str("a"))], replies: [] })],
-          }),
-        });
-        expect(yield* refusal([thread])).toContain('worksheet "S": the comment on A1 is a thread');
         expect(
           yield* refusal([note(0, 0, [para(str("a"))]), note(0, 0, [para(str("b"))])]),
         ).toContain("two comments on A1");
         expect(yield* refusal([note(0, 16_384, [para(str("a"))])])).toContain("outside the sheet");
       }),
-  );
-
-  it.effect("narrow folds a thread for the write profile, which round-trips", () =>
-    Effect.gen(function* () {
-      const thread = new CellComment({
-        row: 0,
-        col: 0,
-        comment: new Comment({
-          author: "Ann",
-          resolved: true,
-          content: [para(str("q"))],
-          replies: [new Comment({ author: "Bo", content: [para(str("a"))], replies: [] })],
-        }),
-      });
-      const doc = document([sheet("S", [thread])]);
-      expect(XlsxRead.is(doc)).toBe(true);
-      expect(Xlsx.is(doc)).toBe(false);
-      const { document: narrowed, loss } = narrow(doc, Xlsx);
-      expect(loss.entries.map((e) => [e.feature, e.action, e.path])).toEqual([
-        ["review.threads", "converted", [0, "A1"]],
-      ]);
-      const narrowedSheet = narrowed.blocks[0];
-      assert(narrowedSheet !== undefined && Predicate.isTagged(narrowedSheet, "Worksheet"));
-      const [content] = yield* write([narrowedSheet]);
-      const [[back]] = yield* read(bytesOf(content));
-      expect(back?.comments?.[0]?.comment.content.map((p) => p._tag)).toEqual(["Para", "Para"]);
-      expect(back?.comments?.[0]?.comment.author).toBe("Ann");
-    }),
   );
 
   it.effect("a line break inside a paragraph is read back as a new paragraph", () =>
@@ -351,7 +318,7 @@ describe("XLSX threaded comments (#67)", () => {
         para(str("First"), space(), str("reply")),
       ]);
       expect(XlsxRead.is(document(back === undefined ? [] : [back]))).toBe(true);
-      expect(Xlsx.is(document(back === undefined ? [] : [back]))).toBe(false);
+      expect(Xlsx.is(document(back === undefined ? [] : [back]))).toBe(true);
     }),
   );
 
@@ -426,6 +393,248 @@ describe("XLSX threaded comments (#67)", () => {
       const ws = doc.blocks[0];
       assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"));
       expect(ws.comments?.map((c) => c.row)).toEqual([0]);
+    }),
+  );
+});
+
+// ---- threaded comments, written ---------------------------------------------
+
+/** A comment of a thread: plain paragraphs, an author, a date ("" for none of either) and, optionally, a resolved mark. */
+const said = (
+  author: string,
+  at: string,
+  lines: ReadonlyArray<string>,
+  rest: { readonly resolved?: boolean; readonly replies?: ReadonlyArray<Comment> } = {},
+): Comment =>
+  new Comment({
+    author: author === "" ? undefined : author,
+    date: at === "" ? undefined : DateTime.toDateUtc(DateTime.makeUnsafe(at)),
+    resolved: rest.resolved,
+    content: lines.map((line) => para(...words(line))),
+    replies: rest.replies ?? [],
+  });
+
+/** A line as the words and spaces the reader finds in it. */
+const words = (line: string) =>
+  line.split(" ").flatMap((word, i) => (i === 0 ? [str(word)] : [space(), str(word)]));
+
+const blocksText = (content: Comment["content"]): string => blocksToText(content);
+
+const at = (row: number, col: number, comment: Comment): CellComment =>
+  new CellComment({ row, col, comment });
+
+const discussion = said("Ann", "2026-02-03T10:00:00.000Z", ["Is this right?", "Check the total."], {
+  resolved: true,
+  replies: [
+    said("Bo", "2026-02-03T11:00:00.000Z", ["First reply"]),
+    said("Ann", "2026-02-03T12:30:15.250Z", ["Second", "reply"], { resolved: false }),
+  ],
+});
+
+describe("XLSX threaded comments, written (#67)", () => {
+  const original = sheet("S", [
+    at(0, 0, discussion),
+    note(1, 1, [para(strong([str("plain")]))], "Cy"),
+    at(3, 2, said("Bo", "2026-03-01T09:00:00.000Z", ["alone"], { resolved: true })),
+  ]);
+
+  it.effect("a thread, its replies, dates, resolved marks and authors round-trip", () =>
+    Effect.gen(function* () {
+      expect(Xlsx.is(document([original]))).toBe(true);
+      const [content, notes] = yield* write([original]);
+      expect(notes).toEqual([]);
+      const [[back], found] = yield* read(bytesOf(content));
+      expect(found).toEqual([]);
+      expect(back?.comments).toEqual(original.comments);
+    }),
+  );
+
+  it.effect("writes the threaded part, the people, the placeholder note and the wiring", () =>
+    Effect.gen(function* () {
+      const [content] = yield* write([original]);
+      const data = bytesOf(content);
+      const threaded = partOf(data, "xl/threadedComments/threadedComment1.xml");
+      expect(threaded).toContain(
+        '<ThreadedComments xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"',
+      );
+      expect(threaded).toContain(
+        '<threadedComment ref="A1" dT="2026-02-03T10:00:00.000" personId="{00000000-FFFF-4000-8000-000000000000}" id="{00000000-0000-4000-8000-000001000000}" done="1"><text xml:space="preserve">Is this right?\nCheck the total.</text></threadedComment>',
+      );
+      expect(threaded).toContain(
+        '<threadedComment ref="A1" dT="2026-02-03T11:00:00.000" personId="{00000000-FFFF-4000-8000-000000000001}" id="{00000000-0000-4000-8000-000001000001}" parentId="{00000000-0000-4000-8000-000001000000}">',
+      );
+      expect(threaded).toContain('id="{00000000-0000-4000-8000-000001000002}" parentId="{0000');
+      expect(threaded).toContain('done="0"');
+      expect(threaded).toContain('<threadedComment ref="C4"');
+      // Ann and Bo once each, though Ann writes three comments
+      const people = partOf(data, "xl/persons/person.xml");
+      expect(people.match(/<person /g)).toHaveLength(2);
+      expect(people).toContain(
+        '<person displayName="Ann" id="{00000000-FFFF-4000-8000-000000000000}" userId="Ann" providerId="None"/>',
+      );
+      // the placeholder Excel keeps beside a thread, and the plain note untouched
+      const legacy = partOf(data, "xl/comments1.xml");
+      expect(legacy).toContain("<author>tc={00000000-0000-4000-8000-000001000000}</author>");
+      expect(legacy).toContain("[Threaded comment]\n\nYour version of Excel");
+      expect(legacy).toContain(
+        "Comment:\n    Is this right?\n    Check the total.\nReply:\n    First reply",
+      );
+      expect(legacy).toContain("<author>Cy</author>");
+      expect(legacy).toContain("<rPr><b/></rPr>");
+      expect(partOf(data, "xl/drawings/vmlDrawing1.vml").match(/<v:shape /g)).toHaveLength(3);
+      expect(partOf(data, "xl/worksheets/_rels/sheet1.xml.rels")).toContain(
+        'Id="rId3" Type="http://schemas.microsoft.com/office/2017/10/relationships/threadedComment" Target="../threadedComments/threadedComment1.xml"',
+      );
+      expect(partOf(data, "xl/_rels/workbook.xml.rels")).toContain(
+        'Type="http://schemas.microsoft.com/office/2017/10/relationships/person" Target="persons/person.xml"',
+      );
+      const types = partOf(data, "[Content_Types].xml");
+      expect(types).toContain(
+        '<Override PartName="/xl/threadedComments/threadedComment1.xml" ContentType="application/vnd.ms-excel.threadedcomments+xml"/>',
+      );
+      expect(types).toContain(
+        '<Override PartName="/xl/persons/person.xml" ContentType="application/vnd.ms-excel.person+xml"/>',
+      );
+    }),
+  );
+
+  it.effect("the reader takes the thread and ignores the placeholder beside it", () =>
+    Effect.gen(function* () {
+      const [[back]] = yield* read(bytesOf((yield* write([original]))[0]));
+      expect(back?.comments?.map((c) => [c.row, c.col, c.comment.replies.length])).toEqual([
+        [0, 0, 2],
+        [1, 1, 0],
+        [3, 2, 0],
+      ]);
+      expect(back?.comments?.[0]?.comment.content).toEqual([
+        para(...words("Is this right?")),
+        para(...words("Check the total.")),
+      ]);
+    }),
+  );
+
+  it.effect("ids are derived from sheet, cell and place, so the output is reproducible", () =>
+    Effect.gen(function* () {
+      const other = sheet("T", [at(2, 5, said("Dee", "", ["x"], { resolved: false }))]);
+      const [first] = yield* write([original, other]);
+      const [second] = yield* write([original, other]);
+      expect(bytesOf(first)).toEqual(bytesOf(second));
+      const data = bytesOf(first);
+      expect(partOf(data, "xl/threadedComments/threadedComment2.xml")).toContain(
+        'id="{00000002-0005-4000-8000-000002000000}"',
+      );
+      expect(partOf(data, "xl/_rels/workbook.xml.rels")).toContain("persons/person.xml");
+      // Ann, Bo, then Dee
+      expect(partOf(data, "xl/persons/person.xml")).toContain(
+        'displayName="Dee" id="{00000000-FFFF-4000-8000-000000000002}"',
+      );
+    }),
+  );
+
+  it.effect("a comment with no author is a person with no name, and reads back with none", () =>
+    Effect.gen(function* () {
+      const anonymous = sheet("S", [
+        at(0, 0, said("", "2026-01-01T00:00:00.000Z", ["hm"], { resolved: false })),
+      ]);
+      const [content] = yield* write([anonymous]);
+      expect(partOf(bytesOf(content), "xl/persons/person.xml")).toContain('displayName=""');
+      const [[back]] = yield* read(bytesOf(content));
+      expect(back?.comments).toEqual(anonymous.comments);
+      expect(back?.comments?.[0]?.comment.author).toBeUndefined();
+    }),
+  );
+
+  it.effect("a comment with no date is written without a time, and reads back with none", () =>
+    Effect.gen(function* () {
+      const undated = sheet("S", [
+        at(0, 0, said("Ann", "", ["q"], { replies: [said("Bo", "", ["a"])] })),
+      ]);
+      const [content] = yield* write([undated]);
+      expect(partOf(bytesOf(content), "xl/threadedComments/threadedComment1.xml")).not.toContain(
+        "dT=",
+      );
+      const [[back]] = yield* read(bytesOf(content));
+      expect(back?.comments).toEqual(undated.comments);
+    }),
+  );
+
+  it.effect("narrow keeps a thread but as plain text, reporting each mark it drops", () =>
+    Effect.gen(function* () {
+      const marked = said("Ann", "2026-02-03T10:00:00.000Z", [], {
+        resolved: true,
+        replies: [
+          new Comment({
+            author: "Bo",
+            content: [para(str("see"), space(), strong([str("this")]), softBreak(), str("now"))],
+            replies: [],
+          }),
+        ],
+      });
+      const root = new Comment({
+        author: marked.author,
+        date: marked.date,
+        resolved: true,
+        content: [para(emph([str("q")]))],
+        replies: marked.replies,
+      });
+      const doc = document([sheet("S", [at(0, 0, root), note(1, 0, [para(emph([str("kept")]))])])]);
+      expect(Xlsx.is(doc)).toBe(false);
+      const { document: narrowed, loss } = narrow(doc, Xlsx);
+      expect(loss.entries.map((e) => [e.feature, e.action, e.path[1]])).toEqual([
+        ["inline.emph", "converted", "A1"],
+        ["inline.strong", "converted", "A1"],
+        ["inline.softBreak", "converted", "A1"],
+      ]);
+      expect(Xlsx.is(narrowed)).toBe(true);
+      const ws = narrowed.blocks[0];
+      assert(ws !== undefined && Predicate.isTagged(ws, "Worksheet"));
+      // the plain note beside it keeps its mark
+      expect(ws.comments?.[1]?.comment.content).toEqual([para(emph([str("kept")]))]);
+      const [content] = yield* write([ws]);
+      const [[back]] = yield* read(bytesOf(content));
+      expect(back?.comments).toEqual(ws.comments);
+    }),
+  );
+
+  it.effect(
+    "reports what a thread can't hold: initials, replies to replies, replies out of order",
+    () =>
+      Effect.gen(function* () {
+        const nested = new Comment({
+          author: "Ann",
+          initials: "A",
+          date: DateTime.toDateUtc(DateTime.makeUnsafe("2026-02-03T10:00:00.000Z")),
+          content: [para(str("q"))],
+          replies: [
+            said("Bo", "2026-02-03T12:00:00.000Z", ["late"], {
+              replies: [said("Cy", "2026-02-03T13:00:00.000Z", ["deep"])],
+            }),
+            said("Bo", "2026-02-03T11:00:00.000Z", ["early"]),
+          ],
+        });
+        const [content, notes] = yield* write([sheet("S", [at(0, 0, nested)])]);
+        expect(notes.map((d) => [d.code, d.severity, d.path])).toEqual([
+          ["xlsx.commentMetadataDropped", "dropped-content", ["S"]],
+          ["xlsx.threadReshaped", "converted", ["S"]],
+        ]);
+        const [[back]] = yield* read(bytesOf(content));
+        // flat, in time order
+        expect(back?.comments?.[0]?.comment.replies.map((r) => blocksText(r.content))).toEqual([
+          "early",
+          "late",
+          "deep",
+        ]);
+      }),
+  );
+
+  it.effect("a workbook of plain comments gains no threaded parts", () =>
+    Effect.gen(function* () {
+      const [content] = yield* write([sheet("S", [note(0, 0, [para(str("a"))], "Ann")])]);
+      const data = bytesOf(content);
+      expect(partNames(data).filter((n) => /thread|person/i.test(n))).toEqual([]);
+      expect(partOf(data, "[Content_Types].xml")).not.toMatch(/thread|person/i);
+      expect(partOf(data, "xl/_rels/workbook.xml.rels")).not.toContain("person");
+      expect(partOf(data, "xl/worksheets/_rels/sheet1.xml.rels")).not.toContain("threadedComment");
     }),
   );
 });
