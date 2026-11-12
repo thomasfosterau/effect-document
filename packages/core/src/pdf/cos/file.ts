@@ -89,6 +89,15 @@ const isDigit = (c: number | undefined): boolean => c !== undefined && c >= 0x30
 /** An indirect object definition (`12 0 obj`) at the start of a line, within the first KiB. */
 const OBJECT_START = /(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b/;
 
+/**
+ * Whether the first KiB of `bytes` holds an indirect object definition
+ * (`12 0 obj`) at the start of a line: a PDF without its `%PDF-` header that
+ * `PdfFile.open` still reads, as pdf.js does (#173). `detect`'s PDF sniffer
+ * asks the same (#188).
+ */
+export const opensWithObject = (bytes: Uint8Array): boolean =>
+  OBJECT_START.test(String.fromCharCode(...bytes.subarray(0, 1024)));
+
 /** A parsed PDF file. */
 export class PdfFile {
   /** The header version (`1.7`), or the catalog's `/Version` when that is later. */
@@ -154,10 +163,7 @@ export class PdfFile {
     // A file without its header is still read when an object definition
     // starts it (as pdf.js does, #173): the catalog check that follows
     // rejects anything that isn't a PDF after all.
-    if (
-      indexOf(bytes.subarray(0, 1024), ascii("%PDF-")) < 0 &&
-      !OBJECT_START.test(String.fromCharCode(...bytes.subarray(0, 1024)))
-    ) {
+    if (indexOf(bytes.subarray(0, 1024), ascii("%PDF-")) < 0 && !opensWithObject(bytes)) {
       throw new PdfSyntaxError({ reason: "not a PDF file: missing %PDF- header", offset: 0 });
     }
     return new PdfFile(bytes);
