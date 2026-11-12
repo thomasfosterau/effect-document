@@ -516,13 +516,28 @@ export const withSheetLayout = (
   return columns.every((c) => c instanceof SheetColumn) &&
     merges.every((m) => m instanceof MergeRange)
     ? trustedWorksheetLayout(ws, columns, merges, shown)
-    : new Worksheet(
-        Object.assign(
-          ws.attr === undefined ? {} : { attr: ws.attr },
-          { name: ws.name, columns, rows: ws.rows, merges },
-          shown === undefined ? {} : { visibility: shown },
-        ),
-      );
+    : checkedLayout(ws, columns, merges, shown);
+};
+
+/**
+ * {@link withSheetLayout}'s checking path: `new Worksheet` with `ws`'s name
+ * and rows, and only the keys that are set (`attr`, `visibility`), so a valid
+ * sheet has the keys the trusted path gives it.
+ */
+const checkedLayout = (
+  ws: Worksheet,
+  columns: ReadonlyArray<SheetColumn>,
+  merges: ReadonlyArray<MergeRange>,
+  visibility?: SheetVisibility,
+): Worksheet => {
+  const { attr, name, rows } = ws;
+  if (attr === undefined)
+    return visibility === undefined
+      ? new Worksheet({ name, columns, rows, merges })
+      : new Worksheet({ name, columns, rows, merges, visibility });
+  return visibility === undefined
+    ? new Worksheet({ attr, name, columns, rows, merges })
+    : new Worksheet({ attr, name, columns, rows, merges, visibility });
 };
 
 /** Whether rows are what `Worksheet` accepts unchanged (see {@link worksheetFromRows}). */
