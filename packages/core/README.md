@@ -755,6 +755,8 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 
+Package metadata round-trips through `Document.meta` for all three (#79): `docProps/core.xml` as `title` (`dc:title`), `subject`, `author` (`dc:creator`), `keywords`, `description`, `lastModifiedBy`, `revision`, `category`, `contentStatus`, `lang` (`dc:language`), and `created` / `modified` (W3CDTF strings as written), and `docProps/app.xml`'s `Application` as `creator`; the same keys the PDF format uses, so a conversion carries them. Values are strings; a blank one is not read, and the writers write only non-empty strings, never the current date (a `created` / `modified` that is not W3CDTF is skipped with an `<format>.metadataSkipped` diagnostic). A core-properties part that cannot be parsed is reported as `<format>.metadataUnreadable` and the read goes on.
+
 #### Usage
 
 ```ts

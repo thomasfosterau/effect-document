@@ -41,7 +41,17 @@ import {
   type HyperlinksXml,
   REL_HYPERLINK,
 } from "./hyperlinks.ts";
-import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL, zipParts } from "../shared/index.ts";
+import {
+  metadataDiagnostics,
+  NS_CONTENT_TYPES,
+  NS_PKG_REL,
+  NS_REL_DOC,
+  PROPS_CONTENT_TYPES,
+  propsParts,
+  propsRelationships,
+  XML_DECL,
+  zipParts,
+} from "../shared/index.ts";
 import { escapeAttr } from "./xml.ts";
 import { colsXml, mergeCellsXml } from "./layout.ts";
 
@@ -52,8 +62,6 @@ const CT_WORKSHEET = "application/vnd.openxmlformats-officedocument.spreadsheetm
 const CT_SHARED_STRINGS =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml";
 const CT_RELS = "application/vnd.openxmlformats-package.relationships+xml";
-const CT_CORE_PROPS = "application/vnd.openxmlformats-package.core-properties+xml";
-const CT_APP_PROPS = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
 
 const REL_OFFICE_DOCUMENT =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
@@ -61,10 +69,6 @@ const REL_WORKSHEET =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
 const REL_SHARED_STRINGS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings";
-const REL_CORE_PROPS =
-  "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
-const REL_APP_PROPS =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties";
 
 // ============================================================================
 // Sheet names
@@ -155,8 +159,7 @@ const contentTypesXml = (sheetCount: number): string => {
     `<Override PartName="/xl/workbook.xml" ContentType="${CT_WORKBOOK}"/>` +
     overrides +
     `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_SHARED_STRINGS}"/>` +
-    `<Override PartName="/docProps/core.xml" ContentType="${CT_CORE_PROPS}"/>` +
-    `<Override PartName="/docProps/app.xml" ContentType="${CT_APP_PROPS}"/>` +
+    PROPS_CONTENT_TYPES +
     `</Types>`
   );
 };
@@ -165,21 +168,8 @@ const rootRelsXml = (): string =>
   XML_DECL +
   `<Relationships xmlns="${NS_PKG_REL}">` +
   `<Relationship Id="rId1" Type="${REL_OFFICE_DOCUMENT}" Target="xl/workbook.xml"/>` +
-  `<Relationship Id="rId2" Type="${REL_CORE_PROPS}" Target="docProps/core.xml"/>` +
-  `<Relationship Id="rId3" Type="${REL_APP_PROPS}" Target="docProps/app.xml"/>` +
+  propsRelationships("rId2", "rId3") +
   `</Relationships>`;
-
-const corePropsXml = (): string =>
-  XML_DECL +
-  `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"` +
-  ` xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/"` +
-  ` xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>`;
-
-const appPropsXml = (): string =>
-  XML_DECL +
-  `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">` +
-  `<Application>effect-document</Application>` +
-  `</Properties>`;
 
 /** A workbook's sheet as `<sheets>` lists it: its (sanitized) name and, when hidden, how. */
 interface SheetEntry {
@@ -396,8 +386,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
         const files = {
           "[Content_Types].xml": contentTypesXml(worksheets.length),
           "_rels/.rels": rootRelsXml(),
-          "docProps/core.xml": corePropsXml(),
-          "docProps/app.xml": appPropsXml(),
+          ...propsParts(doc.meta),
           "xl/workbook.xml": workbookXml(
             sheetNames.map((name, i) => ({
               name,
@@ -423,7 +412,11 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           ),
         };
 
-        return [bytes(zipParts(files, level)), notes, partial] as const;
+        return [
+          bytes(zipParts(files, level)),
+          [...notes, ...metadataDiagnostics("xlsx", doc.meta)],
+          partial,
+        ] as const;
       },
       catch: (cause) =>
         new WriteError({
