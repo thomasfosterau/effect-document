@@ -78,6 +78,7 @@ export type SheetFeature =
 export type DeckFeature =
   | "deck.slideShow"
   | "deck.notes"
+  | "deck.layout"
   | "shape.textBox"
   | "shape.picture"
   | "shape.table"
@@ -348,6 +349,7 @@ export const ALL_SHEET_FEATURES: ReadonlyArray<SheetFeature> = [
 export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
   "deck.slideShow",
   "deck.notes",
+  "deck.layout",
   "shape.textBox",
   "shape.picture",
   "shape.table",

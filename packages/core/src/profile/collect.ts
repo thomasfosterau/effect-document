@@ -180,6 +180,7 @@ const walkShape = (s: Shape, acc: Set<Feature>, stack: Stack): void => {
 const walkSlideShow = (d: SlideShow, acc: Set<Feature>, stack: Stack): void => {
   d.slides.forEach((sl) => {
     addAttr(sl.attr, "Slide", acc);
+    if (sl.layout !== undefined) acc.add("deck.layout");
     if (sl.notes !== undefined) {
       acc.add("deck.notes");
       pushBlocks(sl.notes, stack);

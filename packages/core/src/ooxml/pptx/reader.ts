@@ -9,12 +9,18 @@
  * unbulleted paragraph at an open list's `marL` continues its last item, and
  * the paragraphs of title placeholders become level-1 headers. A slide whose
  * relationship or part is missing fails the read, as in XLSX.
+ *
+ * Bullets, margins and run marks a paragraph does not state are inherited
+ * (#82, `inheritance.ts`): from the shape's own list style, its layout and
+ * master placeholders, the master's text styles and the presentation's
+ * defaults. A slide's `layout` is its layout part's name.
  */
 
 import { sniffOpc } from "../shared/sniff.ts";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
   type Block,
   type Content,
@@ -48,13 +54,26 @@ import {
   type OpcLimits,
   OpcReader,
   readPackageMeta,
+  relsPartOf,
   type XmlElement,
   findChild,
   findChildren,
   getAttr,
+  type ListEntry,
   ListStack,
   ooxmlParseError,
 } from "../shared/index.ts";
+import {
+  buOf,
+  EMPTY_LEVEL,
+  type Fmt,
+  Inheritance,
+  intAttr,
+  type ResolvedLevel,
+  type ResolvedLevels,
+  shapeElements,
+  type SlideStyles,
+} from "./inheritance.ts";
 import { PptxRead, type PptxReadFeature, TITLE_PLACEHOLDER_TYPES } from "./profile.ts";
 
 /** Options for the PPTX reader: zip resource limits. */
@@ -73,13 +92,6 @@ const MAIN_CONTENT_TYPES = [
   "application/vnd.ms-powerpoint.template.macroEnabled.main+xml",
 ];
 
-interface Fmt {
-  b: boolean;
-  i: boolean;
-  u: boolean;
-  strike: boolean;
-}
-
 const wrap = (node: Inline, f: Fmt): Inline => {
   let x = node;
   if (f.i) x = new Emph({ content: [x] });
@@ -90,28 +102,32 @@ const wrap = (node: Inline, f: Fmt): Inline => {
 };
 
 /** An `xsd:boolean` attribute: "true"/"1" or "false"/"0". */
-const isTrue = (v: string | undefined): boolean => v === "1" || v === "true";
+const isTrue = (v: string): boolean => v === "1" || v === "true";
 
-const runFmt = (r: XmlElement): Fmt => {
+/** A run's marks: its own `a:rPr` attributes, then the level's (`base`) for any it does not set. */
+const runFmt = (r: XmlElement, base: Fmt): Fmt => {
   const rPr = findChild(r, "rPr");
-  const attr = (name: string): string | undefined =>
-    rPr === undefined ? undefined : getAttr(rPr, name);
+  if (rPr === undefined) return base;
+  const b = getAttr(rPr, "b");
+  const i = getAttr(rPr, "i");
+  const u = getAttr(rPr, "u");
+  const strike = getAttr(rPr, "strike");
+  if (b === undefined && i === undefined && u === undefined && strike === undefined) return base;
   return {
-    b: isTrue(attr("b")),
-    i: isTrue(attr("i")),
-    u: attr("u") !== undefined && attr("u") !== "none",
-    strike: attr("strike") !== undefined && attr("strike") !== "noStrike",
+    b: b === undefined ? base.b : isTrue(b),
+    i: i === undefined ? base.i : isTrue(i),
+    u: u === undefined ? base.u : u !== "none",
+    strike: strike === undefined ? base.strike : strike !== "noStrike",
   };
 };
 
-const paragraphInlines = (p: XmlElement): Inline[] => {
+const paragraphInlines = (p: XmlElement, base: Fmt): Inline[] => {
   const out: Inline[] = [];
   for (const child of p.children) {
     // Fields (slide numbers, dates) carry their current text like a run.
     if (child.name === "r" || child.name === "fld") {
-      const f = runFmt(child);
       const t = findChild(child, "t");
-      if (t !== undefined) out.push(wrap(str(t.text), f));
+      if (t !== undefined) out.push(wrap(str(t.text), runFmt(child, base)));
     } else if (child.name === "br") {
       out.push(new LineBreak());
     }
@@ -119,107 +135,100 @@ const paragraphInlines = (p: XmlElement): Inline[] => {
   return out;
 };
 
-type Bullet = "bullet" | "ordered" | null;
-
-const paragraphBullet = (p: XmlElement): Bullet => {
-  const pPr = findChild(p, "pPr");
-  if (pPr === undefined) return null;
-  if (findChild(pPr, "buAutoNum") !== undefined) return "ordered";
-  if (findChild(pPr, "buChar") !== undefined) return "bullet";
-  return null;
-};
-
-/** An integer attribute of the paragraph's `a:pPr`, if it has a valid one. */
-const pPrInt = (pPr: XmlElement | undefined, name: string): number | undefined => {
-  const v = pPr === undefined ? undefined : getAttr(pPr, name);
-  const n = v === undefined ? Number.NaN : Number.parseInt(v, 10);
-  return Number.isFinite(n) ? n : undefined;
-};
-
-/** The paragraph's left margin, `a:pPr@marL` in EMU, if it sets one. */
-const paragraphMargin = (p: XmlElement): number | undefined => pPrInt(findChild(p, "pPr"), "marL");
-
-/** Where an auto-numbered paragraph's numbering (re)starts, `a:buAutoNum@startAt`, if it says. */
-const paragraphStartAt = (p: XmlElement): number | undefined => {
-  const pPr = findChild(p, "pPr");
-  return pPrInt(pPr === undefined ? undefined : findChild(pPr, "buAutoNum"), "startAt");
-};
+const ZERO = () => 0;
+const ONE = () => 1;
 
 /** The paragraph's indent level, `a:pPr@lvl` (0-8). */
-const paragraphLevel = (p: XmlElement): number => {
-  const pPr = findChild(p, "pPr");
-  const lvl = pPr === undefined ? undefined : getAttr(pPr, "lvl");
-  const n = lvl === undefined ? 0 : Number.parseInt(lvl, 10);
-  return Number.isFinite(n) ? Math.min(Math.max(n, 0), 8) : 0;
+const paragraphLevel = (pPr?: XmlElement): number =>
+  Math.min(Math.max(Option.getOrElse(intAttr("lvl", pPr), ZERO), 0), 8);
+
+/** A paragraph that starts a list item. */
+interface Item extends ListEntry {
+  /** Whether the paragraph is no item after all. */
+  readonly skip: boolean;
+}
+
+/** The list item a paragraph is, or `None` when it is not one. */
+const itemOf = (
+  level: ResolvedLevel,
+  lvl: number,
+  marL: Option.Option<number>,
+  empty: boolean,
+  pPr?: XmlElement,
+): Option.Option<Item> => {
+  const own = buOf(pPr);
+  const bu = Option.isSome(own) ? own : level.bu;
+  if (Option.isNone(bu) || bu.value.kind === "none") return Option.none();
+  const ordered = bu.value.kind === "ordered";
+  return Option.some({
+    kind: ordered ? "ordered" : "bullet",
+    level: lvl,
+    key: "",
+    // an ordered item that says where it restarts begins a new list (#196);
+    // a start inherited from a list style only starts the list
+    restart: ordered && Option.isSome(own) && Option.isSome(own.value.startAt),
+    start: ordered ? Option.getOrElse(bu.value.startAt, ONE) : 1,
+    indent: Option.getOrUndefined(marL),
+    // an empty paragraph that only inherits its bullet shows none, so it is no item
+    skip: Option.isNone(own) && empty,
+  });
 };
 
-const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
+/**
+ * A shape's paragraphs as blocks. `levels` is the shape's resolved list style
+ * (see `inheritance.ts`): a paragraph's own bullet, margin and marks win, and
+ * what it does not say comes from its level.
+ */
+const txBodyToBlocks = (
+  txBody: XmlElement,
+  asHeaders: boolean,
+  levels: ResolvedLevels,
+): Block[] => {
   const lists = new ListStack();
-  for (const p of findChildren(txBody, "p")) {
-    const inlines = paragraphInlines(p);
-    const bullet = paragraphBullet(p);
-    if (bullet === null)
+  findChildren(txBody, "p").forEach((p) => {
+    const pPr = findChild(p, "pPr");
+    const lvl = paragraphLevel(pPr);
+    const level = levels[lvl] ?? EMPTY_LEVEL;
+    const inlines = paragraphInlines(p, level.fmt);
+    const own = intAttr("marL", pPr);
+    const marL = Option.isSome(own) ? own : level.marL;
+    const item = itemOf(level, lvl, marL, Arr.isReadonlyArrayEmpty(inlines), pPr);
+    if (Option.isNone(item))
       // an unbulleted paragraph at an open list's margin continues its last item (#196)
       // (in a title placeholder, a paragraph outside the lists is a heading)
-      lists.place(paragraphMargin(p), (continued) => [
+      lists.place(Option.getOrUndefined(marL), (continued) => [
         asHeaders && !continued
           ? new Header({ level: 1, content: inlines })
           : new Para({ content: inlines }),
       ]);
-    else {
-      const startAt = bullet === "ordered" ? paragraphStartAt(p) : undefined;
-      lists.item(
-        {
-          kind: bullet,
-          level: paragraphLevel(p),
-          key: "",
-          // an ordered item that restarts its numbering begins a new list (#196)
-          restart: startAt !== undefined,
-          start: startAt ?? 1,
-          indent: paragraphMargin(p),
-        },
-        new Plain({ content: inlines }),
-      );
-    }
-  }
+    else if (!item.value.skip) lists.item(item.value, new Plain({ content: inlines }));
+  });
   return lists.closeAll();
 };
 
-const shapeOf = (sp: XmlElement): Shape => {
+const shapeOf = (sp: XmlElement, styles: SlideStyles): Shape => {
   const nvSpPr = findChild(sp, "nvSpPr");
   const nvPr = nvSpPr === undefined ? undefined : findChild(nvSpPr, "nvPr");
   const ph = nvPr === undefined ? undefined : findChild(nvPr, "ph");
   // A <p:ph> without a type is an "obj" placeholder (ST_PlaceholderType default).
-  const placeholderType = ph === undefined ? undefined : (getAttr(ph, "type") ?? "obj");
+  const type = ph === undefined ? Option.none() : Option.some(getAttr(ph, "type") ?? "obj");
+  const idx = intAttr("idx", ph);
   const txBody = findChild(sp, "txBody");
-  const asHeaders =
-    placeholderType !== undefined && TITLE_PLACEHOLDER_TYPES.includes(placeholderType);
-  const content = txBody === undefined ? [] : txBodyToBlocks(txBody, asHeaders);
-  if (ph !== undefined) {
-    const idxStr = getAttr(ph, "idx");
-    return new Placeholder({
-      placeholderType: placeholderType!,
-      idx: idxStr === undefined ? undefined : Number.parseInt(idxStr, 10),
-      content,
-    });
-  }
-  return new TextBox({ content });
-};
-
-/**
- * The `<p:sp>` shapes of a shape tree in document order, descending into
- * `<p:grpSp>` groups (with an explicit stack, so deep groups can't overflow).
- */
-const shapeElements = (spTree: XmlElement): XmlElement[] => {
-  const out: XmlElement[] = [];
-  const stack: XmlElement[] = spTree.children.toReversed();
-  while (Arr.isReadonlyArrayNonEmpty(stack)) {
-    const el = stack.pop()!;
-    if (el.name === "sp") out.push(el);
-    else if (el.name === "grpSp")
-      for (let n = el.children.length - 1; n >= 0; n--) stack.push(el.children[n]!);
-  }
-  return out;
+  const asHeaders = Option.exists(type, (t) => TITLE_PLACEHOLDER_TYPES.includes(t));
+  const lstStyle = txBody === undefined ? undefined : findChild(txBody, "lstStyle");
+  const content =
+    txBody === undefined
+      ? []
+      : txBodyToBlocks(
+          txBody,
+          asHeaders,
+          styles.levelsFor(type, idx, Option.fromUndefinedOr(lstStyle)),
+        );
+  return Option.match(type, {
+    onNone: () => new TextBox({ content }),
+    onSome: (placeholderType) =>
+      new Placeholder({ placeholderType, idx: Option.getOrUndefined(idx), content }),
+  });
 };
 
 /** Create a PPTX Reader. */
@@ -241,6 +250,15 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
         const sldIdLst = findChild(pres, "sldIdLst");
         const slideEls = sldIdLst === undefined ? [] : findChildren(sldIdLst, "sldId");
 
+        // inflate every slide and its relationships in one pass over the zip directory
+        pkg.prefetch(
+          slideEls.flatMap((sldId) => {
+            const rid = getAttr(sldId, "r:id");
+            const target = rid === undefined ? undefined : rels.get(rid);
+            return target === undefined ? [] : [target, relsPartOf(target)];
+          }),
+        );
+        const inheritance = new Inheritance(pkg, pres);
         const slides: Slide[] = [];
         for (const sldId of slideEls) {
           // use the relationship id (r:id), not the numeric slide id attribute
@@ -253,14 +271,16 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
           const slideRoot = pkg.xml(target)!;
           const cSld = findChild(slideRoot, "cSld");
           const spTree = cSld === undefined ? undefined : findChild(cSld, "spTree");
-          const shapes = spTree === undefined ? [] : shapeElements(spTree).map(shapeOf);
-          slides.push(new Slide({ shapes }));
+          const styles = inheritance.forSlide(target);
+          const shapes =
+            spTree === undefined ? [] : shapeElements(spTree).map((sp) => shapeOf(sp, styles));
+          slides.push(new Slide({ shapes, layout: Option.getOrUndefined(styles.layoutName) }));
         }
 
         const { meta, diagnostics } = readPackageMeta(pkg, "pptx");
         return {
           doc: trustAs<PptxReadFeature>(document([new SlideShow({ slides })], meta)),
-          diagnostics,
+          diagnostics: [...inheritance.diagnostics, ...diagnostics],
         };
       },
       catch: (cause) => ooxmlParseError("pptx", cause),

@@ -26,7 +26,7 @@ import {
   trustAs,
   narrow,
 } from "@thomasfosterau/effect-document";
-import { Pptx, makePptxReader, makePptxWriter } from "../../../src/ooxml/pptx/index.ts";
+import { Pptx, PptxRead, makePptxReader, makePptxWriter } from "../../../src/ooxml/pptx/index.ts";
 
 type PptxF = FeaturesOf<typeof Pptx>;
 
@@ -100,14 +100,18 @@ describe("PPTX round-trip", () => {
   it.effect("reads a placeholder shape back as a Placeholder", () =>
     Effect.gen(function* () {
       const back = yield* readBack([slide([textBox([para([str("body")])])])]);
-      expect(Pptx.is(back)).toBe(true);
+      expect(PptxRead.is(back)).toBe(true);
     }),
   );
 
   it.effect("output conforms to the PPTX profile", () =>
     Effect.gen(function* () {
       const back = yield* readBack([slide([textBox([para([str("hello")])])])]);
-      expect(Pptx.is(back)).toBe(true);
+      expect(PptxRead.is(back)).toBe(true);
+      // the writer's one layout is named, which only the read profile keeps (#82)
+      const { document: narrowed, loss } = narrow(back, Pptx);
+      expect(Pptx.is(narrowed)).toBe(true);
+      expect(loss.entries.map((e) => e.feature)).toEqual(["deck.layout"]);
     }),
   );
 
@@ -275,8 +279,10 @@ describe("PPTX reader fixes (#81)", () => {
       const { document: narrowed, loss } = narrow(doc, Pptx);
       expect(loss.isLossless).toBe(true);
       const back = yield* makePptxReader().read(yield* makePptxWriter().write(narrowed));
-      expect(Pptx.is(back)).toBe(true);
-      expect(firstSlideShow(back.blocks)).toEqual(firstSlideShow(doc.blocks));
+      expect(PptxRead.is(back)).toBe(true);
+      expect(firstSlideShow(narrow(back, Pptx).document.blocks)).toEqual(
+        firstSlideShow(doc.blocks),
+      );
     }),
   );
 

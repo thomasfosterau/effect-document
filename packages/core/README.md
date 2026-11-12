@@ -623,6 +623,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `cell.style`           |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `deck.slideShow`       |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    R    |   –   |    –    |
 | `deck.notes`           |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `deck.layout`          |  –  |  –  |  –   |  –   |  R   |  –  |  –  |    –    |   –   |    –    |
 | `shape.textBox`        |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    R    |   –   |    –    |
 | `shape.picture`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.table`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -758,7 +759,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 | --- | --- | --- |
 | XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept) and cell hyperlinks (a `CellRichText` whose one run is a `Link`: a URL through the sheet's `_rels`, a place in the workbook as `#Sheet!A1`, a tooltip as the target's `title`; a link on a cell that holds no text is dropped with an `xlsx.hyperlinkDropped` diagnostic) and cell comments (`Worksheet.comments`, a `CellComment` per commented cell holding a `Comment`: legacy notes in `xl/commentsN.xml` with the VML drawing Excel shows them with, a paragraph per line of text with bold / italic / underline / strikethrough runs and an author; Excel's threaded comments are read too, a thread with its replies, resolved mark, dates and authors from `person.xml`, replacing the legacy placeholder beside it, but the writer writes legacy notes only, so `narrow` to `Xlsx` folds a thread into its comment as "Author: text" paragraphs; a comment's date and initials are not written and are reported as `xlsx.commentMetadataDropped`). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
-| PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
+| PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. The reader resolves inherited bullets, margins and bold / italic / underline / strike through the shape, layout, master and presentation (`Slide.layout` is the layout's name, in `PptxRead` only). |
 
 Package metadata round-trips through `Document.meta` for all three (#79): `docProps/core.xml` as `title` (`dc:title`), `subject`, `author` (`dc:creator`), `keywords`, `description`, `lastModifiedBy`, `revision`, `category`, `contentStatus`, `lang` (`dc:language`), and `created` / `modified` (W3CDTF strings as written), and `docProps/app.xml`'s `Application` as `creator`; the same keys the PDF format uses, so a conversion carries them. Values are strings; a blank one is not read, and the writers write only non-empty strings, never the current date (a `created` / `modified` that is not W3CDTF is skipped with an `<format>.metadataSkipped` diagnostic). A core-properties part that cannot be parsed is reported as `<format>.metadataUnreadable` and the read goes on.
 
@@ -894,7 +895,7 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `Pptx` | const | The PPTX (PresentationML) profile. |
 | `PptxFeature` | type | The features the PPTX profile allows, as a type. |
 | `TITLE_PLACEHOLDER_TYPES` | const | The placeholder types whose text is a slide's title, which the reader takes as headers. |
-| `PptxRead` | const | What the PPTX reader produces: the `Pptx` profile itself, now that its title-placeholder headers are in it (#196). |
+| `PptxRead` | const | What the PPTX reader produces: `Pptx` plus `deck.layout`, the name of a slide's layout (#82). |
 | `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
 | `PptxReaderOptions` | interface | Options for the PPTX reader. |
 | `makePptxReader` | function | Create a PPTX Reader. |

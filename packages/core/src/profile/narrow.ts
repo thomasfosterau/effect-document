@@ -925,9 +925,14 @@ const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
       at(here, "notes").rec.drop("deck.notes", "speaker notes dropped");
       notes = undefined;
     }
+    let layout = sl.layout;
+    if (layout !== undefined && !here.allowed.has("deck.layout")) {
+      at(here, "layout").rec.drop("deck.layout", "slide layout name dropped");
+      layout = undefined;
+    }
     return new Slide({
       attr: narrowAttr(sl.attr, "Slide", here),
-      layout: sl.layout,
+      layout,
       shapes: sl.shapes.flatMap((sh, k) => narrowShape(sh, at(here, k))),
       notes: notes === undefined ? undefined : narrowBlocks(notes, at(here, "notes")),
     });

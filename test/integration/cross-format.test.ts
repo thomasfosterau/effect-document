@@ -163,7 +163,7 @@ describe("DOCX -> PPTX (prose wrapped into a slide)", () => {
         input: yield* docxBytes(),
       });
       const back = yield* Pptx.makePptxReader().read(content);
-      expect(Pptx.Pptx.is(back)).toBe(true);
+      expect(Pptx.PptxRead.is(back)).toBe(true);
       const ss = back.blocks.find(isSlideShow);
       assert(ss !== undefined, "the deck has a slide show");
       expect(ss.slides.length).toBeGreaterThanOrEqual(1);
