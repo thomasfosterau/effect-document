@@ -12,7 +12,7 @@ import { Csv } from "../profile/profiles.ts";
 
 type CsvFeature = FeaturesOf<typeof Csv>;
 
-/** What to synthesize: the columns (names, or a count named `col0…`), the row count, an optional seed for reproducible data, and the field-length range (default 5–20). */
+/** What to synthesize: the columns (names, or a count named `col0…`), the row count, an optional seed for reproducible data (any number: its integer part modulo 2^31 - 1, 0 standing for 2^31 - 2), and the field-length range (default 5–20). */
 export interface SynthesisSpec {
   readonly columns: ReadonlyArray<string> | number;
   readonly quantity: number;
@@ -26,18 +26,34 @@ export interface SynthesizedTable {
   readonly rows: ReadonlyArray<ReadonlyArray<string>>;
 }
 
+/** The Lehmer generator's prime modulus, 2^31 - 1: its states are the integers in [1, LEHMER_MODULUS - 1]. */
+const LEHMER_MODULUS = 2147483647;
+
+/**
+ * A valid generator state for any seed: its integer part taken modulo
+ * {@link LEHMER_MODULUS} into [0, LEHMER_MODULUS - 1], with 0 (a state the
+ * generator never leaves: every field would be the shortest run of `a`s)
+ * taken as LEHMER_MODULUS - 1. A seed already in [1, LEHMER_MODULUS - 1] is
+ * its own state, so the tables of valid seeds are unchanged; a negative seed
+ * no longer yields negative draws (empty fields), nor a non-finite one NaN.
+ */
+const lehmerState = (seed: number): number => {
+  const whole = Number.isFinite(seed) ? Math.trunc(seed) : 0;
+  const state = ((whole % LEHMER_MODULUS) + LEHMER_MODULUS) % LEHMER_MODULUS;
+  return state === 0 ? LEHMER_MODULUS - 1 : state;
+};
+
 class SeedableRng {
   private value: number;
 
   constructor(seed: number) {
-    this.value = seed;
+    this.value = lehmerState(seed);
   }
 
   next(): number {
     const multiplier = 48271;
-    const modulus = 2147483647;
-    this.value = (this.value * multiplier) % modulus;
-    return this.value / modulus;
+    this.value = (this.value * multiplier) % LEHMER_MODULUS;
+    return this.value / LEHMER_MODULUS;
   }
 
   between(min: number, max: number): number {
