@@ -25,6 +25,7 @@ import {
   Header,
   type Inline,
   LineBreak,
+  logDiagnostics,
   makeReaderTag,
   Para,
   ParseError,
@@ -46,6 +47,7 @@ import {
   OpcError,
   type OpcLimits,
   OpcReader,
+  readPackageMeta,
   type XmlElement,
   findChild,
   findChildren,
@@ -255,10 +257,14 @@ export const makePptxReader = (options?: PptxReaderOptions): Reader<PptxReadFeat
           slides.push(new Slide({ shapes }));
         }
 
-        return trustAs<PptxReadFeature>(document([new SlideShow({ slides })]));
+        const { meta, diagnostics } = readPackageMeta(pkg, "pptx");
+        return {
+          doc: trustAs<PptxReadFeature>(document([new SlideShow({ slides })], meta)),
+          diagnostics,
+        };
       },
       catch: (cause) => ooxmlParseError("pptx", cause),
-    });
+    }).pipe(Effect.flatMap(({ doc, diagnostics }) => Effect.as(logDiagnostics(diagnostics), doc)));
   return { format: "pptx", profile: PptxRead, read };
 };
 

@@ -8,6 +8,7 @@ import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import { assert, describe, expect } from "vite-plus/test";
@@ -133,6 +134,19 @@ layer(NodeServices.layer)((it) => {
     ] as const)("the fixture %s is detected as %s", ([path, id]) =>
       Effect.gen(function* () {
         expect(yield* best(yield* fixture(path))).toBe(id);
+      }),
+    );
+
+    it.effect("a PDF without its header is still a PDF, as the reader reads it (#173)", () =>
+      Effect.gen(function* () {
+        const written = yield* writeWith(Pdf.format, prose);
+        assert(Predicate.isTagged(written, "Bytes"), "the PDF writer writes bytes");
+        // cut everything before the first object definition: the header and its binary comment
+        const latin1 = new TextDecoder("latin1").decode(written.bytes);
+        const headerless = bytes(written.bytes.subarray(latin1.search(/\d+ \d+ obj\b/)));
+        expect(yield* best(headerless)).toBe("pdf");
+        const doc = yield* Pdf.makePdfReader().read(headerless);
+        expect(doc.blocks.length).toBeGreaterThan(0);
       }),
     );
 

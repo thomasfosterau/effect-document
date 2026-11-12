@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Path from "effect/Path";
 import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
@@ -25,7 +26,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { unzipSync } from "fflate";
 import { describe, expect } from "vite-plus/test";
-import type { Feature } from "@thomasfosterau/effect-document";
+import { document, trustAs } from "@thomasfosterau/effect-document";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
 import { type AnyWriter, type Family, writeSamples } from "../samples.ts";
 import { DCTERMS_XSD, DC_XSD, XML_XSD } from "./xsd-stubs.ts";
@@ -110,6 +111,23 @@ class Environment extends Context.Service<
   static readonly layer = Layer.effect(Environment, environment());
 }
 
+/** A document's metadata with every key the writers map to the package properties (#79). */
+const METADATA = {
+  title: "A <title> & more",
+  subject: "Subject",
+  author: "Ada Lovelace",
+  keywords: "one, two",
+  description: "Notes",
+  lastModifiedBy: "Grace Hopper",
+  revision: "7",
+  category: "Reports",
+  contentStatus: "Draft",
+  lang: "en-AU",
+  created: "2024-05-06T07:08:09Z",
+  modified: "2025-01-02T03:04:05+10:00",
+  creator: "My Writer 1.0",
+};
+
 /** The namespace of a part's root element, from its start tag. */
 const rootNamespace = (xml: string): Option.Option<string> => {
   const tag = /<(?![?!])(?:([\w.-]+):)?[\w.-]+([^>]*)>/.exec(xml);
@@ -139,7 +157,7 @@ interface Part {
 }
 
 /** The XML parts (`.xml`, `.rels`) of one written package, named `<feature>/<part path>`. */
-const xmlParts = (feature: Feature, bytes: Uint8Array): ReadonlyArray<Part> =>
+const xmlParts = (feature: string, bytes: Uint8Array): ReadonlyArray<Part> =>
   Arr.filterMap(Rec.toEntries(unzipSync(bytes)), ([path, data]) =>
     /\.(xml|rels)$/.test(path)
       ? Result.succeed({ name: `${feature}/${path}`, xml: new TextDecoder().decode(data) })
@@ -151,8 +169,21 @@ const xmlParts = (feature: Feature, bytes: Uint8Array): ReadonlyArray<Part> =>
  * root element's namespace; parts with no schema here are listed apart.
  */
 const partsOf = ({ writer, family }: (typeof WRITERS)[number]) =>
-  Effect.map(writeSamples(writer, family), (samples) => {
-    const parts = samples.flatMap(({ feature, bytes }) => xmlParts(feature, bytes));
+  Effect.gen(function* () {
+    const samples = yield* writeSamples(writer, family);
+    // the first sample again with every metadata key, so docProps/core.xml and app.xml are validated populated (#79)
+    const first = Arr.head(samples);
+    const withMeta = Option.isNone(first)
+      ? []
+      : yield* Effect.map(
+          writer.write(trustAs(document(first.value.doc.blocks, METADATA))),
+          (content) =>
+            Predicate.isTagged(content, "Bytes") ? xmlParts("metadata", content.bytes) : [],
+        );
+    const parts = [
+      ...samples.flatMap(({ feature, bytes }) => xmlParts(feature, bytes)),
+      ...withMeta,
+    ];
     const unknown = Arr.filterMap(parts, (part) => {
       const ns = rootNamespace(part.xml);
       return Option.isSome(ns) && isNamespace(ns.value)

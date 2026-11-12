@@ -120,6 +120,32 @@ const filesIn = (id: string, dir: string) =>
     return Arr.getSomes(found);
   });
 
+/**
+ * Whether the dialect `Csv.sniffDialect` finds in `text`'s sample agrees with
+ * a scan of the whole text in that dialect: the scan succeeds, and the share
+ * of its rows at their most common width is at least the sniff's confidence
+ * (the share of sampled lines it saw at that width). The reason when not.
+ */
+const dialectAgreement = (text: string) =>
+  Effect.gen(function* () {
+    const sniffed = yield* Csv.sniffDialect(text);
+    if (Option.isNone(sniffed)) return Option.some("no dialect sniffed");
+    const { options, confidence } = sniffed.value;
+    const scanned = yield* Effect.option(
+      Csv.scanCsv(text, options.dialect, { skipRows: options.skipRows }),
+    );
+    if (Option.isNone(scanned))
+      return Option.some("the whole-file scan in the sniffed dialect failed");
+    const widths = scanned.value.rows.map((row) => row.length);
+    const modal = Math.max(0, ...widths.map((w) => widths.filter((x) => x === w).length));
+    const even = Arr.isReadonlyArrayEmpty(widths) ? 1 : modal / widths.length;
+    return even + 1e-9 >= confidence
+      ? Option.none()
+      : Option.some(
+          `separator ${options.dialect.separator === "\t" ? "tab" : `"${options.dialect.separator}"`}: ${Math.round(even * 100)}% of the whole file's rows at one width, the sample ${Math.round(confidence * 100)}%`,
+        );
+  });
+
 /** The tallies a smoke run keeps, written to `.corpora/report.json` when the suite ends. */
 interface Tallies {
   /** Files read and rejected, per format. */
@@ -130,6 +156,11 @@ interface Tallies {
   readonly misdetections: Array<{ readonly file: string; readonly detected: string }>;
   /** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
   readonly rejections: Array<{ readonly file: string; readonly reason: string }>;
+  /** CSV files whose sniffed dialect (from the sample) a scan of the whole file agrees with, and those where it doesn't: no dialect sniffed, the whole-file scan failing, or its rows less even than the sample promised (#188 §3). */
+  readonly dialects: {
+    agreed: number;
+    readonly disagreements: Array<{ readonly file: string; readonly reason: string }>;
+  };
 }
 
 /**
@@ -161,7 +192,13 @@ class Corpus extends Context.Service<
         { concurrency: 1 },
       );
       const files = Arr.flatten(perCorpus);
-      const tallies: Tallies = { counts: {}, detected: {}, misdetections: [], rejections: [] };
+      const tallies: Tallies = {
+        counts: {},
+        detected: {},
+        misdetections: [],
+        rejections: [],
+        dialects: { agreed: 0, disagreements: [] },
+      };
       const report = Effect.fn("Corpus.report")(function* () {
         const formats = Rec.map(tallies.counts, ({ read, rejected }, format) => ({
           files: read + rejected,
@@ -182,6 +219,7 @@ class Corpus extends Context.Service<
             tallies.misdetections,
             Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
           ),
+          dialects: tallies.dialects,
         });
         yield* fs.writeFileString(path.join(root, ".corpora", "report.json"), `${json}\n`);
       });
@@ -218,6 +256,12 @@ const smoke = (tallies: Tallies, { name, path, format }: CorpusFile) =>
         if (best?.format.id === EXPECTED_FORMAT[format])
           tallies.detected[format] = (tallies.detected[format] ?? 0) + 1;
         else tallies.misdetections.push({ file: name, detected: best?.format.id ?? "nothing" });
+        if (format === "csv") {
+          const disagreement = yield* dialectAgreement(new TextDecoder().decode(data));
+          if (Option.isSome(disagreement))
+            tallies.dialects.disagreements.push({ file: name, reason: disagreement.value });
+          else tallies.dialects.agreed++;
+        }
         return yield* reader.read(bytes(data)).pipe(Effect.timeout(TIMEOUT));
       }),
     );
