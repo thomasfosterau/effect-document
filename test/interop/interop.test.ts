@@ -27,7 +27,16 @@ import * as Rec from "effect/Record";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { describe, expect } from "vite-plus/test";
-import { blocksToText, type Document } from "@thomasfosterau/effect-document";
+import * as Predicate from "effect/Predicate";
+import {
+  type Block,
+  blocksToText,
+  cellToText,
+  type Document,
+  rowEntries,
+  rowsOf,
+  type Worksheet,
+} from "@thomasfosterau/effect-document";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
 import { makePdfWriter } from "@thomasfosterau/effect-document/pdf";
 import { makeRtfWriter } from "@thomasfosterau/effect-document/rtf";
@@ -74,17 +83,47 @@ const skip = (...tools: ReadonlyArray<Tool>) =>
     ({ available, required }) => !required && !tools.every((t) => available.includes(t)),
   );
 
+/** The words of `text`, each once. */
+const wordsIn = (text: string): ReadonlyArray<string> =>
+  Arr.dedupe(text.split(/[^\p{L}\p{N}]+/u).filter((w) => w !== ""));
+
 /** The words of a document's text, for checking another tool recovered it. */
-const wordsOf = (doc: Document): ReadonlyArray<string> =>
-  Arr.dedupe(
-    blocksToText(doc.blocks)
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((w) => w !== ""),
+const wordsOf = (doc: Document): ReadonlyArray<string> => wordsIn(blocksToText(doc.blocks));
+
+/** The text of a worksheet's shown cells: none for a hidden sheet, nothing from a hidden row or column (#66). */
+const shownSheetText = (ws: Worksheet): string =>
+  ws.visibility === undefined
+    ? rowsOf(ws)
+        .filter((row) => row.hidden !== true)
+        .flatMap((row) =>
+          rowEntries(row)
+            .filter(([col]) => ws.columns[col]?.hidden !== true)
+            .map(([, c]) => cellToText(c)),
+        )
+        .join(" ")
+    : "";
+
+/**
+ * The words an application shows of a document, which prints a sheet's
+ * shown cells only (LibreOffice leaves hidden sheets, rows and columns out
+ * of a PDF, as Excel does of a printout).
+ */
+const shownWordsOf = (doc: Document): ReadonlyArray<string> =>
+  wordsIn(
+    doc.blocks
+      .map((b: Block) =>
+        Predicate.isTagged(b, "Worksheet") ? shownSheetText(b) : blocksToText([b]),
+      )
+      .join(" "),
   );
 
-/** The sample's words missing from `text`, as `<feature>: <word>` messages. */
-const missingWords = (sample: WrittenSample, text: string): ReadonlyArray<string> =>
-  wordsOf(sample.doc)
+/** The sample's `words` (by default all of its text's) missing from `text`, as `<feature>: <word>` messages. */
+const missingWords = (
+  sample: WrittenSample,
+  text: string,
+  words: ReadonlyArray<string> = wordsOf(sample.doc),
+): ReadonlyArray<string> =>
+  words
     // case-blind: spreadsheet applications show booleans as TRUE / FALSE
     .filter((word) => !text.toLowerCase().includes(word.toLowerCase()))
     .map((word) => `${sample.feature}: "${word}" missing`);
@@ -157,7 +196,7 @@ layer(Tools.layer.pipe(Layer.provideMerge(NodeServices.layer)))((it) => {
                   const pdf = path.join(out, `${sample.feature}.pdf`);
                   if (!(yield* fs.exists(pdf))) return [`${sample.feature}: no PDF`];
                   const text = yield* run("pdftotext", ["-layout", pdf, "-"]);
-                  return missingWords(sample, text);
+                  return missingWords(sample, text, shownWordsOf(sample.doc));
                 }),
               { concurrency: 4 },
             );

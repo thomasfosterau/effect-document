@@ -162,7 +162,7 @@ export const withHyperlinks = (
     if (linked.every((c, col) => c === cells[col])) return row;
     return isPlainRow(row)
       ? linked
-      : new SheetRow({ index: row.index, cells: linked, height: row.height });
+      : new SheetRow({ index: row.index, cells: linked, height: row.height, hidden: row.hidden });
   });
   return { rows: out, unlinked };
 };

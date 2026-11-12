@@ -210,9 +210,6 @@ export default defineConfig({
           "effect/avoid-untagged-errors": "off",
           // scripts/fetch-corpora.mjs likewise shells out to git and reads
           // corpora.json with JSON.parse.
-          // `...(process.env.X ? { x } : {})` is how a vitest option is left
-          // unset under `exactOptionalPropertyTypes`.
-          "effect/no-conditional-empty-object-spread": "off",
         },
       },
       // The benchmarks (`bench/`) are bare-Node measurement programs, run by

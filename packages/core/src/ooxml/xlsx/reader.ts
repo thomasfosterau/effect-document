@@ -35,6 +35,7 @@ import {
   type Reader,
   worksheetFromRows,
   trustAs,
+  type SheetVisibility,
   Worksheet,
   type WorksheetRow,
   type Sniffer,
@@ -47,10 +48,10 @@ import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
 import {
   parseWorksheetRows,
-  type RowHeights,
-  textRowHeights,
-  treeRowHeights,
-  withRowHeights,
+  type RowProps,
+  textRowProps,
+  treeRowProps,
+  withRowProps,
   type WorksheetRows,
 } from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
@@ -155,7 +156,7 @@ const readWorksheetRows = (
   sharedStrings: ReadonlyArray<SharedString>,
   maxCells: number,
 ): Effect.Effect<
-  { readonly rows: WorksheetRows; readonly root: XmlElement; readonly heights: RowHeights },
+  { readonly rows: WorksheetRows; readonly root: XmlElement; readonly props: RowProps },
   ParseError
 > =>
   Effect.flatMap(
@@ -175,7 +176,7 @@ const readWorksheetRows = (
               ({ value, root }) => ({
                 rows: value,
                 root,
-                heights: value.customHeights === true ? textRowHeights(text) : [],
+                props: value.rowProps === true ? textRowProps(text) : [],
               }),
             );
       },
@@ -187,7 +188,7 @@ const readWorksheetRows = (
         Effect.map(parsePart(pkg, target, "sheetData"), (root) => ({
           rows: parseWorksheetRows(root, sharedStrings, maxCells),
           root,
-          heights: treeRowHeights(root),
+          props: treeRowProps(root),
         })),
     }),
   );
@@ -195,14 +196,14 @@ const readWorksheetRows = (
 /**
  * The failure for a sheet that needs more of `maxCells` than the sheets
  * before it left (`remaining`): each row held costs its width, and a row with
- * only a height costs one.
+ * only a height or a hidden mark costs one.
  */
 const tooLarge = (name: string, target: string, remaining: number, maxCells: number) =>
   new ParseError({
     format: "xlsx",
     reason:
       `Worksheet "${name}" holds more than the ${remaining} cells left of the ` +
-      `workbook's ${maxCells}-cell limit (maxCells; a row with only a height counts as a cell)`,
+      `workbook's ${maxCells}-cell limit (maxCells; a row with only a height or a hidden mark counts as a cell)`,
     code: "LimitExceeded",
     position: { sheet: name, part: target },
   });
@@ -251,8 +252,30 @@ const previewRows = (
  * tagged with what it is (`attr.data.kind`): a chartsheet, a dialogsheet, a
  * macrosheet, or a sheet the workbook links no part to (`"unlinked"`).
  */
-const emptySheet = (name: string, kind: string): Worksheet =>
-  new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] });
+const emptySheet = (
+  name: string,
+  kind: string,
+  visibility: Option.Option<SheetVisibility>,
+): Worksheet =>
+  Option.match(visibility, {
+    onNone: () =>
+      new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] }),
+    onSome: (hidden) =>
+      new Worksheet({
+        attr: { data: { kind } },
+        name,
+        columns: [],
+        rows: [],
+        merges: [],
+        visibility: hidden,
+      }),
+  });
+
+/** A `<sheet>`'s visibility from its `state`: hidden, very hidden, or shown (none). */
+const visibilityOf = (sheetEl: XmlElement): Option.Option<SheetVisibility> => {
+  const state = getAttr(sheetEl, "state");
+  return state === "hidden" || state === "veryHidden" ? Option.some(state) : Option.none();
+};
 
 // ============================================================================
 // Reader
@@ -312,6 +335,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
         (sheetEl, index) =>
           Effect.gen(function* () {
             const name = getAttr(sheetEl, "name") ?? `Sheet${index + 1}`;
+            const visibility = visibilityOf(sheetEl);
             const relId = getAttr(sheetEl, "id");
             const rel = relationships.find((r) => r.id === relId);
 
@@ -319,7 +343,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
               // their place and name as an empty sheet tagged with its kind.
               const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
-              if (kind !== undefined) return emptySheet(name, kind);
+              if (kind !== undefined) return emptySheet(name, kind, visibility);
             }
 
             if (relId === undefined || relId === "") {
@@ -327,7 +351,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // module LibreOffice left behind, Apache POI bug 60825): there
               // is nothing to read, so keep its place and name as an empty
               // sheet tagged as unlinked, rather than failing the workbook.
-              return emptySheet(name, "unlinked");
+              return emptySheet(name, "unlinked", visibility);
             }
 
             const target =
@@ -346,7 +370,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             const parsed = part.rows;
             if (Predicate.isTagged(parsed, "TooLarge"))
               return yield* tooLarge(name, target, remaining, maxCells);
-            const sized = withRowHeights(parsed.rows, part.heights);
+            const sized = withRowProps(parsed.rows, part.props);
             if (parsed.cells + sized.added > remaining)
               return yield* tooLarge(name, target, remaining, maxCells);
             allocated += parsed.cells + sized.added;
@@ -357,6 +381,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               worksheetFromRows(name, linked),
               part.root,
               preview.truncated,
+              visibility,
             );
             if (Result.isFailure(laidOut))
               return yield* new ParseError({

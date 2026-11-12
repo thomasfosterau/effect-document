@@ -601,15 +601,57 @@ const narrowPosition = (position: RowCell, ctx: Ctx, col: number, row: number): 
   return narrowed === node ? position : narrowed;
 };
 
+/** Whether a worksheet row is a `SheetRow` marked hidden. */
+const isHiddenRow = (r: WorksheetRow): boolean => !isPlainRow(r) && r.hidden === true;
+
 /**
- * A row with its cells narrowed: the row itself when every cell is kept
- * unchanged, and a plain row stays a plain row (#227).
+ * A row with its cells narrowed, and shown when `show` (the target has no
+ * `sheet.hidden`): the row itself when nothing changes, and a plain row stays
+ * a plain row (#227).
  */
-const narrowRow = (r: WorksheetRow, row: number, ctx: Ctx): WorksheetRow => {
+const narrowRow = (r: WorksheetRow, row: number, ctx: Ctx, show: boolean): WorksheetRow => {
   const old = rowCellsOf(r);
   const cells = old.map((c, col) => narrowPosition(c, ctx, col, row));
-  if (cells.every((c, i) => c === old[i])) return r;
-  return isPlainRow(r) ? cells : new SheetRow({ index: r.index, cells, height: r.height });
+  const unhide = show && isHiddenRow(r);
+  if (!unhide && cells.every((c, i) => c === old[i])) return r;
+  return isPlainRow(r)
+    ? cells
+    : new SheetRow({
+        index: r.index,
+        cells,
+        height: r.height,
+        hidden: unhide ? undefined : r.hidden,
+      });
+};
+
+/**
+ * A worksheet's columns narrowed: none without `sheet.columns`, and without
+ * their styles (no `cell.style`) or their hidden marks (no `sheet.hidden`),
+ * each loss reported once.
+ */
+const narrowColumns = (
+  columns: ReadonlyArray<SheetColumn>,
+  ctx: Ctx,
+): ReadonlyArray<SheetColumn> => {
+  if (Arr.isReadonlyArrayEmpty(columns)) return columns;
+  if (!ctx.allowed.has("sheet.columns")) {
+    ctx.rec.drop("sheet.columns", "column metadata dropped");
+    return [];
+  }
+  const unstyle = !ctx.allowed.has("cell.style") && columns.some((c) => c.style !== undefined);
+  const unhide = !ctx.allowed.has("sheet.hidden") && columns.some((c) => c.hidden === true);
+  if (unstyle) ctx.rec.drop("cell.style", "column styling dropped");
+  if (unhide) ctx.rec.drop("sheet.hidden", "hidden columns shown");
+  if (!unstyle && !unhide) return columns;
+  return columns.map((c) =>
+    (unstyle && c.style !== undefined) || (unhide && c.hidden === true)
+      ? new SheetColumn({
+          width: c.width,
+          style: unstyle ? undefined : c.style,
+          hidden: unhide ? undefined : c.hidden,
+        })
+      : c,
+  );
 };
 
 const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
@@ -619,27 +661,20 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     ctx.rec.drop("sheet.merges", "merged ranges dropped");
     merges = [];
   }
-  let columns = w.columns;
-  if (Arr.isReadonlyArrayNonEmpty(columns) && !has("sheet.columns")) {
-    ctx.rec.drop("sheet.columns", "column metadata dropped");
-    columns = [];
-  } else if (!has("cell.style") && columns.some((c) => c.style !== undefined)) {
-    // sheet.columns is allowed, but per-column styling is not.
-    let recorded = false;
-    columns = columns.map((c) => {
-      if (c.style === undefined) return c;
-      if (!recorded) {
-        ctx.rec.drop("cell.style", "column styling dropped");
-        recorded = true;
-      }
-      return new SheetColumn({ width: c.width });
-    });
+  const show = !has("sheet.hidden");
+  let visibility = w.visibility;
+  if (visibility !== undefined && show) {
+    ctx.rec.drop("sheet.hidden", `hidden worksheet "${w.name}" shown`);
+    visibility = undefined;
   }
+  const columns = narrowColumns(w.columns, ctx);
+  if (show && w.rows.some(isHiddenRow)) ctx.rec.drop("sheet.hidden", "hidden rows shown");
   const indexes = rowIndexes(w);
-  const rows = w.rows.map((r, i) => narrowRow(r, indexes[i] ?? i, ctx));
+  const rows = w.rows.map((r, i) => narrowRow(r, indexes[i] ?? i, ctx, show));
   // nothing narrowed: the worksheet itself (nodes are immutable)
   if (
     w.attr === undefined &&
+    visibility === w.visibility &&
     columns === w.columns &&
     merges === w.merges &&
     rows.every((r, i) => r === w.rows[i])
@@ -651,6 +686,7 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
     columns,
     rows,
     merges,
+    visibility,
   });
 };
 
