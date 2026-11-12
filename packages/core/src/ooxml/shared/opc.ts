@@ -6,10 +6,12 @@
  * relationships on the way in, and zip a set of parts on the way out.
  */
 
+import * as MutableHashSet from "effect/MutableHashSet";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { strToU8, unzipSync, zipSync } from "fflate";
 import type { ParseError as XmlSyntaxError } from "@thomasfosterau/effect-parse";
+import * as Rec from "effect/Record";
 import * as Result from "effect/Result";
 import { findChildren, getAttr, parseXmlResult, type XmlElement } from "./xml.ts";
 
@@ -51,6 +53,12 @@ const dirOf = (path: string): string => {
 const fileOf = (path: string): string => {
   const slash = path.lastIndexOf("/");
   return slash === -1 ? path : path.substring(slash + 1);
+};
+
+/** The name of the relationships part of the part `partPath` (`""` for the package itself). */
+export const relsPartOf = (partPath: string): string => {
+  const dir = dirOf(partPath);
+  return (dir ? dir + "/" : "") + "_rels/" + fileOf(partPath) + ".rels";
 };
 
 /**
@@ -274,6 +282,41 @@ export class OpcReader {
     return out;
   }
 
+  /**
+   * Inflate several parts in one pass over the zip's directory, so reading
+   * each later costs a lookup. Reading a part alone walks the whole directory
+   * (a deck with hundreds of slides reads thousands of parts), so a reader
+   * that knows its parts up front names them here. Parts that are absent or
+   * already read are skipped; the limits apply as for {@link OpcReader.bytes}.
+   */
+  prefetch(paths: ReadonlyArray<string>): void {
+    const wanted = MutableHashSet.fromIterable(
+      paths.map((path) => (path.startsWith("/") ? path.substring(1) : path).toLowerCase()),
+    );
+    const { maxEntrySize, maxTotalSize } = this.limits;
+    const found = unzipSync(this.data, {
+      filter: (file) => {
+        const key = file.name.toLowerCase();
+        if (!MutableHashSet.has(wanted, key) || this.cache.has(key)) return false;
+        if (file.originalSize > maxEntrySize) {
+          throw new OpcError(
+            "LimitExceeded",
+            `${file.name} is ${file.originalSize} bytes uncompressed, over the ${maxEntrySize}-byte limit`,
+          );
+        }
+        if (this.inflated + file.originalSize > maxTotalSize) {
+          throw new OpcError(
+            "LimitExceeded",
+            `the parts read exceed the ${maxTotalSize}-byte total limit`,
+          );
+        }
+        this.inflated += file.originalSize;
+        return true;
+      },
+    });
+    Rec.toEntries(found).forEach(([name, data]) => this.cache.set(name.toLowerCase(), data));
+  }
+
   /** The text of a part (UTF-8 or UTF-16, by BOM or declaration), or null if absent. */
   text(path: string): string | null {
     const b = this.bytes(path);
@@ -296,8 +339,7 @@ export class OpcReader {
   /** The relationships declared for the given part (resolved to absolute paths). */
   rels(partPath: string): ReadonlyArray<Relationship> {
     const dir = dirOf(partPath);
-    const relsPath = (dir ? dir + "/" : "") + "_rels/" + fileOf(partPath) + ".rels";
-    const root = this.xml(relsPath);
+    const root = this.xml(relsPartOf(partPath));
     if (root === null) return [];
     return findChildren(root, "Relationship").map((r) => {
       const target = getAttr(r, "Target") ?? "";

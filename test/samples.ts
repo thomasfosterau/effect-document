@@ -55,6 +55,7 @@ import {
   orderedList,
   para,
   Picture,
+  Slide,
   slide,
   slideShow,
   SmallCaps,
@@ -243,6 +244,9 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
 const DECK: Partial<Record<Feature, Block[]>> = {
   "deck.slideShow": [slideShow([slide([textBox([para([s("x")])])])])],
   "deck.notes": [slideShow([slide([textBox([para([s("x")])])], [para([s("n")])])])],
+  "deck.layout": [
+    slideShow([new Slide({ layout: "Title Slide", shapes: [textBox([para([s("x")])])] })]),
+  ],
   "shape.textBox": [slideShow([slide([textBox([para([s("x")])])])])],
   "shape.picture": [slideShow([slide([new Picture({ src: "x.png", alt: "x" })])])],
   "shape.table": [

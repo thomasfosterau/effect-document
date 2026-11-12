@@ -13,7 +13,7 @@
  * in the loss report.
  */
 
-import { defineProfile, type FeaturesOf } from "../../index.ts";
+import { defineProfile, type FeaturesOf, type ProfileOptions } from "../../index.ts";
 
 /** The features the PPTX profile allows, as a list. */
 export const pptxFeatures = [
@@ -40,8 +40,7 @@ export const TITLE_PLACEHOLDER_TYPES: ReadonlyArray<string> = ["title", "ctrTitl
 
 const TITLE_ONLY = "PPTX keeps a heading only as a slide's title, the text of a title placeholder";
 
-/** The PPTX (PresentationML) profile. */
-export const Pptx = defineProfile("pptx", pptxFeatures, {
+const pptxRules: ProfileOptions = {
   onlyWithin: [
     {
       feature: "block.header",
@@ -62,16 +61,25 @@ export const Pptx = defineProfile("pptx", pptxFeatures, {
     { feature: "block.header", within: "block.bulletList", reason: TITLE_ONLY },
     { feature: "block.header", within: "block.orderedList", reason: TITLE_ONLY },
   ],
-});
+};
+
+/** The PPTX (PresentationML) profile: what the writer preserves. */
+export const Pptx = defineProfile("pptx", pptxFeatures, pptxRules);
 
 /** The features the PPTX profile allows, as a type: the phantom of its documents. */
 export type PptxFeature = FeaturesOf<typeof Pptx>;
 
 /**
- * What the PPTX reader produces: the {@link Pptx} profile itself, now that
- * its title-placeholder headers are in it (#196). Kept for code that names it.
+ * What the PPTX reader produces: {@link Pptx} plus `deck.layout`, the name
+ * of the slide layout a slide uses (`Slide.layout`, #82). The writer writes
+ * one blank layout, so it cannot keep the name and `Pptx` lacks the feature:
+ * narrowing a read deck to `Pptx` drops it, reported in the loss report.
  */
-export const PptxRead = Pptx;
+export const PptxRead = defineProfile(
+  "pptx-read",
+  [...pptxFeatures, "deck.layout"] as const,
+  pptxRules,
+);
 
 /** The features of {@link PptxRead}, what the PPTX reader produces, as a type. */
-export type PptxReadFeature = PptxFeature;
+export type PptxReadFeature = FeaturesOf<typeof PptxRead>;
