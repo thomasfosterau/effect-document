@@ -13,7 +13,10 @@ import {
   type Document,
   type FeaturesOf,
   type InlineOf,
+  type IsSubProfile,
   Profiles,
+  unionProfiles,
+  withoutFeatures,
   type TagsOf,
 } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-document/csv";
@@ -91,3 +94,16 @@ declare const linkIdDoc: Doc<"inline.link" | "inline.str" | "attr.id.link">;
 // @ts-expect-error ids on links are not in a profile that allows them on headings only
 export const linkIdsIntoHeadingIds: Doc<"inline.link" | "inline.str" | "attr.id.header"> =
   linkIdDoc;
+
+// (#126) The profile algebra is typed: a union's documents take either side's
+// features, `withoutFeatures` removes them from the phantom too, and
+// `IsSubProfile` compares feature sets.
+const CsvOrSpreadsheet = unionProfiles("csv-or-sheet", Profiles.Csv, Profiles.Spreadsheet);
+export const unionTakesCsv: Doc<FeaturesOf<typeof CsvOrSpreadsheet>> = csvDoc;
+const CsvWithoutNumbers = withoutFeatures("no-numbers", Profiles.Csv, ["cell.number"] as const);
+// @ts-expect-error a CSV document may hold numbers, which the narrowed profile removes
+export const withoutRemovesFromPhantom: Doc<FeaturesOf<typeof CsvWithoutNumbers>> = csvDoc;
+export const csvIsSub: IsSubProfile<typeof Profiles.Csv, typeof Profiles.Spreadsheet> = true;
+// @ts-expect-error the spreadsheet profile is not a sub-profile of CSV
+export const spreadsheetIsNotSub: IsSubProfile<typeof Profiles.Spreadsheet, typeof Profiles.Csv> =
+  true;

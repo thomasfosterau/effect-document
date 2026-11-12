@@ -10,6 +10,7 @@
  * e.g. writing an Excel workbook to CSV.
  */
 
+import * as Option from "effect/Option";
 import * as Rec from "effect/Record";
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
@@ -61,6 +62,7 @@ import {
   Slide,
   SlideShow,
   SmallCaps,
+  Space,
   Span,
   Str,
   Strikeout,
@@ -76,31 +78,23 @@ import {
   Worksheet,
 } from "../schema/ast.ts";
 import { Document, blocksToText, cellToText, inlinesToText } from "../schema/document.ts";
-import { cellOf, denseRows, rowCellsOf, sheetRow } from "../schema/sheet.ts";
+import { cellOf, denseRows, rowCellsOf, rowIndexes, sheetRow } from "../schema/sheet.ts";
+import { type Resources, resourceUrl } from "../schema/resource.ts";
 import { type Feature, ID_FEATURE, type IdNode, TAG_FEATURE } from "../schema/feature.ts";
 import { type Doc, type NotWithin, type Profile, trustAs } from "./profile.ts";
+import { type FieldValues, fieldMatches, type OnlyWithin, type RuleNode } from "./rules.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
+import {
+  type LossEntry,
+  type LossPathSegment,
+  type LossReport,
+  lossReport,
+  severityOf,
+} from "./loss.ts";
 
 // ============================================================================
 // Loss report
 // ============================================================================
-
-/** One thing `narrow` could not keep: the feature, whether it was dropped or converted, and why. */
-export interface LossEntry {
-  /** The feature that could not be represented. */
-  readonly feature: Feature;
-  /** What happened: dropped, or down-converted to something simpler. */
-  readonly action: "dropped" | "converted";
-  /** A short human-readable explanation. */
-  readonly detail: string;
-}
-
-/** Everything a narrowing (or a conversion) dropped or down-converted. */
-export interface LossReport {
-  readonly entries: ReadonlyArray<LossEntry>;
-  /** True when nothing was lost (the narrowing was a no-op). */
-  readonly isLossless: boolean;
-}
 
 /** The narrowed document and the loss report for it. */
 export interface NarrowResult<To extends Feature> {
@@ -125,52 +119,139 @@ export const widen = <To extends Feature, From extends To = To>(doc: Doc<From>):
 // narrow
 // ============================================================================
 
+/**
+ * Where `narrow` records losses: one shared list of entries, seen from a
+ * position in the document. `at` gives the recorder for a child (sharing the
+ * entries), and an entry's path is read up the chain only when one is
+ * recorded, so positions cost nothing where nothing is lost.
+ */
 class Recorder {
   readonly entries: LossEntry[];
   /** Why features are lost here, beyond the generic detail: the reasons of the rules in force. */
   private readonly reasons: ReadonlyMap<Feature, string>;
-  constructor(entries: LossEntry[] = [], reasons: ReadonlyMap<Feature, string> = new Map()) {
+  private readonly parent: Recorder | undefined;
+  private readonly segment: LossPathSegment | undefined;
+  constructor(
+    entries: LossEntry[] = [],
+    reasons: ReadonlyMap<Feature, string> = new Map(),
+    parent?: Recorder,
+    segment?: LossPathSegment,
+  ) {
     this.entries = entries;
     this.reasons = reasons;
+    this.parent = parent;
+    this.segment = segment;
   }
   private detail(feature: Feature, detail: string): string {
     const reason = this.reasons.get(feature);
     return reason === undefined ? detail : `${detail}: ${reason}`;
   }
+  /** The path from the document's blocks to this position (read up the chain, as deep as the node). */
+  private path(): LossPathSegment[] {
+    const up = this.parent === undefined ? [] : this.parent.path();
+    if (this.segment !== undefined) up.push(this.segment);
+    return up;
+  }
+  private record(feature: Feature, action: LossEntry["action"], detail: string): void {
+    this.entries.push({
+      feature,
+      action,
+      severity: severityOf(feature, action),
+      path: this.path(),
+      detail: this.detail(feature, detail),
+    });
+  }
   drop(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "dropped", detail: this.detail(feature, detail) });
+    this.record(feature, "dropped", detail);
   }
   convert(feature: Feature, detail: string): void {
-    this.entries.push({ feature, action: "converted", detail: this.detail(feature, detail) });
+    this.record(feature, "converted", detail);
   }
-  /** A recorder sharing these entries that adds `reasons` to the details of their features. */
+  /** A recorder at the same position that adds `reasons` to the details of their features. */
   within(reasons: ReadonlyMap<Feature, string>): Recorder {
-    return new Recorder(this.entries, new Map([...this.reasons, ...reasons]));
+    return new Recorder(
+      this.entries,
+      new Map([...this.reasons, ...reasons]),
+      this.parent,
+      this.segment,
+    );
+  }
+  /** The recorder for the child at `segment` of this position. */
+  at(segment: LossPathSegment): Recorder {
+    return new Recorder(this.entries, this.reasons, this, segment);
   }
 }
+
+/** The context for the child at `segment`. */
+const at = (ctx: Ctx, segment: LossPathSegment): Ctx => ({ ...ctx, rec: ctx.rec.at(segment) });
+
+/** A 0-based column's letters: 0 is `A`, 25 `Z`, 26 `AA`. */
+const columnLetters = (col: number): string => {
+  const last = String.fromCodePoint(65 + (col % 26));
+  // (`Math` here is the schema's math inline, so the division is spelled out)
+  return col < 26 ? last : columnLetters((col - (col % 26)) / 26 - 1) + last;
+};
+
+/** A worksheet cell's A1 address, from its 0-based column and row. */
+const cellAddress = (col: number, row: number): string => `${columnLetters(col)}${row + 1}`;
 
 interface Ctx {
   readonly allowed: ReadonlySet<Feature>;
   readonly rec: Recorder;
   /** The target profile's structural rules (#126). */
   readonly rules: ReadonlyArray<NotWithin>;
+  /** The target profile's `onlyWithin` rules, for features it allows only inside certain nodes (#126). */
+  readonly onlyWithin: ReadonlyArray<OnlyWithin>;
+  /** The target profile's `fieldValues` rules (#126). */
+  readonly fieldValues: ReadonlyArray<FieldValues>;
+  /** The target profile's features, to allow an `onlyWithin` feature again inside its node. */
+  readonly profile: ReadonlySet<Feature>;
 }
 
 /**
- * The context for the contents of a kept block of the feature `within`: the
- * features a rule keeps out of it are no longer allowed there, and their loss
- * entries give the rule's reason (#197).
+ * The context for the contents of a kept node (`node`, of the feature
+ * `within`): the features an `onlyWithin` rule allows only inside such a node
+ * are allowed again (#126), and the features a `notWithin` rule keeps out of
+ * it are no longer allowed there, their loss entries giving the rule's reason
+ * (#197).
  */
-const inside = (within: Feature, ctx: Ctx): Ctx => {
-  const rules = ctx.rules.filter((r) => r.within === within && ctx.allowed.has(r.feature));
-  if (Arr.isReadonlyArrayEmpty(rules)) return ctx;
+const inside = (within: Feature, node: RuleNode, ctx: Ctx): Ctx => {
+  const admitted = ctx.onlyWithin.filter(
+    (r) =>
+      r.within === within &&
+      ctx.profile.has(r.feature) &&
+      !ctx.allowed.has(r.feature) &&
+      (r.where === undefined || fieldMatches(node, r.where)),
+  );
+  const rules = ctx.rules.filter(
+    (r) =>
+      r.within === within &&
+      (ctx.allowed.has(r.feature) || admitted.some((a) => a.feature === r.feature)),
+  );
+  if (Arr.isReadonlyArrayEmpty(rules) && Arr.isReadonlyArrayEmpty(admitted)) return ctx;
   const excluded = new Set(rules.map((r) => r.feature));
   return {
-    allowed: new Set([...ctx.allowed].filter((f) => !excluded.has(f))),
+    ...ctx,
+    allowed: new Set(
+      [...ctx.allowed, ...admitted.map((r) => r.feature)].filter((f) => !excluded.has(f)),
+    ),
     rec: ctx.rec.within(new Map(rules.map((r) => [r.feature, r.reason]))),
-    rules: ctx.rules,
   };
 };
+
+/**
+ * The `fieldValues` rule `node` (of `feature`) breaks, if any: the profile
+ * allows the feature, but not with the value one of the node's fields holds.
+ */
+const brokenFieldRule = (feature: Feature, node: RuleNode, ctx: Ctx): FieldValues | undefined =>
+  ctx.fieldValues.find((r) => r.feature === feature && !fieldMatches(node, r));
+
+/** The context for narrowing a node as if the profile lacked `rule.feature`, with the rule's reason. */
+const breaking = (rule: FieldValues, ctx: Ctx): Ctx => ({
+  ...ctx,
+  allowed: new Set([...ctx.allowed].filter((f) => f !== rule.feature)),
+  rec: ctx.rec.within(new Map([[rule.feature, rule.reason]])),
+});
 
 /** One populated attribute facet, kept if the target allows it, else recorded as dropped. */
 const keepFacet = <A>(
@@ -224,7 +305,7 @@ const narrowAttr = (
 // ---- inlines --------------------------------------------------------------
 
 const narrowInlines = (inlines: ReadonlyArray<Inline>, ctx: Ctx): Inline[] =>
-  inlines.flatMap((i) => narrowInline(i, ctx));
+  inlines.flatMap((n, i) => narrowInline(n, at(ctx, i)));
 
 /**
  * A formatting wrapper: kept with its narrowed content when the profile has
@@ -320,8 +401,13 @@ const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
           target: n.target,
         }),
       ];
-    ctx.rec.convert("inline.image", "Image reduced to its alt text");
-    return narrowInlines(n.alt, ctx);
+    // the alt text, then the URL in parentheses, so where the image was is kept (#111)
+    const alt = narrowInlines(n.alt, ctx);
+    const url = n.target.url === "" ? [] : [new Str({ text: `(${n.target.url})` })];
+    ctx.rec.convert("inline.image", "Image reduced to its alt text and URL");
+    return Arr.isReadonlyArrayNonEmpty(alt) && Arr.isReadonlyArrayNonEmpty(url)
+      ? [...alt, ...narrowInlines([new Space({}), ...url], ctx)]
+      : [...alt, ...narrowInlines(url, ctx)];
   },
   Code: textual(
     "inline.code",
@@ -461,10 +547,11 @@ const narrowCell = (c: SheetCell, ctx: Ctx): SheetCell => {
  * A row position narrowed: a gap as it is, a node narrowed, and a plain cell
  * narrowed as the node it stands for, kept plain when that node is kept.
  */
-const narrowPosition = (position: RowCell, ctx: Ctx): RowCell => {
+const narrowPosition = (position: RowCell, ctx: Ctx, col: number, row: number): RowCell => {
   const node = cellOf(position);
-  if (node === undefined) return position;
-  const narrowed = narrowCell(node, ctx);
+  if (node === undefined || keepsCell(node, ctx)) return position;
+  // the cell's address only for a cell that is narrowed: the rest cost nothing
+  const narrowed = narrowCell(node, at(ctx, cellAddress(col, row)));
   return narrowed === node ? position : narrowed;
 };
 
@@ -476,9 +563,9 @@ const isHiddenRow = (r: WorksheetRow): boolean => !isPlainRow(r) && r.hidden ===
  * `sheet.hidden`): the row itself when nothing changes, and a plain row stays
  * a plain row (#227).
  */
-const narrowRow = (r: WorksheetRow, ctx: Ctx, show: boolean): WorksheetRow => {
+const narrowRow = (r: WorksheetRow, row: number, ctx: Ctx, show: boolean): WorksheetRow => {
   const old = rowCellsOf(r);
-  const cells = old.map((c) => narrowPosition(c, ctx));
+  const cells = old.map((c, col) => narrowPosition(c, ctx, col, row));
   const unhide = show && isHiddenRow(r);
   if (!unhide && cells.every((c, i) => c === old[i])) return r;
   return isPlainRow(r)
@@ -536,7 +623,8 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
   }
   const columns = narrowColumns(w.columns, ctx);
   if (show && w.rows.some(isHiddenRow)) ctx.rec.drop("sheet.hidden", "hidden rows shown");
-  const rows = w.rows.map((r) => narrowRow(r, ctx, show));
+  const indexes = rowIndexes(w);
+  const rows = w.rows.map((r, i) => narrowRow(r, indexes[i] ?? i, ctx, show));
   // nothing narrowed: the worksheet itself (nodes are immutable)
   if (
     w.attr === undefined &&
@@ -609,8 +697,10 @@ const tableToWorksheet = (t: Table, ctx: Ctx): Block[] => {
 const shape =
   <S extends Shape>(feature: Feature, detail: string, rebuild: (s: S, ctx: Ctx) => Shape) =>
   (s: S, ctx: Ctx): Shape[] => {
-    if (ctx.allowed.has(feature)) return [rebuild(s, ctx)];
-    ctx.rec.drop(feature, detail);
+    const broken = ctx.allowed.has(feature) ? brokenFieldRule(feature, s, ctx) : undefined;
+    if (ctx.allowed.has(feature) && broken === undefined)
+      return [rebuild(s, inside(feature, s, ctx))];
+    (broken === undefined ? ctx : breaking(broken, ctx)).rec.drop(feature, detail);
     return [];
   };
 
@@ -654,17 +744,18 @@ const SHAPE: TagHandlers<Shape, [Ctx], Shape[]> = {
 const narrowShape = (s: Shape, ctx: Ctx): Shape[] => dispatchTag(SHAPE, s, ctx);
 
 const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
-  const slides = d.slides.map((sl) => {
+  const slides = d.slides.map((sl, n) => {
+    const here = at(ctx, n);
     let notes = sl.notes;
-    if (notes !== undefined && !ctx.allowed.has("deck.notes")) {
-      ctx.rec.drop("deck.notes", "speaker notes dropped");
+    if (notes !== undefined && !here.allowed.has("deck.notes")) {
+      at(here, "notes").rec.drop("deck.notes", "speaker notes dropped");
       notes = undefined;
     }
     return new Slide({
-      attr: narrowAttr(sl.attr, "Slide", ctx),
+      attr: narrowAttr(sl.attr, "Slide", here),
       layout: sl.layout,
-      shapes: sl.shapes.flatMap((sh) => narrowShape(sh, ctx)),
-      notes: notes === undefined ? undefined : narrowBlocks(notes, ctx),
+      shapes: sl.shapes.flatMap((sh, k) => narrowShape(sh, at(here, k))),
+      notes: notes === undefined ? undefined : narrowBlocks(notes, at(here, "notes")),
     });
   });
   return new SlideShow({ attr: narrowAttr(d.attr, "SlideShow", ctx), size: d.size, slides });
@@ -674,26 +765,26 @@ const narrowSlideShow = (d: SlideShow, ctx: Ctx): SlideShow => {
 
 const narrowTableRow = (r: TableRow, ctx: Ctx): TableRow =>
   new TableRow({
-    cells: r.cells.map(
-      (c) =>
-        new TableCell({
-          attr: narrowAttr(c.attr, "TableCell", ctx),
-          align: c.align,
-          rowSpan: c.rowSpan,
-          colSpan: c.colSpan,
-          content: narrowBlocks(c.content, ctx),
-        }),
-    ),
+    cells: r.cells.map((c, k) => narrowTableCell(c, at(ctx, k))),
+  });
+
+const narrowTableCell = (c: TableCell, ctx: Ctx): TableCell =>
+  new TableCell({
+    attr: narrowAttr(c.attr, "TableCell", ctx),
+    align: c.align,
+    rowSpan: c.rowSpan,
+    colSpan: c.colSpan,
+    content: narrowBlocks(c.content, ctx),
   });
 
 const narrowTable = (t: Table, ctx: Ctx): Table =>
   new Table({
     attr: narrowAttr(t.attr, "Table", ctx),
-    caption: t.caption === undefined ? undefined : narrowInlines(t.caption, ctx),
+    caption: t.caption === undefined ? undefined : narrowInlines(t.caption, at(ctx, "caption")),
     colSpecs: t.colSpecs,
-    head: t.head.map((r) => narrowTableRow(r, ctx)),
-    body: t.body.map((r) => narrowTableRow(r, ctx)),
-    foot: t.foot.map((r) => narrowTableRow(r, ctx)),
+    head: t.head.map((r, i) => narrowTableRow(r, at(at(ctx, "head"), i))),
+    body: t.body.map((r, i) => narrowTableRow(r, at(at(ctx, "body"), i))),
+    foot: t.foot.map((r, i) => narrowTableRow(r, at(at(ctx, "foot"), i))),
   });
 
 // ---- blocks ---------------------------------------------------------------
@@ -701,7 +792,7 @@ const narrowTable = (t: Table, ctx: Ctx): Table =>
 const blockFeature = (tag: Block["_tag"]): Feature => TAG_FEATURE[tag];
 
 const narrowBlocks = (blocks: ReadonlyArray<Block>, ctx: Ctx): Block[] =>
-  blocks.flatMap((b) => narrowBlock(b, ctx));
+  blocks.flatMap((b, i) => narrowBlock(b, at(ctx, i)));
 
 /** A slide shape's block content, for flattening a deck into prose. */
 const shapeBlocks = (sh: Shape): ReadonlyArray<Block> =>
@@ -759,13 +850,31 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
   },
   Table: (b, feature, ctx) => {
     if (ctx.allowed.has("sheet.worksheet")) return tableToWorksheet(b, ctx);
-    ctx.rec.drop(feature, "table dropped (target cannot represent tables)");
-    return [];
+    const rows = [...b.head, ...b.body, ...b.foot].map((r) =>
+      r.cells.map((c) => blocksToText(c.content)),
+    );
+    ctx.rec.convert(
+      feature,
+      `table converted to ${rows.length} paragraph(s), one per row, cells tab-separated`,
+    );
+    return rowParagraphs(rows, ctx);
   },
   Worksheet: (b, feature, ctx) => {
     if (ctx.allowed.has("block.table")) return worksheetToTable(b, ctx);
-    ctx.rec.drop(feature, "worksheet dropped (target cannot represent grids)");
-    return [];
+    const grid = denseRows(b);
+    if (Result.isFailure(grid)) {
+      ctx.rec.drop(
+        feature,
+        `worksheet "${b.name}" dropped: ${grid.failure.message}, too large to lay out as paragraphs`,
+      );
+      return [];
+    }
+    const rows = grid.success.map((row) => row.map(cellToText));
+    ctx.rec.convert(
+      feature,
+      `worksheet "${b.name}" converted to ${rows.length} paragraph(s), one per row, cells tab-separated`,
+    );
+    return rowParagraphs(rows, ctx);
   },
   SlideShow: (b, feature, ctx) => {
     ctx.rec.convert(feature, "slides flattened to their block content");
@@ -783,10 +892,21 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
     return [];
   },
   HorizontalRule: (_, feature, ctx) => {
-    ctx.rec.drop(feature, "horizontal rule dropped");
-    return [];
+    ctx.rec.convert(feature, "horizontal rule converted to a *** paragraph");
+    return narrowBlock(new Para({ content: [new Str({ text: "***" })] }), ctx);
   },
 };
+
+/**
+ * A grid's rows as paragraphs (#111), for a target with neither tables nor
+ * worksheets: one per row, its cells' text joined by tabs, so the data stays
+ * readable (and splittable) instead of being dropped. Re-narrowed, so a target
+ * without paragraphs gets what it has.
+ */
+const rowParagraphs = (rows: ReadonlyArray<ReadonlyArray<string>>, ctx: Ctx): Block[] =>
+  rows.flatMap((cells, index) =>
+    narrowBlock(new Para({ content: [new Str({ text: cells.join("\t") })] }), at(ctx, index)),
+  );
 
 /** Narrow the contents of a block the profile has. */
 const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
@@ -816,13 +936,13 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
       start: b.start,
       numberStyle: b.numberStyle,
       numberDelim: b.numberDelim,
-      items: b.items.map((it) => narrowBlocks(it, ctx)),
+      items: b.items.map((it, k) => narrowBlocks(it, at(ctx, k))),
     }),
   ],
   BulletList: (b, ctx) => [
     new BulletList({
       attr: narrowAttr(b.attr, "BulletList", ctx),
-      items: b.items.map((it) => narrowBlocks(it, ctx)),
+      items: b.items.map((it, k) => narrowBlocks(it, at(ctx, k))),
     }),
   ],
   Table: (b, ctx) => [narrowTable(b, ctx)],
@@ -832,15 +952,17 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
     new DefinitionList({
       attr: narrowAttr(b.attr, "DefinitionList", ctx),
       items: b.items.map(
-        (item) =>
+        (item, k) =>
           new DefinitionItem({
-            term: narrowInlines(item.term, ctx),
-            definitions: item.definitions.map((d) => narrowBlocks(d, ctx)),
+            term: narrowInlines(item.term, at(at(ctx, k), "term")),
+            definitions: item.definitions.map((d, j) => narrowBlocks(d, at(at(ctx, k), j))),
           }),
       ),
     }),
   ],
-  LineBlock: (b, ctx) => [new LineBlock({ lines: b.lines.map((l) => narrowInlines(l, ctx)) })],
+  LineBlock: (b, ctx) => [
+    new LineBlock({ lines: b.lines.map((l, k) => narrowInlines(l, at(ctx, k))) }),
+  ],
   CodeBlock: (b, ctx) => [
     new CodeBlock({
       attr: narrowAttr(b.attr, "CodeBlock", ctx),
@@ -855,9 +977,11 @@ const KEEP: TagHandlers<Block, [Ctx], Block[]> = {
 
 const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
   const feature = blockFeature(b._tag);
-  return ctx.allowed.has(feature)
-    ? dispatchTag(KEEP, b, inside(feature, ctx))
-    : dispatchTag(FALLBACK, b, feature, ctx);
+  if (!ctx.allowed.has(feature)) return dispatchTag(FALLBACK, b, feature, ctx);
+  const broken = brokenFieldRule(feature, b, ctx);
+  return broken === undefined
+    ? dispatchTag(KEEP, b, inside(feature, b, ctx))
+    : dispatchTag(FALLBACK, b, feature, breaking(broken, ctx));
 };
 
 /**
@@ -865,7 +989,19 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  * dropped or down-converted.
  */
 export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): NarrowResult<To> => {
-  const ctx: Ctx = { allowed: to.features, rec: new Recorder(), rules: to.notWithin };
+  // a feature an `onlyWithin` rule admits only inside certain nodes starts
+  // out disallowed; `inside` allows it again within such a node (#126)
+  const confined = to.onlyWithin.filter((r) => to.features.has(r.feature));
+  const ctx: Ctx = {
+    allowed: Arr.isReadonlyArrayEmpty(confined)
+      ? to.features
+      : new Set([...to.features].filter((f) => !confined.some((r) => r.feature === f))),
+    rec: new Recorder(undefined, new Map(confined.map((r) => [r.feature, r.reason]))),
+    rules: to.notWithin,
+    onlyWithin: to.onlyWithin,
+    fieldValues: to.fieldValues,
+    profile: to.features,
+  };
   let blocks = [...doc.blocks];
 
   const worksheets = blocks.filter((b) => Predicate.isTagged(b, "Worksheet"));
@@ -883,13 +1019,42 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
   }
 
   const narrowed = narrowBlocks(blocks, ctx);
+  const resources = narrowResources(doc, ctx);
   // `narrowBlocks` rebuilt every node through the `ctx.allowed` check, so the
   // tree uses only the target profile's features.
-  const document = trustAs<To>(new Document({ meta: doc.meta, blocks: narrowed }));
+  const document = trustAs<To>(
+    Option.match(resources, {
+      onNone: () => new Document({ meta: doc.meta, blocks: narrowed }),
+      onSome: (kept) => new Document({ meta: doc.meta, blocks: narrowed, resources: kept }),
+    }),
+  );
   return {
     document,
-    loss: { entries: ctx.rec.entries, isLossless: Arr.isReadonlyArrayEmpty(ctx.rec.entries) },
+    loss: lossReport(ctx.rec.entries),
   };
+};
+
+/**
+ * The media bag the target keeps (#113): `doc`'s when it allows
+ * `doc.resources`, otherwise none, each resource reported at the path
+ * `["resources", id]`. The `resource:` URLs that referred to them are left as
+ * they are, so a caller that wants the files (Pandoc's `--extract-media`)
+ * takes `doc.resources` before narrowing.
+ */
+const narrowResources = (doc: Document, ctx: Ctx): Option.Option<Resources> => {
+  const resources = doc.resources;
+  if (resources === undefined || Rec.isEmptyRecord(resources)) return Option.none();
+  if (ctx.allowed.has("doc.resources")) return Option.some(resources);
+  const rec = ctx.rec.at("resources");
+  Rec.toEntries(resources).forEach(([id, r]) =>
+    rec
+      .at(id)
+      .drop(
+        "doc.resources",
+        `embedded ${r.mediaType} (${r.bytes.length} bytes); references to ${resourceUrl(id)} are left dangling`,
+      ),
+  );
+  return Option.none();
 };
 
 /** Narrow within an Effect. */

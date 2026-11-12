@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -9,12 +10,16 @@ import {
   DefinitionList,
   Header,
   Link,
+  Placeholder,
   document,
   header,
   para,
   str,
   strong,
   sheetRow,
+  slide,
+  slideShow,
+  textBox,
   worksheet,
   blocksToText,
   SheetColumn,
@@ -241,6 +246,8 @@ describe("narrow: structural rules (notWithin, #197)", () => {
         feature: "inline.strong",
         action: "converted",
         detail: "Strong unwrapped to its text: headings are bold",
+        severity: "converted",
+        path: [0, 1],
       },
     ]);
     expect(BoldHeadings.is(out)).toBe(true);
@@ -262,6 +269,98 @@ describe("narrow: structural rules (notWithin, #197)", () => {
     );
     const { document: out } = narrow(document([header(1, [strong([str("b")])])]), NoHeadings);
     expect(out.blocks).toEqual([para([strong([str("b")])])]);
+  });
+});
+
+/** A deck of one slide holding a placeholder for each of `shapes`. */
+const deck = (...shapes: ConstructorParameters<typeof Placeholder>[0][]) =>
+  document([slideShow([slide(shapes.map((s) => new Placeholder(s)))])]);
+/** A title placeholder's fields, holding `content`. */
+const title = (content: ConstructorParameters<typeof Placeholder>[0]["content"]) => ({
+  placeholderType: "title",
+  content,
+});
+
+describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
+  const Titles = defineProfile(
+    "titles",
+    [
+      "deck.slideShow",
+      "shape.textBox",
+      "shape.placeholder",
+      "block.para",
+      "block.header",
+      "inline.str",
+    ],
+    {
+      onlyWithin: [
+        {
+          feature: "block.header",
+          within: "shape.placeholder",
+          where: { field: "placeholderType", oneOf: ["title"] },
+          reason: "headings are slide titles",
+        },
+      ],
+      fieldValues: [
+        { feature: "block.header", field: "level", oneOf: [1], reason: "titles have one level" },
+      ],
+    },
+  );
+
+  test("a level-1 heading in a title placeholder conforms and narrows losslessly", () => {
+    const doc = deck(title([header(1, [str("T")])]));
+    expect(Titles.is(doc)).toBe(true);
+    expect(narrow(doc, Titles).loss.isLossless).toBe(true);
+  });
+
+  test("a heading outside the node an onlyWithin rule names breaks it and narrows to a paragraph", () => {
+    const doc = deck({ placeholderType: "body", content: [header(1, [str("T")])] });
+    expect(Titles.is(doc)).toBe(false);
+    const { document: out, loss } = narrow(doc, Titles);
+    expect(out).toEqual(deck({ placeholderType: "body", content: [para([str("T")])] }));
+    expect(loss.entries).toEqual([
+      {
+        feature: "block.header",
+        action: "converted",
+        detail: "heading converted to a paragraph: headings are slide titles",
+        severity: "converted",
+        path: [0, 0, 0, 0],
+      },
+    ]);
+    expect(Titles.is(out)).toBe(true);
+  });
+
+  test("a heading in a text box or at the top level breaks the onlyWithin rule", () => {
+    expect(Titles.is(document([slideShow([slide([textBox([header(1, [str("T")])])])])]))).toBe(
+      false,
+    );
+    expect(Titles.is(document([header(1, [str("T")])]))).toBe(false);
+  });
+
+  test("a heading at another level breaks the fieldValues rule and narrows to a paragraph", () => {
+    const doc = deck(title([header(2, [str("T")])]));
+    expect(Titles.is(doc)).toBe(false);
+    const { document: out, loss } = narrow(doc, Titles);
+    expect(out).toEqual(deck(title([para([str("T")])])));
+    expect(loss.entries).toEqual([
+      {
+        feature: "block.header",
+        action: "converted",
+        detail: "heading converted to a paragraph: titles have one level",
+        severity: "converted",
+        path: [0, 0, 0, 0],
+      },
+    ]);
+  });
+
+  test("without rules a profile has none, and validate names the broken rule's feature", () => {
+    const Plain = defineProfile("plain", ["block.para"]);
+    expect(Plain.onlyWithin).toEqual([]);
+    expect(Plain.fieldValues).toEqual([]);
+    const error = Effect.runSync(
+      Effect.flip(Titles.validate(deck(title([header(3, [str("T")])])))),
+    );
+    expect(error.unsupported).toEqual(["block.header"]);
   });
 });
 
@@ -299,6 +398,8 @@ describe("per-node id facets (#184)", () => {
         feature: "attr.id.link",
         action: "dropped",
         detail: "format does not support ids on Link nodes",
+        severity: "dropped-formatting",
+        path: [1, 0],
       },
     ]);
   });

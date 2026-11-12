@@ -80,6 +80,22 @@ export class SharedStrings {
   }
 }
 
+/** A cell as SpreadsheetML: its `t` attribute (`null` for the default, a number) and its inner XML. */
+export interface RenderedCell {
+  readonly type: string | null;
+  readonly inner: string;
+}
+
+/**
+ * What {@link cellToSpreadsheetMl} renders a `NaN` or `±Infinity` number as:
+ * the `#NUM!` error cell, as one shared object so the writer can spot it by
+ * identity (and report it, #112) without a per-cell check.
+ */
+export const NON_FINITE_CELL: RenderedCell = {
+  type: "e",
+  inner: "<v>#NUM!</v>",
+};
+
 /**
  * Render a cell as a SpreadsheetML `<c>` element body, or null for a blank cell
  * (blank cells are omitted entirely). Returns the `t` attribute (or null for the
@@ -88,7 +104,7 @@ export class SharedStrings {
 export const cellToSpreadsheetMl = (
   c: SheetCell,
   sharedStrings: SharedStrings,
-): { readonly type: string | null; readonly inner: string } | null => {
+): RenderedCell | null => {
   // a branch per cell type; `Match.valueTags` keeps the mapping exhaustive
   const shared = (text: string) => ({ type: "s", inner: `<v>${sharedStrings.intern(text)}</v>` });
   return Match.valueTags(c, {
@@ -97,7 +113,7 @@ export const cellToSpreadsheetMl = (
     CellNumber: (n) =>
       Number.isFinite(n.value)
         ? { type: null, inner: `<v>${String(n.value)}</v>` }
-        : { type: "e", inner: "<v>#NUM!</v>" },
+        : NON_FINITE_CELL,
     CellBoolean: (n) => ({ type: "b", inner: `<v>${n.value ? "1" : "0"}</v>` }),
     CellError: (n) => ({ type: "e", inner: `<v>${escapeXstring(n.value)}</v>` }),
     // SpreadsheetML stores formulas without the leading "=".

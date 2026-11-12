@@ -22,6 +22,7 @@ import {
   strong,
   textBox,
   trustAs,
+  narrow,
 } from "@thomasfosterau/effect-document";
 import { Pptx, makePptxReader, makePptxWriter } from "../../../src/ooxml/pptx/index.ts";
 
@@ -147,6 +148,14 @@ const deckWith = (tree: string, edit?: (files: Record<string, Uint8Array>) => vo
 const shapesOf = (content: ReturnType<typeof deckWith>) =>
   firstSlideShow(run(makePptxReader().read(content)).blocks)!.slides[0]!.shapes;
 
+/** A deck whose one slide holds a placeholder of `placeholderType` with a heading at `level`. */
+const titled = (placeholderType: string, level: number) =>
+  document([
+    slideShow([
+      slide([new Placeholder({ placeholderType, content: [header(level, [str("T")])] })]),
+    ]),
+  ]);
+
 describe("PPTX reader fixes (#81)", () => {
   test("shapes inside (nested) group shapes are read in order", () => {
     const tree =
@@ -190,6 +199,44 @@ describe("PPTX reader fixes (#81)", () => {
       _tag: "Header",
       content: [{ _tag: "Str", text: "Hello" }],
     });
+  });
+
+  test("the write profile takes a level-1 heading in a title placeholder only (#196)", () => {
+    expect(Pptx.is(titled("title", 1))).toBe(true);
+    expect(Pptx.is(titled("ctrTitle", 1))).toBe(true);
+    expect(Pptx.is(titled("body", 1))).toBe(false);
+    expect(Pptx.is(titled("title", 2))).toBe(false);
+    expect(Pptx.is(document([slideShow([slide([textBox([header(1, [str("T")])])])])]))).toBe(false);
+    const inList = new Placeholder({
+      placeholderType: "title",
+      content: [bulletList([[header(1, [str("T")])]])],
+    });
+    expect(Pptx.is(document([slideShow([slide([inList])])]))).toBe(false);
+    // a heading anywhere else narrows to a paragraph, with the rule's reason
+    const { loss } = narrow(titled("body", 1), Pptx);
+    expect(loss.entries).toEqual([
+      expect.objectContaining({
+        feature: "block.header",
+        action: "converted",
+        detail: expect.stringContaining("slide's title"),
+      }),
+    ]);
+  });
+
+  test("a title heading narrows to PPTX losslessly and round-trips (#196)", () => {
+    const doc = document([
+      slideShow([
+        slide([
+          new Placeholder({ placeholderType: "title", content: [header(1, [str("Hello")])] }),
+          textBox([para([str("Body")])]),
+        ]),
+      ]),
+    ]);
+    const { document: narrowed, loss } = narrow(doc, Pptx);
+    expect(loss.isLossless).toBe(true);
+    const back = run(makePptxReader().read(run(makePptxWriter().write(narrowed))));
+    expect(Pptx.is(back)).toBe(true);
+    expect(firstSlideShow(back.blocks)).toEqual(firstSlideShow(doc.blocks));
   });
 
   test("a slide with a missing part fails instead of being skipped", () => {
