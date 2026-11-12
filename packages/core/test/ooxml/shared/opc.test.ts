@@ -11,7 +11,7 @@ import {
   OpcReader,
   resolveTarget,
   XmlPartError,
-  ZIP_MTIME,
+  zipMtime,
   zipParts,
 } from "../../../src/ooxml/shared/index.ts";
 import { makeDocxReader, makeDocxWriter } from "../../../src/ooxml/docx/index.ts";
@@ -108,24 +108,24 @@ describe("OpcReader (#55)", () => {
     expect(e.success.failure.position).toEqual({ line: 2, column: 4 });
   });
 
+  test("the zip timestamp is the DOS epoch in local fields, whatever the zone", () => {
+    // fflate reads these local fields; CI's node-floor job runs this west of UTC
+    const t = zipMtime();
+    expect([t.getFullYear(), t.getMonth(), t.getDate(), t.getHours(), t.getMinutes()]).toEqual([
+      1980, 0, 1, 0, 0,
+    ]);
+  });
+
   test("zip output is byte-deterministic", () => {
     expect(zipParts({ "a.xml": "<a/>" })).toEqual(zipParts({ "a.xml": "<a/>" }));
-    // Every entry's DOS timestamp is ZIP_MTIME's (fflate encodes it in local time).
+    // Every entry's DOS timestamp is the DOS epoch: time 0, date 1980-01-01.
     const out = zipParts({ "a.xml": "<a/>", "b.xml": "<b/>" });
     const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const dosTime =
-      (ZIP_MTIME.getHours() << 11) | (ZIP_MTIME.getMinutes() << 5) | (ZIP_MTIME.getSeconds() >> 1);
-    const dosDate =
-      ((ZIP_MTIME.getFullYear() - 1980) << 9) |
-      ((ZIP_MTIME.getMonth() + 1) << 5) |
-      ZIP_MTIME.getDate();
     const stamps = Array.from({ length: out.length - 3 }, (_, at) => at)
       .filter((at) => view.getUint32(at, true) === 0x04_03_4b_50) // a local file header
       .map((at) => [view.getUint16(at + 10, true), view.getUint16(at + 12, true)]);
-    expect(stamps).toEqual([
-      [dosTime, dosDate],
-      [dosTime, dosDate],
-    ]);
+    const epoch = [0, (0 << 9) | (1 << 5) | 1];
+    expect(stamps).toEqual([epoch, epoch]);
     const doc = document([worksheet("S", [[cell.number(1)]])]);
     const write = () => Effect.runSync(makeXlsxWriter().write(trustAs(doc)));
     expect(write()).toEqual(write());

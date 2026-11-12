@@ -368,9 +368,18 @@ export class OpcReader {
   }
 }
 
-/** The fixed timestamp written into zips so output is byte-for-byte deterministic. */
-// oxlint-disable-next-line effect/use-clock-service -- a fixed epoch, not the current time
-export const ZIP_MTIME = new Date("1980-01-01T00:00:00Z");
+/**
+ * The fixed timestamp written into zips so output is byte-for-byte
+ * deterministic: 1980-01-01 00:00, the DOS epoch. fflate encodes a zip
+ * entry's DOS time from the date's *local* fields, so this is built from
+ * local fields, afresh for each zip: the same fields in every time zone, even
+ * when the zone changes while the program runs. (A fixed UTC instant, as this
+ * once was, is 1979-12-31 west of UTC, which fflate refuses, failing every
+ * OOXML write there, and a later hour east of it.)
+ */
+export const zipMtime = (): Date =>
+  // oxlint-disable-next-line effect/use-clock-service -- a fixed epoch, not the current time
+  new Date(1980, 0, 1, 0, 0, 0);
 
 /** Zip a set of named parts into OPC package bytes. */
 export const zipParts = (
@@ -381,7 +390,7 @@ export const zipParts = (
   for (const [path, content] of Object.entries(files)) {
     encoded[path] = Predicate.isString(content) ? strToU8(content) : content;
   }
-  return zipSync(encoded, { level, mtime: ZIP_MTIME });
+  return zipSync(encoded, { level, mtime: zipMtime() });
 };
 
 /** The standard XML declaration prefixed to every OOXML part. */
