@@ -38,6 +38,7 @@ import {
   RawBlock,
   RawInline,
   SheetColumn,
+  SheetRow,
   type SheetCell,
   SoftBreak,
   Space,
@@ -145,6 +146,24 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
       columns: [new SheetColumn({ width: 20 })],
       rows: sheet("S", [[cell.text("x")]]).rows,
       merges: [],
+    }),
+  ],
+  "sheet.hidden": [
+    new Worksheet({
+      name: "S",
+      columns: [new SheetColumn({ width: 20 }), new SheetColumn({ hidden: true })],
+      rows: [
+        ...sheet("S", [[cell.text("x"), cell.text("y")]]).rows,
+        new SheetRow({ index: 2, cells: [cell.text("z")], hidden: true }),
+      ],
+      merges: [],
+    }),
+    new Worksheet({
+      name: "H",
+      columns: [],
+      rows: sheet("H", [[cell.text("x")]]).rows,
+      merges: [],
+      visibility: "hidden",
     }),
   ],
   "cell.text": [sheet("S", [[cell.text("x")]])],

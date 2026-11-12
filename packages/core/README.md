@@ -471,6 +471,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `sheet.multiple`       |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `sheet.merges`         |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `sheet.columns`        |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `sheet.hidden`         |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `cell.text`            | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `cell.number`          | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `cell.boolean`         | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
@@ -612,7 +613,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept) and rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font), merged ranges (`<mergeCells>`), custom row heights (`SheetRow.height`, in points: a `<row>` whose `customHeight` is set; a height Excel only computed is not kept), hidden rows and columns (`SheetRow.hidden`, `SheetColumn.hidden`), hidden and very hidden worksheets (`Worksheet.visibility`; a workbook opens on its first shown sheet, and one with every sheet hidden is refused) and rich shared strings (`CellRichText`: bold, italic, underline, strikethrough and superscript / subscript runs; fonts, sizes and colours are not kept). Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

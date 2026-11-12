@@ -63,6 +63,7 @@ export type SheetFeature =
   | "sheet.multiple"
   | "sheet.merges"
   | "sheet.columns"
+  | "sheet.hidden"
   | "cell.text"
   | "cell.number"
   | "cell.boolean"
@@ -312,6 +313,7 @@ export const ALL_SHEET_FEATURES: ReadonlyArray<SheetFeature> = [
   "sheet.multiple",
   "sheet.merges",
   "sheet.columns",
+  "sheet.hidden",
   "cell.text",
   "cell.number",
   "cell.boolean",

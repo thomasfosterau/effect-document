@@ -76,8 +76,8 @@ interface Scan {
   last: RowCellsSoFar;
   lastIndex: number;
   cells: number;
-  /** Whether a `<row>` read so far has a `customHeight` attribute (#66): only then are heights read. */
-  customHeights: boolean;
+  /** Whether a `<row>` read so far has a `customHeight` or `hidden` attribute (#66): only then are they read. */
+  rowProps: boolean;
 }
 
 /** The end of the plain name at `p` (a letter, then letters and digits), or `NONE`. */
@@ -383,8 +383,8 @@ const rowContent = (scan: Scan, rowIndex: number): boolean => {
   return true;
 };
 
-/** The scanner's rows, and whether any `<row>` has a `customHeight` (so its heights are worth reading). */
-export type ScannedRows = WorksheetRows & { readonly customHeights?: boolean };
+/** The scanner's rows, and whether any `<row>` has a `customHeight` or `hidden` (so they are worth reading). */
+export type ScannedRows = WorksheetRows & { readonly rowProps?: boolean };
 
 /**
  * The rows of a worksheet's `sheetData`, read from `from` (the index past its
@@ -413,14 +413,14 @@ export const scanSheetData = (
     last: NO_ROW,
     lastIndex: NONE - 1,
     cells: 0,
-    customHeights: false,
+    rowProps: false,
   };
   let rowIndex = -1;
   // oxlint-disable-next-line effect/imperative-loops -- once per row of a large part (bench/xlsx.bench.ts)
   while (!closeTag(scan, "sheetData")) {
     if (!openTag(scan, "row")) return Option.none();
-    if (!scan.customHeights && scan.names.length > 2)
-      scan.customHeights = hasAttribute(scan, "customHeight");
+    if (!scan.rowProps && scan.names.length > 2)
+      scan.rowProps = hasAttribute(scan, "customHeight") || hasAttribute(scan, "hidden");
     const r = scan.rStart;
     if (r === NONE) rowIndex++;
     else {
@@ -435,7 +435,7 @@ export const scanSheetData = (
       _tag: "Rows",
       rows: rowsInOrder(scan.rows),
       cells: scan.cells,
-      customHeights: scan.customHeights,
+      rowProps: scan.rowProps,
     },
   });
 };

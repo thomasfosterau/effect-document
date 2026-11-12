@@ -17,6 +17,7 @@ import {
   type RowCell,
   SheetCell,
   SheetColumn,
+  type SheetVisibility,
   SheetRow,
   Worksheet,
   type WorksheetRow,
@@ -487,7 +488,8 @@ export const worksheetFromRows = (
     : new Worksheet({ name, columns: [], rows, merges: [] });
 
 /**
- * `ws` with its column definitions and merged ranges set, for a reader that
+ * `ws` with its column definitions and merged ranges set (and its
+ * `visibility`, which defaults to its own), for a reader that
  * builds a sheet's rows with {@link worksheetFromRows} and reads its layout
  * apart (the XLSX reader's `<cols>` and `<mergeCells>`). The rows are kept as
  * they are, unchecked again, since a `Worksheet`'s rows are already valid; the
@@ -508,12 +510,20 @@ export const withSheetLayout = (
   ws: Worksheet,
   columns: ReadonlyArray<SheetColumn>,
   merges: ReadonlyArray<MergeRange>,
-): Worksheet =>
-  columns.every((c) => c instanceof SheetColumn) && merges.every((m) => m instanceof MergeRange)
-    ? trustedWorksheetLayout(ws, columns, merges)
-    : ws.attr === undefined
-      ? new Worksheet({ name: ws.name, columns, rows: ws.rows, merges })
-      : new Worksheet({ attr: ws.attr, name: ws.name, columns, rows: ws.rows, merges });
+  visibility?: SheetVisibility,
+): Worksheet => {
+  const shown = visibility ?? ws.visibility;
+  return columns.every((c) => c instanceof SheetColumn) &&
+    merges.every((m) => m instanceof MergeRange)
+    ? trustedWorksheetLayout(ws, columns, merges, shown)
+    : new Worksheet(
+        Object.assign(
+          ws.attr === undefined ? {} : { attr: ws.attr },
+          { name: ws.name, columns, rows: ws.rows, merges },
+          shown === undefined ? {} : { visibility: shown },
+        ),
+      );
+};
 
 /** Whether rows are what `Worksheet` accepts unchanged (see {@link worksheetFromRows}). */
 const areWorksheetRows = (

@@ -39,6 +39,7 @@ import {
   type RowCell,
   type SheetCell,
   type SheetColumn,
+  type SheetVisibility,
   SheetRow,
   Str,
   Worksheet,
@@ -242,14 +243,16 @@ export const trustedWorksheet = (name: string, rows: ReadonlyArray<WorksheetRow>
 };
 
 /**
- * `ws` with `columns` and `merges` in place of its own, its rows taken as
- * they are (a `Worksheet`'s rows are already valid); the keys in the order
- * `new Worksheet` gives them, `attr` only when `ws` has one.
+ * `ws` with `columns`, `merges` and `visibility` in place of its own, its
+ * rows taken as they are (a `Worksheet`'s rows are already valid); the keys
+ * in the order `new Worksheet` gives them, `attr` only when `ws` has one and
+ * `visibility` only when it is set.
  */
 export const trustedWorksheetLayout = (
   ws: Worksheet,
   columns: ReadonlyArray<SheetColumn>,
   merges: ReadonlyArray<MergeRange>,
+  visibility?: SheetVisibility,
 ): Worksheet => {
   const out: Types.Mutable<Worksheet> = Object.create(Worksheet.prototype);
   out._tag = "Worksheet";
@@ -258,5 +261,6 @@ export const trustedWorksheetLayout = (
   out.columns = columns;
   out.rows = ws.rows;
   out.merges = merges;
+  if (visibility !== undefined) out.visibility = visibility;
   return out;
 };
