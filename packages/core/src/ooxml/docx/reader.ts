@@ -35,6 +35,7 @@ import {
   inlinesToText,
   LineBreak,
   limitNestingDepth,
+  logDiagnostics,
   Link,
   makeReaderTag,
   Para,
@@ -59,6 +60,7 @@ import {
   OpcError,
   type OpcLimits,
   OpcReader,
+  readPackageMeta,
   type XmlElement,
   findChild,
   findChildren,
@@ -712,7 +714,8 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
                 { rels, numbering, anchors: linkAnchors(body) },
                 { level: 1, max: maxDepth },
               );
-        return trustAs<DocxFeature>(document(blocks));
+        const { meta, diagnostics } = readPackageMeta(pkg, "docx");
+        return { doc: trustAs<DocxFeature>(document(blocks, meta)), diagnostics };
       },
       catch: (cause) =>
         cause instanceof NestingLimit
@@ -722,7 +725,10 @@ export const makeDocxReader = (options?: DocxReaderOptions): Reader<DocxFeature>
               reason: `Document nests more than ${maxDepth} levels deep (maxDepth)`,
             })
           : ooxmlParseError("docx", cause),
-    }).pipe(Effect.flatMap((doc) => limitNestingDepth("docx", doc, maxDepth)));
+    }).pipe(
+      Effect.tap(({ diagnostics }) => logDiagnostics(diagnostics)),
+      Effect.flatMap(({ doc }) => limitNestingDepth("docx", doc, maxDepth)),
+    );
   return { format: "docx", profile: Docx, read };
 };
 

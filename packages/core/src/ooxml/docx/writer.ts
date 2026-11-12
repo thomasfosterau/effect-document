@@ -25,6 +25,7 @@ import {
   type Inline,
   type InlineOf,
   isNodeIn,
+  logDiagnostics,
   type Link,
   type Para,
   type Plain,
@@ -36,9 +37,13 @@ import {
   type Writer,
 } from "../../index.ts";
 import {
+  metadataDiagnostics,
   NS_CONTENT_TYPES,
   NS_PKG_REL,
   NS_REL_DOC,
+  PROPS_CONTENT_TYPES,
+  propsParts,
+  propsRelationships,
   XML_DECL,
   escapeAttr,
   escapeXml,
@@ -415,12 +420,14 @@ const contentTypesXml = (): string =>
   `<Override PartName="/word/document.xml" ContentType="${CT_DOCUMENT}"/>` +
   `<Override PartName="/word/numbering.xml" ContentType="${CT_NUMBERING}"/>` +
   `<Override PartName="/word/styles.xml" ContentType="${CT_STYLES}"/>` +
+  PROPS_CONTENT_TYPES +
   `</Types>`;
 
 const rootRelsXml = (): string =>
   XML_DECL +
   `<Relationships xmlns="${NS_PKG_REL}">` +
   `<Relationship Id="rId1" Type="${REL_OFFICE_DOCUMENT}" Target="word/document.xml"/>` +
+  propsRelationships("rId2", "rId3") +
   `</Relationships>`;
 
 const documentRelsXml = (rel: RelCollector): string =>
@@ -460,6 +467,7 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
           "word/numbering.xml": numberingXml(rel),
           "word/styles.xml": stylesXml(),
           "word/_rels/document.xml.rels": documentRelsXml(rel),
+          ...propsParts(doc.meta),
         };
         return bytes(zipParts(files, level));
       },
@@ -469,7 +477,7 @@ export const makeDocxWriter = (options?: DocxWriterOptions): Writer<DocxFeature>
           reason: `Failed to generate docx: ${String(cause)}`,
           cause,
         }),
-    });
+    }).pipe(Effect.tap(() => logDiagnostics(metadataDiagnostics("docx", doc.meta))));
   return { format: "docx", profile: Docx, write };
 };
 

@@ -4,7 +4,14 @@
  * constant; only the slides and the presentation/relationship parts vary.
  */
 
-import { NS_CONTENT_TYPES, NS_PKG_REL, NS_REL_DOC, XML_DECL } from "../shared/index.ts";
+import {
+  NS_CONTENT_TYPES,
+  NS_PKG_REL,
+  NS_REL_DOC,
+  PROPS_CONTENT_TYPES,
+  propsRelationships,
+  XML_DECL,
+} from "../shared/index.ts";
 
 export const NS_P = "http://schemas.openxmlformats.org/presentationml/2006/main";
 export const NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -107,6 +114,7 @@ export const rootRelsXml = (): string =>
   XML_DECL +
   `<Relationships xmlns="${NS_PKG_REL}">` +
   `<Relationship Id="rId1" Type="${REL_OFFICE_DOCUMENT}" Target="ppt/presentation.xml"/>` +
+  propsRelationships("rId2", "rId3") +
   `</Relationships>`;
 
 export const contentTypesXml = (slideCount: number): string => {
@@ -124,6 +132,7 @@ export const contentTypesXml = (slideCount: number): string => {
     `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="${CT_SLIDE_LAYOUT}"/>` +
     `<Override PartName="/ppt/theme/theme1.xml" ContentType="${CT_THEME}"/>` +
     slides +
+    PROPS_CONTENT_TYPES +
     `</Types>`
   );
 };

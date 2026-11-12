@@ -30,6 +30,7 @@ import {
   type Doc,
   document,
   logDiagnostic,
+  logDiagnostics,
   makeReaderTag,
   ParseError,
   type Reader,
@@ -43,7 +44,13 @@ import {
 } from "../../index.ts";
 import type { SharedString } from "./cellText.ts";
 import { sharedStringOf } from "./richText.ts";
-import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
+import {
+  OpcError,
+  type OpcLimits,
+  OpcReader,
+  ooxmlParseError,
+  readPackageMeta,
+} from "../shared/index.ts";
 import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
 import {
@@ -395,7 +402,9 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
         { concurrency: 1 },
       );
 
-      const doc = trustAs<XlsxReadFeature>(document(worksheets));
+      const { meta, diagnostics } = readPackageMeta(pkg, "xlsx");
+      yield* logDiagnostics(diagnostics);
+      const doc = trustAs<XlsxReadFeature>(document(worksheets, meta));
       return maxRows !== undefined && Arr.isReadonlyArrayNonEmpty(cut)
         ? markTruncated(doc, { maxRows, sheets: cut })
         : doc;
