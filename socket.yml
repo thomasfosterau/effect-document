@@ -1,0 +1,13 @@
+# Socket (socket.dev) supply-chain scanning. Schema: @socketsecurity/config
+# (version 2: projectIgnorePaths, issueRules, githubApp).
+version: 2
+
+# bench/ is a private workspace package that is never published: its
+# dependencies are the libraries the benchmarks compare against, not anything
+# a consumer installs. Socket flags one of them, pdfjs-dist (Mozilla's pdf.js,
+# the reference PDF text extractor), as "obfuscated code" for its minified
+# worker bundle. Socket can ignore an alert only per manifest or repo-wide, not
+# per package, so the bench manifest is left out rather than turning the alert
+# off for the shipped package's dependencies too (owner decision, #240).
+projectIgnorePaths:
+  - "bench/"
