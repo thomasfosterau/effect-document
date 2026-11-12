@@ -6,6 +6,7 @@
 
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import {
   type Content,
@@ -18,6 +19,7 @@ import {
 import type { IworkObject } from "./archive.ts";
 import { type BundleLimits, decodeComponent, type IworkBundle, openBundle } from "./bundle.ts";
 import { type IworkError, type IworkErrorReason, isIworkError, withLocation } from "./errors.ts";
+import { readPackageMetadata } from "./metadata.ts";
 
 /** Options shared by the Pages, Numbers and Keynote readers. */
 export interface IworkReaderOptions {
@@ -85,6 +87,71 @@ export const openInput = (
       ),
     ),
   );
+
+/** The three iWork readers' formats. */
+type IworkFormat = "keynote" | "pages" | "numbers";
+
+/** A range of `fileFormatVersion` major versions, inclusive. */
+interface VersionRange {
+  readonly min: number;
+  readonly max: number;
+}
+
+/**
+ * The `fileFormatVersion` majors each reader is known to read (#101, owner
+ * decision: a provisional range now). Provisional: they are the majors of the
+ * documents it has been run on, the vendored fixtures and the corpora
+ * (`corpora.json`), and widen as more are. Numbers' version follows the app's
+ * (11.0.3 to 26.4.0 across numbers-parser's test files, all read); Keynote's
+ * fixture is 3.2.13. Pages has no document to check against yet, so it has no
+ * range and is not checked.
+ */
+const KNOWN_FORMAT_VERSIONS = {
+  keynote: Option.some({ min: 3, max: 3 }),
+  numbers: Option.some({ min: 11, max: 26 }),
+  pages: Option.none(),
+} satisfies Record<IworkFormat, Option.Option<VersionRange>>;
+
+/** The major version of a dotted `fileFormatVersion` (`"11.0.3"` is 11), if it has one. */
+const majorOf = (version: string): Option.Option<number> => {
+  const major = Number.parseInt(version, 10);
+  return Number.isSafeInteger(major) ? Option.some(major) : Option.none();
+};
+
+/**
+ * Report, as an `iwork.unknownFormatVersion` diagnostic (a `notice`: nothing
+ * is lost), a document whose `fileFormatVersion` major is outside the range
+ * {@link KNOWN_FORMAT_VERSIONS} gives its format; the read goes on either way,
+ * since the message layouts it reads seldom change between versions. Nothing
+ * is reported for a format without a range, a package without metadata or a
+ * version, or metadata that fails to decode (the reader does not need it, and
+ * a reader that does, through the resolver, reports that itself).
+ */
+export const reportFormatVersion = (
+  format: IworkFormat,
+  bundle: IworkBundle,
+): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    const range: Option.Option<VersionRange> = KNOWN_FORMAT_VERSIONS[format];
+    const metadata = readPackageMetadata(bundle);
+    if (Option.isNone(range) || Result.isFailure(metadata)) return Effect.void;
+    const known = range.value;
+    const version = Option.map(metadata.success, (m) => m.fileFormatVersion);
+    return Option.match(Option.flatMap(version, majorOf), {
+      onNone: () => Effect.void,
+      onSome: (major) =>
+        major >= known.min && major <= known.max
+          ? Effect.void
+          : logDiagnostic({
+              format,
+              stage: "read",
+              code: "iwork.unknownFormatVersion",
+              severity: "notice",
+              path: [],
+              detail: `fileFormatVersion ${Option.getOrElse(version, () => "")} is outside the versions this reader is known to read (majors ${known.min} to ${known.max}); reading it anyway`,
+            }),
+    });
+  });
 
 /**
  * Decode each named component and `visit` its objects in order, collecting

@@ -25,7 +25,7 @@ import {
   Str,
   trustAs,
 } from "../index.ts";
-import { eachComponent, type IworkReaderOptions, openInput } from "./read.ts";
+import { eachComponent, type IworkReaderOptions, openInput, reportFormatVersion } from "./read.ts";
 import { sniffPages } from "./sniff.ts";
 
 export { sniffPages } from "./sniff.ts";
@@ -54,6 +54,7 @@ export const makePagesReader = (options?: IworkReaderOptions): Reader<PagesFeatu
   const read = (input: Content): Effect.Effect<Doc<PagesFeature>, ParseError> =>
     Effect.gen(function* () {
       const bundle = yield* openInput("pages", input, options);
+      yield* reportFormatVersion("pages", bundle);
       const decoded = yield* eachComponent(
         "pages",
         bundle,
