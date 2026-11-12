@@ -312,6 +312,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `denseRows` | function | The derived dense view of a worksheet, built only within a cell budget. |
 | `sheetRow` | function | A row from its cells by position (`undefined` a gap), the array copied. |
 | `worksheetFromRows` | function | A worksheet of finished rows, for readers that build each row as they go (`sheetRow`, `sparseRow`). |
+| `withSheetLayout` | function | A worksheet with its column definitions and merged ranges set, its rows kept unchecked (a reader's layout, read apart from its rows). |
 | `sheetRowFrom` | function | A dense row built from any values, the cell at column `n` being `toCell(items[n], n)`. |
 | `sheetRowOf` | function | A row holding the array of cells it is given (not copied): for readers that build one per line. |
 | `rowEntries` | function | The cells a row holds with their columns, as nodes, gaps left out. |
@@ -468,8 +469,8 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `block.table`          |  –  |  –  |  –   |  RW  |  –   |  –  |  –  |    –    |   –   |    –    |
 | `sheet.worksheet`      | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `sheet.multiple`       |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
-| `sheet.merges`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `sheet.columns`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `sheet.merges`         |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
+| `sheet.columns`        |  –  |  –  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `cell.text`            | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `cell.number`          | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
 | `cell.boolean`         | RW  | RW  |  RW  |  –   |  –   |  –  |  –  |    –    |   –   |    R    |
@@ -611,7 +612,7 @@ Import the three namespaces from `/ooxml`, or one format from its own subpath (`
 
 | Format | Profile | Reads and writes |
 | --- | --- | --- |
-| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas. Dates are written as ISO-8601 text and read back as text; styles are not read or written yet. |
+| XLSX | `Spreadsheet` (from `effect-document/profiles`) | every worksheet; shared and inline strings, numbers, booleans, errors and formulas; column widths (`<cols>`, in characters of the default font) and merged ranges (`<mergeCells>`). Dates are written as ISO-8601 text and read back as text; styles and row heights are not read or written yet. |
 | DOCX | `Docx` | paragraphs, headings (`Heading1`–`Heading6`, with a bookmark around the whole heading as its id), bookmarked text as a `Span` with the bookmark as its id, runs with bold / italic / underline / strikeout / superscript / subscript / small caps, hyperlinks (a `#name` link goes to the bookmark `name`), bullet and ordered lists, tables. |
 | PPTX | `Pptx` | slides of text boxes and placeholders holding paragraphs, headings and bullet / numbered lists. No pictures or speaker notes yet. |
 

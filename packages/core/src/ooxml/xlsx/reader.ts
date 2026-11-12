@@ -23,6 +23,7 @@ import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import {
   type Content,
   contentToBytes,
@@ -43,6 +44,7 @@ import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
 import { parseWorksheetRows, type WorksheetRows } from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
+import { withLayoutOf } from "./layout.ts";
 
 import { XlsxRead, type XlsxReadFeature } from "./profile.ts";
 
@@ -141,7 +143,7 @@ const readWorksheetRows = (
   target: string,
   sharedStrings: ReadonlyArray<string>,
   maxCells: number,
-): Effect.Effect<WorksheetRows, ParseError> =>
+): Effect.Effect<{ readonly rows: WorksheetRows; readonly root: XmlElement }, ParseError> =>
   Effect.flatMap(
     Effect.try({
       try: () => {
@@ -159,13 +161,22 @@ const readWorksheetRows = (
       catch: (cause) => ooxmlParseError("xlsx", cause),
     }),
     Option.match({
-      onSome: ({ value }) => Effect.succeed(value),
+      onSome: ({ value, root }) => Effect.succeed({ rows: value, root }),
       onNone: () =>
-        Effect.map(parsePart(pkg, target, "sheetData"), (root) =>
-          parseWorksheetRows(root, sharedStrings, maxCells),
-        ),
+        Effect.map(parsePart(pkg, target, "sheetData"), (root) => ({
+          rows: parseWorksheetRows(root, sharedStrings, maxCells),
+          root,
+        })),
     }),
   );
+
+/**
+ * A sheet with no cell grid, keeping its place and name in the workbook,
+ * tagged with what it is (`attr.data.kind`): a chartsheet, a dialogsheet, a
+ * macrosheet, or a sheet the workbook links no part to (`"unlinked"`).
+ */
+const emptySheet = (name: string, kind: string): Worksheet =>
+  new Worksheet({ attr: { data: { kind } }, name, columns: [], rows: [], merges: [] });
 
 // ============================================================================
 // Reader
@@ -232,14 +243,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // Chartsheets, dialogsheets and macrosheets have no cell grid: keep
               // their place and name as an empty sheet tagged with its kind.
               const kind = NON_GRID_SHEET_KINDS.find(([suffix]) => rel.type.endsWith(suffix))?.[1];
-              if (kind !== undefined)
-                return new Worksheet({
-                  attr: { data: { kind } },
-                  name,
-                  columns: [],
-                  rows: [],
-                  merges: [],
-                });
+              if (kind !== undefined) return emptySheet(name, kind);
             }
 
             if (relId === undefined || relId === "") {
@@ -247,13 +251,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               // module LibreOffice left behind, Apache POI bug 60825): there
               // is nothing to read, so keep its place and name as an empty
               // sheet tagged as unlinked, rather than failing the workbook.
-              return new Worksheet({
-                attr: { data: { kind: "unlinked" } },
-                name,
-                columns: [],
-                rows: [],
-                merges: [],
-              });
+              return emptySheet(name, "unlinked");
             }
 
             const target =
@@ -268,7 +266,8 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             }
 
             const remaining = maxCells - allocated;
-            const parsed = yield* readWorksheetRows(pkg, target, sharedStrings, remaining);
+            const part = yield* readWorksheetRows(pkg, target, sharedStrings, remaining);
+            const parsed = part.rows;
             if (Predicate.isTagged(parsed, "TooLarge")) {
               return yield* new ParseError({
                 format: "xlsx",
@@ -280,14 +279,24 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
               });
             }
             allocated += parsed.cells;
-            if (maxRows !== undefined && parsed.rows.length > maxRows) {
-              cut.push(name);
-              return worksheetFromRows(
+            const truncated = maxRows !== undefined && parsed.rows.length > maxRows;
+            if (truncated) cut.push(name);
+            const laidOut = withLayoutOf(
+              worksheetFromRows(
                 name,
-                parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))),
-              );
-            }
-            return worksheetFromRows(name, parsed.rows);
+                truncated ? parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))) : parsed.rows,
+              ),
+              part.root,
+              truncated,
+            );
+            if (Result.isFailure(laidOut))
+              return yield* new ParseError({
+                format: "xlsx",
+                reason: `Worksheet "${name}" has ${laidOut.failure}`,
+                code: "MalformedXml",
+                position: { sheet: name, part: target },
+              });
+            return laidOut.success;
           }),
         { concurrency: 1 },
       );
