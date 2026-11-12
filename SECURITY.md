@@ -17,6 +17,7 @@ These packages are published with a hardened, automated pipeline designed to res
 - **Least privilege.** Workflows default to `permissions: {}`; each job opts into only the scopes it needs. CI checks out with `persist-credentials: false`.
 - **Manual approval gate.** Publishing runs in a protected `release` environment that requires manual approval. The Release workflow splits versioning from publishing (changesets/action's `select-mode`, `version` and `publish` sub-actions): only its `publish` job runs in that environment and holds `id-token: write`, so refreshing the version PR needs no approval and cannot publish.
 - **Locked dependencies with a cooling-off period.** Installs use `pnpm install --frozen-lockfile` against the committed `pnpm-lock.yaml`; `minimumReleaseAge` holds newly published third-party versions for 8 hours before pnpm will install them; Dependabot proposes updates for review after a 1-day cooldown (its smallest unit), so it never proposes a version pnpm would refuse.
+- **Dependencies scanned by Socket.** `socket.yml` configures it. Its one setting leaves out `bench/`, the private benchmark package that is never published: its dependencies are the libraries the benchmarks compare against, and one of them (`pdfjs-dist`, whose minified worker bundle Socket flags as obfuscated) can't be ignored per package (#240). Every published package's dependencies are scanned.
 
 ## Untrusted input
 
