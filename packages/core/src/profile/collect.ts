@@ -6,6 +6,7 @@
 
 import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
+import * as Rec from "effect/Record";
 import { type Attributes, usedAttrFeatures } from "../schema/attributes.ts";
 import {
   type Block,
@@ -20,6 +21,7 @@ import { Document } from "../schema/document.ts";
 import { cellOf, rowCellsOf } from "../schema/sheet.ts";
 import { type Feature, featureOfTag, idFeatureOf } from "../schema/feature.ts";
 import { dispatchTag, type TagHandlers } from "./dispatch.ts";
+import { type FieldValues, fieldMatches, type OnlyWithin } from "./rules.ts";
 
 /** A node's attributes: every node that has them declares `attr` as `Attributes | undefined`. */
 const attrOf = (n: Inline | Block | Shape): Attributes | undefined =>
@@ -224,6 +226,7 @@ export const collectFeatures = (doc: Document): Set<Feature> => {
   let worksheetCount = 0;
   for (const b of doc.blocks) if (Predicate.isTagged(b, "Worksheet")) worksheetCount += 1;
   if (worksheetCount > 1) acc.add("sheet.multiple");
+  if (doc.resources !== undefined && !Rec.isEmptyRecord(doc.resources)) acc.add("doc.resources");
 
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
@@ -255,4 +258,44 @@ export const unsupportedFeatures = (doc: Document, allowed: ReadonlySet<Feature>
   const out: Feature[] = [];
   for (const f of collectFeatures(doc)) if (!allowed.has(f)) out.push(f);
   return out;
+};
+
+/**
+ * The features a document uses where a profile's `onlyWithin` or
+ * `fieldValues` rules keep them out (#126): a node of an `onlyWithin` rule's
+ * feature with no ancestor that is a qualifying `within` node, and a node of
+ * a `fieldValues` rule's feature whose field holds another value. One walk,
+ * which carries for each `onlyWithin` rule whether it is inside a qualifying
+ * node; without rules there is no walk.
+ */
+export const placementViolations = (
+  doc: Document,
+  onlyWithin: ReadonlyArray<OnlyWithin>,
+  fieldValues: ReadonlyArray<FieldValues>,
+): Feature[] => {
+  if (Arr.isReadonlyArrayEmpty(onlyWithin) && Arr.isReadonlyArrayEmpty(fieldValues)) return [];
+  const out: Feature[] = [];
+  const outside: ReadonlyArray<boolean> = onlyWithin.map(() => false);
+  const stack: Array<{ readonly work: Work; readonly inside: ReadonlyArray<boolean> }> =
+    doc.blocks.map((n) => ({ work: { k: "block", n }, inside: outside }));
+  const scratch = new Set<Feature>();
+  for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
+    const { work, inside } = item;
+    const feature = featureOfTag(work.n._tag);
+    fieldValues.forEach((rule) => {
+      if (rule.feature === feature && !fieldMatches(work.n, rule)) out.push(rule.feature);
+    });
+    onlyWithin.forEach((rule, i) => {
+      if (rule.feature === feature && inside[i] !== true) out.push(rule.feature);
+    });
+    const childInside = onlyWithin.map(
+      (rule, i) =>
+        inside[i] === true ||
+        (rule.within === feature && (rule.where === undefined || fieldMatches(work.n, rule.where))),
+    );
+    const children: Stack = [];
+    walk(work, scratch, children);
+    children.forEach((child) => stack.push({ work: child, inside: childInside }));
+  }
+  return Arr.dedupe(out);
 };

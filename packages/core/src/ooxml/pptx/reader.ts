@@ -53,7 +53,7 @@ import {
   ListStack,
   ooxmlParseError,
 } from "../shared/index.ts";
-import { PptxRead, type PptxReadFeature } from "./profile.ts";
+import { PptxRead, type PptxReadFeature, TITLE_PLACEHOLDER_TYPES } from "./profile.ts";
 
 /** Options for the PPTX reader: zip resource limits. */
 export interface PptxReaderOptions {
@@ -183,9 +183,6 @@ const txBodyToBlocks = (txBody: XmlElement, asHeaders: boolean): Block[] => {
   return lists.closeAll();
 };
 
-/** Placeholder types whose text is the slide's title. */
-const TITLE_PLACEHOLDERS = new Set(["title", "ctrTitle"]);
-
 const shapeOf = (sp: XmlElement): Shape => {
   const nvSpPr = findChild(sp, "nvSpPr");
   const nvPr = nvSpPr === undefined ? undefined : findChild(nvSpPr, "nvPr");
@@ -193,7 +190,8 @@ const shapeOf = (sp: XmlElement): Shape => {
   // A <p:ph> without a type is an "obj" placeholder (ST_PlaceholderType default).
   const placeholderType = ph === undefined ? undefined : (getAttr(ph, "type") ?? "obj");
   const txBody = findChild(sp, "txBody");
-  const asHeaders = placeholderType !== undefined && TITLE_PLACEHOLDERS.has(placeholderType);
+  const asHeaders =
+    placeholderType !== undefined && TITLE_PLACEHOLDER_TYPES.includes(placeholderType);
   const content = txBody === undefined ? [] : txBodyToBlocks(txBody, asHeaders);
   if (ph !== undefined) {
     const idxStr = getAttr(ph, "idx");

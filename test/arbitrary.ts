@@ -16,6 +16,7 @@ import * as DateTime from "effect/DateTime";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import {
   type Block,
@@ -45,7 +46,10 @@ import {
   Para,
   Placeholder,
   Plain,
+  type FieldMatch,
+  type FieldValues,
   type NotWithin,
+  type OnlyWithin,
   type Profile,
   type SheetCell,
   sheetRow,
@@ -198,7 +202,41 @@ interface Ctx {
   readonly options: ShapeOptions;
   /** The profile's structural rules: features it keeps out of certain nodes (#197). */
   readonly rules: ReadonlyArray<NotWithin>;
+  /** Features the profile allows only inside certain nodes (#126); `has` starts without them. */
+  readonly onlyWithin: ReadonlyArray<OnlyWithin>;
+  /** The values the profile allows in a node's fields (#126). */
+  readonly fieldValues: ReadonlyArray<FieldValues>;
+  /** The profile's own features, to allow an `onlyWithin` feature again inside its node. */
+  readonly profile: (f: Feature) => boolean;
 }
+
+/**
+ * The context for the contents of a `within` node, whose fields `holds`
+ * checks a rule's `where` against: with the features an `onlyWithin` rule
+ * allows only inside such a node (#126).
+ */
+const admit = (ctx: Ctx, within: Feature, holds: (where: FieldMatch) => boolean): Ctx => {
+  const admitted = ctx.onlyWithin
+    .filter(
+      (r) =>
+        r.within === within && ctx.profile(r.feature) && (r.where === undefined || holds(r.where)),
+    )
+    .map((r) => r.feature);
+  return Arr.isReadonlyArrayEmpty(admitted)
+    ? ctx
+    : { ...ctx, has: (f) => ctx.has(f) || admitted.includes(f) };
+};
+
+/** The numbers a `fieldValues` rule allows a `feature` node's `field`, or `fallback` without one. */
+const numberChoices = (
+  ctx: Ctx,
+  feature: Feature,
+  field: string,
+  fallback: Arbitrary.Arbitrary<number>,
+): Arbitrary.Arbitrary<number> => {
+  const rule = ctx.fieldValues.find((r) => r.feature === feature && r.field === field);
+  return rule === undefined ? fallback : pick(rule.oneOf.filter(Predicate.isNumber));
+};
 
 /** The context for the contents of a `within` node: without the features a rule keeps out of it. */
 const inside = (ctx: Ctx, within: Feature): Ctx => {
@@ -237,13 +275,15 @@ const listItem = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<ReadonlyArray<Bl
 
 /** The list blocks the profile allows, with items at `depth - 1`. */
 const listBlocks = (ctx: Ctx, depth: number): ReadonlyArray<Arbitrary.Arbitrary<Block>> => {
-  const items = Arbitrary.array(listItem(ctx, depth - 1), { minLength: 1, maxLength: 3 });
+  // each list's items without the features a rule keeps out of that list
+  const items = (within: Feature) =>
+    Arbitrary.array(listItem(inside(ctx, within), depth - 1), { minLength: 1, maxLength: 3 });
   return [
     ...(ctx.has("block.bulletList")
-      ? [Arbitrary.map(items, (i): Block => new BulletList({ items: i }))]
+      ? [Arbitrary.map(items("block.bulletList"), (i): Block => new BulletList({ items: i }))]
       : []),
     ...(ctx.has("block.orderedList")
-      ? [Arbitrary.map(items, (i): Block => new OrderedList({ items: i }))]
+      ? [Arbitrary.map(items("block.orderedList"), (i): Block => new OrderedList({ items: i }))]
       : []),
   ];
 };
@@ -283,7 +323,11 @@ const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
       "block.header",
       () =>
         Arbitrary.map(
-          Arbitrary.all([int(1, 6), inlines(inside(ctx, "block.header"), 2), int(0, 9)]),
+          Arbitrary.all([
+            numberChoices(ctx, "block.header", "level", int(1, 6)),
+            inlines(inside(ctx, "block.header"), 2),
+            int(0, 9),
+          ]),
           // an id on some headings, where the profile allows one (#184)
           ([level, content, n]): Block =>
             new Header({
@@ -470,14 +514,33 @@ const PLACEHOLDER_TYPES = ["title", "body", "subTitle", "ctrTitle"];
 /** A slide show of text boxes and placeholders holding prose the profile allows. */
 const slideShowOf = (ctx: Ctx): Arbitrary.Arbitrary<Block> => {
   const { has } = ctx;
-  const content = blocks(ctx, 1, 3);
   const shapes: Array<Arbitrary.Arbitrary<Shape>> = [];
-  if (has("shape.textBox")) shapes.push(Arbitrary.map(content, (c) => new TextBox({ content: c })));
-  if (has("shape.placeholder")) {
+  if (has("shape.textBox"))
     shapes.push(
       Arbitrary.map(
-        Arbitrary.all([pick(PLACEHOLDER_TYPES), content]),
-        ([placeholderType, c]) => new Placeholder({ placeholderType, content: c }),
+        blocks(
+          admit(ctx, "shape.textBox", () => false),
+          1,
+          3,
+        ),
+        (c) => new TextBox({ content: c }),
+      ),
+    );
+  if (has("shape.placeholder")) {
+    shapes.push(
+      Arbitrary.flatMap(pick(PLACEHOLDER_TYPES), (placeholderType) =>
+        Arbitrary.map(
+          blocks(
+            admit(
+              ctx,
+              "shape.placeholder",
+              (where) => where.field === "placeholderType" && where.oneOf.includes(placeholderType),
+            ),
+            1,
+            3,
+          ),
+          (c) => new Placeholder({ placeholderType, content: c }),
+        ),
       ),
     );
   }
@@ -512,8 +575,16 @@ export const arbitraryDocument = (
   family: Family,
   options: ShapeOptions = {},
 ): Arbitrary.Arbitrary<Document> => {
-  const has = (f: Feature): boolean => profile.features.has(f);
-  const ctx: Ctx = { has, options, rules: profile.notWithin };
+  const confined = profile.onlyWithin.map((r) => r.feature);
+  const has = (f: Feature): boolean => profile.features.has(f) && !confined.includes(f);
+  const ctx: Ctx = {
+    has,
+    options,
+    rules: profile.notWithin,
+    onlyWithin: profile.onlyWithin,
+    fieldValues: profile.fieldValues,
+    profile: (f) => profile.features.has(f),
+  };
   // enough body text to outweigh any generated run of headings or code
   const body = (text: string): ReadonlyArray<Block> =>
     options.bodyContext === true

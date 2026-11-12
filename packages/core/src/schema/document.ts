@@ -4,7 +4,9 @@
  */
 
 import * as Match from "effect/Match";
+import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
+import * as Rec from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
   type RowCell,
@@ -39,6 +41,7 @@ import {
   TextBox,
   Worksheet,
 } from "./ast.ts";
+import { type Resource, Resources, addResource, resourceIdOf, resourceUrl } from "./resource.ts";
 import { rowEntries, sheetRow } from "./sheet.ts";
 import {
   trustedBlank,
@@ -57,10 +60,16 @@ import {
 export const Meta = Schema.Record(Schema.String, Schema.Unknown);
 export type Meta = Schema.Schema.Type<typeof Meta>;
 
-/** A complete document: metadata plus a sequence of blocks. */
+/**
+ * A complete document: metadata, a sequence of blocks and, when it embeds
+ * any, its media bag (`resources`, #113): the binary resources its nodes
+ * refer to by `resource:<id>` URLs. A document without one has no
+ * `resources` key, and a document using one has the `doc.resources` feature.
+ */
 export class Document extends Schema.Class<Document>("Document")({
   meta: Meta,
   blocks: Schema.Array(Block),
+  resources: Schema.optional(Resources),
 }) {}
 
 /** The plain-JSON encoded form of a `Document`. */
@@ -197,9 +206,43 @@ export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow => new SlideS
 // Document constructor
 // ============================================================================
 
-/** Construct a document from blocks (with optional metadata). */
-export const document = (blocks: ReadonlyArray<Block>, meta: Meta = {}): Document =>
-  new Document({ meta, blocks });
+/**
+ * Construct a document from blocks, with optional metadata and media bag (#113).
+ * An empty or absent bag leaves the document without a `resources` key.
+ */
+export const document = (
+  blocks: ReadonlyArray<Block>,
+  meta: Meta = {},
+  resources?: Resources,
+): Document =>
+  resources === undefined || Rec.isEmptyRecord(resources)
+    ? new Document({ meta, blocks })
+    : new Document({ meta, blocks, resources });
+
+/** The resource a `resource:` URL in `doc` refers to; `None` for another URL or an id the bag lacks. */
+export const resourceOf = (doc: Document, url: string): Option.Option<Resource> =>
+  Option.flatMap(resourceIdOf(url), (id) => Option.fromUndefinedOr(doc.resources?.[id]));
+
+/** A document with a resource added to its media bag, and the URL to refer to it by. */
+export interface WithResource {
+  /** The document, its blocks and metadata unchanged. */
+  readonly document: Document;
+  /** The `resource:` URL of the resource (an existing one when the bag held the same content). */
+  readonly url: string;
+}
+
+/**
+ * Add `resource` to `doc`'s media bag (#113), deduplicated by content (see
+ * `addResource`), returning the new document and the `resource:` URL for an
+ * `Image` or `Picture` to refer to it by.
+ */
+export const withResource = (doc: Document, resource: Resource): WithResource => {
+  const added = addResource(doc.resources ?? {}, resource);
+  return {
+    document: document(doc.blocks, doc.meta, added.resources),
+    url: resourceUrl(added.id),
+  };
+};
 
 // ============================================================================
 // Text-collapse utilities

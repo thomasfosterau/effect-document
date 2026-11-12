@@ -11,3 +11,4 @@ export * from "./format.ts";
 export * from "./convert.ts";
 export * from "./detect.ts";
 export * from "./preview.ts";
+export * from "./diagnostic.ts";

@@ -63,6 +63,31 @@ const deepRoundTrip = Effect.gen(function* () {
 
 The vocabulary is a Pandoc superset: the full inline and block set (emphasis, links, images, code, math, notes, lists, block quotes, figures, divs, tables), a spreadsheet model (`Worksheet` with typed `CellText` / `CellNumber` / `CellBoolean` / `CellDate` / `CellError` / `CellBlank` / `CellFormula` / `CellRichText`, merges and columns) (a worksheet holds only the rows it has, each row's cells by position, a plain number, string or boolean standing for its unstyled cell and `undefined` for a gap, and `denseRows` derives the grid, within a cell budget), and a presentation model (`SlideShow` → `Slide` → shapes and speaker notes). Most nodes carry an optional `attr`: an `id`, `classes`, a structured `style` and an open `data` map for format-specific attributes.
 
+### Embedded resources
+
+A document can carry binary resources (images, fonts, embedded files) in a media bag beside its blocks, as Pandoc's `MediaBag` does. A node refers to one with a `resource:<id>` URL where it would put any other URL (`Image.target.url`, `Picture.src`), so external URLs keep working. The bytes encode to JSON as base64. A document with resources uses the `doc.resources` feature: `Html`, `Presentation` and `Full` allow it, and `narrow` to any other profile drops each resource, reporting it at the path `["resources", id]` and leaving the `resource:` URLs as they are. To keep the files, take `doc.resources` before narrowing.
+
+```ts
+import {
+  Image,
+  Resource,
+  document,
+  imageInfo,
+  para,
+  str,
+  withResource,
+} from "@thomasfosterau/effect-document";
+
+const logo = new Resource({ mediaType: "image/png", bytes: pngBytes, filename: "logo.png" });
+const { document: withLogo, url } = withResource(document([]), logo); // the same bytes get the same URL
+const doc = document(
+  [para([new Image({ alt: [str("logo")], target: { url } })])],
+  {},
+  withLogo.resources,
+);
+imageInfo(pngBytes); // Option.some({ mediaType: "image/png", width, height, dpi })
+```
+
 ## Profiles
 
 A **feature** names one capability (`block.header`, `cell.date`, `attr.style`); a **profile** is a named set of them. A document is phantom-typed `Doc<F>` with the features it may use, and because the phantom is covariant, "is a subset of" is ordinary assignability: widening is free, and handing a writer a document that is too rich is a compile-time error.
@@ -84,7 +109,10 @@ Profiles.Csv.is(sheet); // false: CSV has no date cells
 
 // narrow to a subset, learning exactly what was lost
 const { document: csv, loss } = narrow(sheet, Profiles.Csv);
-loss.entries; // [{ feature: "cell.date", action: "converted", detail: "date cell converted to ISO text" }]
+loss.entries;
+// [{ feature: "cell.date", action: "converted", severity: "converted",
+//    path: [0, "B1"], detail: "date cell converted to ISO text" }]
+loss.summary; // the same, grouped: [{ feature: "cell.date", action: "converted", count: 1, paths: [[0, "B1"]], … }]
 
 // validate instead, failing with the unsupported features
 const checked = Profiles.Csv.validate(sheet); // Effect<Doc<CsvFeature>, ProfileViolation>
@@ -103,6 +131,35 @@ const BoldHeadings = defineProfile(
     notWithin: [{ feature: "inline.strong", within: "block.header", reason: "headings are bold" }],
   },
 );
+```
+
+Two more kinds of rule say where a feature may appear and what a node's fields may hold. `onlyWithin` allows a feature only inside a given node, optionally one whose field holds one of a set of values; `fieldValues` restricts a node's own field. PPTX keeps a heading only as a slide's title, so its profile allows `block.header` only at level 1 and only in a title placeholder. Anywhere else, `is` and `validate` reject it, and `narrow` converts it to a paragraph with the rule's reason:
+
+```ts
+const Titles = defineProfile(
+  "titles",
+  ["deck.slideShow", "shape.placeholder", "block.header", "inline.str"],
+  {
+    onlyWithin: [
+      {
+        feature: "block.header",
+        within: "shape.placeholder",
+        where: { field: "placeholderType", oneOf: ["title", "ctrTitle"] },
+        reason: "headings are slide titles",
+      },
+    ],
+    fieldValues: [
+      { feature: "block.header", field: "level", oneOf: [1], reason: "titles have one level" },
+    ],
+  },
+);
+```
+
+Profiles combine, at the type level and at run time alike. `unionProfiles` and `intersectProfiles` combine two profiles, `withoutFeatures` and `extendProfile` remove or add features, `isSubProfile(a, b)` (and the type `IsSubProfile<A, B>`) asks whether every document `a` accepts `b` accepts too, and `profileOf(doc)` is the smallest profile a document fits. Structural rules follow the operation: a union keeps only the rules both sides share, an intersection keeps every rule of either, and removing a feature drops the rules about it.
+
+```ts
+const DocxWithoutNotes = withoutFeatures("docx-no-notes", Docx, ["inline.note"] as const);
+isSubProfile(profileOf(doc), Rtf); // can RTF hold this document losslessly?
 ```
 
 The built-in profiles are `Csv`, `Spreadsheet`, `Markdown`, `Html`, `Presentation` and `Full` (on `Profiles`, or as named exports from `./profiles`); each format package adds its own (`Docx`, `Pptx`, `Rtf`, `Pdf`, …).
@@ -128,7 +185,11 @@ const program = Effect.gen(function* () {
 });
 ```
 
-Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
+Each loss entry says where it was (`path`: block indexes from the document's top, then a list item, slide, shape or table row index, a part such as `"notes"`, or a worksheet cell's A1 address) and how bad it is (`severity`: `dropped-content`, `dropped-formatting` or `converted`); `summary` groups the entries by feature, so 10,000 date cells are one item with a count. `LossReport` is a `Schema`, so a report encodes to JSON for logs and CLI output. `convert` takes `onLoss`: `"allow"` (the default), `"warn"` (logs a warning per summary item with `Effect.logWarning`, annotated with the formats, feature and count) or `"fail"` (writes nothing and fails with a `ConversionError` whose `loss` is the report).
+
+Readers and writers report what they meet along the way as **diagnostics** (#112): a `Diagnostic` has the `format`, the `stage` (`read` or `write`), a stable `code` (`xlsx.nonFiniteNumber` for a `NaN` written as `#NUM!`, `xlsx.sheetRenamed` for a sheet name Excel refuses, `iwork.componentSkipped` for a component a lenient iWork read skipped), a `severity` (a loss severity, or `repaired` when nothing was lost), a `path` and a `detail`. Each is a warning log record annotated with the diagnostic (`logDiagnostic`, under `DIAGNOSTIC_ANNOTATION`), so no signature changes: `convert` gathers them into `loss.diagnostics`, and any diagnostic but a `repaired` one makes the report lossy and fails `onLoss: "fail"` (one from the writer is known only once it has run, but no content is returned). A direct `reader.read` or `writer.write` call shows them through the app's loggers; `collectDiagnostics(effect)` returns them beside the result. A `MinimumLogLevel` above `Warn` filters them out before any logger, `convert`'s included.
+
+Failures are tagged errors in the error channel: `ParseError` (with the format, a `code` saying what kind of failure it is, and where known a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer, or a loss under `onLoss: "fail"`). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them. A `ParseError`'s `code` is the same across readers: `InvalidContainer` (not a zip), `WrongFormat` (another format's file), `MissingPart`, `Encrypted`, `MalformedXml`, `MalformedBinary`, `MalformedText`, `LimitExceeded` (a configured limit, not malformed input) or `Unsupported`; its `position` can name a package `part`, a byte `offset`, an iWork `component` and `object`, or a `sheet` and `cell`, besides `row` and `column`.
 
 ## Detecting a format and finding its tables
 
@@ -183,6 +244,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `BlockFeature` | type | Block-level node features (prose). |
 | `SheetFeature` | type | Spreadsheet features (the `Worksheet` block and its typed cells). |
 | `DeckFeature` | type | Presentation features (the `SlideShow` block, its slides and shapes). |
+| `DocFeature` | type | Document-level features: `doc.resources`, a media bag (#113). |
 | `AttrFeature` | type | Cross-cutting attribute-facet features (which kinds of `Attributes` are allowed). |
 | `IdFeature` | type | Per-node id facets (`attr.id.header`, `attr.id.link`, …): an id allowed on one kind of node only. |
 | `ID_FEATURE` | const | Each node's id facet, keyed by its tag (`TableCell` and `Slide` for the untagged ones). |
@@ -198,6 +260,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `ALL_BLOCK_FEATURES` | const | Every prose block feature, for assembling profiles. |
 | `ALL_SHEET_FEATURES` | const | Every spreadsheet feature (worksheets and cell types), for assembling profiles. |
 | `ALL_DECK_FEATURES` | const | Every presentation feature (slide shows and shapes), for assembling profiles. |
+| `ALL_DOC_FEATURES` | const | Every document-level feature, for assembling profiles. |
 | `ALL_ATTR_FEATURES` | const | Every attribute facet feature, for assembling profiles. |
 | `ALL_ID_FEATURES` | const | Every per-node id facet. |
 | `ALL_FEATURES` | const | Every feature in the schema - the maximal ("Full") profile's allow-set. |
@@ -286,7 +349,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `SlideShow` | class | A presentation deck. |
 | `Block` | const | Any block-level node (prose, spreadsheet, or presentation). |
 | `Meta` | const | Document metadata (title, author, arbitrary key/values). |
-| `Document` | class | A complete document. |
+| `Document` | class | A complete document: metadata, blocks and, when it embeds any, its media bag (`resources`). |
 | `str` | function | A `Str`. |
 | `emph` | function | An `Emph` (emphasis, usually italic) around `content`. |
 | `strong` | function | A `Strong` (strong emphasis, usually bold) around `content`. |
@@ -304,7 +367,22 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `textBox` | function | A `TextBox` shape holding prose blocks. |
 | `slide` | function | A `Slide` of `shapes`, with optional speaker `notes`. |
 | `slideShow` | function | A `SlideShow` block. |
-| `document` | function | Construct a document from blocks (with optional metadata). |
+| `document` | function | Construct a document from blocks, with optional metadata and media bag. |
+| `resourceOf` | function | The resource a `resource:` URL in a document refers to, as an `Option`. |
+| `withResource` | function | A document with a resource added to its media bag (deduplicated by content), and the URL to refer to it by. |
+| `WithResource` | interface | What `withResource` returns. |
+| `Resource` | class | One binary resource: its bytes (base64 in JSON), media type and optional file name. |
+| `ResourceEncoded` | type | The JSON form of a `Resource`. |
+| `Resources` | const | A document's media bag: resources by id. |
+| `RESOURCE_SCHEME` | const | `"resource:"`, the scheme of a reference into the media bag. |
+| `resourceUrl` / `resourceIdOf` | function | A resource id to its `resource:` URL, and back (`None` for any other URL). |
+| `addResource` / `AddedResource` | function / interface | Add a resource to a media bag under its content id, returning the existing id for content it already holds. |
+| `contentId` | function | An id derived from a resource's bytes. |
+| `sameResource` | function | Whether two resources hold the same bytes of the same media type. |
+| `imageInfo` | function | A PNG, JPEG, GIF or SVG's media type, pixel size and recorded resolution, read from its header. |
+| `ImageInfo` / `Dpi` | interface | What `imageInfo` returns. |
+| `emuExtent` / `EmuExtent` | function / interface | An image's natural size in EMUs (DOCX and PPTX extents). |
+| `DEFAULT_DPI` / `EMU_PER_INCH` | const | 96, the resolution assumed when none is recorded; 914 400 EMUs to the inch. |
 | `space` / `softBreak` / `lineBreak` | function | A `Space`, `SoftBreak` or `LineBreak`. |
 | `underline` / `strikeout` / `superscript` / `subscript` / `smallCaps` | function | The formatting inlines around content. |
 | `quoted` / `code` / `math` / `rawInline` | function | `Quoted` content (double quotes by default), inline `Code` (optional attributes), TeX `Math` (inline by default) and a format's verbatim `RawInline`. |
@@ -363,15 +441,35 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `Doc` | type | A `Document` statically restricted to the features `F`. |
 | `FeaturesOf` | type | The feature set of a profile, as a phantom-bearing type. |
 | `Profile` | interface | A named subset of the schema. |
-| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`). |
+| `defineProfile` | function | Define a profile from its complete allow-set of features, with optional structural rules (`notWithin`, `onlyWithin`, `fieldValues`). |
 | `NotWithin` | interface | A structural rule: a feature the profile allows, but not inside a given node. |
+| `unionProfiles` | function | A profile allowing what either of two allows, keeping only the structural rules both share. |
+| `intersectProfiles` | function | A profile allowing only what both of two allow, under every structural rule of either. |
+| `withoutFeatures` | function | A profile without some features and the structural rules about them. |
+| `extendProfile` | function | A profile with some features added, keeping its structural rules. |
+| `isSubProfile` | function | Whether every document one profile accepts, another accepts too (features and the rules that apply). |
+| `IsSubProfile` | type | Whether one profile's features are all another's, at the type level. |
+| `profileOf` | function | The smallest profile a document conforms to: exactly the features it uses. |
+| `OnlyWithin` | interface | A structural rule: a feature the profile allows only inside a given node (one whose fields satisfy `where`, when given). |
+| `FieldValues` | interface | A structural rule: the values a node's field may hold. |
+| `FieldMatch` | interface | A condition on one of a node's own fields: it holds one of `oneOf`. |
+| `RuleValue` | type | A value a structural rule compares a node's field with: a string, number or boolean. |
 | `ProfileOptions` | interface | Options for `defineProfile`: structural rules beyond the feature set. |
 | `trustAs` | function | Assert (unsafely) that a document belongs to a profile, branding it without a runtime check. |
 | `collectFeatures` | function | The set of features a document uses. |
 | `collectFeaturesWithin` | function | The features a document uses inside nodes of a given feature. |
 | `unsupportedFeatures` | function | Features the document uses that are not in `allowed`. |
-| `LossEntry` | interface | One thing `narrow` could not keep. |
-| `LossReport` | interface | Everything a narrowing (or a conversion) dropped or down-converted. |
+| `LossEntry` | schema | One thing `narrow` could not keep: the feature, the action, its severity, its path and why. |
+| `LossReport` | schema | Everything a narrowing (or a conversion) dropped or down-converted: the entries, their summary, the reader's and writer's diagnostics, and whether anything was lost. |
+| `Diagnostic` | schema | A non-fatal issue a reader or writer met: format, stage, `code`, severity, path and detail. |
+| `logDiagnostic` / `logDiagnostics` | function | Report diagnostics as annotated warning log records. |
+| `collectDiagnostics` | function | Run an effect and return its result with the diagnostics it reported. |
+| `LossSummaryItem` | schema | How many times a feature was lost the same way, and where the first few were. |
+| `LossSeverity` | schema | How bad a loss is: `dropped-content`, `dropped-formatting` or `converted`. |
+| `LossPathSegment` | schema | One step of a loss entry's path: a child's index, a part's name or a cell's A1 address. |
+| `LOSS_SUMMARY_PATHS` | const | How many paths a summary item keeps (5). |
+| `lossReport` | function | The report for a list of entries: their summary, and whether there are none. |
+| `severityOf` | function | The severity of losing a feature by an action. |
 | `NarrowResult` | interface | The narrowed document and the loss report for it. |
 | `widen` | function | Widen a document to a superset profile. |
 | `narrow` | function | Narrow a document so it conforms to `to`, recording everything that had to be dropped or down-converted. |
@@ -398,7 +496,7 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `SourcePosition` | schema | Best-effort source position of a parse failure: `row`, `column`, `part`, `offset`, `component`, `object`, `sheet`, `cell`. |
 | `WriteError` | class | A writer failed to render a document into target content. |
 | `ProfileViolation` | class | A document used features outside a profile's allowed set. |
-| `ConversionError` | class | A conversion pipeline could not be assembled or a bridge step failed. |
+| `ConversionError` | class | A conversion pipeline could not be assembled, a bridge step failed, or `onLoss: "fail"` refused a lossy conversion (its `loss` holds the report). |
 | `Text` | interface | Textual content. |
 | `Bytes` | interface | Binary content. |
 | `Content` | type | Raw content accepted by readers and produced by writers. |
@@ -489,7 +587,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `block.orderedList`    |  –  |  –  |  –   |  RW  |  RW  |  –  | RW  |    –    |   –   |    –    |
 | `block.bulletList`     |  –  |  –  |  –   |  RW  |  RW  |  –  | RW  |    –    |   –   |    –    |
 | `block.definitionList` |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
-| `block.header`         |  –  |  –  |  –   |  RW  |  R   | RW  | RW  |    –    |   –   |    –    |
+| `block.header`         |  –  |  –  |  –   |  RW  |  RW  | RW  | RW  |    –    |   –   |    –    |
 | `block.horizontalRule` |  –  |  –  |  –   |  –   |  –   |  –  |  R  |    –    |   –   |    –    |
 | `block.figure`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `block.div`            |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -513,6 +611,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `shape.picture`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.table`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.placeholder`    |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    –    |   –   |    –    |
+| `doc.resources`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.id`              |  –  |  –  |  –   | R*W* |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.classes`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.keyValue`        |  –  |  –  |  R   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
@@ -774,7 +873,8 @@ The root entry exports the three namespaces `Xlsx`, `Docx` and `Pptx`; each subp
 | `pptxFeatures` | const | The features the PPTX profile allows, as a list. |
 | `Pptx` | const | The PPTX (PresentationML) profile. |
 | `PptxFeature` | type | The features the PPTX profile allows, as a type. |
-| `PptxRead` | const | What the PPTX reader produces. |
+| `TITLE_PLACEHOLDER_TYPES` | const | The placeholder types whose text is a slide's title, which the reader takes as headers. |
+| `PptxRead` | const | What the PPTX reader produces: the `Pptx` profile itself, now that its title-placeholder headers are in it (#196). |
 | `PptxReadFeature` | type | The features of `PptxRead`, what the PPTX reader produces, as a type. |
 | `PptxReaderOptions` | interface | Options for the PPTX reader. |
 | `makePptxReader` | function | Create a PPTX Reader. |
@@ -1040,7 +1140,7 @@ Each app has its own subpath (`/iwork/keynote`, `/iwork/pages`, `/iwork/numbers`
 Every reader takes `IworkReaderOptions`:
 
 - `limits` (`BundleLimits`): `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed entry (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` takes its default (`DEFAULT_BUNDLE_LIMITS`). A zip bomb fails with `LimitExceeded` instead of exhausting memory, and the reader's `ParseError` has `code: "LimitExceeded"`. The names, defaults and messages are the same as the OOXML readers' `limits`. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
-- `lenient`: skip a component that fails to decode, with a logged warning (`Effect.logWarning`), instead of failing the whole read.
+- `lenient`: skip a component that fails to decode, reporting an `iwork.componentSkipped` diagnostic (a logged warning that `convert` collects), instead of failing the whole read.
 
 #### Documents saved as a directory
 
