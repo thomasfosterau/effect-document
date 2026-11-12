@@ -27,6 +27,7 @@ import {
   parseMessage,
 } from "./protobuf.ts";
 import { TSP_PACKAGE_METADATA } from "./registry.ts";
+import { FIELDS } from "./schema.generated.ts";
 
 /** The component holding the package metadata. */
 export const METADATA_COMPONENT = "Index/Metadata.iwa";
@@ -79,22 +80,28 @@ export interface PackageMetadata {
   readonly datas: ReadonlyArray<DataInfo>;
 }
 
-const PACKAGE_COMPONENTS = 3;
-const PACKAGE_DATAS = 4;
-const PACKAGE_READ_VERSION = 5;
-const PACKAGE_FILE_FORMAT_VERSION = 7;
-const COMPONENT_IDENTIFIER = 1;
-const COMPONENT_PREFERRED_LOCATOR = 2;
-const COMPONENT_LOCATOR = 3;
-const COMPONENT_EXTERNAL_REFERENCES = 6;
-const COMPONENT_DATA_REFERENCES = 7;
-const EXTERNAL_COMPONENT = 1;
-const EXTERNAL_OBJECT = 2;
-const EXTERNAL_WEAK = 3;
-const DATA_REFERENCE_IDENTIFIER = 1;
-const DATA_IDENTIFIER = 1;
-const DATA_PREFERRED_FILE_NAME = 3;
-const DATA_FILE_NAME = 4;
+/** Field numbers of the `TSP` messages read here, from the generated schema. */
+const PACKAGE = FIELDS["TSP.PackageMetadata"];
+const COMPONENT = FIELDS["TSP.ComponentInfo"];
+const EXTERNAL = FIELDS["TSP.ComponentExternalReference"];
+const DATA_REFERENCE = FIELDS["TSP.ComponentDataReference"];
+const DATA = FIELDS["TSP.DataInfo"];
+const PACKAGE_COMPONENTS = PACKAGE.components;
+const PACKAGE_DATAS = PACKAGE.datas;
+const PACKAGE_READ_VERSION = PACKAGE.read_version;
+const PACKAGE_FILE_FORMAT_VERSION = PACKAGE.file_format_version;
+const COMPONENT_IDENTIFIER = COMPONENT.identifier;
+const COMPONENT_PREFERRED_LOCATOR = COMPONENT.preferred_locator;
+const COMPONENT_LOCATOR = COMPONENT.locator;
+const COMPONENT_EXTERNAL_REFERENCES = COMPONENT.external_references;
+const COMPONENT_DATA_REFERENCES = COMPONENT.data_references;
+const EXTERNAL_COMPONENT = EXTERNAL.component_identifier;
+const EXTERNAL_OBJECT = EXTERNAL.object_identifier;
+const EXTERNAL_WEAK = EXTERNAL.is_weak;
+const DATA_REFERENCE_IDENTIFIER = DATA_REFERENCE.data_identifier;
+const DATA_IDENTIFIER = DATA.identifier;
+const DATA_PREFERRED_FILE_NAME = DATA.preferred_file_name;
+const DATA_FILE_NAME = DATA.file_name;
 
 /** A required `uint64` field, or a `Malformed` failure naming it. */
 const required = (fields: ReadonlyArray<Field>, n: number, what: string): bigint => {

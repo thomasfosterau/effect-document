@@ -32,7 +32,13 @@ import { eachComponent, type IworkReaderOptions, openInput, reportFormatVersion 
 import { sniffNumbers } from "./sniff.ts";
 
 export { sniffNumbers } from "./sniff.ts";
-import { REFERENCE_IDENTIFIER_FIELD, TN_DOCUMENT_ARCHIVE, TN_SHEET_ARCHIVE } from "./registry.ts";
+import {
+  REFERENCE_IDENTIFIER_FIELD,
+  TN_DOCUMENT_ARCHIVE,
+  TN_DOCUMENT_SHEETS_FIELD,
+  TN_SHEET_ARCHIVE,
+  TN_SHEET_NAME_FIELD,
+} from "./registry.ts";
 
 export type { IworkReaderOptions } from "./read.ts";
 
@@ -51,9 +57,6 @@ export const Numbers = defineProfile("numbers", numbersFeatures);
 /** The features the Numbers profile allows, as a type: the phantom of its documents. */
 export type NumbersFeature = FeaturesOf<typeof Numbers>;
 
-const SHEET_NAME_FIELD = 1; // TN.SheetArchive.name
-const DOCUMENT_SHEETS_FIELD = 1; // TN.DocumentArchive.sheets (repeated TSP.Reference)
-
 /** What the reader collects from the objects: the document's sheet order, and the sheets. */
 type Found =
   | { readonly _tag: "Order"; readonly ids: ReadonlyArray<bigint> }
@@ -61,11 +64,11 @@ type Found =
 
 const find = (type: number, id: bigint, payload: Uint8Array): Found[] => {
   if (type === TN_SHEET_ARCHIVE) {
-    return [{ _tag: "Sheet", id, name: getBytes(parseMessage(payload), SHEET_NAME_FIELD) }];
+    return [{ _tag: "Sheet", id, name: getBytes(parseMessage(payload), TN_SHEET_NAME_FIELD) }];
   }
   if (type === TN_DOCUMENT_ARCHIVE) {
     const ids: bigint[] = [];
-    for (const ref of getAllBytes(parseMessage(payload), DOCUMENT_SHEETS_FIELD)) {
+    for (const ref of getAllBytes(parseMessage(payload), TN_DOCUMENT_SHEETS_FIELD)) {
       const sheetId = getBigInt(parseMessage(ref), REFERENCE_IDENTIFIER_FIELD);
       if (sheetId !== undefined) ids.push(sheetId);
     }
