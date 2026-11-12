@@ -38,6 +38,8 @@ export const xlsxFeatures = [
   "inline.strikeout",
   "inline.superscript",
   "inline.subscript",
+  // a hyperlink (#67): over a whole cell, as the worksheet's <hyperlinks> holds it
+  "inline.link",
 ] as const;
 
 /** What the XLSX writer preserves. */
