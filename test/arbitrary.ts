@@ -455,18 +455,11 @@ export interface ShapeOptions {
 }
 
 /** A worksheet of a rectangular grid of cells the profile allows. */
-const sheetOf = (
-  name: string,
-  has: (f: Feature) => boolean,
-  options: ShapeOptions,
-): Arbitrary.Arbitrary<Worksheet> => {
-  const kinds = CELL_FEATURES.filter(has);
+const sheetOf = (name: string, ctx: Ctx): Arbitrary.Arbitrary<Worksheet> => {
+  const kinds = CELL_FEATURES.filter(ctx.has);
   const valued = kinds.filter((f) => f !== "cell.blank");
   // a rich cell's runs are inline content the profile allows, as a paragraph's are
-  const rich = Arbitrary.map(
-    inlines({ has, options, rules: [] }, 2),
-    (runs): SheetCell => new CellRichText({ runs }),
-  );
+  const rich = Arbitrary.map(inlines(ctx, 2), (runs): SheetCell => new CellRichText({ runs }));
   const arbitraryOf = (f: Feature): Arbitrary.Arbitrary<SheetCell> | undefined =>
     f === "cell.richText" ? rich : cellOf(f);
   const cells = kinds.flatMap((f) => {
@@ -476,11 +469,11 @@ const sheetOf = (
   const anyCell = oneOf(cells);
   const columnCell = (feature: Feature): Arbitrary.Arbitrary<SheetCell> => {
     const own = arbitraryOf(feature)!;
-    return has("cell.blank") ? oneOf([own, own, own, cellOf("cell.blank")!]) : own;
+    return ctx.has("cell.blank") ? oneOf([own, own, own, cellOf("cell.blank")!]) : own;
   };
   return Arbitrary.flatMap(Arbitrary.all([int(1, 4), int(1, 5)]), ([cols, rowCount]) =>
     Arbitrary.flatMap(
-      options.columnTyped === true
+      ctx.options.columnTyped === true
         ? Arbitrary.array(pick(valued), { minLength: cols, maxLength: cols })
         : Arbitrary.Constant<ReadonlyArray<Feature>>([]),
       (columnKinds) =>
@@ -488,7 +481,7 @@ const sheetOf = (
           Arbitrary.array(
             Arbitrary.all(
               Arr.makeBy(cols, (c) =>
-                options.columnTyped === true ? columnCell(columnKinds[c]!) : anyCell,
+                ctx.options.columnTyped === true ? columnCell(columnKinds[c]!) : anyCell,
               ),
             ),
             { minLength: rowCount, maxLength: rowCount },
@@ -604,7 +597,7 @@ export const arbitraryDocument = (
     Match.when("sheet", () =>
       Arbitrary.flatMap(int(1, has("sheet.multiple") ? 3 : 1), (count) =>
         Arbitrary.map(
-          Arbitrary.all(Arr.makeBy(count, (i) => sheetOf(`Sheet${i + 1}`, has, options))),
+          Arbitrary.all(Arr.makeBy(count, (i) => sheetOf(`Sheet${i + 1}`, ctx))),
           documentOf,
         ),
       ),
