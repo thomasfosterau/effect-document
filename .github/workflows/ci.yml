@@ -7,8 +7,8 @@ name: CI
 #
 # It runs on Node 22, the floor `engines.node` (`>=22`) promises, the current
 # LTS and the latest released Node (`test`, a matrix that never cancels its
-# siblings), and `ci` is the one stable check for rulesets: it passes only
-# when every matrix leg did. (#164, Node 22's windows-1252 decoding, got
+# siblings). Rulesets require each leg by name: `ci (node 22)`,
+# `ci (node lts)` and `ci (node latest)`. (#164, Node 22's windows-1252 decoding, got
 # through when only `latest` ran, #181.)
 #
 # The `lts` leg also installs LibreOffice, qpdf, poppler and pandoc and sets
@@ -32,7 +32,7 @@ concurrency:
 permissions: {}
 
 jobs:
-  test:
+  ci:
     name: ci (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     # The first, uncached LibreOffice install can be slow on the apt mirror.
@@ -100,16 +100,3 @@ jobs:
         run: vp install --frozen-lockfile
       - name: CI
         run: vp run ci
-
-  ci:
-    name: ci
-    needs: [test]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Every Node passed
-        env:
-          RESULT: ${{ needs.test.result }}
-        run: test "$RESULT" = success

@@ -47,7 +47,7 @@ Before you report work as done, run the gates below in order and quote each comm
 11. `pnpm audit --audit-level high` (network)
 12. `vp run test:coverage`, then `vp exec fallow audit --format json --quiet --explain --gate-marker agent` (the fallow gate below; not a CI step). The PreToolUse fallow gate audits against `coverage/coverage-final.json`, regenerating it first when it is missing or older than any source or test file.
 
-Steps 2–11 are the `ci` task in `vite.config.ts` (`vp run ci`, fail-fast, in this order), which [ci.yml](.github/workflows/ci.yml) runs on the current LTS and the latest Node; its required check is `ci`. `CONTRIBUTING.md` and the PR template link here rather than restating the list; the commands themselves are described in [CONTRIBUTING.md](CONTRIBUTING.md#commands).
+Steps 2–11 are the `ci` task in `vite.config.ts` (`vp run ci`, fail-fast, in this order), which [ci.yml](.github/workflows/ci.yml) runs on Node 22, the current LTS and the latest Node; the required checks are `ci (node 22)`, `ci (node lts)` and `ci (node latest)`. `CONTRIBUTING.md` and the PR template link here rather than restating the list; the commands themselves are described in [CONTRIBUTING.md](CONTRIBUTING.md#commands).
 
 ## Pull requests
 
