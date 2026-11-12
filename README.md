@@ -72,7 +72,8 @@ The type system is part of the contract: a writer for `Doc<CsvFeature>` will not
 | Pages (.pages) | ⚠️ | 🔜 | **experimental**, read-only, best-effort: extracts body text |
 | Numbers (.numbers) | ⚠️ | 🔜 | **experimental**, read-only: sheet structure only (cell values deferred) |
 | JSON | ✅ | ✅ | via `Schema.encode`/`decode` of any `Document` |
-| Markdown / HTML | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
+
+Feature by feature (every node kind and attribute facet, read and written, per format), see the [feature support matrix](packages/core/README.md#feature-support), generated from the formats' profiles. | Markdown / HTML | 🔜 | 🔜 | schema + profiles modelled; readers/writers planned |
 
 Each format declares its own profile (`Csv`, `Spreadsheet`, `Docx`, `Pptx`, `Rtf`, `Pdf`), so converting between them widens for free or narrows with a report: e.g. `Docx → Rtf` down-converts links to text and drops lists/tables, while `Rtf → Docx` is a free widening.
 
