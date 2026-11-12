@@ -10,8 +10,8 @@
  * italic, underline, strikethrough and superscript / subscript runs)
  * round-trip (#66), and so do cell comments (#67): legacy notes
  * (`xl/commentsN.xml` with the VML drawing Excel shows them with), whose body
- * is paragraphs. Threaded comments (replies, a resolved mark) are read
- * (`review.threads`, in the read profile only) but not yet written. Not (yet) preserved, so narrowed away on write with a
+ * is paragraphs, and so do threaded comments (replies, a resolved mark, a
+ * date), whose text is plain (see `xlsxRules`). Not (yet) preserved, so narrowed away on write with a
  * loss report: per-column styles, cell styles, attributes, run fonts, sizes
  * and colours, and dates (written as ISO text).
  */
@@ -47,9 +47,21 @@ export const xlsxFeatures = [
   // a hyperlink (#67): over a whole cell, as the worksheet's <hyperlinks> holds it
   "inline.link",
   // a cell comment (#67): a legacy note, whose body is paragraphs (`block.para`,
-  // allowed only inside a comment: see `xlsxRules`)
+  // allowed only inside a comment: see `xlsxRules`), or a thread of Excel's
+  // threaded comments, whose text is plain
   "review.comments",
+  "review.threads",
   "block.para",
+] as const;
+
+/** The inlines a threaded comment's plain text can't carry. */
+const threadPlainFeatures = [
+  "inline.strong",
+  "inline.emph",
+  "inline.underline",
+  "inline.strikeout",
+  "inline.superscript",
+  "inline.subscript",
 ] as const;
 
 /**
@@ -69,6 +81,13 @@ const xlsxRules: ProfileOptions = {
       within: "review.comments",
       reason: "a line break in a SpreadsheetML comment starts a new paragraph",
     },
+    // a threaded comment (a thread's root and replies) is plain text, a line per
+    // paragraph, so it keeps none of the marks a legacy note's rich runs do
+    ...threadPlainFeatures.map((feature) => ({
+      feature,
+      within: "review.threads" as const,
+      reason: "a threaded comment is plain text",
+    })),
   ],
   onlyWithin: [
     {
@@ -94,7 +113,7 @@ export type XlsxFeature = FeaturesOf<typeof Xlsx>;
 /** What the XLSX reader produces. */
 export const XlsxRead = defineProfile(
   "xlsx-read",
-  [...xlsxFeatures, "cell.date", "attr.keyValue", "review.threads"] as const,
+  [...xlsxFeatures, "cell.date", "attr.keyValue"] as const,
   xlsxRules,
 );
 /** The features of {@link XlsxRead}, what the XLSX reader produces, as a type. */

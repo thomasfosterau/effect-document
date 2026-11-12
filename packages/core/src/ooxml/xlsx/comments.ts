@@ -3,7 +3,8 @@
  * with a VML drawing) and, when present, Excel's threaded comments
  * (`xl/threadedComments/threadedCommentN.xml`, with the workbook's
  * `xl/persons/person.xml` naming their authors), read as the sheet's
- * `CellComment`s; and a sheet's comments written back as legacy notes.
+ * `CellComment`s; and a sheet's comments written back, as legacy notes or,
+ * for a thread, as Excel writes one.
  *
  * A cell with a threaded comment takes the thread (its root, then its replies
  * by time, `done` as resolved): the legacy note Excel keeps beside it ("[Threaded
@@ -26,6 +27,8 @@ import {
   Comment,
   type Diagnostic,
   type Inline,
+  inlinesToText,
+  isThreadComment,
   Para,
   softBreak,
   str,
@@ -37,7 +40,7 @@ import { decodeXstring } from "./cellText.ts";
 import { escapeXstring } from "./cellTypes.ts";
 import { MAX_COLUMNS } from "./layout.ts";
 import { inlinesOfText, linesOfRichText, richTextRunsXml } from "./richText.ts";
-import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
+import { escapeAttr, findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 
 /** The relationship type of a sheet's legacy comments part. */
 export const REL_COMMENTS =
@@ -46,7 +49,7 @@ export const REL_COMMENTS =
 export const REL_VML_DRAWING =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing";
 /** The relationship type of a sheet's threaded comments part. */
-const REL_THREADED_COMMENTS =
+export const REL_THREADED_COMMENTS =
   "http://schemas.microsoft.com/office/2017/10/relationships/threadedComment";
 /** The relationship type of the workbook's list of the people who comment. */
 export const REL_PERSONS = "http://schemas.microsoft.com/office/2017/10/relationships/person";
@@ -54,6 +57,11 @@ export const REL_PERSONS = "http://schemas.microsoft.com/office/2017/10/relation
 /** The content type of a legacy comments part. */
 export const CT_COMMENTS =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml";
+/** The content type of a threaded comments part. */
+export const CT_THREADED_COMMENTS = "application/vnd.ms-excel.threadedcomments+xml";
+/** The content type of the workbook's list of the people who comment. */
+export const CT_PERSONS = "application/vnd.ms-excel.person+xml";
+
 /** The content type of a VML drawing part (declared for the `vml` extension). */
 export const CT_VML_DRAWING = "application/vnd.openxmlformats-officedocument.vmlDrawing";
 
@@ -74,7 +82,7 @@ interface Found {
 const commentOf = (fields: {
   readonly author: Option.Option<string>;
   readonly date: Option.Option<Date>;
-  readonly resolved: boolean;
+  readonly resolved: Option.Option<boolean>;
   readonly lines: ReadonlyArray<ReadonlyArray<Inline>>;
   readonly replies: ReadonlyArray<Comment>;
 }): Comment => {
@@ -84,7 +92,7 @@ const commentOf = (fields: {
   };
   if (Option.isSome(fields.author)) props.author = fields.author.value;
   if (Option.isSome(fields.date)) props.date = fields.date.value;
-  if (fields.resolved) props.resolved = true;
+  if (Option.isSome(fields.resolved)) props.resolved = fields.resolved.value;
   return new Comment(props);
 };
 
@@ -114,7 +122,7 @@ const legacyComments = (root: XmlElement): ReadonlyArray<Found> => {
       comment: commentOf({
         author,
         date: Option.none(),
-        resolved: false,
+        resolved: Option.none(),
         lines: text === undefined ? [[]] : linesOfRichText(text),
         replies: [],
       }),
@@ -128,7 +136,7 @@ interface Threaded {
   readonly parentId: Option.Option<string>;
   readonly ref: string;
   readonly time: string;
-  readonly done: boolean;
+  readonly done: Option.Option<boolean>;
   readonly person: Option.Option<string>;
   readonly text: string;
 }
@@ -138,7 +146,7 @@ const threadedOf = (el: XmlElement): Threaded => ({
   parentId: Option.filter(Option.fromUndefinedOr(getAttr(el, "parentId")), (id) => id !== ""),
   ref: getAttr(el, "ref") ?? "",
   time: getAttr(el, "dT") ?? "",
-  done: ["1", "true"].includes(getAttr(el, "done") ?? ""),
+  done: Option.map(Option.fromUndefinedOr(getAttr(el, "done")), (d) => ["1", "true"].includes(d)),
   person: Option.fromUndefinedOr(getAttr(el, "personId")),
   text: decodeXstring(findChild(el, "text")?.text ?? ""),
 });
@@ -158,7 +166,10 @@ const threadedComment = (
   persons: Readonly<Record<string, string>>,
 ): Comment =>
   commentOf({
-    author: Option.flatMap(t.person, (id) => Rec.get(persons, id)),
+    author: Option.filter(
+      Option.flatMap(t.person, (id) => Rec.get(persons, id)),
+      (name) => name !== "",
+    ),
     date: timeOf(t.time),
     resolved: t.done,
     lines: plainLines(t.text),
@@ -280,14 +291,27 @@ const byPosition = Order.combine(
   Order.mapInput(Order.Number, (c: CellComment) => c.col),
 );
 
-/** The writer's diagnostic for the comments of `sheet` whose date or initials a legacy note can't hold. */
+/** The writer's diagnostic for the comments of `sheet` whose date or initials Excel's notes and threads can't hold. */
 export const unkeptDiagnostic = (sheet: string, addresses: ReadonlyArray<string>): Diagnostic => ({
   format: "xlsx",
   stage: "write",
   code: "xlsx.commentMetadataDropped",
   severity: "dropped-content",
   path: [sheet],
-  detail: `the date or initials of the comment(s) on ${addresses.join(", ")} in "${sheet}" not written: a legacy note holds an author and text only`,
+  detail: `the initials of the comment(s) on ${addresses.join(", ")} in "${sheet}", or the date of one that is no thread, not written: a legacy note holds an author and text only, a threaded comment no initials`,
+});
+
+/** The writer's diagnostic for threads of `sheet` whose replies are not written as they are held. */
+export const reshapedDiagnostic = (
+  sheet: string,
+  addresses: ReadonlyArray<string>,
+): Diagnostic => ({
+  format: "xlsx",
+  stage: "write",
+  code: "xlsx.threadReshaped",
+  severity: "converted",
+  path: [sheet],
+  detail: `the thread(s) on ${addresses.join(", ")} in "${sheet}" have replies to replies, flattened into the thread, or replies out of time order, which are read back in time order: Excel keeps a thread flat, ordered by time`,
 });
 
 /** The reader's diagnostic for comments of `sheet` it could not read. */
@@ -310,8 +334,12 @@ export interface CommentsXml {
   readonly comments: string;
   /** `xl/drawings/vmlDrawingN.vml`. */
   readonly vml: string;
-  /** The cells (A1 addresses) of comments with a date or initials, which a legacy note can't hold. */
+  /** `xl/threadedComments/threadedCommentN.xml`, none for a sheet without a thread. */
+  readonly threaded: Option.Option<string>;
+  /** The cells (A1 addresses) of comments with initials, or a date and no thread, which Excel can't hold. */
   readonly unkept: ReadonlyArray<string>;
+  /** The cells (A1 addresses) of threads whose replies the thread's flat, timed form changes. */
+  readonly reshaped: ReadonlyArray<string>;
 }
 
 /** A comment's text: its paragraphs, one per line, as the runs of a `<text>`. */
@@ -358,56 +386,216 @@ const vmlXml = (dataId: number, positions: ReadonlyArray<readonly [row: number, 
   positions.map(([row, col], i) => shapeXml(dataId, i + 1, row, col)).join("") +
   `</xml>`;
 
-/** Why a comment can't be written as a legacy note, if it can't. */
+/** Why a comment can't be written, if it can't. */
 const unwritable = (c: CellComment): Option.Option<string> => {
   const at = toA1(c.col, c.row);
   if (c.col >= MAX_COLUMNS || c.row >= MAX_ROWS)
     return Option.some(
       `a comment on ${at}, outside the sheet's ${MAX_COLUMNS} columns and ${MAX_ROWS} rows`,
     );
-  if (Arr.isReadonlyArrayNonEmpty(c.comment.replies) || c.comment.resolved !== undefined)
-    return Option.some(
-      `the comment on ${at} is a thread (replies or a resolved mark), which is not written yet: narrow the document to the Xlsx profile first, which folds the thread into the comment`,
-    );
   return Option.none();
 };
 
+/** The sorted, distinct cells' comments in the order they are written: row-major. */
+const sortedComments = (comments: ReadonlyArray<CellComment>): ReadonlyArray<CellComment> =>
+  Arr.sort(comments, byPosition);
+
+/** A comment and its replies in thread order: replies to replies follow the reply, depth first (Excel keeps a thread flat). */
+const threadMembers = (root: Comment): ReadonlyArray<Comment> => [
+  root,
+  ...root.replies.flatMap(threadMembers),
+];
+
+/** The names of the people who write the threads of `sheets`, in order of first use (a comment without an author is the empty name). */
+export const commentPeople = (
+  sheets: ReadonlyArray<ReadonlyArray<CellComment>>,
+): ReadonlyArray<string> =>
+  Arr.dedupe(
+    sheets.flatMap((comments) =>
+      sortedComments(comments).flatMap((c) =>
+        isThreadComment(c.comment) ? threadMembers(c.comment).map((m) => m.author ?? "") : [],
+      ),
+    ),
+  );
+
+/** `n` as `width` upper-case hex digits. */
+const hex = (n: number, width: number): string => n.toString(16).toUpperCase().padStart(width, "0");
+
 /**
- * A sheet's comments as legacy notes: the `<comments>` part (authors listed
- * once each in order of first use, a comment without an author under the empty
- * name) and the VML drawing that shows them, `dataId` (from 1) being the
- * drawing's number in the workbook. The comments are written in row-major
- * order, as Excel does. A failure says what can't be written: a thread, a
+ * The id of the `n`th comment (0 the root, then the replies in order) of the
+ * thread on the cell `row`, `col` of the `sheet`th worksheet (from 1), as a
+ * braced GUID. It is derived, so the output is byte-reproducible: the row,
+ * the column, the version and variant digits of a version 4 GUID, then the
+ * sheet and `n` in the node field. No two comments of a workbook share one,
+ * and none shares a person's id (whose column field, `FFFF`, no cell has).
+ */
+const threadCommentId = (sheet: number, row: number, col: number, n: number): string =>
+  `{${hex(row, 8)}-${hex(col, 4)}-4000-8000-${hex(sheet, 6)}${hex(n, 6)}}`;
+
+/** The id of the `index`th person of {@link commentPeople}: a braced GUID derived from it (see `threadCommentId`). */
+const personId = (index: number): string => `{00000000-FFFF-4000-8000-${hex(index, 12)}}`;
+
+/** The namespace of the threaded comments part and the person list. */
+const NS_THREADED = "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments";
+/** The namespace of SpreadsheetML itself, which Excel also declares as `x` on both. */
+const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+/**
+ * `xl/persons/person.xml`: a person for each of `names`, with the id
+ * `personId` gives it. The user id is the name, with provider `None`, as
+ * Excel writes a person who is not signed in.
+ */
+export const personsXml = (names: ReadonlyArray<string>): string =>
+  `<personList xmlns="${NS_THREADED}" xmlns:x="${NS_MAIN}">` +
+  names
+    .map(
+      (name, i) =>
+        `<person displayName="${escapeAttr(name)}" id="${personId(i)}" userId="${escapeAttr(name)}" providerId="None"/>`,
+    )
+    .join("") +
+  `</personList>`;
+
+/** A comment's body as plain text: a line per paragraph (a threaded comment's text). */
+const plainText = (content: ReadonlyArray<Block>): string =>
+  content
+    .map((block) =>
+      Predicate.isTagged(block, "Para") || Predicate.isTagged(block, "Plain")
+        ? inlinesToText(block.content)
+        : blocksToText([block]),
+    )
+    .join("\n");
+
+/** A comment's `dT`: UTC time as Excel writes it (no zone), none for a date that is not one. */
+const timeOfDate = (date: Option.Option<Date>): Option.Option<string> =>
+  Option.map(
+    Option.filter(date, (d) => !Number.isNaN(d.getTime())),
+    (d) => d.toISOString().replace(/Z$/, ""),
+  );
+
+/** A comment's text with its lines indented under the "Comment:" or "Reply:" heading of the placeholder. */
+const indented = (c: Comment): string => plainText(c.content).replaceAll("\n", "\n    ");
+
+/** The note Excel keeps beside a thread for programs that don't read threads, which the reader ignores. */
+const placeholderText = (members: ReadonlyArray<Comment>): string => {
+  return (
+    "[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\n\n" +
+    members.map((m, i) => `${i === 0 ? "Comment" : "Reply"}:\n    ${indented(m)}`).join("\n")
+  );
+};
+
+/** One thread of `<ThreadedComments>`: its root, then its replies, on the cell `ref`. */
+const threadXml = (
+  members: ReadonlyArray<Comment>,
+  ids: ReadonlyArray<string>,
+  ref: string,
+  people: ReadonlyArray<string>,
+): string =>
+  members
+    .map((m, n) => {
+      const person = Math.max(people.indexOf(m.author ?? ""), 0);
+      const dT = Option.match(timeOfDate(Option.fromUndefinedOr(m.date)), {
+        onNone: () => "",
+        onSome: (t) => ` dT="${t}"`,
+      });
+      const parent = n === 0 ? "" : ` parentId="${ids[0]}"`;
+      const done = m.resolved === undefined ? "" : ` done="${m.resolved ? 1 : 0}"`;
+      return (
+        `<threadedComment ref="${ref}"${dT} personId="${personId(person)}" id="${ids[n]}"${parent}${done}>` +
+        `<text xml:space="preserve">${escapeXstring(plainText(m.content))}</text></threadedComment>`
+      );
+    })
+    .join("");
+
+/** A comment's time as the reader sorts replies by it: its `dT`, the empty string for none. */
+const timeKey = (m: Comment): string =>
+  Option.getOrElse(timeOfDate(Option.fromUndefinedOr(m.date)), () => "");
+
+/** Whether a thread's members are as the reader finds them: in time order (undated first), with no reply to a reply. */
+const keepsShape = (root: Comment): boolean => {
+  const replies = root.replies;
+  return (
+    replies.every((r) => Arr.isReadonlyArrayEmpty(r.replies)) &&
+    replies.every((r, i) => i === 0 || timeKey(replies[i - 1] ?? r) <= timeKey(r))
+  );
+};
+
+/**
+ * A sheet's comments, written for Excel. A comment that is a thread (replies
+ * or a resolved mark: `isThreadComment`) goes into `<ThreadedComments>`, one
+ * `threadedComment` for the root and each reply, with the placeholder note
+ * Excel keeps beside it in `<comments>` (author `tc={rootId}`); any other
+ * comment is a legacy note, authors listed once each in order of first use (a
+ * comment without an author under the empty name) beside the VML drawing that
+ * shows the notes, `dataId` (from 1) being the drawing's number in the
+ * workbook. `sheet` (from 1) is the worksheet's number, with the cell and
+ * the comment's place in its thread what thread ids are derived from, and
+ * `people` the workbook's {@link commentPeople}. Comments are written in
+ * row-major order, as Excel does. A failure says what can't be written: a
  * cell outside the sheet, or two comments on one cell.
  */
 export const commentsXml = (
   comments: ReadonlyArray<CellComment>,
   dataId: number,
+  sheet: number,
+  people: ReadonlyArray<string>,
 ): Result.Result<CommentsXml, string> => {
   const [problem] = comments.flatMap((c) => Option.toArray(unwritable(c)));
   if (problem !== undefined) return Result.fail(problem);
-  const sorted = Arr.sort(comments, byPosition);
+  const sorted = sortedComments(comments);
   const twice = sorted.find((c, i) => {
     const before = sorted[i - 1];
     return before !== undefined && before.row === c.row && before.col === c.col;
   });
   if (twice !== undefined)
     return Result.fail(`two comments on ${toA1(twice.col, twice.row)}: a cell has one`);
-  const authors = Arr.dedupe(sorted.map((c) => c.comment.author ?? ""));
+  const threads = sorted.map((c) => {
+    if (!isThreadComment(c.comment)) return Option.none();
+    const members = threadMembers(c.comment);
+    return Option.some({
+      members,
+      ids: members.map((_, n) => threadCommentId(sheet, c.row, c.col, n)),
+    });
+  });
+  const authorOf = (c: CellComment, i: number): string =>
+    Option.match(threads[i] ?? Option.none(), {
+      onNone: () => c.comment.author ?? "",
+      onSome: ({ ids }) => `tc=${ids[0]}`,
+    });
+  const authors = Arr.dedupe(sorted.map(authorOf));
   const list = sorted
-    .map(
-      (c) =>
-        `<comment ref="${toA1(c.col, c.row)}" authorId="${authors.indexOf(c.comment.author ?? "")}">` +
-        `<text>${textXml(c.comment.content)}</text></comment>`,
-    )
+    .map((c, i) => {
+      const body = Option.match(threads[i] ?? Option.none(), {
+        onNone: () => textXml(c.comment.content),
+        onSome: ({ members }) =>
+          `<t xml:space="preserve">${escapeXstring(placeholderText(members))}</t>`,
+      });
+      return `<comment ref="${toA1(c.col, c.row)}" authorId="${authors.indexOf(authorOf(c, i))}"><text>${body}</text></comment>`;
+    })
     .join("");
+  const threaded = sorted.flatMap((c, i) =>
+    Arr.fromOption(threads[i] ?? Option.none()).map(({ members, ids }) =>
+      threadXml(members, ids, toA1(c.col, c.row), people),
+    ),
+  );
   return Result.succeed({
     comments:
       `<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
       `<authors>${authors.map((a) => `<author>${escapeXstring(a)}</author>`).join("")}</authors>` +
       `<commentList>${list}</commentList></comments>`,
+    threaded: Arr.isReadonlyArrayNonEmpty(threaded)
+      ? Option.some(
+          `<ThreadedComments xmlns="${NS_THREADED}" xmlns:x="${NS_MAIN}">${threaded.join("")}</ThreadedComments>`,
+        )
+      : Option.none(),
     unkept: sorted
-      .filter((c) => c.comment.date !== undefined || c.comment.initials !== undefined)
+      .filter((c, i) =>
+        Option.isSome(threads[i] ?? Option.none())
+          ? threadMembers(c.comment).some((m) => m.initials !== undefined)
+          : c.comment.date !== undefined || c.comment.initials !== undefined,
+      )
+      .map((c) => toA1(c.col, c.row)),
+    reshaped: sorted
+      .filter((c) => isThreadComment(c.comment) && !keepsShape(c.comment))
       .map((c) => toA1(c.col, c.row)),
     vml: vmlXml(
       dataId,

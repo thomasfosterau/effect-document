@@ -465,33 +465,25 @@ export interface ShapeOptions {
  * A comment of a profile with `review.comments` (#67): its body is blocks the
  * profile allows inside a comment (an `onlyWithin` rule may admit them only
  * there), with sometimes an author. A profile with `review.threads` also gets
- * the rest of a thread: initials, a date, a resolved mark and replies. Without
- * it only the author is generated, as a format that keeps no threads keeps
- * nothing else of a comment either.
+ * the rest of a thread: initials, a date, a resolved mark and replies (which
+ * may have a reply of their own), and the body of a comment that is a thread
+ * (its root or a reply) is drawn without the features the profile keeps out of
+ * `review.threads`. Without threads only the author is generated, as a format
+ * that keeps no threads keeps nothing else of a comment either.
  */
 const commentOf = (ctx: Ctx) => {
-  const within = inside(
+  const note = inside(
     admit(ctx, "review.comments", () => true),
     "review.comments",
   );
+  const threaded = inside(note, "review.threads");
   const threads = ctx.has("review.threads");
-  // the fields of a comment: its body, a word for the author and one for the
-  // initials, a date (in seconds) and bits that decide which of them it has
-  const fields = Arbitrary.all([
-    blocks(within, 1, 2),
-    word,
-    word,
-    int(0, 2_000_000_000),
-    int(0, 31),
-  ]);
+  // the fields of a comment: a word for the author and one for the initials, a
+  // date (in seconds) and bits that decide which of them it has
+  const meta = Arbitrary.all([word, word, int(0, 2_000_000_000), int(0, 31)]);
   const build = (
-    [content, author, initials, seconds, bits]: readonly [
-      ReadonlyArray<Block>,
-      string,
-      string,
-      number,
-      number,
-    ],
+    [author, initials, seconds, bits]: readonly [string, string, number, number],
+    content: ReadonlyArray<Block>,
     replies: ReadonlyArray<Comment>,
   ): Comment => {
     const props: Types.Mutable<ConstructorParameters<typeof Comment>[0]> = { content, replies };
@@ -502,14 +494,28 @@ const commentOf = (ctx: Ctx) => {
     if (threads && bits % 16 >= 8) props.resolved = bits >= 16;
     return new Comment(props);
   };
-  // (a profile without threads gets no replies: its arrays are never longer than none)
-  return Arbitrary.flatMap(fields, (found) =>
-    Arbitrary.map(Arbitrary.array(fields, { maxLength: threads ? 2 : 0 }), (answers) =>
-      build(
-        found,
-        answers.map((answer) => build(answer, [])),
+  // a reply is a comment of a thread, with `depth` more levels of replies under it
+  const reply = (depth: number): Arbitrary.Arbitrary<Comment> =>
+    Arbitrary.flatMap(meta, (found) =>
+      Arbitrary.map(
+        Arbitrary.all([
+          blocks(threaded, 1, 2),
+          depth > 0
+            ? Arbitrary.array(reply(depth - 1), { maxLength: 1 })
+            : Arbitrary.Constant<ReadonlyArray<Comment>>([]),
+        ]),
+        ([content, replies]) => build(found, content, replies),
       ),
-    ),
+    );
+  // (a profile without threads gets no replies: its arrays are never longer than none)
+  return Arbitrary.flatMap(meta, (found) =>
+    Arbitrary.flatMap(Arbitrary.array(reply(1), { maxLength: threads ? 2 : 0 }), (replies) => {
+      const resolved = threads && found[3] % 16 >= 8;
+      return Arbitrary.map(
+        blocks(Arr.isReadonlyArrayNonEmpty(replies) || resolved ? threaded : note, 1, 2),
+        (content) => build(found, content, replies),
+      );
+    }),
   );
 };
 

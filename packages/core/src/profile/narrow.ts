@@ -16,6 +16,7 @@ import * as Predicate from "effect/Predicate";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
 import * as Effect from "effect/Effect";
+import { isThreadComment } from "./collect.ts";
 import { type Attributes } from "../schema/attributes.ts";
 import {
   type Block,
@@ -706,16 +707,24 @@ const foldThread = (comment: Comment, ctx: Ctx): Comment => {
  * features a profile allows only there are allowed again), and its replies
  * narrowed likewise.
  */
-const narrowComment = (comment: Comment, ctx: Ctx): Comment => {
+const narrowComment = (comment: Comment, ctx: Ctx, reply = false): Comment => {
   const folded = ctx.allowed.has("review.threads") ? comment : foldThread(comment, ctx);
-  const within = inside("review.comments", folded, ctx);
+  // a comment of a thread (the root, or a reply) is also inside `review.threads`,
+  // where a profile may keep less than in a note (XLSX: plain text only)
+  const inComment = inside("review.comments", folded, ctx);
+  const within =
+    ctx.allowed.has("review.threads") && (reply || isThreadComment(folded))
+      ? inside("review.threads", folded, inComment)
+      : inComment;
   return new Comment({
     author: folded.author,
     initials: folded.initials,
     date: folded.date,
     resolved: folded.resolved,
     content: narrowBlocks(folded.content, at(within, "content")),
-    replies: folded.replies.map((reply, i) => narrowComment(reply, at(at(ctx, "replies"), i))),
+    replies: folded.replies.map((answer, i) =>
+      narrowComment(answer, at(at(ctx, "replies"), i), true),
+    ),
   });
 };
 
