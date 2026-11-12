@@ -523,6 +523,7 @@ Generated from each format's read and write profiles by `test/integration/featur
 | `shape.picture`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.table`          |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `shape.placeholder`    |  –  |  –  |  –   |  –   |  RW  |  –  |  –  |    –    |   –   |    –    |
+| `doc.resources`        |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.id`              |  –  |  –  |  –   | R*W* |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.classes`         |  –  |  –  |  –   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
 | `attr.keyValue`        |  –  |  –  |  R   |  –   |  –   |  –  |  –  |    –    |   –   |    –    |
