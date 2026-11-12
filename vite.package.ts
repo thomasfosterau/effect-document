@@ -62,9 +62,19 @@ export const packageAliases = ({ url, name, entries }: PackageConfigOptions) => 
   }));
 };
 
+/** Vitest's worker cap, when one is set (`VITEST_MAX_WORKERS`, which CI sets to 2). */
+interface WorkerCap {
+  maxWorkers?: number;
+}
+
 export const packageConfig = (options: PackageConfigOptions) => {
   const { entries } = options;
   const maxWorkers = process.env.VITEST_MAX_WORKERS;
+  // Vitest's worker cap, set only when VITEST_MAX_WORKERS is: under
+  // `exactOptionalPropertyTypes` an unset option is an absent key, never
+  // `undefined`, so the key is added in its own statement.
+  const workers: WorkerCap = {};
+  if (maxWorkers !== undefined) workers.maxWorkers = Number(maxWorkers);
   return defineConfig({
     run: {
       tasks: {
@@ -118,7 +128,7 @@ export const packageConfig = (options: PackageConfigOptions) => {
     test: {
       include: ["test/**/*.test.ts"],
       testTimeout: 30_000,
-      ...(maxWorkers === undefined ? {} : { maxWorkers: Number(maxWorkers) }),
+      ...workers,
       coverage: {
         provider: "istanbul",
         // `json` writes coverage-final.json, the Istanbul map `fallow audit`
