@@ -52,7 +52,7 @@ type Work =
   | { readonly k: "block"; readonly n: Block }
   | { readonly k: "inline"; readonly n: Inline }
   | { readonly k: "shape"; readonly n: Shape }
-  | { readonly k: "comment"; readonly n: Comment };
+  | { readonly k: "comment"; readonly n: Comment; readonly thread: boolean };
 
 type Stack = Work[];
 
@@ -140,17 +140,40 @@ const hidesAnything = (w: Worksheet): boolean =>
 const workFeature = (work: Work): Feature | undefined =>
   work.k === "comment" ? "review.comments" : featureOfTag(work.n._tag);
 
-/** A comment's body goes on the stack, and so do its replies; a reply or a resolved mark makes it a thread. */
+/**
+ * Whether `c` uses thread features (#67): it has replies or a resolved mark.
+ * The test behind `review.threads`; a format that writes threads writes a
+ * comment as one by this test.
+ */
+export const isThreadComment = (c: Comment): boolean =>
+  Arr.isReadonlyArrayNonEmpty(c.replies) || c.resolved !== undefined;
+
+/**
+ * The features a walked node is inside of, for a structural rule's `within`:
+ * a comment is `review.comments`, and a comment of a thread (one that is
+ * {@link isThreadComment}, or a reply) is also `review.threads`, so a format
+ * that holds threads as plain text can say so (#67).
+ */
+const workContainers = (work: Work): ReadonlyArray<Feature> =>
+  work.k === "comment"
+    ? work.thread
+      ? ["review.comments", "review.threads"]
+      : ["review.comments"]
+    : Arr.fromNullishOr(featureOfTag(work.n._tag));
+
+/** A comment's body goes on the stack, and so do its replies, which are always of a thread. */
 const walkComment = (c: Comment, acc: Set<Feature>, stack: Stack): void => {
-  if (Arr.isReadonlyArrayNonEmpty(c.replies) || c.resolved !== undefined) acc.add("review.threads");
+  if (isThreadComment(c)) acc.add("review.threads");
   pushBlocks(c.content, stack);
-  c.replies.forEach((reply) => stack.push({ k: "comment", n: reply }));
+  c.replies.forEach((reply) => stack.push({ k: "comment", n: reply, thread: true }));
 };
 
 const walkWorksheet = (w: Worksheet, acc: Set<Feature>, stack: Stack): void => {
   if (w.comments !== undefined && Arr.isReadonlyArrayNonEmpty(w.comments)) {
     acc.add("review.comments");
-    w.comments.forEach(({ comment }) => stack.push({ k: "comment", n: comment }));
+    w.comments.forEach(({ comment }) =>
+      stack.push({ k: "comment", n: comment, thread: isThreadComment(comment) }),
+    );
   }
   if (Arr.isReadonlyArrayNonEmpty(w.merges)) acc.add("sheet.merges");
   if (Arr.isReadonlyArrayNonEmpty(w.columns)) acc.add("sheet.columns");
@@ -282,7 +305,7 @@ export const collectFeaturesWithin = (doc: Document, within: Feature): Set<Featu
   const stack: Stack = [];
   pushBlocks(doc.blocks, stack);
   drain(stack, new Set(), (work) => {
-    if (workFeature(work) !== within) return;
+    if (!workContainers(work).includes(within)) return;
     // the node's own features go nowhere; its descendants' are what's inside it
     const sub: Stack = [];
     walk(work, new Set(), sub);
@@ -341,6 +364,7 @@ export const placementViolations = (
   for (let item = stack.pop(); item !== undefined; item = stack.pop()) {
     const { work, inside } = item;
     const feature = workFeature(work);
+    const containers = workContainers(work);
     if (Predicate.isTagged(work.n, "Worksheet")) out.push(...wholeViolations(work.n, whole));
     fieldValues.forEach((rule) => {
       if (rule.feature === feature && !fieldMatches(work.n, rule)) out.push(rule.feature);
@@ -351,7 +375,8 @@ export const placementViolations = (
     const childInside = onlyWithin.map(
       (rule, i) =>
         inside[i] === true ||
-        (rule.within === feature && (rule.where === undefined || fieldMatches(work.n, rule.where))),
+        (containers.includes(rule.within) &&
+          (rule.where === undefined || fieldMatches(work.n, rule.where))),
     );
     const children: Stack = [];
     walk(work, scratch, children);

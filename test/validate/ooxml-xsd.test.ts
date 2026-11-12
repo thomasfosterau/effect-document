@@ -128,6 +128,17 @@ const METADATA = {
   creator: "My Writer 1.0",
 };
 
+/**
+ * Namespaces of Microsoft extension parts, which ECMA-376 has no schema for
+ * (MS-XLSX's threaded comments and person list, #67): their parts are not
+ * validated here, only the ECMA parts around them (the legacy placeholder
+ * note, the relationships and the content types). The shapes are checked
+ * against the reader and the files Excel writes (`test/ooxml/xlsx/comments.test.ts`).
+ */
+const EXTENSION_NAMESPACES: ReadonlyArray<string> = [
+  "http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments",
+];
+
 /** The namespace of a part's root element, from its start tag. */
 const rootNamespace = (xml: string): Option.Option<string> => {
   const tag = /<(?![?!])(?:([\w.-]+):)?[\w.-]+([^>]*)>/.exec(xml);
@@ -186,7 +197,7 @@ const partsOf = ({ writer, family }: (typeof WRITERS)[number]) =>
     ];
     const unknown = Arr.filterMap(parts, (part) => {
       const ns = rootNamespace(part.xml);
-      return Option.isSome(ns) && isNamespace(ns.value)
+      return Option.isSome(ns) && (isNamespace(ns.value) || EXTENSION_NAMESPACES.includes(ns.value))
         ? Result.failVoid
         : Result.succeed(`${part.name} (${Option.getOrElse(ns, () => "no namespace")})`);
     });

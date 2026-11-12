@@ -18,7 +18,9 @@
 
 import { it } from "@effect/vitest";
 import * as Arbitrary from "effect/Arbitrary";
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
+import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import { assert, describe } from "vite-plus/test";
@@ -33,6 +35,7 @@ import {
   mapBlocks,
   type Normal,
   type NormalBlock,
+  type NormalComment,
   normalize,
   normalJson,
   normalizeTokens,
@@ -139,11 +142,66 @@ const wholeSpanHeadings = (normal: Normal): Normal =>
     };
   });
 
+/** A normal comment's `meta` (`author|initials|date|resolved`) as its four fields. */
+const metaFields = (c: NormalComment): readonly [string, string, string, string] => {
+  const [author = "", initials = "", date = "", resolved = ""] = c.meta.split("|");
+  return [author, initials, date, resolved];
+};
+
+/** A comment's replies at any depth, in thread order. */
+const replyMembers = (c: NormalComment): ReadonlyArray<NormalComment> =>
+  c.replies.flatMap((r) => [r, ...replyMembers(r)]);
+
+/** A comment without its initials, its replies, and, unless `keepDate`, its date. */
+const bareComment = (c: NormalComment, keepDate: boolean): NormalComment => {
+  const [author, , date, resolved] = metaFields(c);
+  return { ...c, meta: [author, "", keepDate ? date : "", resolved].join("|"), replies: [] };
+};
+
+/** Order of comments by their time (an ISO string; none sorts first), the order the XLSX reader gives replies. */
+const byTime = Order.mapInput(Order.String, (c: NormalComment) => metaFields(c)[2]);
+
+/**
+ * What a comment in a workbook can't keep (#67), erased from both sides:
+ * initials (Excel's notes and threaded comments have nowhere for them); the
+ * date of a comment that is no thread (a legacy note holds none); and the
+ * shape of a thread, which Excel keeps flat and ordered by time (a reply to a
+ * reply follows its reply's place in the thread, and the replies are read back
+ * in time order, those without a time first). The writer reports each as a
+ * diagnostic.
+ */
+const flatThreads = (normal: Normal): Normal =>
+  normal.map((b) =>
+    Predicate.isTagged(b, "Sheet")
+      ? {
+          ...b,
+          comments: b.comments.map(({ cell, comment }) => ({
+            cell,
+            comment: {
+              ...bareComment(
+                comment,
+                Arr.isReadonlyArrayNonEmpty(comment.replies) || metaFields(comment)[3] !== "",
+              ),
+              replies: Arr.sort(
+                replyMembers(comment).map((r) => bareComment(r, true)),
+                byTime,
+              ),
+            },
+          })),
+        }
+      : b,
+  );
+
 const CASES: ReadonlyArray<Case> = [
   // CSV carries a type per column, not per cell (#88).
   { format: Csv.format, family: "sheet", options: { columnTyped: true }, runs: 100 },
   { format: Csv.tsvFormat, family: "sheet", options: { columnTyped: true }, runs: 50 },
-  { format: Xlsx.format, family: "sheet", runs: 100 },
+  {
+    format: Xlsx.format,
+    family: "sheet",
+    limits: [{ issue: "#67", erase: flatThreads }],
+    runs: 100,
+  },
   {
     format: Docx.format,
     family: "prose",

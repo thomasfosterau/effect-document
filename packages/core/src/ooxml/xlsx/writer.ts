@@ -18,6 +18,7 @@ import {
   type Content,
   type Diagnostic,
   type Doc,
+  isThreadComment,
   logDiagnostics,
   makeWriterTag,
   rowCellsOf,
@@ -49,12 +50,19 @@ import {
 import { escapeAttr } from "./xml.ts";
 import { colsXml, mergeCellsXml } from "./layout.ts";
 import {
+  commentPeople,
   CT_COMMENTS,
+  CT_PERSONS,
+  CT_THREADED_COMMENTS,
   CT_VML_DRAWING,
   type CommentsXml,
   commentsXml,
+  personsXml,
   REL_COMMENTS,
+  REL_PERSONS,
+  REL_THREADED_COMMENTS,
   REL_VML_DRAWING,
+  reshapedDiagnostic,
   unkeptDiagnostic,
 } from "./comments.ts";
 
@@ -151,9 +159,14 @@ const nonFinite = (sheet: string, address: string, cell: SheetCell): Diagnostic 
 /**
  * `[Content_Types].xml`: the sheets, and, for the `commentParts` sheets that
  * have comments (numbered from 1), their comments parts and the `vml`
- * extension of the drawings that show them.
+ * extension of the drawings that show them, and, for the `threadedParts`
+ * sheets with threads, their threaded comments and the workbook's people.
  */
-const contentTypesXml = (sheetCount: number, commentParts: number): string => {
+const contentTypesXml = (
+  sheetCount: number,
+  commentParts: number,
+  threadedParts: number,
+): string => {
   const overrides =
     Array.from(
       { length: sheetCount },
@@ -163,7 +176,15 @@ const contentTypesXml = (sheetCount: number, commentParts: number): string => {
     Array.from(
       { length: commentParts },
       (_, i) => `<Override PartName="/xl/comments${i + 1}.xml" ContentType="${CT_COMMENTS}"/>`,
-    ).join("");
+    ).join("") +
+    Array.from(
+      { length: threadedParts },
+      (_, i) =>
+        `<Override PartName="/xl/threadedComments/threadedComment${i + 1}.xml" ContentType="${CT_THREADED_COMMENTS}"/>`,
+    ).join("") +
+    (threadedParts > 0
+      ? `<Override PartName="/xl/persons/person.xml" ContentType="${CT_PERSONS}"/>`
+      : "");
   return (
     XML_DECL +
     `<Types xmlns="${NS_CONTENT_TYPES}">` +
@@ -222,7 +243,7 @@ const workbookXml = (entries: ReadonlyArray<SheetEntry>, recalculate: boolean): 
   );
 };
 
-const workbookRelsXml = (sheetCount: number): string => {
+const workbookRelsXml = (sheetCount: number, persons: boolean): string => {
   const sheetRels = Array.from(
     { length: sheetCount },
     (_, i) =>
@@ -233,6 +254,9 @@ const workbookRelsXml = (sheetCount: number): string => {
     `<Relationships xmlns="${NS_PKG_REL}">` +
     sheetRels +
     `<Relationship Id="rId${sheetCount + 1}" Type="${REL_SHARED_STRINGS}" Target="sharedStrings.xml"/>` +
+    (persons
+      ? `<Relationship Id="rId${sheetCount + 2}" Type="${REL_PERSONS}" Target="persons/person.xml"/>`
+      : "") +
     `</Relationships>`
   );
 };
@@ -282,10 +306,11 @@ const sheetRelsXml = (rels: SheetPart["rels"]): string =>
 
 /**
  * The relationships of a worksheet's comments, numbered after its `taken`
- * hyperlink relationships: the comments part and the VML drawing (#67), the
- * drawing's id being the one `<legacyDrawing>` names.
+ * hyperlink relationships: the comments part, the VML drawing (#67), the
+ * drawing's id being the one `<legacyDrawing>` names, and, for a sheet with
+ * threads (`threadedPart`, from 1; 0 for none), its threaded comments.
  */
-const commentRels = (part: number, taken: number) => ({
+const commentRels = (part: number, taken: number, threadedPart: number) => ({
   rels: [
     {
       id: `rId${taken + 1}`,
@@ -299,6 +324,16 @@ const commentRels = (part: number, taken: number) => ({
       target: `../drawings/vmlDrawing${part}.vml`,
       external: false,
     },
+    ...(threadedPart > 0
+      ? [
+          {
+            id: `rId${taken + 3}`,
+            type: REL_THREADED_COMMENTS,
+            target: `../threadedComments/threadedComment${threadedPart}.xml`,
+            external: false,
+          },
+        ]
+      : []),
   ],
   drawingId: `rId${taken + 2}`,
 });
@@ -319,6 +354,7 @@ const worksheetXml = (
   notes: Array<Diagnostic>,
   partial: Array<string>,
   commentPart: number,
+  threadedPart: number,
 ): SheetPart => {
   const links: Array<CellHyperlink> = [];
   // The worksheet is sparse, as SpreadsheetML is: each row and cell goes out
@@ -365,7 +401,9 @@ const worksheetXml = (
     external: true,
   }));
   const commented =
-    commentPart > 0 ? Option.some(commentRels(commentPart, linkRels.length)) : Option.none();
+    commentPart > 0
+      ? Option.some(commentRels(commentPart, linkRels.length, threadedPart))
+      : Option.none();
   const ns = hyperlinks.xml === "" && Option.isNone(commented) ? "" : ` xmlns:r="${NS_REL_DOC}"`;
   // <legacyDrawing> follows <hyperlinks> in a worksheet's element order
   const legacyDrawing = Option.match(commented, {
@@ -429,11 +467,20 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
     const commentPart = withComments.map((has, i) =>
       has ? withComments.slice(0, i + 1).filter(Boolean).length : 0,
     );
+    // each sheet with a thread has a threaded comments part too, numbered likewise,
+    // and the workbook lists the people who write them
+    const withThreads = worksheets.map((ws) =>
+      (ws.comments ?? []).some((c) => isThreadComment(c.comment)),
+    );
+    const threadedPart = withThreads.map((has, i) =>
+      has ? withThreads.slice(0, i + 1).filter(Boolean).length : 0,
+    );
+    const people = commentPeople(worksheets.map((ws) => ws.comments ?? []));
     const comments = Result.all(
       worksheets.map((ws, i): Result.Result<Option.Option<CommentsXml>, string> =>
         commentPart[i] === 0
           ? Result.succeed(Option.none())
-          : Result.mapBoth(commentsXml(ws.comments ?? [], commentPart[i] ?? 0), {
+          : Result.mapBoth(commentsXml(ws.comments ?? [], commentPart[i] ?? 0, i + 1, people), {
               onSuccess: Option.some,
               onFailure: (reason) => `worksheet "${ws.name}": ${reason}`,
             }),
@@ -450,6 +497,8 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
         comments.success.forEach((part, i) => {
           if (Option.isSome(part) && Arr.isReadonlyArrayNonEmpty(part.value.unkept))
             notes.push(unkeptDiagnostic(names[i] ?? "", part.value.unkept));
+          if (Option.isSome(part) && Arr.isReadonlyArrayNonEmpty(part.value.reshaped))
+            notes.push(reshapedDiagnostic(names[i] ?? "", part.value.reshaped));
         });
         const partial: Array<string> = [];
         const sheetXmls = worksheets.map((ws, i) =>
@@ -460,6 +509,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
             notes,
             partial,
             commentPart[i] ?? 0,
+            threadedPart[i] ?? 0,
           ),
         );
 
@@ -475,6 +525,7 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
           "[Content_Types].xml": contentTypesXml(
             worksheets.length,
             commentPart.reduce((n, part) => Math.max(n, part), 0),
+            threadedPart.reduce((n, part) => Math.max(n, part), 0),
           ),
           "_rels/.rels": rootRelsXml(),
           ...propsParts(doc.meta),
@@ -485,18 +536,31 @@ export const makeXlsxWriter = (options?: XlsxWriterOptions): Writer<XlsxFeature>
             })),
             recalculate,
           ),
-          "xl/_rels/workbook.xml.rels": workbookRelsXml(worksheets.length),
+          "xl/_rels/workbook.xml.rels": workbookRelsXml(
+            worksheets.length,
+            withThreads.some(Boolean),
+          ),
           "xl/sharedStrings.xml": sharedStringsXml(sharedStrings),
           ...Object.fromEntries([
             ...comments.success.flatMap((part, i) =>
               Option.match(part, {
                 onNone: () => [],
-                onSome: ({ comments: xml, vml }) => [
+                onSome: ({ comments: xml, vml, threaded }) => [
                   [`xl/comments${commentPart[i]}.xml`, XML_DECL + xml] as const,
                   [`xl/drawings/vmlDrawing${commentPart[i]}.vml`, vml] as const,
+                  ...Arr.fromOption(threaded).map(
+                    (t) =>
+                      [
+                        `xl/threadedComments/threadedComment${threadedPart[i]}.xml`,
+                        XML_DECL + t,
+                      ] as const,
+                  ),
                 ],
               }),
             ),
+            ...(withThreads.some(Boolean)
+              ? [["xl/persons/person.xml", XML_DECL + personsXml(people)] as const]
+              : []),
             ...sheetXmls.flatMap((part, i) => {
               const sheet = [`xl/worksheets/sheet${i + 1}.xml`, part.xml] as const;
               return Arr.isReadonlyArrayEmpty(part.rels)

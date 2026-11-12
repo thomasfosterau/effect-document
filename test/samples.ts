@@ -198,6 +198,28 @@ const SHEET: Partial<Record<Feature, Block[]>> = {
       }),
     ]),
   ],
+  "review.threads": [
+    withSheetComments(sheet("S", [[cell.text("x"), cell.text("y")]]), [
+      new CellComment({
+        row: 0,
+        col: 1,
+        comment: new Comment({
+          author: "Ann",
+          date: DateTime.toDateUtc(DateTime.makeUnsafe("2024-01-02T03:04:05.678Z")),
+          resolved: true,
+          content: [para([s("Is this right?")]), para([s("Check the total.")])],
+          replies: [
+            new Comment({
+              author: "Bo",
+              date: DateTime.toDateUtc(DateTime.makeUnsafe("2024-01-02T04:00:00Z")),
+              content: [para([s("Yes.")])],
+              replies: [],
+            }),
+          ],
+        }),
+      }),
+    ]),
+  ],
   "inline.link": [
     sheet("S", [
       [
