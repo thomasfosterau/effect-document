@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
@@ -31,7 +32,6 @@ import {
   serializeObject,
 } from "../../src/pdf/cos/index.ts";
 
-const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const enc = latin1ToBytes;
 const parse = (s: string): PdfObject => parseObject(enc(s));
 const text = (o: PdfObject): string =>
@@ -48,15 +48,14 @@ const concat = (parts: ReadonlyArray<Uint8Array | string>): Uint8Array => {
   return out;
 };
 
-const pdfBytes = (body: string, title?: string): Uint8Array => {
-  const c = run(
-    makePdfWriter().write(
+const pdfBytes = (body: string, title?: string) =>
+  Effect.gen(function* () {
+    const c = yield* makePdfWriter().write(
       trustAs<PdfFeature>(document([para([str(body)])], title === undefined ? {} : { title })),
-    ),
-  );
-  assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
-  return c.bytes;
-};
+    );
+    assert(Predicate.isTagged(c, "Bytes"), "expected bytes");
+    return c.bytes;
+  });
 
 describe("object parser", () => {
   test("scalars, names and references", () => {
@@ -294,96 +293,122 @@ const xrefStreamPdf = (): Uint8Array => {
 };
 
 describe("PdfFile", () => {
-  test("reads a classic xref table", () => {
-    const file = PdfFile.open(pdfBytes("Hello", "T"));
-    expect(file.repaired).toBe(false);
-    expect(file.version).toBe("1.7");
-    expect(file.pages().length).toBe(1);
-    expect(file.encrypted).toBe(false);
-  });
+  it.effect("reads a classic xref table", () =>
+    Effect.gen(function* () {
+      const file = PdfFile.open(yield* pdfBytes("Hello", "T"));
+      expect(file.repaired).toBe(false);
+      expect(file.version).toBe("1.7");
+      expect(file.pages().length).toBe(1);
+      expect(file.encrypted).toBe(false);
+    }),
+  );
 
-  test("reads cross-reference streams and object streams", () => {
-    const data = xrefStreamPdf();
-    const file = PdfFile.open(data);
-    expect(file.repaired).toBe(false);
-    expect(file.entry(3)?._tag).toBe("Compressed");
-    expect(file.pages().length).toBe(1);
-    const doc = run(makePdfReader().read(bytes(data)));
-    expect(blocksToText(doc.blocks)).toBe("Packed objects");
-  });
+  it.effect("reads cross-reference streams and object streams", () =>
+    Effect.gen(function* () {
+      const data = xrefStreamPdf();
+      const file = PdfFile.open(data);
+      expect(file.repaired).toBe(false);
+      expect(file.entry(3)?._tag).toBe("Compressed");
+      expect(file.pages().length).toBe(1);
+      const doc = yield* makePdfReader().read(bytes(data));
+      expect(blocksToText(doc.blocks)).toBe("Packed objects");
+    }),
+  );
 
-  test("repairs a file whose startxref points nowhere", () => {
-    const data = pdfBytes("Survives damage");
-    const s = bytesToLatin1(data).replace(/startxref\n\d+/, "startxref\n999999");
-    const file = PdfFile.open(enc(s));
-    expect(file.repaired).toBe(true);
-    expect(blocksToText(run(makePdfReader().read(bytes(enc(s)))).blocks)).toBe("Survives damage");
-  });
+  it.effect("repairs a file whose startxref points nowhere", () =>
+    Effect.gen(function* () {
+      const data = yield* pdfBytes("Survives damage");
+      const s = bytesToLatin1(data).replace(/startxref\n\d+/, "startxref\n999999");
+      const file = PdfFile.open(enc(s));
+      expect(file.repaired).toBe(true);
+      expect(blocksToText((yield* makePdfReader().read(bytes(enc(s)))).blocks)).toBe(
+        "Survives damage",
+      );
+    }),
+  );
 
-  test("repairs a file with object streams by rescanning their members", () => {
-    const s = bytesToLatin1(xrefStreamPdf()).replace(/startxref\n\d+/, "startxref\n999999");
-    const file = PdfFile.open(enc(s));
-    expect(file.repaired).toBe(true);
-    expect(file.entry(3)?._tag).toBe("Compressed");
-    expect(blocksToText(run(makePdfReader().read(bytes(enc(s)))).blocks)).toBe("Packed objects");
-  });
+  it.effect("repairs a file with object streams by rescanning their members", () =>
+    Effect.gen(function* () {
+      const s = bytesToLatin1(xrefStreamPdf()).replace(/startxref\n\d+/, "startxref\n999999");
+      const file = PdfFile.open(enc(s));
+      expect(file.repaired).toBe(true);
+      expect(file.entry(3)?._tag).toBe("Compressed");
+      expect(blocksToText((yield* makePdfReader().read(bytes(enc(s)))).blocks)).toBe(
+        "Packed objects",
+      );
+    }),
+  );
 
-  test("repairs a file with no xref table or trailer at all", () => {
-    const s = bytesToLatin1(pdfBytes("No table"));
-    const truncated = s.slice(0, s.indexOf("xref\n"));
-    expect(blocksToText(run(makePdfReader().read(bytes(enc(truncated)))).blocks)).toBe("No table");
-  });
+  it.effect("repairs a file with no xref table or trailer at all", () =>
+    Effect.gen(function* () {
+      const s = bytesToLatin1(yield* pdfBytes("No table"));
+      const truncated = s.slice(0, s.indexOf("xref\n"));
+      expect(blocksToText((yield* makePdfReader().read(bytes(enc(truncated)))).blocks)).toBe(
+        "No table",
+      );
+    }),
+  );
 
-  test("repairs shifted object offsets", () => {
-    // junk inserted after the header moves every object
-    const s = bytesToLatin1(pdfBytes("Shifted"));
-    const shifted = s.replace("%PDF-1.7\n", "%PDF-1.7\n% padding padding padding\n");
-    expect(blocksToText(run(makePdfReader().read(bytes(enc(shifted)))).blocks)).toBe("Shifted");
-  });
+  it.effect("repairs shifted object offsets", () =>
+    Effect.gen(function* () {
+      // junk inserted after the header moves every object
+      const s = bytesToLatin1(yield* pdfBytes("Shifted"));
+      const shifted = s.replace("%PDF-1.7\n", "%PDF-1.7\n% padding padding padding\n");
+      expect(blocksToText((yield* makePdfReader().read(bytes(enc(shifted)))).blocks)).toBe(
+        "Shifted",
+      );
+    }),
+  );
 
-  test("follows incremental updates (/Prev): the newest object wins", () => {
-    const base = pdfBytes("Body", "Old title");
-    const file = PdfFile.open(base);
-    const infoRef = file.trailer.entries.get("Info");
-    const rootRef = file.trailer.entries.get("Root");
-    const prevXref = Number(/startxref\n(\d+)/.exec(bytesToLatin1(base))![1]);
-    assert(isRef(infoRef) && isRef(rootRef));
-    const infoNum = infoRef.num;
-    const objAt = base.length;
-    const update = `${infoNum} 0 obj\n<< /Title (New title) >>\nendobj\n`;
-    const xrefAt = objAt + update.length;
-    const tail =
-      `xref\n${infoNum} 1\n${String(objAt).padStart(10, "0")} 00000 n\r\n` +
-      `trailer\n<< /Size ${infoNum + 1} /Root ${rootRef.num} 0 R /Info ${infoNum} 0 R /Prev ${prevXref} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
-    const updated = concat([base, update, tail]);
-    const doc = run(makePdfReader().read(bytes(updated)));
-    expect(doc.meta.title).toBe("New title");
-    expect(blocksToText(doc.blocks)).toBe("Body");
-  });
+  it.effect("follows incremental updates (/Prev): the newest object wins", () =>
+    Effect.gen(function* () {
+      const base = yield* pdfBytes("Body", "Old title");
+      const file = PdfFile.open(base);
+      const infoRef = file.trailer.entries.get("Info");
+      const rootRef = file.trailer.entries.get("Root");
+      const prevXref = Number(/startxref\n(\d+)/.exec(bytesToLatin1(base))![1]);
+      assert(isRef(infoRef) && isRef(rootRef));
+      const infoNum = infoRef.num;
+      const objAt = base.length;
+      const update = `${infoNum} 0 obj\n<< /Title (New title) >>\nendobj\n`;
+      const xrefAt = objAt + update.length;
+      const tail =
+        `xref\n${infoNum} 1\n${String(objAt).padStart(10, "0")} 00000 n\r\n` +
+        `trailer\n<< /Size ${infoNum + 1} /Root ${rootRef.num} 0 R /Info ${infoNum} 0 R /Prev ${prevXref} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
+      const updated = concat([base, update, tail]);
+      const doc = yield* makePdfReader().read(bytes(updated));
+      expect(doc.meta.title).toBe("New title");
+      expect(blocksToText(doc.blocks)).toBe("Body");
+    }),
+  );
 
-  test("rejects non-PDF input and refuses encrypted files", () => {
-    const notPdf = Effect.runSync(Effect.result(makePdfReader().read(bytes(enc("hello")))));
-    expect(notPdf._tag).toBe("Failure");
-    const s = bytesToLatin1(pdfBytes("Secret"));
-    const encrypted = s.replace(
-      "trailer\n<<",
-      "trailer\n<</Encrypt << /Filter /Standard /V 1 /R 2 >> ",
-    );
-    const r = Effect.runSync(Effect.result(makePdfReader().read(bytes(enc(encrypted)))));
-    expect(r._tag).toBe("Failure");
-    assert(Predicate.isTagged(r, "Failure"));
-    expect(r.failure.reason).toContain("encrypted");
-  });
+  it.effect("rejects non-PDF input and refuses encrypted files", () =>
+    Effect.gen(function* () {
+      const notPdf = yield* Effect.result(makePdfReader().read(bytes(enc("hello"))));
+      expect(notPdf._tag).toBe("Failure");
+      const s = bytesToLatin1(yield* pdfBytes("Secret"));
+      const encrypted = s.replace(
+        "trailer\n<<",
+        "trailer\n<</Encrypt << /Filter /Standard /V 1 /R 2 >> ",
+      );
+      const r = yield* Effect.result(makePdfReader().read(bytes(enc(encrypted))));
+      expect(r._tag).toBe("Failure");
+      assert(Predicate.isTagged(r, "Failure"));
+      expect(r.failure.reason).toContain("encrypted");
+    }),
+  );
 
-  test("rewritePdf expands object streams and keeps the content", () => {
-    const file = PdfFile.open(xrefStreamPdf());
-    const out = rewritePdf(file);
-    const again = PdfFile.open(out);
-    expect(again.repaired).toBe(false);
-    expect(again.entry(3)?._tag).toBe("Offset");
-    expect(again.entry(6)?._tag ?? "Free").toBe("Free"); // the object stream itself is gone
-    expect(blocksToText(run(makePdfReader().read(bytes(out))).blocks)).toBe("Packed objects");
-  });
+  it.effect("rewritePdf expands object streams and keeps the content", () =>
+    Effect.gen(function* () {
+      const file = PdfFile.open(xrefStreamPdf());
+      const out = rewritePdf(file);
+      const again = PdfFile.open(out);
+      expect(again.repaired).toBe(false);
+      expect(again.entry(3)?._tag).toBe("Offset");
+      expect(again.entry(6)?._tag ?? "Free").toBe("Free"); // the object stream itself is gone
+      expect(blocksToText((yield* makePdfReader().read(bytes(out))).blocks)).toBe("Packed objects");
+    }),
+  );
 
   test("rewritePdf takes more objects than a spread's argument limit (#225)", () => {
     const file = PdfFile.open(xrefStreamPdf());
@@ -440,14 +465,16 @@ describe("nesting limit (#110)", () => {
 });
 
 describe("a file without its %PDF- header (#173)", () => {
-  test("is read when it starts with object definitions, repaired by the object scan", () => {
-    const whole = pdfBytes("Headless", "T");
-    // drop the header line (and the binary comment after it), as pdf.js's bug1606566.pdf has none
-    const start = bytesToLatin1(whole).search(/\d+ \d+ obj/);
-    const file = PdfFile.open(whole.subarray(start));
-    expect(file.repaired).toBe(true);
-    expect(file.version).toBe("1.4");
-  });
+  it.effect("is read when it starts with object definitions, repaired by the object scan", () =>
+    Effect.gen(function* () {
+      const whole = yield* pdfBytes("Headless", "T");
+      // drop the header line (and the binary comment after it), as pdf.js's bug1606566.pdf has none
+      const start = bytesToLatin1(whole).search(/\d+ \d+ obj/);
+      const file = PdfFile.open(whole.subarray(start));
+      expect(file.repaired).toBe(true);
+      expect(file.version).toBe("1.4");
+    }),
+  );
 
   test("anything else without one is still refused", () => {
     const failed = Result.try(() => PdfFile.open(enc("hello, not a PDF")));

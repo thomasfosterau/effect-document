@@ -4,6 +4,7 @@
  * text and URL; each reported as `converted`.
  */
 
+import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import { describe, expect, test } from "vite-plus/test";
@@ -25,16 +26,20 @@ import * as Rtf from "@thomasfosterau/effect-document/rtf";
 const Prose = defineProfile("prose", ["block.para", "inline.str", "inline.space"]);
 
 describe("narrow degrades content (#111)", () => {
-  test("CSV -> RTF keeps the data as a paragraph per row", async () => {
-    const { content, loss } = await Effect.runPromise(
-      convert({ from: Csv.format, to: Rtf.format, input: text("a,b\n1,2\n") }),
-    );
-    const back = await Effect.runPromise(Rtf.makeRtfReader().read(content));
-    expect(blocksToText(back.blocks)).toBe("a\tb\n1\t2");
-    expect(loss.entries.map((e) => [e.feature, e.action])).toEqual([
-      ["sheet.worksheet", "converted"],
-    ]);
-  });
+  it.effect("CSV -> RTF keeps the data as a paragraph per row", () =>
+    Effect.gen(function* () {
+      const { content, loss } = yield* convert({
+        from: Csv.format,
+        to: Rtf.format,
+        input: text("a,b\n1,2\n"),
+      });
+      const back = yield* Rtf.makeRtfReader().read(content);
+      expect(blocksToText(back.blocks)).toBe("a\tb\n1\t2");
+      expect(loss.entries.map((e) => [e.feature, e.action])).toEqual([
+        ["sheet.worksheet", "converted"],
+      ]);
+    }),
+  );
 
   test("a horizontal rule becomes a *** paragraph", () => {
     const { document: out, loss } = narrow(document([new HorizontalRule({})]), Prose);

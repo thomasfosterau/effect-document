@@ -136,6 +136,7 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
     "@thomasfosterau/effect-parse": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",

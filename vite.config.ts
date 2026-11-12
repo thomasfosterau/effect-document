@@ -76,6 +76,24 @@ export default defineConfig({
       // suites' assertion: it fails the test when the decoder throws
       // anything but its own typed error.
       "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "assert", "survives"] }],
+      // `@effect/vitest` registers its tests as `it.effect` / `it.live` /
+      // `it.effect.each` / `it.effect.prop` (the `it` of a `layer` block is
+      // the same API), which the rule does not know for test blocks.
+      "vitest/no-standalone-expect": [
+        "error",
+        {
+          additionalTestBlockFunctions: [
+            "it.effect",
+            "it.live",
+            "it.effect.each",
+            "it.live.each",
+            "it.effect.prop",
+            "it.live.prop",
+            "it.effect.only",
+            "it.effect.skip",
+          ],
+        },
+      ],
       // The lists it flags are module-level constants of a few strings
       // (structure types, list-numbering names, paragraph content tags). A
       // module-level `new Set` is a top-level call in a `sideEffects: false`
@@ -258,15 +276,17 @@ export default defineConfig({
       {
         files: ["**/test/**/*.ts"],
         rules: {
-          // A test body is the boundary that runs the effect under test, and
-          // the rule has no entrypoint detection (effect-web disables it per
-          // file in its suites; here it is one override for every suite).
-          "effect/effect-run-in-body": "off",
-          // ...and provides the layers the effect under test needs.
-          "effecttsgo/strict-effect-provide": "off",
           // Table-driven cases run one after another so a failure names its
           // case; a `Promise.all` over them would interleave the runs.
           "eslint/no-await-in-loop": "off",
+          // `@effect/vitest` is `@stability unstable` throughout (`it`,
+          // `layer`), so every `it.effect` would warn: the owner chose to
+          // adopt it for the Effect tests (2026-11-12).
+          "effecttsgo/unstable-api-usage": "off",
+          // `layer(...)` hands each block its own `it` (the same API, wired to
+          // the block's services), which a nested block or a file importing
+          // `it` for its plain tests then shadows.
+          "eslint/no-shadow": ["error", { allow: ["it"] }],
         },
       },
     ],

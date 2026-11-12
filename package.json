@@ -22,6 +22,7 @@
     "@effect/language-service": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/tsgo": "catalog:",
+    "@effect/vitest": "catalog:",
     "@enfect/oxlint": "catalog:",
     "@thomasfosterau/effect-document": "workspace:*",
     "@types/node": "catalog:",

@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Result from "effect/Result";
@@ -35,11 +36,12 @@ const utf16le = (s: string, bom: boolean) => {
 };
 
 /** A one-paragraph DOCX, written by our writer. */
-const docx = () => {
-  const out = Effect.runSync(makeDocxWriter().write(trustAs(document([para([str("hi")])]))));
-  assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
-  return out;
-};
+const docx = () =>
+  Effect.gen(function* () {
+    const out = yield* makeDocxWriter().write(trustAs(document([para([str("hi")])])));
+    assert(Predicate.isTagged(out, "Bytes"), "expected bytes");
+    return out;
+  });
 
 describe("OpcReader (#55)", () => {
   test("inflates parts lazily and matches part names case-insensitively", () => {
@@ -116,38 +118,46 @@ describe("OpcReader (#55)", () => {
     ]);
   });
 
-  test("zip output is byte-deterministic", () => {
-    expect(zipParts({ "a.xml": "<a/>" })).toEqual(zipParts({ "a.xml": "<a/>" }));
-    // Every entry's DOS timestamp is the DOS epoch: time 0, date 1980-01-01.
-    const out = zipParts({ "a.xml": "<a/>", "b.xml": "<b/>" });
-    const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const stamps = Array.from({ length: out.length - 3 }, (_, at) => at)
-      .filter((at) => view.getUint32(at, true) === 0x04_03_4b_50) // a local file header
-      .map((at) => [view.getUint16(at + 10, true), view.getUint16(at + 12, true)]);
-    const epoch = [0, (0 << 9) | (1 << 5) | 1];
-    expect(stamps).toEqual([epoch, epoch]);
-    const doc = document([worksheet("S", [[cell.number(1)]])]);
-    const write = () => Effect.runSync(makeXlsxWriter().write(trustAs(doc)));
-    expect(write()).toEqual(write());
-  });
+  it.effect("zip output is byte-deterministic", () =>
+    Effect.gen(function* () {
+      expect(zipParts({ "a.xml": "<a/>" })).toEqual(zipParts({ "a.xml": "<a/>" }));
+      // Every entry's DOS timestamp is the DOS epoch: time 0, date 1980-01-01.
+      const out = zipParts({ "a.xml": "<a/>", "b.xml": "<b/>" });
+      const view = new DataView(out.buffer, out.byteOffset, out.byteLength);
+      const stamps = Array.from({ length: out.length - 3 }, (_, at) => at)
+        .filter((at) => view.getUint32(at, true) === 0x04_03_4b_50) // a local file header
+        .map((at) => [view.getUint16(at + 10, true), view.getUint16(at + 12, true)]);
+      const epoch = [0, (0 << 9) | (1 << 5) | 1];
+      expect(stamps).toEqual([epoch, epoch]);
+      const doc = document([worksheet("S", [[cell.number(1)]])]);
+      const write = () => makeXlsxWriter().write(trustAs(doc));
+      expect(yield* write()).toEqual(yield* write());
+    }),
+  );
 });
 
 describe("readers (#55)", () => {
-  test("a package of the wrong type fails with WrongPackageType instead of reading empty", () => {
-    const pptx = Effect.runSync(Effect.flip(makePptxReader().read(docx())));
-    expect(pptx.reason).toContain("WrongPackageType");
-    const xlsx = Effect.runSync(Effect.flip(makeXlsxReader().read(docx())));
-    expect(xlsx.reason).toContain("WrongPackageType");
-    expect(Effect.runSync(makeDocxReader().read(docx())).blocks).toHaveLength(1);
-  });
+  it.effect(
+    "a package of the wrong type fails with WrongPackageType instead of reading empty",
+    () =>
+      Effect.gen(function* () {
+        const pptx = yield* Effect.flip(makePptxReader().read(yield* docx()));
+        expect(pptx.reason).toContain("WrongPackageType");
+        const xlsx = yield* Effect.flip(makeXlsxReader().read(yield* docx()));
+        expect(xlsx.reason).toContain("WrongPackageType");
+        expect((yield* makeDocxReader().read(yield* docx())).blocks).toHaveLength(1);
+      }),
+  );
 
-  test("reader limits apply and fail with a ParseError", () => {
-    const error = Effect.runSync(
-      Effect.flip(makeDocxReader({ limits: { maxEntrySize: 10 } }).read(docx())),
-    );
-    expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
-    expect(error.reason).toContain("LimitExceeded");
-  });
+  it.effect("reader limits apply and fail with a ParseError", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        makeDocxReader({ limits: { maxEntrySize: 10 } }).read(yield* docx()),
+      );
+      expect(error).toMatchObject({ _tag: "ParseError", format: "docx", code: "LimitExceeded" });
+      expect(error.reason).toContain("LimitExceeded");
+    }),
+  );
 
   test("a limit given as undefined keeps its default", () => {
     const data = zip({ "a.xml": "x".repeat(100) });
@@ -159,14 +169,16 @@ describe("readers (#55)", () => {
     expect(new OpcReader(data, { maxEntrySize: undefined }).text("a.xml")).toHaveLength(100);
   });
 
-  test("malformed XML in a part carries its position", () => {
-    const pkg = zip({
-      "_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="x/officeDocument" Target="word/document.xml"/></Relationships>`,
-      "word/document.xml": "<w:document>\n<w:body></w:document>",
-    });
-    const error = Effect.runSync(Effect.flip(makeDocxReader().read(bytes(pkg))));
-    expect(error.reason).toContain("/word/document.xml");
-    expect(error.code).toBe("MalformedXml");
-    expect(error.position).toEqual({ row: 2, column: 2, part: "word/document.xml" });
-  });
+  it.effect("malformed XML in a part carries its position", () =>
+    Effect.gen(function* () {
+      const pkg = zip({
+        "_rels/.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="x/officeDocument" Target="word/document.xml"/></Relationships>`,
+        "word/document.xml": "<w:document>\n<w:body></w:document>",
+      });
+      const error = yield* Effect.flip(makeDocxReader().read(bytes(pkg)));
+      expect(error.reason).toContain("/word/document.xml");
+      expect(error.code).toBe("MalformedXml");
+      expect(error.position).toEqual({ row: 2, column: 2, part: "word/document.xml" });
+    }),
+  );
 });

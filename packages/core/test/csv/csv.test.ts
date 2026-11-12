@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -49,8 +50,6 @@ import {
   synthesizeDocument,
 } from "../../src/csv/index.ts";
 
-const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
-
 /** A printed number with its last digit nudged each way: decimals that no longer print as written. */
 const nudged = (s: string): Array<string> => {
   const last = s.charCodeAt(s.length - 1) - 48;
@@ -73,61 +72,74 @@ const firstWorksheet = (doc: Document): Worksheet => {
 };
 
 // value-by-value inference on headerless input, unless a test says otherwise
-const readValues = async (input: string, options?: CsvReaderOptions) =>
-  firstWorksheet(
-    await run(
-      makeCsvReader({ treatFirstRowAsHeader: false, inference: "cell", ...options }).read(
+const readValues = (input: string, options?: CsvReaderOptions) =>
+  Effect.gen(function* () {
+    return firstWorksheet(
+      yield* makeCsvReader({ treatFirstRowAsHeader: false, inference: "cell", ...options }).read(
         text(input),
       ),
-    ),
-  ).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null)));
+    ).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null)));
+  });
 
 /** The cell values the reader gives a small typed table under `options`. */
 const defaultValues = (options?: CsvReaderOptions) =>
-  run(makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"))).then((doc) =>
-    firstWorksheet(doc).rows.map((r) => cellsOf(r).map((c) => ("value" in c ? c.value : null))),
-  );
+  Effect.gen(function* () {
+    const doc = yield* makeCsvReader(options).read(text("id,code,n\n1,007,2.5\n2,8,3\n"));
+    return firstWorksheet(doc).rows.map((r) =>
+      cellsOf(r).map((c) => ("value" in c ? c.value : null)),
+    );
+  });
 
 /** The cell values the reader gives `input` under `options`, header sniffing included. */
-const sniffedValues = async (input: string, options?: CsvReaderOptions) =>
-  firstWorksheet(await run(makeCsvReader(options).read(text(input)))).rows.map((r) =>
-    cellsOf(r).map((c) => ("value" in c ? c.value : null)),
-  );
+const sniffedValues = (input: string, options?: CsvReaderOptions) =>
+  Effect.gen(function* () {
+    return firstWorksheet(yield* makeCsvReader(options).read(text(input))).rows.map((r) =>
+      cellsOf(r).map((c) => ("value" in c ? c.value : null)),
+    );
+  });
 
 describe("CSV reader", () => {
-  test("infers number/boolean/blank cells", async () => {
-    const doc = await run(
-      makeCsvReader({ treatFirstRowAsHeader: false }).read(text("alice,30,true\nbob,,false\n")),
-    );
-    const ws = firstWorksheet(doc);
-    expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual([
-      "CellText",
-      "CellNumber",
-      "CellBoolean",
-    ]);
-    expect(cellsOf(ws.rows[1]!)[1]!._tag).toBe("CellBlank");
-  });
+  it.effect("infers number/boolean/blank cells", () =>
+    Effect.gen(function* () {
+      const doc = yield* makeCsvReader({ treatFirstRowAsHeader: false }).read(
+        text("alice,30,true\nbob,,false\n"),
+      );
+      const ws = firstWorksheet(doc);
+      expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual([
+        "CellText",
+        "CellNumber",
+        "CellBoolean",
+      ]);
+      expect(cellsOf(ws.rows[1]!)[1]!._tag).toBe("CellBlank");
+    }),
+  );
 
-  test("inferTypes: false keeps every value as text", async () => {
-    const doc = await run(makeCsvReader({ inferTypes: false }).read(text("1,true\n")));
-    const ws = firstWorksheet(doc);
-    expect(cellsOf(ws.rows[0]!).every((c) => Predicate.isTagged(c, "CellText"))).toBe(true);
-  });
+  it.effect("inferTypes: false keeps every value as text", () =>
+    Effect.gen(function* () {
+      const doc = yield* makeCsvReader({ inferTypes: false }).read(text("1,true\n"));
+      const ws = firstWorksheet(doc);
+      expect(cellsOf(ws.rows[0]!).every((c) => Predicate.isTagged(c, "CellText"))).toBe(true);
+    }),
+  );
 
-  test("header row is read as text cells", async () => {
-    const doc = await run(
-      makeCsvReader({ treatFirstRowAsHeader: true }).read(text("name,age\nalice,30\n")),
-    );
-    const ws = firstWorksheet(doc);
-    expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual(["CellText", "CellText"]);
-    expect(cellsOf(ws.rows[1]!)[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
-  });
+  it.effect("header row is read as text cells", () =>
+    Effect.gen(function* () {
+      const doc = yield* makeCsvReader({ treatFirstRowAsHeader: true }).read(
+        text("name,age\nalice,30\n"),
+      );
+      const ws = firstWorksheet(doc);
+      expect(cellsOf(ws.rows[0]!).map((c) => c._tag)).toEqual(["CellText", "CellText"]);
+      expect(cellsOf(ws.rows[1]!)[1]).toMatchObject({ _tag: "CellNumber", value: 30 });
+    }),
+  );
 
-  test("produces a document conforming to the CSV profile", async () => {
-    const reader = makeCsvReader();
-    const doc = await run(reader.read(text("a,1\nb,2\n")));
-    expect(reader.profile.is(doc)).toBe(true);
-  });
+  it.effect("produces a document conforming to the CSV profile", () =>
+    Effect.gen(function* () {
+      const reader = makeCsvReader();
+      const doc = yield* reader.read(text("a,1\nb,2\n"));
+      expect(reader.profile.is(doc)).toBe(true);
+    }),
+  );
 
   test("classifies numbers as the plain-decimal grammar does", () => {
     // The reference is the grammar as a regular expression with the
@@ -205,400 +217,466 @@ describe("CSV reader", () => {
     expect(lossyMismatches.slice(0, 5)).toEqual([]);
   });
 
-  test("exactNumbers: false reads digits a double cannot hold as numbers", async () => {
-    const csv = "id,x\n12345678901234567890,0.10000000000000001\n";
-    expect(await run(readCsvRows(csv, { treatFirstRowAsHeader: true }))).toEqual({
-      headers: ["id", "x"],
-      rows: [["12345678901234567890", "0.10000000000000001"]],
-    });
-    expect(
-      await run(readCsvRows(csv, { exactNumbers: false, treatFirstRowAsHeader: true })),
-    ).toEqual({
-      headers: ["id", "x"],
-      rows: [[Number("12345678901234567890"), 0.1]],
-    });
-  });
-
-  test("types a column as every non-null value in it is typed, else as text", async () => {
-    // a reference from per-cell inference: a column keeps a type only if all
-    // its non-null values have it; a text column keeps nulls as blanks
-    const pools = [
-      ["1", "-2", "3.5", "1e3", "0", "", "12345678901234567890"],
-      ["true", "false", "TRUE", ""],
-      ["a", "b", "", "1"],
-      ["", ""],
-      ["7", "8", "9"],
-    ];
-    let seed = 11;
-    const next = (n: number) => {
-      seed = (seed * 48271) % 2147483647;
-      return seed % n;
-    };
-    const rows = Arr.makeBy(300, () => pools.map((pool) => pool[next(pool.length)] ?? ""));
-    const csv = ["c0,c1,c2,c3,c4", ...rows.map((r) => r.join(","))].join("\n") + "\n";
-    const doc = await run(makeCsvReader({ treatFirstRowAsHeader: true }).read(text(csv)));
-    const read = firstWorksheet(doc)
-      .rows.slice(1)
-      .map((row) => cellsOf(row));
-    const kinds = pools.map((_, c) => {
-      const tags = Arr.dedupe(
-        rows.map((r) => inferCell(r[c] ?? "")._tag).filter((tag) => tag !== "CellBlank"),
+  it.effect("exactNumbers: false reads digits a double cannot hold as numbers", () =>
+    Effect.gen(function* () {
+      const csv = "id,x\n12345678901234567890,0.10000000000000001\n";
+      expect(yield* readCsvRows(csv, { treatFirstRowAsHeader: true })).toEqual({
+        headers: ["id", "x"],
+        rows: [["12345678901234567890", "0.10000000000000001"]],
+      });
+      expect(yield* readCsvRows(csv, { exactNumbers: false, treatFirstRowAsHeader: true })).toEqual(
+        {
+          headers: ["id", "x"],
+          rows: [[Number("12345678901234567890"), 0.1]],
+        },
       );
-      return tags.length === 1 ? tags[0] : "CellText";
-    });
-    const expected = rows.map((r) =>
-      r.map((raw, c) => {
-        const inferred = inferCell(raw);
-        if (Predicate.isTagged(inferred, "CellBlank")) return inferred;
-        return kinds[c] === "CellText" ? cell.text(raw) : inferred;
+    }),
+  );
+
+  it.effect("types a column as every non-null value in it is typed, else as text", () =>
+    Effect.gen(function* () {
+      // a reference from per-cell inference: a column keeps a type only if all
+      // its non-null values have it; a text column keeps nulls as blanks
+      const pools = [
+        ["1", "-2", "3.5", "1e3", "0", "", "12345678901234567890"],
+        ["true", "false", "TRUE", ""],
+        ["a", "b", "", "1"],
+        ["", ""],
+        ["7", "8", "9"],
+      ];
+      let seed = 11;
+      const next = (n: number) => {
+        seed = (seed * 48271) % 2147483647;
+        return seed % n;
+      };
+      const rows = Arr.makeBy(300, () => pools.map((pool) => pool[next(pool.length)] ?? ""));
+      const csv = ["c0,c1,c2,c3,c4", ...rows.map((r) => r.join(","))].join("\n") + "\n";
+      const doc = yield* makeCsvReader({ treatFirstRowAsHeader: true }).read(text(csv));
+      const read = firstWorksheet(doc)
+        .rows.slice(1)
+        .map((row) => cellsOf(row));
+      const kinds = pools.map((_, c) => {
+        const tags = Arr.dedupe(
+          rows.map((r) => inferCell(r[c] ?? "")._tag).filter((tag) => tag !== "CellBlank"),
+        );
+        return tags.length === 1 ? tags[0] : "CellText";
+      });
+      const expected = rows.map((r) =>
+        r.map((raw, c) => {
+          const inferred = inferCell(raw);
+          if (Predicate.isTagged(inferred, "CellBlank")) return inferred;
+          return kinds[c] === "CellText" ? cell.text(raw) : inferred;
+        }),
+      );
+      expect(read).toEqual(expected);
+    }),
+  );
+
+  it.effect("reads only plain decimals as numbers", () =>
+    Effect.gen(function* () {
+      expect(inferCell("007")).toEqual(cell.text("007"));
+      const values = [
+        "007",
+        "02134",
+        "0x1F",
+        "0b11",
+        "+1",
+        " 12 ",
+        "1.",
+        ".5",
+        "Infinity",
+        "12345678901234567890",
+        "1234567890.12345",
+        "0",
+        "-12.5",
+        "1e3",
+        "1000000000000000000000",
+        "0.000123",
+      ];
+      expect((yield* readValues(values.join(",")))[0]).toEqual([
+        "007",
+        "02134",
+        "0x1F",
+        "0b11",
+        "+1",
+        " 12 ",
+        "1.",
+        ".5",
+        "Infinity",
+        "12345678901234567890",
+        1234567890.12345,
+        0,
+        -12.5,
+        1000,
+        1e21,
+        0.000123,
+      ]);
+    }),
+  );
+
+  it.effect("keeps a value a number only when a double holds its digits (#88)", () =>
+    Effect.gen(function* () {
+      const values = [
+        "0.30000000000000004",
+        "9007199254740992",
+        "9007199254740993",
+        "1e400",
+        "7.10",
+      ];
+      expect((yield* readValues(values.join(",")))[0]).toEqual([
+        0.30000000000000004,
+        9007199254740992,
+        "9007199254740993",
+        "1e400",
+        7.1,
+      ]);
+    }),
+  );
+
+  it.effect("booleans are case-insensitive and configurable", () =>
+    Effect.gen(function* () {
+      expect(yield* readValues("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
+      expect(yield* readValues("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([
+        ["TRUE", true],
+      ]);
+      expect(yield* readValues("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([
+        [true, false, "true"],
+      ]);
+      expect(yield* readValues("true\n", { booleans: false })).toEqual([["true"]]);
+    }),
+  );
+
+  it.effect("decimalChar, groupChar and percent", () =>
+    Effect.gen(function* () {
+      const options: CsvReaderOptions = {
+        dialect: { ...TsvDialect },
+        decimalChar: ",",
+        groupChar: ".",
+        percent: true,
+      };
+      expect(yield* readValues("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
+        [1234.56, 1234.5, 0.12, 0.07, "1.23,4", "12,34.5"],
+      ]);
+      expect(yield* readValues('"1,234.56",12%\n', { groupChar: "," })).toEqual([[1234.56, "12%"]]);
+    }),
+  );
+
+  it.effect("nullValues become blank cells", () =>
+    Effect.gen(function* () {
+      const doc = yield* makeCsvReader({
+        nullValues: ["", "NA", "NULL"],
+        treatFirstRowAsHeader: false,
+      }).read(text("NA,NULL,,na\n"));
+      expect(cellsOf(firstWorksheet(doc).rows[0]!).map((c) => c._tag)).toEqual([
+        "CellBlank",
+        "CellBlank",
+        "CellBlank",
+        "CellText",
+      ]);
+    }),
+  );
+
+  it.effect("column inference types a column by all its values", () =>
+    Effect.gen(function* () {
+      const input = "1,true,a,1\n2,false,,x\n,TRUE,b,3\n";
+      expect(yield* readValues(input, { inference: "column" })).toEqual([
+        [1, true, "a", "1"],
+        [2, false, null, "x"],
+        [null, true, "b", "3"],
+      ]);
+      expect(yield* readValues(input, { inference: "cell" })).toEqual([
+        [1, true, "a", 1],
+        [2, false, null, "x"],
+        [null, true, "b", 3],
+      ]);
+      // the header row is excluded from inference
+      expect(
+        yield* readValues("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true }),
+      ).toEqual([
+        ["id", "ok"],
+        [1, true],
+      ]);
+    }),
+  );
+
+  it.effect("by default the header row is sniffed and each column is typed as a whole (#88)", () =>
+    Effect.gen(function* () {
+      const expected = [
+        ["id", "code", "n"],
+        // `007` keeps the whole code column text, so `8` stays as written too
+        [1, "007", 2.5],
+        [2, "8", 3],
+      ];
+      expect(yield* defaultValues()).toEqual(expected);
+      // an optional forwarded as `undefined` still means the default
+      expect(
+        yield* defaultValues({ treatFirstRowAsHeader: undefined, inference: undefined }),
+      ).toEqual(expected);
+      expect(yield* defaultValues({ inference: "cell" })).toEqual([
+        ["id", "code", "n"],
+        [1, "007", 2.5],
+        [2, 8, 3],
+      ]);
+      expect((yield* defaultValues({ treatFirstRowAsHeader: false }))[1]).toEqual([
+        "1",
+        "007",
+        "2.5",
+      ]);
+    }),
+  );
+
+  it.effect(
+    "header sniffing: a typed first row is data, an all-text file has no header (#88)",
+    () =>
+      Effect.gen(function* () {
+        // no text first row: headerless numbers
+        expect(yield* sniffedValues("1,2\n3,4\n")).toEqual([
+          [1, 2],
+          [3, 4],
+        ]);
+        // every column text: nothing tells a header apart, so the first row is data
+        expect(yield* sniffedValues("name,city\nalice,paris\n")).toEqual([
+          ["name", "city"],
+          ["alice", "paris"],
+        ]);
+        // a blank in the first row: not a header, so the numbers make that column text
+        expect(yield* sniffedValues("id,\n1,2\n")).toEqual([
+          ["id", null],
+          ["1", 2],
+        ]);
+        // one row: no data to compare against
+        expect(yield* sniffedValues("a,b\n")).toEqual([["a", "b"]]);
+        // an explicit setting overrides the sniff either way
+        expect(yield* sniffedValues("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
+          ["1", "2"],
+          [3, 4],
+        ]);
+        expect(yield* sniffedValues("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
+          ["id", "n"],
+          ["1", "2"],
+        ]);
       }),
-    );
-    expect(read).toEqual(expected);
-  });
+  );
 
-  test("reads only plain decimals as numbers", async () => {
-    expect(inferCell("007")).toEqual(cell.text("007"));
-    const values = [
-      "007",
-      "02134",
-      "0x1F",
-      "0b11",
-      "+1",
-      " 12 ",
-      "1.",
-      ".5",
-      "Infinity",
-      "12345678901234567890",
-      "1234567890.12345",
-      "0",
-      "-12.5",
-      "1e3",
-      "1000000000000000000000",
-      "0.000123",
-    ];
-    expect((await readValues(values.join(",")))[0]).toEqual([
-      "007",
-      "02134",
-      "0x1F",
-      "0b11",
-      "+1",
-      " 12 ",
-      "1.",
-      ".5",
-      "Infinity",
-      "12345678901234567890",
-      1234567890.12345,
-      0,
-      -12.5,
-      1000,
-      1e21,
-      0.000123,
-    ]);
-  });
-
-  test("keeps a value a number only when a double holds its digits (#88)", async () => {
-    const values = ["0.30000000000000004", "9007199254740992", "9007199254740993", "1e400", "7.10"];
-    expect((await readValues(values.join(",")))[0]).toEqual([
-      0.30000000000000004,
-      9007199254740992,
-      "9007199254740993",
-      "1e400",
-      7.1,
-    ]);
-  });
-
-  test("booleans are case-insensitive and configurable", async () => {
-    expect(await readValues("TRUE,False,yes\n")).toEqual([[true, false, "yes"]]);
-    expect(await readValues("TRUE,true\n", { booleansCaseSensitive: true })).toEqual([
-      ["TRUE", true],
-    ]);
-    expect(await readValues("yes,NO,true\n", { booleans: ["yes", "no"] })).toEqual([
-      [true, false, "true"],
-    ]);
-    expect(await readValues("true\n", { booleans: false })).toEqual([["true"]]);
-  });
-
-  test("decimalChar, groupChar and percent", async () => {
-    const options: CsvReaderOptions = {
-      dialect: { ...TsvDialect },
-      decimalChar: ",",
-      groupChar: ".",
-      percent: true,
-    };
-    expect(await readValues("1.234,56\t1234,5\t12%\t7%\t1.23,4\t12,34.5\n", options)).toEqual([
-      [1234.56, 1234.5, 0.12, 0.07, "1.23,4", "12,34.5"],
-    ]);
-    expect(await readValues('"1,234.56",12%\n', { groupChar: "," })).toEqual([[1234.56, "12%"]]);
-  });
-
-  test("nullValues become blank cells", async () => {
-    const doc = await run(
-      makeCsvReader({ nullValues: ["", "NA", "NULL"], treatFirstRowAsHeader: false }).read(
-        text("NA,NULL,,na\n"),
-      ),
-    );
-    expect(cellsOf(firstWorksheet(doc).rows[0]!).map((c) => c._tag)).toEqual([
-      "CellBlank",
-      "CellBlank",
-      "CellBlank",
-      "CellText",
-    ]);
-  });
-
-  test("column inference types a column by all its values", async () => {
-    const input = "1,true,a,1\n2,false,,x\n,TRUE,b,3\n";
-    expect(await readValues(input, { inference: "column" })).toEqual([
-      [1, true, "a", "1"],
-      [2, false, null, "x"],
-      [null, true, "b", "3"],
-    ]);
-    expect(await readValues(input, { inference: "cell" })).toEqual([
-      [1, true, "a", 1],
-      [2, false, null, "x"],
-      [null, true, "b", 3],
-    ]);
-    // the header row is excluded from inference
-    expect(
-      await readValues("id,ok\n1,true\n", { inference: "column", treatFirstRowAsHeader: true }),
-    ).toEqual([
-      ["id", "ok"],
-      [1, true],
-    ]);
-  });
-
-  test("by default the header row is sniffed and each column is typed as a whole (#88)", async () => {
-    const expected = [
-      ["id", "code", "n"],
-      // `007` keeps the whole code column text, so `8` stays as written too
-      [1, "007", 2.5],
-      [2, "8", 3],
-    ];
-    expect(await defaultValues()).toEqual(expected);
-    // an optional forwarded as `undefined` still means the default
-    expect(await defaultValues({ treatFirstRowAsHeader: undefined, inference: undefined })).toEqual(
-      expected,
-    );
-    expect(await defaultValues({ inference: "cell" })).toEqual([
-      ["id", "code", "n"],
-      [1, "007", 2.5],
-      [2, 8, 3],
-    ]);
-    expect((await defaultValues({ treatFirstRowAsHeader: false }))[1]).toEqual(["1", "007", "2.5"]);
-  });
-
-  test("header sniffing: a typed first row is data, an all-text file has no header (#88)", async () => {
-    // no text first row: headerless numbers
-    expect(await sniffedValues("1,2\n3,4\n")).toEqual([
-      [1, 2],
-      [3, 4],
-    ]);
-    // every column text: nothing tells a header apart, so the first row is data
-    expect(await sniffedValues("name,city\nalice,paris\n")).toEqual([
-      ["name", "city"],
-      ["alice", "paris"],
-    ]);
-    // a blank in the first row: not a header, so the numbers make that column text
-    expect(await sniffedValues("id,\n1,2\n")).toEqual([
-      ["id", null],
-      ["1", 2],
-    ]);
-    // one row: no data to compare against
-    expect(await sniffedValues("a,b\n")).toEqual([["a", "b"]]);
-    // an explicit setting overrides the sniff either way
-    expect(await sniffedValues("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
-      ["1", "2"],
-      [3, 4],
-    ]);
-    expect(await sniffedValues("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
-      ["id", "n"],
-      ["1", "2"],
-    ]);
-  });
-
-  test("readStream yields rows", async () => {
-    const rows = await run(
-      pipe(
+  it.effect("readStream yields rows", () =>
+    Effect.gen(function* () {
+      const rows = yield* pipe(
         makeCsvReader({ treatFirstRowAsHeader: false }).readStream!(text("a,b\nc,d\n")),
         Stream.runCollect,
-      ),
-    );
-    expect([...rows]).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-    ]);
-  });
+      );
+      expect([...rows]).toEqual([
+        ["a", "b"],
+        ["c", "d"],
+      ]);
+    }),
+  );
 });
 
 // the grammar under test, on headerless input unless a test says otherwise
 const scannedRows = (input: string, options?: Parameters<typeof scanCsv>[2]) =>
-  Effect.runSync(scanCsv(input, undefined, { treatFirstRowAsHeader: false, ...options })).rows;
+  Effect.gen(function* () {
+    return (yield* scanCsv(input, undefined, { treatFirstRowAsHeader: false, ...options })).rows;
+  });
 
 describe("CSV scanner", () => {
-  test("quoted fields may contain separators, doubled quotes and line breaks", () => {
-    expect(scannedRows('a,"b,""c""\nd"\ne,f')).toEqual([
-      ["a", 'b,"c"\nd'],
-      ["e", "f"],
-    ]);
-  });
+  it.effect("quoted fields may contain separators, doubled quotes and line breaks", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows('a,"b,""c""\nd"\ne,f')).toEqual([
+        ["a", 'b,"c"\nd'],
+        ["e", "f"],
+      ]);
+    }),
+  );
 
-  test("a wrapper inside an unquoted field is literal", () => {
-    expect(scannedRows('12" pizza,3\n6" sub,2\n')).toEqual([
-      ['12" pizza', "3"],
-      ['6" sub', "2"],
-    ]);
-    expect(scannedRows('"a"b,c')).toEqual([["ab", "c"]]);
-  });
+  it.effect("a wrapper inside an unquoted field is literal", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows('12" pizza,3\n6" sub,2\n')).toEqual([
+        ['12" pizza', "3"],
+        ['6" sub', "2"],
+      ]);
+      expect(yield* scannedRows('"a"b,c')).toEqual([["ab", "c"]]);
+    }),
+  );
 
-  test("quoteAnywhere: quoted and unquoted segments mix within a field", () => {
-    expect(scannedRows('x"y,z"w,""', { quoteAnywhere: true })).toEqual([["xy,zw", ""]]);
-  });
+  it.effect("quoteAnywhere: quoted and unquoted segments mix within a field", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows('x"y,z"w,""', { quoteAnywhere: true })).toEqual([["xy,zw", ""]]);
+    }),
+  );
 
-  test("an empty wrapper turns quoting off", () => {
-    const dialect = { ...StandardDialect, wrapper: "", doubleWrapper: "" };
-    expect(
-      Effect.runSync(scanCsv('"a,b"\n', dialect, { treatFirstRowAsHeader: false })).rows,
-    ).toEqual([['"a', 'b"']]);
-  });
+  it.effect("an empty wrapper turns quoting off", () =>
+    Effect.gen(function* () {
+      const dialect = { ...StandardDialect, wrapper: "", doubleWrapper: "" };
+      expect((yield* scanCsv('"a,b"\n', dialect, { treatFirstRowAsHeader: false })).rows).toEqual([
+        ['"a', 'b"'],
+      ]);
+    }),
+  );
 
-  test("multi-character separators are matched whole", () => {
-    const dialect = { ...StandardDialect, separator: "||" };
-    expect(
-      Effect.runSync(scanCsv("a|b||c\n|||\n", dialect, { treatFirstRowAsHeader: false })).rows,
-    ).toEqual([
-      ["a|b", "c"],
-      ["", "|"],
-    ]);
-  });
+  it.effect("multi-character separators are matched whole", () =>
+    Effect.gen(function* () {
+      const dialect = { ...StandardDialect, separator: "||" };
+      expect(
+        (yield* scanCsv("a|b||c\n|||\n", dialect, { treatFirstRowAsHeader: false })).rows,
+      ).toEqual([
+        ["a|b", "c"],
+        ["", "|"],
+      ]);
+    }),
+  );
 
-  test("skipRows counts CRLF, LF and bare CR line endings", () => {
-    expect(scannedRows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-    ]);
-  });
+  it.effect("skipRows counts CRLF, LF and bare CR line endings", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows("junk\rmore\r\na,b\rc,d\r", { skipRows: 2 })).toEqual([
+        ["a", "b"],
+        ["c", "d"],
+      ]);
+    }),
+  );
 
-  test("trimWhitespace keeps whitespace inside quotes", () => {
-    expect(scannedRows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
-    expect(
-      Effect.runSync(
-        scanCsv('\t" a "\t\n', TsvDialect, { trimWhitespace: true, treatFirstRowAsHeader: false }),
-      ).rows,
-    ).toEqual([["", " a ", ""]]);
-  });
+  it.effect("trimWhitespace keeps whitespace inside quotes", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows(' " a " , b \n', { trimWhitespace: true })).toEqual([[" a ", "b"]]);
+      expect(
+        (yield* scanCsv('\t" a "\t\n', TsvDialect, {
+          trimWhitespace: true,
+          treatFirstRowAsHeader: false,
+        })).rows,
+      ).toEqual([["", " a ", ""]]);
+    }),
+  );
 
-  test("providedHeaders replace the header row", () => {
-    const table = Effect.runSync(
-      scanCsv("h1,h2\n1,2\n", undefined, {
+  it.effect("providedHeaders replace the header row", () =>
+    Effect.gen(function* () {
+      const table = yield* scanCsv("h1,h2\n1,2\n", undefined, {
         treatFirstRowAsHeader: true,
         providedHeaders: ["x", "y"],
-      }),
-    );
-    expect(table).toEqual({ headers: ["x", "y"], rows: [["1", "2"]] });
-  });
+      });
+      expect(table).toEqual({ headers: ["x", "y"], rows: [["1", "2"]] });
+    }),
+  );
 
-  test("ignores a leading byte order mark", () => {
-    expect(scannedRows("﻿a,b\n")).toEqual([["a", "b"]]);
-  });
+  it.effect("ignores a leading byte order mark", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows("﻿a,b\n")).toEqual([["a", "b"]]);
+    }),
+  );
 
-  test("accepts LF, CRLF and bare CR line endings", () => {
-    expect(scannedRows("a,b\r\nc,d\re,f\n")).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-      ["e", "f"],
-    ]);
-  });
+  it.effect("accepts LF, CRLF and bare CR line endings", () =>
+    Effect.gen(function* () {
+      expect(yield* scannedRows("a,b\r\nc,d\re,f\n")).toEqual([
+        ["a", "b"],
+        ["c", "d"],
+        ["e", "f"],
+      ]);
+    }),
+  );
 
-  test("skips blank and comment lines, trims, and skips leading rows", () => {
-    const input = "title line\n# a comment\n  \n a , b \n";
-    expect(
-      scannedRows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true }),
-    ).toEqual([["a", "b"]]);
-    expect(scannedRows("a\n\nb\n", { filterEmpty: false })).toEqual([["a"], [""], ["b"]]);
-  });
+  it.effect("skips blank and comment lines, trims, and skips leading rows", () =>
+    Effect.gen(function* () {
+      const input = "title line\n# a comment\n  \n a , b \n";
+      expect(
+        yield* scannedRows(input, { skipRows: 1, lineCommentMarker: "#", trimWhitespace: true }),
+      ).toEqual([["a", "b"]]);
+      expect(yield* scannedRows("a\n\nb\n", { filterEmpty: false })).toEqual([["a"], [""], ["b"]]);
+    }),
+  );
 
-  test("uses the dialect separator", () => {
-    expect(
-      Effect.runSync(scanCsv("a\tb,c\n", TsvDialect, { treatFirstRowAsHeader: false })).rows,
-    ).toEqual([["a", "b,c"]]);
-  });
+  it.effect("uses the dialect separator", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* scanCsv("a\tb,c\n", TsvDialect, { treatFirstRowAsHeader: false })).rows,
+      ).toEqual([["a", "b,c"]]);
+    }),
+  );
 
-  test("a TSV line of tabs is a row of empty fields, not a blank line (#109)", () => {
-    expect(
-      Effect.runSync(scanCsv("a\tb\n\t\nc\td\n", TsvDialect, { treatFirstRowAsHeader: false }))
-        .rows,
-    ).toEqual([
-      ["a", "b"],
-      ["", ""],
-      ["c", "d"],
-    ]);
-  });
+  it.effect("a TSV line of tabs is a row of empty fields, not a blank line (#109)", () =>
+    Effect.gen(function* () {
+      expect(
+        (yield* scanCsv("a\tb\n\t\nc\td\n", TsvDialect, { treatFirstRowAsHeader: false })).rows,
+      ).toEqual([
+        ["a", "b"],
+        ["", ""],
+        ["c", "d"],
+      ]);
+    }),
+  );
 
-  test("an unclosed quote fails with its line and column", () => {
-    const r = Effect.runSync(Effect.result(scanCsv('a,b\nc,"d\ne\n')));
-    expect(Result.isFailure(r)).toBe(true);
-    assert(Result.isFailure(r));
-    expect(r.failure.reason).toContain("closing quote");
-    expect(r.failure.position).toEqual({ row: 3, column: 0 });
-  });
+  it.effect("an unclosed quote fails with its line and column", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(scanCsv('a,b\nc,"d\ne\n'));
+      expect(Result.isFailure(r)).toBe(true);
+      assert(Result.isFailure(r));
+      expect(r.failure.reason).toContain("closing quote");
+      expect(r.failure.position).toEqual({ row: 3, column: 0 });
+    }),
+  );
 
-  test("rejects rows with the wrong column count", () => {
-    const r = Effect.runSync(
-      Effect.result(scanCsv("a,b\n1\n", undefined, { treatFirstRowAsHeader: true })),
-    );
-    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 1 });
-  });
+  it.effect("rejects rows with the wrong column count", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(
+        scanCsv("a,b\n1\n", undefined, { treatFirstRowAsHeader: true }),
+      );
+      expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 1 });
+    }),
+  );
 
-  test("without headers, rows must match the first row's width", () => {
-    const r = Effect.runSync(Effect.result(scanCsv("a,b\nc\n")));
-    expect(Result.isFailure(r) && r.failure.reason).toBe("Row 1 has 1 columns, expected 2");
-    expect(scannedRows("a,b\nc\n", { allowVariableColumns: true })).toEqual([["a", "b"], ["c"]]);
-  });
+  it.effect("without headers, rows must match the first row's width", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(scanCsv("a,b\nc\n"));
+      expect(Result.isFailure(r) && r.failure.reason).toBe("Row 1 has 1 columns, expected 2");
+      expect(yield* scannedRows("a,b\nc\n", { allowVariableColumns: true })).toEqual([
+        ["a", "b"],
+        ["c"],
+      ]);
+    }),
+  );
 
-  test("column-count errors report the source row", () => {
-    const r = Effect.runSync(
-      Effect.result(scanCsv('# note\n\na,"b\nc"\r\nd\n', undefined, { lineCommentMarker: "#" })),
-    );
-    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4 });
-  });
+  it.effect("column-count errors report the source row", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(
+        scanCsv('# note\n\na,"b\nc"\r\nd\n', undefined, { lineCommentMarker: "#" }),
+      );
+      expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4 });
+    }),
+  );
 
-  test("validating column counts stays linear in the input (#177)", () => {
-    const body = Arr.makeBy(2000, (i) => `${i},x${i},"q ${i}"`).join("\n");
-    const csv = `a,b,c\n${body}\nlast,row,here\n`;
-    // count every source position read, by the grammar or by a row-position
-    // lookup (a counter, not `vi.spyOn`: recording each call's arguments
-    // exhausts memory on the quadratic path)
-    const charCodeAt = String.prototype.charCodeAt;
-    let reads = 0;
-    String.prototype.charCodeAt = function (this: string, index: number): number {
-      reads++;
-      return charCodeAt.call(this, index);
-    };
-    const table = Effect.runSync(
-      pipe(
+  it.effect("validating column counts stays linear in the input (#177)", () =>
+    Effect.gen(function* () {
+      const body = Arr.makeBy(2000, (i) => `${i},x${i},"q ${i}"`).join("\n");
+      const csv = `a,b,c\n${body}\nlast,row,here\n`;
+      // count every source position read, by the grammar or by a row-position
+      // lookup (a counter, not `vi.spyOn`: recording each call's arguments
+      // exhausts memory on the quadratic path)
+      const charCodeAt = String.prototype.charCodeAt;
+      let reads = 0;
+      String.prototype.charCodeAt = function (this: string, index: number): number {
+        reads++;
+        return charCodeAt.call(this, index);
+      };
+      const table = yield* pipe(
         scanCsv(csv, undefined, { treatFirstRowAsHeader: true }),
         Effect.ensuring(
           Effect.sync(() => {
             String.prototype.charCodeAt = charCodeAt;
           }),
         ),
-      ),
-    );
-    expect(table.rows).toHaveLength(2001);
-    // linear: a few reads per character (about two today); the quadratic row
-    // lookup this guards against made about a thousand
-    expect(reads).toBeLessThan(10 * csv.length);
-  });
+      );
+      expect(table.rows).toHaveLength(2001);
+      // linear: a few reads per character (about two today); the quadratic row
+      // lookup this guards against made about a thousand
+      expect(reads).toBeLessThan(10 * csv.length);
+    }),
+  );
 });
 
 const collect = (chunks: ReadonlyArray<string>, options?: Parameters<typeof scanCsvStream>[2]) =>
-  Effect.runPromise(
-    Effect.result(
-      Stream.runCollect(
-        scanCsvStream(Stream.fromIterable(chunks), undefined, {
-          treatFirstRowAsHeader: false,
-          ...options,
-        }),
-      ),
+  Effect.result(
+    Stream.runCollect(
+      scanCsvStream(Stream.fromIterable(chunks), undefined, {
+        treatFirstRowAsHeader: false,
+        ...options,
+      }),
     ),
   );
 
@@ -615,7 +693,9 @@ const outcome = (
     onFailure: ({ reason, position }) => ({ reason, position }),
   });
 const scanWhole = (source: string, options: Parameters<typeof scanCsv>[2]) =>
-  run(Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows)));
+  Effect.gen(function* () {
+    return yield* Effect.result(Effect.map(scanCsv(source, undefined, options), (t) => t.rows));
+  });
 
 /** A scan's rows, or its failure's reason. */
 const scanOutcome = (r: Result.Result<ScannedTable, ParseError>) =>
@@ -666,45 +746,52 @@ describe("CSV scanner fast path", () => {
       ),
     ),
   ];
-  test.each([true, false])("agrees with the grammar (filterEmpty: %s)", (filterEmpty) => {
-    const options = { allowVariableColumns: true, filterEmpty };
-    const disagreements = dialects.flatMap((dialect) =>
-      samples.flatMap((source) => {
-        const fast = scanOutcome(Effect.runSync(Effect.result(scanCsv(source, dialect, options))));
-        const grammar = scanOutcome(
-          Effect.runSync(
-            Effect.result(scanCsv(`junk\n${source}`, dialect, { ...options, skipRows: 1 })),
-          ),
-        );
-        return sameOutcome(fast, grammar)
-          ? []
-          : [{ dialect: dialect.separator + dialect.wrapper, source, fast, grammar }];
-      }),
-    );
-    expect(disagreements.slice(0, 3)).toEqual([]);
-  });
+  it.effect.each([true, false])("agrees with the grammar (filterEmpty: %s)", (filterEmpty) =>
+    Effect.gen(function* () {
+      const options = { allowVariableColumns: true, filterEmpty };
+      const disagreements = yield* Effect.forEach(
+        dialects.flatMap((dialect) => samples.map((source) => ({ dialect, source }))),
+        ({ dialect, source }) =>
+          Effect.gen(function* () {
+            const fast = scanOutcome(yield* Effect.result(scanCsv(source, dialect, options)));
+            const grammar = scanOutcome(
+              yield* Effect.result(
+                scanCsv(`junk\n${source}`, dialect, { ...options, skipRows: 1 }),
+              ),
+            );
+            return sameOutcome(fast, grammar)
+              ? []
+              : [{ dialect: dialect.separator + dialect.wrapper, source, fast, grammar }];
+          }),
+        { concurrency: 1 },
+      );
+      expect(disagreements.flat().slice(0, 3)).toEqual([]);
+    }),
+  );
 
-  test("an unclosed quote still fails where the grammar says", async () => {
-    const r = await run(Effect.result(scanCsv('a,b\n"open,c\n')));
-    // the grammar's position: the end of the input, where the closing quote was due
-    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 2, column: 0 });
-    expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
-  });
+  it.effect("an unclosed quote still fails where the grammar says", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(scanCsv('a,b\n"open,c\n'));
+      // the grammar's position: the end of the input, where the closing quote was due
+      expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 2, column: 0 });
+      expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
+    }),
+  );
 });
 
 /** A read's encoded document, or its failure's reason. */
 const readOutcome = (options: CsvReaderOptions, csv: string) =>
-  Result.match(
-    Effect.runSync(
-      Effect.result(
+  Effect.gen(function* () {
+    return Result.match(
+      yield* Effect.result(
         Effect.flatMap(makeCsvReader(options).read(text(csv)), (doc) => encodeDocument(doc)),
       ),
-    ),
-    {
-      onSuccess: (doc) => ({ doc }),
-      onFailure: (e) => ({ reason: Predicate.isTagged(e, "ParseError") ? e.reason : e.message }),
-    },
-  );
+      {
+        onSuccess: (doc) => ({ doc }),
+        onFailure: (e) => ({ reason: Predicate.isTagged(e, "ParseError") ? e.reason : e.message }),
+      },
+    );
+  });
 
 /** A general-path outcome with the junk line's offset taken out of its row numbers. */
 const unshift = <O extends object>(o: O): O =>
@@ -763,57 +850,73 @@ describe("CSV reader fast path", () => {
   ];
   const decodeJson = Schema.decodeResult(Document);
   const toJson = Schema.encodeSync(Document);
-  test("its documents, taken unchecked (worksheetOfTrustedRows), are what the schema accepts", () => {
-    // the reader builds its rows unchecked, so a row the schema would reject
-    // would pass silently: a decode of each document's encoding checks every
-    // cell, on both paths
-    const tables = Arr.makeBy(400, table);
-    const docs = optionSets.flatMap((options) =>
-      tables.flatMap((csv) =>
-        [csv, `junk\n${csv}`].flatMap((source, i) =>
-          Result.match(
-            Effect.runSync(
-              Effect.result(
-                makeCsvReader(i === 0 ? options : { ...options, skipRows: 1 }).read(text(source)),
-              ),
-            ),
-            { onSuccess: (doc) => [doc], onFailure: () => [] },
+  it.effect(
+    "its documents, taken unchecked (worksheetOfTrustedRows), are what the schema accepts",
+    () =>
+      Effect.gen(function* () {
+        // the reader builds its rows unchecked, so a row the schema would reject
+        // would pass silently: a decode of each document's encoding checks every
+        // cell, on both paths
+        const tables = Arr.makeBy(400, table);
+        const reads = optionSets.flatMap((options) =>
+          tables.flatMap((csv) =>
+            [csv, `junk\n${csv}`].map((source, i) => ({
+              options: i === 0 ? options : { ...options, skipRows: 1 },
+              source,
+            })),
           ),
-        ),
-      ),
-    );
-    expect(docs.length).toBeGreaterThan(1000);
-    const rejected = docs.filter((doc) => Result.isFailure(decodeJson(toJson(doc))));
-    expect(rejected).toEqual([]);
-  });
+        );
+        const docs = (yield* Effect.forEach(
+          reads,
+          ({ options, source }) =>
+            Effect.map(Effect.result(makeCsvReader(options).read(text(source))), (r) =>
+              Result.isSuccess(r) ? [r.success] : [],
+            ),
+          { concurrency: 1 },
+        )).flat();
+        expect(docs.length).toBeGreaterThan(1000);
+        const rejected = docs.filter((doc) => Result.isFailure(decodeJson(toJson(doc))));
+        expect(rejected).toEqual([]);
+      }),
+  );
 
-  test("gives the general path's document or failure", () => {
-    const tables = Arr.makeBy(1500, table);
-    const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
-    const fast = cases.map(({ options, csv }) => readOutcome(options, csv));
-    const general = cases.map(({ options, csv }) =>
-      unshift(readOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`)),
-    );
-    expect(fast).toEqual(general);
-  });
+  it.effect("gives the general path's document or failure", () =>
+    Effect.gen(function* () {
+      const tables = Arr.makeBy(1500, table);
+      const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
+      const fast = yield* Effect.forEach(cases, ({ options, csv }) => readOutcome(options, csv), {
+        concurrency: 1,
+      });
+      const general = (yield* Effect.forEach(
+        cases,
+        ({ options, csv }) => readOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`),
+        { concurrency: 1 },
+      )).map(unshift);
+      expect(fast).toEqual(general);
+    }),
+  );
 });
 
 /** A read's rows as plain values (a blank's `null`, a cell's value), or its failure's reason. */
 const readValuesOutcome = (options: CsvReaderOptions, csv: string) =>
-  Result.match(Effect.runSync(Effect.result(makeCsvReader(options).read(text(csv)))), {
-    onSuccess: (doc) => ({
-      rows: firstWorksheet(doc).rows.map((r) =>
-        cellsOf(r).map((c) => ("value" in c ? c.value : null)),
-      ),
-    }),
-    onFailure: (e) => ({ reason: e.reason }),
+  Effect.gen(function* () {
+    return Result.match(yield* Effect.result(makeCsvReader(options).read(text(csv))), {
+      onSuccess: (doc) => ({
+        rows: firstWorksheet(doc).rows.map((r) =>
+          cellsOf(r).map((c) => ("value" in c ? c.value : null)),
+        ),
+      }),
+      onFailure: (e) => ({ reason: e.reason }),
+    });
   });
 
 /** `readCsvRows`' header and rows as one list of rows, or its failure's reason. */
 const rowsOutcome = (options: CsvReaderOptions, csv: string) =>
-  Result.match(Effect.runSync(Effect.result(readCsvRows(csv, options))), {
-    onSuccess: ({ headers, rows }) => ({ rows: headers === null ? rows : [headers, ...rows] }),
-    onFailure: (e) => ({ reason: e.reason }),
+  Effect.gen(function* () {
+    return Result.match(yield* Effect.result(readCsvRows(csv, options)), {
+      onSuccess: ({ headers, rows }) => ({ rows: headers === null ? rows : [headers, ...rows] }),
+      onFailure: (e) => ({ reason: e.reason }),
+    });
   });
 
 /** Four rows of `w` numbers, integers and halves among them. */
@@ -823,83 +926,95 @@ const numberRows = (w: number) =>
 describe("readCsvRows", () => {
   // the scan copies a row by a literal of its width up to 32, and slices a
   // wider one (src/row.ts); rows of numbers have literals of their own
-  test.each(Arr.makeBy(40, (i) => i + 1))("copies a row of width %i out of the scan", async (w) => {
-    // rows of numbers, then a wider one and a narrower one
-    const expected = [
-      ...numberRows(w),
-      [...Arr.makeBy(w, () => 1.25), 7],
-      Arr.makeBy(w - 1, (c) => c + 0.75),
-    ].filter(Arr.isArrayNonEmpty);
-    const csv = expected.map((row) => row.join(",")).join("\n");
-    const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
-    expect((await run(readCsvRows(csv, options))).rows).toEqual(expected);
-    const doc = await run(makeCsvReader(options).read(text(csv)));
-    expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
-    // a CSV document's rows are plain rows (#227)
-    expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
-    const words = Arr.makeBy(w, (c) => `w${c}`);
-    const scanned = await run(scanCsv(`${words.join(",")}\n${words.join(",")}\n`));
-    expect(scanned.rows).toEqual([words, words]);
-  });
+  it.effect.each(Arr.makeBy(40, (i) => i + 1))("copies a row of width %i out of the scan", (w) =>
+    Effect.gen(function* () {
+      // rows of numbers, then a wider one and a narrower one
+      const expected = [
+        ...numberRows(w),
+        [...Arr.makeBy(w, () => 1.25), 7],
+        Arr.makeBy(w - 1, (c) => c + 0.75),
+      ].filter(Arr.isArrayNonEmpty);
+      const csv = expected.map((row) => row.join(",")).join("\n");
+      const options = { treatFirstRowAsHeader: false, allowVariableColumns: true };
+      expect((yield* readCsvRows(csv, options)).rows).toEqual(expected);
+      const doc = yield* makeCsvReader(options).read(text(csv));
+      expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
+      // a CSV document's rows are plain rows (#227)
+      expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
+      const words = Arr.makeBy(w, (c) => `w${c}`);
+      const scanned = yield* scanCsv(`${words.join(",")}\n${words.join(",")}\n`);
+      expect(scanned.rows).toEqual([words, words]);
+    }),
+  );
 
-  test("reads a header and typed values", async () => {
-    expect(await run(readCsvRows("name,age,member\nada,36,true\nbob,,false\n"))).toEqual({
-      headers: ["name", "age", "member"],
-      rows: [
-        ["ada", 36, true],
-        ["bob", null, false],
-      ],
-    });
-  });
+  it.effect("reads a header and typed values", () =>
+    Effect.gen(function* () {
+      expect(yield* readCsvRows("name,age,member\nada,36,true\nbob,,false\n")).toEqual({
+        headers: ["name", "age", "member"],
+        rows: [
+          ["ada", 36, true],
+          ["bob", null, false],
+        ],
+      });
+    }),
+  );
 
-  test("keeps every value a string with inferTypes off", async () => {
-    expect(
-      await run(readCsvRows("a,b\n1,\n", { inferTypes: false, treatFirstRowAsHeader: true })),
-    ).toEqual({ headers: ["a", "b"], rows: [["1", ""]] });
-  });
+  it.effect("keeps every value a string with inferTypes off", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* readCsvRows("a,b\n1,\n", { inferTypes: false, treatFirstRowAsHeader: true }),
+      ).toEqual({ headers: ["a", "b"], rows: [["1", ""]] });
+    }),
+  );
 
-  test("types a column as read does: a column with text in it is text", async () => {
-    expect(await run(readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false }))).toEqual({
-      headers: null,
-      rows: [["1"], ["2"], ["x"]],
-    });
-    expect(
-      await run(readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false, inference: "cell" })),
-    ).toEqual({ headers: null, rows: [[1], [2], ["x"]] });
-  });
+  it.effect("types a column as read does: a column with text in it is text", () =>
+    Effect.gen(function* () {
+      expect(yield* readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false })).toEqual({
+        headers: null,
+        rows: [["1"], ["2"], ["x"]],
+      });
+      expect(
+        yield* readCsvRows("1\n2\nx\n", { treatFirstRowAsHeader: false, inference: "cell" }),
+      ).toEqual({ headers: null, rows: [[1], [2], ["x"]] });
+    }),
+  );
 
-  test("takes provided headers and the reader's null and boolean spellings", async () => {
-    expect(
-      await run(
-        readCsvRows("1,yes\nNA,no\n", {
+  it.effect("takes provided headers and the reader's null and boolean spellings", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* readCsvRows("1,yes\nNA,no\n", {
           providedHeaders: ["n", "ok"],
           nullValues: ["NA"],
           booleans: ["yes", "no"],
         }),
-      ),
-    ).toEqual({
-      headers: ["n", "ok"],
-      rows: [
-        [1, true],
-        [null, false],
-      ],
-    });
-  });
+      ).toEqual({
+        headers: ["n", "ok"],
+        rows: [
+          [1, true],
+          [null, false],
+        ],
+      });
+    }),
+  );
 
-  test("reads full-precision floats, and keeps text a double cannot hold", async () => {
-    const { rows } = await run(
-      readCsvRows("x,y\n0.14285714285714285,1\n0.30000000000000004,12345678901234567890\n"),
-    );
-    expect(rows).toEqual([
-      [0.14285714285714285, "1"],
-      [0.30000000000000004, "12345678901234567890"],
-    ]);
-  });
+  it.effect("reads full-precision floats, and keeps text a double cannot hold", () =>
+    Effect.gen(function* () {
+      const { rows } = yield* readCsvRows(
+        "x,y\n0.14285714285714285,1\n0.30000000000000004,12345678901234567890\n",
+      );
+      expect(rows).toEqual([
+        [0.14285714285714285, "1"],
+        [0.30000000000000004, "12345678901234567890"],
+      ]);
+    }),
+  );
 
-  test("fails as read does", async () => {
-    const r = await run(Effect.result(readCsvRows('a,b\n"open\n')));
-    expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
-  });
+  it.effect("fails as read does", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(readCsvRows('a,b\n"open\n'));
+      expect(Result.isFailure(r) && r.failure.reason).toContain("Unclosed quoted field");
+    }),
+  );
 
   // the same tables and options as the reader's fast-path test, with long decimals among them
   let seed = 23;
@@ -941,408 +1056,482 @@ describe("readCsvRows", () => {
     { exactNumbers: false },
     { exactNumbers: false, inference: "cell" },
   ];
-  test("gives read's values, by its one-pass path and its general one", () => {
-    const tables = Arr.makeBy(1500, table);
-    const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
-    const rows = cases.map(({ options, csv }) => rowsOutcome(options, csv));
-    expect(rows).toEqual(cases.map(({ options, csv }) => readValuesOutcome(options, csv)));
-    // `skipRows: 1` after a junk line forces the general path on the same rows
-    const general = cases.map(({ options, csv }) =>
-      unshift(rowsOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`)),
-    );
-    expect(general).toEqual(rows);
-  });
+  it.effect("gives read's values, by its one-pass path and its general one", () =>
+    Effect.gen(function* () {
+      const tables = Arr.makeBy(1500, table);
+      const cases = optionSets.flatMap((options) => tables.map((csv) => ({ options, csv })));
+      const rows = yield* Effect.forEach(cases, ({ options, csv }) => rowsOutcome(options, csv), {
+        concurrency: 1,
+      });
+      expect(rows).toEqual(
+        yield* Effect.forEach(cases, ({ options, csv }) => readValuesOutcome(options, csv), {
+          concurrency: 1,
+        }),
+      );
+      // `skipRows: 1` after a junk line forces the general path on the same rows
+      const general = (yield* Effect.forEach(
+        cases,
+        ({ options, csv }) => rowsOutcome({ ...options, skipRows: 1 }, `junk\n${csv}`),
+        { concurrency: 1 },
+      )).map(unshift);
+      expect(general).toEqual(rows);
+    }),
+  );
 });
 
 describe("CSV stream scanner", () => {
-  test("rows may be split across chunks anywhere", async () => {
-    const r = await collect(['a,"b', '\n""c"', '""\r', "\nd,e"]);
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([
-      ["a", 'b\n"c"'],
-      ["d", "e"],
-    ]);
-  });
+  it.effect("rows may be split across chunks anywhere", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(['a,"b', '\n""c"', '""\r', "\nd,e"]);
+      expect(Result.isSuccess(r) && [...r.success]).toEqual([
+        ["a", 'b\n"c"'],
+        ["d", "e"],
+      ]);
+    }),
+  );
 
-  test("emits rows before the stream ends", async () => {
-    const first = await Effect.runPromise(
-      pipe(
+  it.effect("emits rows before the stream ends", () =>
+    Effect.gen(function* () {
+      const first = yield* pipe(
         Stream.concat(Stream.make("a,b\n"), Stream.never),
         (s) => scanCsvStream(s, undefined, { treatFirstRowAsHeader: false }),
         Stream.take(1),
         Stream.runCollect,
-      ),
-    );
-    expect([...first]).toEqual([["a", "b"]]);
-  });
+      );
+      expect([...first]).toEqual([["a", "b"]]);
+    }),
+  );
 
-  test("skips the header row and validates column counts", async () => {
-    const ok = await collect(["h1,h2\n1,", "2\n"], { treatFirstRowAsHeader: true });
-    expect(Result.isSuccess(ok) && [...ok.success]).toEqual([["1", "2"]]);
-    const bad = await collect(["h1,h2\n1\n"], { treatFirstRowAsHeader: true });
-    expect(Result.isFailure(bad) && bad.failure._tag).toBe("ParseError");
-  });
+  it.effect("skips the header row and validates column counts", () =>
+    Effect.gen(function* () {
+      const ok = yield* collect(["h1,h2\n1,", "2\n"], { treatFirstRowAsHeader: true });
+      expect(Result.isSuccess(ok) && [...ok.success]).toEqual([["1", "2"]]);
+      const bad = yield* collect(["h1,h2\n1\n"], { treatFirstRowAsHeader: true });
+      expect(Result.isFailure(bad) && bad.failure._tag).toBe("ParseError");
+    }),
+  );
 
-  test("emits the rows before a bad one, then fails at it, within one chunk", async () => {
-    const seen: Array<ReadonlyArray<string>> = [];
-    const r = await Effect.runPromise(
-      Effect.result(
+  it.effect("emits the rows before a bad one, then fails at it, within one chunk", () =>
+    Effect.gen(function* () {
+      const seen: Array<ReadonlyArray<string>> = [];
+      const r = yield* Effect.result(
         Stream.runForEach(
           scanCsvStream(Stream.make("h1,h2\n1,2\n3,4\n5\n6,7\n"), undefined, {
             treatFirstRowAsHeader: true,
           }),
           (row) => Effect.sync(() => seen.push(row)),
         ),
-      ),
-    );
-    expect(seen).toEqual([
-      ["1", "2"],
-      ["3", "4"],
-    ]);
-    expect(Result.isFailure(r) && r.failure.reason).toBe("Row 3 has 1 columns, expected 2");
-  });
+      );
+      expect(seen).toEqual([
+        ["1", "2"],
+        ["3", "4"],
+      ]);
+      expect(Result.isFailure(r) && r.failure.reason).toBe("Row 3 has 1 columns, expected 2");
+    }),
+  );
 
-  test("a stream failing its header check emits nothing", async () => {
-    const r = await collect(["a,a\n1,2\n"], { treatFirstRowAsHeader: true, validateHeaders: true });
-    expect(outcome(r)).toEqual({
-      reason: 'Header "a" appears in columns 1 and 2',
-      position: { row: 0, column: 1 },
-    });
-  });
+  it.effect("a stream failing its header check emits nothing", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["a,a\n1,2\n"], {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      expect(outcome(r)).toEqual({
+        reason: 'Header "a" appears in columns 1 and 2',
+        position: { row: 0, column: 1 },
+      });
+    }),
+  );
 
-  test("skipRows drops physical lines across chunk boundaries", async () => {
-    const r = await collect(["junk", " line\nmore\na,b\n"], { skipRows: 2 });
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"]]);
-  });
+  it.effect("skipRows drops physical lines across chunk boundaries", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["junk", " line\nmore\na,b\n"], { skipRows: 2 });
+      expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"]]);
+    }),
+  );
 
-  test("skipRows counts bare CR and CRLF split across chunks", async () => {
-    const r = await collect(["junk\r", "\nmore\r", "a,b\r", "\nc,d\n"], { skipRows: 2 });
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([
-      ["a", "b"],
-      ["c", "d"],
-    ]);
-  });
+  it.effect("skipRows counts bare CR and CRLF split across chunks", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["junk\r", "\nmore\r", "a,b\r", "\nc,d\n"], { skipRows: 2 });
+      expect(Result.isSuccess(r) && [...r.success]).toEqual([
+        ["a", "b"],
+        ["c", "d"],
+      ]);
+    }),
+  );
 
-  test("syntax errors carry their source position", async () => {
-    const r = await collect(["x\n", "a,b\nc,", '"d\ne\n'], { skipRows: 1 });
-    expect(Result.isFailure(r) && r.failure.reason).toBe(
-      "Unclosed quoted field: expected a closing quote",
-    );
-    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4, column: 0 });
-  });
+  it.effect("syntax errors carry their source position", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["x\n", "a,b\nc,", '"d\ne\n'], { skipRows: 1 });
+      expect(Result.isFailure(r) && r.failure.reason).toBe(
+        "Unclosed quoted field: expected a closing quote",
+      );
+      expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 4, column: 0 });
+    }),
+  );
 
-  test("column-count errors report the source row", async () => {
-    const r = await collect(['a,"b\nc"\n\n', "d\n"]);
-    expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 3 });
-  });
+  it.effect("column-count errors report the source row", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(['a,"b\nc"\n\n', "d\n"]);
+      expect(Result.isFailure(r) && r.failure.position).toEqual({ row: 3 });
+    }),
+  );
 
-  test("providedHeaders replace the header row and set the width", async () => {
-    const r = await collect(["h\n1,2\n"], {
-      treatFirstRowAsHeader: true,
-      providedHeaders: ["x", "y"],
-    });
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([["1", "2"]]);
-  });
+  it.effect("providedHeaders replace the header row and set the width", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["h\n1,2\n"], {
+        treatFirstRowAsHeader: true,
+        providedHeaders: ["x", "y"],
+      });
+      expect(Result.isSuccess(r) && [...r.success]).toEqual([["1", "2"]]);
+    }),
+  );
 
-  test("the compiled row grammar agrees with the whole-text scan at every chunk size", async () => {
-    const source = ' a , "b ""q"" \r\nc" ,d\n# note\n\n e,"f",g \r1,"x\ny",3\n';
-    const optionSets = [
-      {},
-      { trimWhitespace: true, lineCommentMarker: "#" },
-      { filterEmpty: false, allowVariableColumns: true, quoteAnywhere: true },
-    ];
-    // sizes repeat: a later run reuses the memoized compiled parser
-    const sizes = [1, 2, 3, 7, source.length, 1, source.length];
-    const pairs = await Promise.all(
-      optionSets.flatMap((options) =>
-        sizes.map(async (size) => ({
-          whole: outcome(await scanWhole(source, options)),
-          streamed: outcome(await collect(chunksOf(source, size), options)),
-        })),
-      ),
-    );
-    expect(pairs.map((p) => p.streamed)).toEqual(pairs.map((p) => p.whole));
-  });
+  it.effect("the compiled row grammar agrees with the whole-text scan at every chunk size", () =>
+    Effect.gen(function* () {
+      const source = ' a , "b ""q"" \r\nc" ,d\n# note\n\n e,"f",g \r1,"x\ny",3\n';
+      const optionSets = [
+        {},
+        { trimWhitespace: true, lineCommentMarker: "#" },
+        { filterEmpty: false, allowVariableColumns: true, quoteAnywhere: true },
+      ];
+      // sizes repeat: a later run reuses the memoized compiled parser
+      const sizes = [1, 2, 3, 7, source.length, 1, source.length];
+      const pairs = yield* Effect.forEach(
+        optionSets.flatMap((options) => sizes.map((size) => ({ options, size }))),
+        ({ options, size }) =>
+          Effect.gen(function* () {
+            return {
+              whole: outcome(yield* scanWhole(source, options)),
+              streamed: outcome(yield* collect(chunksOf(source, size), options)),
+            };
+          }),
+        { concurrency: "unbounded" },
+      );
+      expect(pairs.map((p) => p.streamed)).toEqual(pairs.map((p) => p.whole));
+    }),
+  );
 
-  test("a syntax error matches the whole-text scan at every chunk size", async () => {
-    const source = 'a,b\nc,"d\ne,f\n';
-    const whole = outcome(await scanWhole(source, undefined));
-    expect(whole).toHaveProperty("reason", "Unclosed quoted field: expected a closing quote");
-    const streamed = await Promise.all(
-      [1, 2, 5, 64].map(async (size) => outcome(await collect(chunksOf(source, size)))),
-    );
-    expect(streamed).toEqual([whole, whole, whole, whole]);
-  });
+  it.effect("a syntax error matches the whole-text scan at every chunk size", () =>
+    Effect.gen(function* () {
+      const source = 'a,b\nc,"d\ne,f\n';
+      const whole = outcome(yield* scanWhole(source, undefined));
+      expect(whole).toHaveProperty("reason", "Unclosed quoted field: expected a closing quote");
+      const streamed = yield* Effect.forEach(
+        [1, 2, 5, 64],
+        (size) => Effect.map(collect(chunksOf(source, size)), outcome),
+        { concurrency: "unbounded" },
+      );
+      expect(streamed).toEqual([whole, whole, whole, whole]);
+    }),
+  );
 
-  test("ignores a leading byte order mark", async () => {
-    const r = await collect(["", "﻿a,b\n"]);
-    expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"]]);
-  });
+  it.effect("ignores a leading byte order mark", () =>
+    Effect.gen(function* () {
+      const r = yield* collect(["", "﻿a,b\n"]);
+      expect(Result.isSuccess(r) && [...r.success]).toEqual([["a", "b"]]);
+    }),
+  );
 });
 
 const sheet = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
   trustAs<CsvFeature>(document([worksheet("Sheet1", rows)]));
-const written = async (
-  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-  options?: CsvWriterOptions,
-) => {
-  const out = await run(makeCsvWriter(options).write(sheet(rows)));
-  return Predicate.isTagged(out, "Text") ? out.text : "";
-};
+const written = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>, options?: CsvWriterOptions) =>
+  Effect.gen(function* () {
+    const out = yield* makeCsvWriter(options).write(sheet(rows));
+    return Predicate.isTagged(out, "Text") ? out.text : "";
+  });
 
 /** The reason the CSV writer fails `rows` under `options`, if it fails. */
-const failure = async (
-  rows: ReadonlyArray<ReadonlyArray<SheetCell>>,
-  options: CsvWriterOptions,
-) => {
-  const r = await Effect.runPromise(Effect.result(makeCsvWriter(options).write(sheet(rows))));
-  return Result.isFailure(r) ? r.failure.reason : undefined;
-};
+const failure = (rows: ReadonlyArray<ReadonlyArray<SheetCell>>, options: CsvWriterOptions) =>
+  Effect.gen(function* () {
+    const r = yield* Effect.result(makeCsvWriter(options).write(sheet(rows)));
+    return Result.isFailure(r) ? r.failure.reason : undefined;
+  });
 
 describe("CSV writer", () => {
-  test("round-trips through reader -> writer", async () => {
-    const input = "product,price\nLaptop,999.99\nMouse,24.99\n";
-    const doc = await run(makeCsvReader().read(text(input)));
-    const out = await run(makeCsvWriter().write(doc));
-    expect(out._tag).toBe("Text");
-    assert(Predicate.isTagged(out, "Text"));
-    expect(out.text).toBe(input);
-  });
+  it.effect("round-trips through reader -> writer", () =>
+    Effect.gen(function* () {
+      const input = "product,price\nLaptop,999.99\nMouse,24.99\n";
+      const doc = yield* makeCsvReader().read(text(input));
+      const out = yield* makeCsvWriter().write(doc);
+      expect(out._tag).toBe("Text");
+      assert(Predicate.isTagged(out, "Text"));
+      expect(out.text).toBe(input);
+    }),
+  );
 
-  test("round-trips fields containing quotes and line breaks", async () => {
-    const doc = document([worksheet("Sheet1", [[cell.text('say "hi"\nthere'), cell.text("x")]])]);
-    const out = await run(makeCsvWriter().write(trustAs<CsvFeature>(doc)));
-    const back = await run(makeCsvReader().read(out));
-    expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual([
-      cell.text('say "hi"\nthere'),
-      cell.text("x"),
-    ]);
-  });
+  it.effect("round-trips fields containing quotes and line breaks", () =>
+    Effect.gen(function* () {
+      const doc = document([worksheet("Sheet1", [[cell.text('say "hi"\nthere'), cell.text("x")]])]);
+      const out = yield* makeCsvWriter().write(trustAs<CsvFeature>(doc));
+      const back = yield* makeCsvReader().read(out);
+      expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual([
+        cell.text('say "hi"\nthere'),
+        cell.text("x"),
+      ]);
+    }),
+  );
 
-  test("writes a sparse worksheet's gaps as empty fields and empty lines (#185)", async () => {
-    const ws = new Worksheet({
-      name: "S",
-      columns: [],
-      rows: [
-        new SheetRow({ index: 0, cells: [undefined, undefined, cell.text("c")] }),
-        new SheetRow({ index: 2, cells: [cell.number(1)] }),
-      ],
-      merges: [],
-    });
-    const out = await run(makeCsvWriter().write(trustAs<CsvFeature>(document([ws]))));
-    assert(Predicate.isTagged(out, "Text"));
-    expect(out.text).toBe(",,c\n\n1\n");
-    const padded = await run(
-      makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([ws]))),
-    );
-    assert(Predicate.isTagged(padded, "Text"));
-    expect(padded.text).toBe(",,c\n,,\n1,,\n");
-  });
+  it.effect("writes a sparse worksheet's gaps as empty fields and empty lines (#185)", () =>
+    Effect.gen(function* () {
+      const ws = new Worksheet({
+        name: "S",
+        columns: [],
+        rows: [
+          new SheetRow({ index: 0, cells: [undefined, undefined, cell.text("c")] }),
+          new SheetRow({ index: 2, cells: [cell.number(1)] }),
+        ],
+        merges: [],
+      });
+      const out = yield* makeCsvWriter().write(trustAs<CsvFeature>(document([ws])));
+      assert(Predicate.isTagged(out, "Text"));
+      expect(out.text).toBe(",,c\n\n1\n");
+      const padded = yield* makeCsvWriter({ padRows: true }).write(
+        trustAs<CsvFeature>(document([ws])),
+      );
+      assert(Predicate.isTagged(padded, "Text"));
+      expect(padded.text).toBe(",,c\n,,\n1,,\n");
+    }),
+  );
 
-  test("a worksheet whose gaps expand past maxFields fails before rendering (#185)", async () => {
-    const far = new Worksheet({
-      name: "Far",
-      columns: [],
-      rows: [sparseRow(1_048_575, [[16_383, cell.text("z")]])],
-      merges: [],
-    });
-    // ragged: a million empty lines and 16 384 fields fit the default budget
-    const error = await run(
-      Effect.flip(
+  it.effect("a worksheet whose gaps expand past maxFields fails before rendering (#185)", () =>
+    Effect.gen(function* () {
+      const far = new Worksheet({
+        name: "Far",
+        columns: [],
+        rows: [sparseRow(1_048_575, [[16_383, cell.text("z")]])],
+        merges: [],
+      });
+      // ragged: a million empty lines and 16 384 fields fit the default budget
+      const error = yield* Effect.flip(
         makeCsvWriter({ maxFields: 1_000_000 }).write(trustAs<CsvFeature>(document([far]))),
-      ),
-    );
-    expect(error).toMatchObject({ _tag: "WriteError", format: "csv" });
-    expect(error.reason).toContain("maxFields");
-    // padded to a rectangle it is 17 billion fields, past the default
-    const padded = await run(
-      Effect.flip(makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([far])))),
-    );
-    expect(padded.reason).toContain("maxFields");
-  });
+      );
+      expect(error).toMatchObject({ _tag: "WriteError", format: "csv" });
+      expect(error.reason).toContain("maxFields");
+      // padded to a rectangle it is 17 billion fields, past the default
+      const padded = yield* Effect.flip(
+        makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([far]))),
+      );
+      expect(padded.reason).toContain("maxFields");
+    }),
+  );
 
-  test("a streamed row wider than maxFields fails the stream (#185)", async () => {
-    const wide = sparseRow(0, [[20, cell.text("z")]]);
-    const result = await run(
-      Effect.result(Stream.runCollect(renderCsvStream(Stream.make(wide), { maxFields: 10 }))),
-    );
-    assert(Result.isFailure(result));
-    expect(result.failure).toMatchObject({ _tag: "WriteError" });
-  });
+  it.effect("a streamed row wider than maxFields fails the stream (#185)", () =>
+    Effect.gen(function* () {
+      const wide = sparseRow(0, [[20, cell.text("z")]]);
+      const result = yield* Effect.result(
+        Stream.runCollect(renderCsvStream(Stream.make(wide), { maxFields: 10 })),
+      );
+      assert(Result.isFailure(result));
+      expect(result.failure).toMatchObject({ _tag: "WriteError" });
+    }),
+  );
 
-  test("quotes fields containing the separator", async () => {
-    const doc = await run(makeCsvReader().read(text('a,"b,c"\n')));
-    const out = await run(makeCsvWriter().write(doc));
-    assert(Predicate.isTagged(out, "Text"));
-    expect(out.text).toBe('a,"b,c"\n');
-  });
+  it.effect("quotes fields containing the separator", () =>
+    Effect.gen(function* () {
+      const doc = yield* makeCsvReader().read(text('a,"b,c"\n'));
+      const out = yield* makeCsvWriter().write(doc);
+      assert(Predicate.isTagged(out, "Text"));
+      expect(out.text).toBe('a,"b,c"\n');
+    }),
+  );
 
-  test("keeps rows holding a single blank cell", async () => {
-    const rows = ["a", "", "b", "", "c"].map((v) => [v === "" ? cell.blank() : cell.text(v)]);
-    const out = await written(rows);
-    expect(out).toBe('a\n""\nb\n""\nc\n');
-    expect(firstWorksheet(await run(makeCsvReader().read(text(out)))).rows).toHaveLength(5);
-    expect(renderTable([["a"], [""]])).toBe('a\n""\n');
-  });
+  it.effect("keeps rows holding a single blank cell", () =>
+    Effect.gen(function* () {
+      const rows = ["a", "", "b", "", "c"].map((v) => [v === "" ? cell.blank() : cell.text(v)]);
+      const out = yield* written(rows);
+      expect(out).toBe('a\n""\nb\n""\nc\n');
+      expect(firstWorksheet(yield* makeCsvReader().read(text(out))).rows).toHaveLength(5);
+      expect(renderTable([["a"], [""]])).toBe('a\n""\n');
+    }),
+  );
 
-  test("writes NaN and the infinities as text, as pandas does (#89)", async () => {
-    expect([Number.NaN, Infinity, -Infinity].map(formatCsvNumber)).toEqual([
-      "NaN",
-      "Infinity",
-      "-Infinity",
-    ]);
-    const out = await written([
-      [cell.number(Number.NaN), cell.number(Infinity), cell.number(-Infinity)],
-    ]);
-    expect(out).toBe("NaN,Infinity,-Infinity\n");
-    // they read back as text: the strict number grammar never accepts them
-    expect(firstWorksheet(await run(makeCsvReader().read(text(out)))).rows.map(cellsOf)[0]).toEqual(
-      [cell.text("NaN"), cell.text("Infinity"), cell.text("-Infinity")],
-    );
-  });
+  it.effect("writes NaN and the infinities as text, as pandas does (#89)", () =>
+    Effect.gen(function* () {
+      expect([Number.NaN, Infinity, -Infinity].map(formatCsvNumber)).toEqual([
+        "NaN",
+        "Infinity",
+        "-Infinity",
+      ]);
+      const out = yield* written([
+        [cell.number(Number.NaN), cell.number(Infinity), cell.number(-Infinity)],
+      ]);
+      expect(out).toBe("NaN,Infinity,-Infinity\n");
+      // they read back as text: the strict number grammar never accepts them
+      expect(firstWorksheet(yield* makeCsvReader().read(text(out))).rows.map(cellsOf)[0]).toEqual([
+        cell.text("NaN"),
+        cell.text("Infinity"),
+        cell.text("-Infinity"),
+      ]);
+    }),
+  );
 
-  test("writes numbers as shortest round-trip decimals", async () => {
-    expect([1e21, -1.5e-7, 0.1, 123.456, -0, 2 ** 70].map(formatCsvNumber)).toEqual([
-      "1000000000000000000000",
-      "-0.00000015",
-      "0.1",
-      "123.456",
-      "0",
-      "1180591620717411300000",
-    ]);
-    expect(await written([[cell.number(1e21)]])).toBe("1000000000000000000000\n");
-    expect(await written([[cell.number(1.5)]], { formatNumber: (n) => n.toFixed(2) })).toBe(
-      "1.50\n",
-    );
-  });
+  it.effect("writes numbers as shortest round-trip decimals", () =>
+    Effect.gen(function* () {
+      expect([1e21, -1.5e-7, 0.1, 123.456, -0, 2 ** 70].map(formatCsvNumber)).toEqual([
+        "1000000000000000000000",
+        "-0.00000015",
+        "0.1",
+        "123.456",
+        "0",
+        "1180591620717411300000",
+      ]);
+      expect(yield* written([[cell.number(1e21)]])).toBe("1000000000000000000000\n");
+      expect(yield* written([[cell.number(1.5)]], { formatNumber: (n) => n.toFixed(2) })).toBe(
+        "1.50\n",
+      );
+    }),
+  );
 
-  test("quotes fields with edge whitespace or a leading comment marker", async () => {
-    const row = [cell.text(" a"), cell.text("b "), cell.text("#c"), cell.text("d#")];
-    expect(await written([row])).toBe('" a","b ",#c,d#\n');
-    expect(await written([row], { lineCommentMarker: "#" })).toBe('" a","b ","#c",d#\n');
-  });
+  it.effect("quotes fields with edge whitespace or a leading comment marker", () =>
+    Effect.gen(function* () {
+      const row = [cell.text(" a"), cell.text("b "), cell.text("#c"), cell.text("d#")];
+      expect(yield* written([row])).toBe('" a","b ",#c,d#\n');
+      expect(yield* written([row], { lineCommentMarker: "#" })).toBe('" a","b ","#c",d#\n');
+    }),
+  );
 
-  test("escapeFormulae prefixes and quotes formula-like text", async () => {
-    const row = [
-      cell.text('=HYPERLINK("x")'),
-      cell.text("+1"),
-      cell.text("-a"),
-      cell.text("@b"),
-      cell.text("\tc"),
-      cell.number(-1),
-      cell.text("ok"),
-    ];
-    expect(await written([row])).toBe('"=HYPERLINK(""x"")",+1,-a,@b,"\tc",-1,ok\n');
-    expect(await written([row], { escapeFormulae: true })).toBe(
-      `"'=HYPERLINK(""x"")","'+1","'-a","'@b","'\tc",-1,ok\n`,
-    );
-  });
+  it.effect("escapeFormulae prefixes and quotes formula-like text", () =>
+    Effect.gen(function* () {
+      const row = [
+        cell.text('=HYPERLINK("x")'),
+        cell.text("+1"),
+        cell.text("-a"),
+        cell.text("@b"),
+        cell.text("\tc"),
+        cell.number(-1),
+        cell.text("ok"),
+      ];
+      expect(yield* written([row])).toBe('"=HYPERLINK(""x"")",+1,-a,@b,"\tc",-1,ok\n');
+      expect(yield* written([row], { escapeFormulae: true })).toBe(
+        `"'=HYPERLINK(""x"")","'+1","'-a","'@b","'\tc",-1,ok\n`,
+      );
+    }),
+  );
 
-  test("quoting modes", async () => {
-    const row = [cell.text("a"), cell.number(1), cell.boolean(true), cell.blank()];
-    expect(await written([row], { quoting: "all" })).toBe('"a","1","true",""\n');
-    expect(await written([row], { quoting: "nonNumeric" })).toBe('"a",1,"true",""\n');
-    expect(await written([row], { quoting: "none" })).toBe("a,1,true,\n");
-    const r = await Effect.runPromise(
-      Effect.result(makeCsvWriter({ quoting: "none" }).write(sheet([[cell.text("a,b")]]))),
-    );
-    expect(Result.isFailure(r) && r.failure.reason).toBe(
-      "Row 0 has a field that needs quotes and cannot be written without quoting",
-    );
-  });
+  it.effect("quoting modes", () =>
+    Effect.gen(function* () {
+      const row = [cell.text("a"), cell.number(1), cell.boolean(true), cell.blank()];
+      expect(yield* written([row], { quoting: "all" })).toBe('"a","1","true",""\n');
+      expect(yield* written([row], { quoting: "nonNumeric" })).toBe('"a",1,"true",""\n');
+      expect(yield* written([row], { quoting: "none" })).toBe("a,1,true,\n");
+      const r = yield* Effect.result(
+        makeCsvWriter({ quoting: "none" }).write(sheet([[cell.text("a,b")]])),
+      );
+      expect(Result.isFailure(r) && r.failure.reason).toBe(
+        "Row 0 has a field that needs quotes and cannot be written without quoting",
+      );
+    }),
+  );
 
-  test("escapeChar escapes the wrapper instead of doubling it (#89)", async () => {
-    const row = [cell.text('say "hi"'), cell.text("plain"), cell.number(1)];
-    expect(await written([row], { escapeChar: "\\" })).toBe('"say \\"hi\\"",plain,1\n');
-    expect(await written([row], { escapeChar: "\\", quoting: "all" })).toBe(
-      '"say \\"hi\\"","plain","1"\n',
-    );
-    // a reader that takes `\"` for a wrapper reads every field back as written
-    const tricky = [cell.text('"'), cell.text('a"",b'), cell.text('x"\ny'), cell.text("z")];
-    const out = await written([tricky], { escapeChar: "\\" });
-    const back = await run(
-      makeCsvReader({
+  it.effect("escapeChar escapes the wrapper instead of doubling it (#89)", () =>
+    Effect.gen(function* () {
+      const row = [cell.text('say "hi"'), cell.text("plain"), cell.number(1)];
+      expect(yield* written([row], { escapeChar: "\\" })).toBe('"say \\"hi\\"",plain,1\n');
+      expect(yield* written([row], { escapeChar: "\\", quoting: "all" })).toBe(
+        '"say \\"hi\\"","plain","1"\n',
+      );
+      // a reader that takes `\"` for a wrapper reads every field back as written
+      const tricky = [cell.text('"'), cell.text('a"",b'), cell.text('x"\ny'), cell.text("z")];
+      const out = yield* written([tricky], { escapeChar: "\\" });
+      const back = yield* makeCsvReader({
         dialect: { ...StandardDialect, doubleWrapper: '\\"' },
         inferTypes: false,
-      }).read(text(out)),
-    );
-    expect(firstWorksheet(back).rows).toHaveLength(1);
-    expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual(tricky);
-  });
+      }).read(text(out));
+      expect(firstWorksheet(back).rows).toHaveLength(1);
+      expect(cellsOf(firstWorksheet(back).rows[0]!)).toEqual(tricky);
+    }),
+  );
 
-  test("escapeChar fails on a field holding the escape character (#89)", async () => {
-    // `x\` would close as `"x\"`, which an escape-aware reader leaves unclosed
-    const values = ["x\\", 'a\\"b', "C:\\tmp"];
-    const reasons = await Promise.all(
-      values.map((value) => failure([[cell.text(value)]], { escapeChar: "\\" })),
-    );
-    expect(reasons).toEqual(
-      values.map(
-        () =>
-          "Row 0 has a field holding the escape character, which cannot be written unambiguously",
-      ),
-    );
-  });
+  it.effect("escapeChar fails on a field holding the escape character (#89)", () =>
+    Effect.gen(function* () {
+      // `x\` would close as `"x\"`, which an escape-aware reader leaves unclosed
+      const values = ["x\\", 'a\\"b', "C:\\tmp"];
+      const reasons = yield* Effect.forEach(
+        values,
+        (value) => failure([[cell.text(value)]], { escapeChar: "\\" }),
+        { concurrency: "unbounded" },
+      );
+      expect(reasons).toEqual(
+        values.map(
+          () =>
+            "Row 0 has a field holding the escape character, which cannot be written unambiguously",
+        ),
+      );
+    }),
+  );
 
-  test("escapeChar does not let quoting none write separators or line breaks (#89)", async () => {
-    // escaped in place, `a\,=cmd()` would be a new `=cmd()` cell to a naive reader
-    const options: CsvWriterOptions = { escapeChar: "\\", quoting: "none", escapeFormulae: true };
-    const values = ["a,=cmd()", "a\n=cmd()", 'a"b'];
-    const reasons = await Promise.all(
-      values.map((value) => failure([[cell.text(value), cell.text("z")]], options)),
-    );
-    expect(reasons).toEqual(
-      values.map(() => "Row 0 has a field that needs quotes and cannot be written without quoting"),
-    );
-    expect(await failure([[cell.blank()]], options)).toBe(
-      "Row 0 is a single empty field and cannot be written without quoting",
-    );
-  });
+  it.effect("escapeChar does not let quoting none write separators or line breaks (#89)", () =>
+    Effect.gen(function* () {
+      // escaped in place, `a\,=cmd()` would be a new `=cmd()` cell to a naive reader
+      const options: CsvWriterOptions = { escapeChar: "\\", quoting: "none", escapeFormulae: true };
+      const values = ["a,=cmd()", "a\n=cmd()", 'a"b'];
+      const reasons = yield* Effect.forEach(
+        values,
+        (value) => failure([[cell.text(value), cell.text("z")]], options),
+        { concurrency: "unbounded" },
+      );
+      expect(reasons).toEqual(
+        values.map(
+          () => "Row 0 has a field that needs quotes and cannot be written without quoting",
+        ),
+      );
+      expect(yield* failure([[cell.blank()]], options)).toBe(
+        "Row 0 is a single empty field and cannot be written without quoting",
+      );
+    }),
+  );
 
-  test("escapeChar must be one character other than the separator or wrapper (#89)", async () => {
-    const results = await Effect.runPromise(
-      Effect.forEach(
+  it.effect("escapeChar must be one character other than the separator or wrapper (#89)", () =>
+    Effect.gen(function* () {
+      const results = yield* Effect.forEach(
         ["", "\\\\", ",", '"', "\n"],
         (escapeChar) =>
           Effect.result(makeCsvWriter({ escapeChar }).write(sheet([[cell.text("a")]]))),
         { concurrency: 1 },
-      ),
-    );
-    expect(results.map(Result.isFailure)).toEqual([true, true, true, true, true]);
-    const streamed = await Effect.runPromise(
-      Effect.result(
+      );
+      expect(results.map(Result.isFailure)).toEqual([true, true, true, true, true]);
+      const streamed = yield* Effect.result(
         Stream.runCollect(
           renderCsvStream(Stream.make(sheetRow(0, [cell.text("a")])), {
             escapeChar: ",",
           }),
         ),
-      ),
-    );
-    expect(Result.isFailure(streamed) && streamed.failure.reason).toBe(
-      "escapeChar must differ from the separator, the wrapper and line breaks",
-    );
-  });
+      );
+      expect(Result.isFailure(streamed) && streamed.failure.reason).toBe(
+        "escapeChar must differ from the separator, the wrapper and line breaks",
+      );
+    }),
+  );
 
-  test("line breaks come from the dialect", async () => {
-    expect(await written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect })).toBe(
-      "a\r\nb\r\n",
-    );
-  });
+  it.effect("line breaks come from the dialect", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* written([[cell.text("a")], [cell.text("b")]], { dialect: Rfc4180Dialect }),
+      ).toBe("a\r\nb\r\n");
+    }),
+  );
 
-  test("bom, headers and padRows", async () => {
-    const rows = [[cell.text("a")], [cell.text("b"), cell.text("c"), cell.text("d")]];
-    expect(await written(rows, { bom: true, headers: ["x", "y"], padRows: true })).toBe(
-      "﻿x,y,\na,,\nb,c,d\n",
-    );
-    expect(await written([], { headers: ["x"] })).toBe("x\n");
-  });
+  it.effect("bom, headers and padRows", () =>
+    Effect.gen(function* () {
+      const rows = [[cell.text("a")], [cell.text("b"), cell.text("c"), cell.text("d")]];
+      expect(yield* written(rows, { bom: true, headers: ["x", "y"], padRows: true })).toBe(
+        "﻿x,y,\na,,\nb,c,d\n",
+      );
+      expect(yield* written([], { headers: ["x"] })).toBe("x\n");
+    }),
+  );
 
-  test("pads a sheet of many rows without overflowing the stack", async () => {
-    const rows = Array.from({ length: 300_000 }, (_, i) => [cell.number(i)]);
-    const out = await run(
-      makeCsvWriter({ padRows: true }).write(trustAs<CsvFeature>(document([worksheet("S", rows)]))),
-    );
-    expect(Predicate.isTagged(out, "Text") && out.text.split("\n").length).toBe(300_001);
-  });
+  it.effect("pads a sheet of many rows without overflowing the stack", () =>
+    Effect.gen(function* () {
+      const rows = Array.from({ length: 300_000 }, (_, i) => [cell.number(i)]);
+      const out = yield* makeCsvWriter({ padRows: true }).write(
+        trustAs<CsvFeature>(document([worksheet("S", rows)])),
+      );
+      expect(Predicate.isTagged(out, "Text") && out.text.split("\n").length).toBe(300_001);
+    }),
+  );
 
   test("renderField quotes only a field that needs it, as the minimal mode does", () => {
     expect(
@@ -1363,78 +1552,106 @@ describe("CSV writer", () => {
     expect(renderField("a\tb", StandardDialect)).toBe("a\tb");
   });
 
-  test("renderCsvStream emits a chunk per row", async () => {
-    const rows = [[cell.text("a"), cell.number(1e21)], [cell.blank()], [cell.text("b,c")]];
-    const options: CsvWriterOptions = { headers: ["x", "y"], padRows: true, bom: true };
-    const chunks = await run(
-      Stream.runCollect(
+  it.effect("renderCsvStream emits a chunk per row", () =>
+    Effect.gen(function* () {
+      const rows = [[cell.text("a"), cell.number(1e21)], [cell.blank()], [cell.text("b,c")]];
+      const options: CsvWriterOptions = { headers: ["x", "y"], padRows: true, bom: true };
+      const chunks = yield* Stream.runCollect(
         renderCsvStream(Stream.fromIterable(rows.map((cells, i) => sheetRow(i, cells))), options),
-      ),
-    );
-    expect([...chunks]).toEqual(["﻿", "x,y\n", "a,1000000000000000000000\n", ",\n", '"b,c",\n']);
-    expect([...chunks].join("")).toBe(await written(rows, options));
-  });
+      );
+      expect([...chunks]).toEqual(["﻿", "x,y\n", "a,1000000000000000000000\n", ",\n", '"b,c",\n']);
+      expect([...chunks].join("")).toBe(yield* written(rows, options));
+    }),
+  );
 });
 
 describe("synthesizeDocument", () => {
-  test("is reproducible with a seed and conforms to CSV", async () => {
-    const a = await run(synthesizeDocument({ columns: ["x", "y"], quantity: 5, seed: 42 }));
-    const b = await run(synthesizeDocument({ columns: ["x", "y"], quantity: 5, seed: 42 }));
-    expect(a).toEqual(b);
-    const ws = firstWorksheet(a);
-    expect(ws.rows).toHaveLength(6); // header + 5
-  });
+  it.effect("is reproducible with a seed and conforms to CSV", () =>
+    Effect.gen(function* () {
+      const a = yield* synthesizeDocument({ columns: ["x", "y"], quantity: 5, seed: 42 });
+      const b = yield* synthesizeDocument({ columns: ["x", "y"], quantity: 5, seed: 42 });
+      expect(a).toEqual(b);
+      const ws = firstWorksheet(a);
+      expect(ws.rows).toHaveLength(6); // header + 5
+    }),
+  );
 });
 
 const scan = (input: string, options: Parameters<typeof scanCsv>[2]) =>
-  Effect.runSync(Effect.result(scanCsv(input, undefined, options)));
+  Effect.result(scanCsv(input, undefined, options));
 const stream = (input: string, options: Parameters<typeof scanCsvStream>[2]) =>
-  Effect.runPromise(
-    Effect.result(Stream.runCollect(scanCsvStream(Stream.make(input), undefined, options))),
-  );
+  Effect.result(Stream.runCollect(scanCsvStream(Stream.make(input), undefined, options)));
 
 describe("validateHeaders (#87)", () => {
-  test("is off by default: duplicate and empty names are kept", () => {
-    const r = scan(",a,a\n1,2,3\n", { treatFirstRowAsHeader: true });
-    expect(Result.isSuccess(r) && r.success.headers).toEqual(["", "a", "a"]);
-  });
+  it.effect("is off by default: duplicate and empty names are kept", () =>
+    Effect.gen(function* () {
+      const r = yield* scan(",a,a\n1,2,3\n", { treatFirstRowAsHeader: true });
+      expect(Result.isSuccess(r) && r.success.headers).toEqual(["", "a", "a"]);
+    }),
+  );
 
-  test("rejects an empty or whitespace-only name with its column", () => {
-    const first = scan(",a,b\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
-    assert(Result.isFailure(first));
-    expect(first.failure.reason).toBe("Header 1 is empty");
-    expect(first.failure.position).toEqual({ row: 0, column: 0 });
-    const blank = scan("a, ,b\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
-    assert(Result.isFailure(blank));
-    expect(blank.failure.reason).toBe("Header 2 is empty");
-  });
+  it.effect("rejects an empty or whitespace-only name with its column", () =>
+    Effect.gen(function* () {
+      const first = yield* scan(",a,b\n1,2,3\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      assert(Result.isFailure(first));
+      expect(first.failure.reason).toBe("Header 1 is empty");
+      expect(first.failure.position).toEqual({ row: 0, column: 0 });
+      const blank = yield* scan("a, ,b\n1,2,3\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      assert(Result.isFailure(blank));
+      expect(blank.failure.reason).toBe("Header 2 is empty");
+    }),
+  );
 
-  test("rejects a repeated name, naming both columns", () => {
-    const r = scan("a,b,a\n1,2,3\n", { treatFirstRowAsHeader: true, validateHeaders: true });
-    assert(Result.isFailure(r));
-    expect(r.failure.reason).toBe('Header "a" appears in columns 1 and 3');
-    expect(r.failure.position).toEqual({ row: 0, column: 2 });
-  });
+  it.effect("rejects a repeated name, naming both columns", () =>
+    Effect.gen(function* () {
+      const r = yield* scan("a,b,a\n1,2,3\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      assert(Result.isFailure(r));
+      expect(r.failure.reason).toBe('Header "a" appears in columns 1 and 3');
+      expect(r.failure.position).toEqual({ row: 0, column: 2 });
+    }),
+  );
 
-  test("checks providedHeaders too, and passes valid headers through", () => {
-    const bad = scan("1,2\n", { providedHeaders: ["x", "x"], validateHeaders: true });
-    assert(Result.isFailure(bad));
-    expect(bad.failure.position?.row).toBeUndefined();
-    const good = scan("a,b\n1,2\n", { treatFirstRowAsHeader: true, validateHeaders: true });
-    expect(Result.isSuccess(good) && good.success.headers).toEqual(["a", "b"]);
-  });
+  it.effect("checks providedHeaders too, and passes valid headers through", () =>
+    Effect.gen(function* () {
+      const bad = yield* scan("1,2\n", { providedHeaders: ["x", "x"], validateHeaders: true });
+      assert(Result.isFailure(bad));
+      expect(bad.failure.position?.row).toBeUndefined();
+      const good = yield* scan("a,b\n1,2\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      expect(Result.isSuccess(good) && good.success.headers).toEqual(["a", "b"]);
+    }),
+  );
 
-  test("the stream scanner applies the same check", async () => {
-    const fromRow = await stream("a,a\n1,2\n", {
-      treatFirstRowAsHeader: true,
-      validateHeaders: true,
-    });
-    assert(Result.isFailure(fromRow));
-    expect(fromRow.failure.reason).toBe('Header "a" appears in columns 1 and 2');
-    const provided = await stream("1,2\n", { providedHeaders: ["", "y"], validateHeaders: true });
-    assert(Result.isFailure(provided));
-    expect(provided.failure.reason).toBe("Header 1 is empty");
-    const ok = await stream("a,b\n1,2\n", { treatFirstRowAsHeader: true, validateHeaders: true });
-    expect(Result.isSuccess(ok) && [...ok.success]).toEqual([["1", "2"]]);
-  });
+  it.effect("the stream scanner applies the same check", () =>
+    Effect.gen(function* () {
+      const fromRow = yield* stream("a,a\n1,2\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      assert(Result.isFailure(fromRow));
+      expect(fromRow.failure.reason).toBe('Header "a" appears in columns 1 and 2');
+      const provided = yield* stream("1,2\n", {
+        providedHeaders: ["", "y"],
+        validateHeaders: true,
+      });
+      assert(Result.isFailure(provided));
+      expect(provided.failure.reason).toBe("Header 1 is empty");
+      const ok = yield* stream("a,b\n1,2\n", {
+        treatFirstRowAsHeader: true,
+        validateHeaders: true,
+      });
+      expect(Result.isSuccess(ok) && [...ok.success]).toEqual([["1", "2"]]);
+    }),
+  );
 });

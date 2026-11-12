@@ -29,11 +29,14 @@ import {
   Slide,
   TextBox,
   WriteError,
+  logDiagnostics,
   type Writer,
 } from "../../index.ts";
 import {
+  metadataDiagnostics,
   NS_PKG_REL,
   NS_REL_DOC,
+  propsParts,
   XML_DECL,
   escapeAttr,
   escapeXml,
@@ -285,6 +288,7 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
           "ppt/slideLayouts/slideLayout1.xml": slideLayoutXml(),
           "ppt/slideLayouts/_rels/slideLayout1.xml.rels": slideLayoutRelsXml(),
           "ppt/theme/theme1.xml": themeXml(),
+          ...propsParts(doc.meta),
           ...Object.fromEntries(
             slides.flatMap((slide, i) => [
               [`ppt/slides/slide${i + 1}.xml`, slideXml(slide)],
@@ -301,7 +305,7 @@ export const makePptxWriter = (options?: PptxWriterOptions): Writer<PptxFeature>
           reason: `Failed to generate pptx: ${String(cause)}`,
           cause,
         }),
-    });
+    }).pipe(Effect.tap(() => logDiagnostics(metadataDiagnostics("pptx", doc.meta))));
   return { format: "pptx", profile: Pptx, write };
 };
 
