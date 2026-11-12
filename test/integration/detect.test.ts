@@ -7,6 +7,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -118,6 +119,17 @@ describe("detect (#188)", () => {
     ["pdf/fixtures/reportlab.pdf", "pdf"],
   ])("the fixture %s is detected as %s", async (path, id) => {
     expect(best(await fixture(path))).toBe(id);
+  });
+
+  test("a PDF without its header is still a PDF, as the reader reads it (#173)", async () => {
+    const written = writeWith(Pdf.format, prose);
+    assert(Predicate.isTagged(written, "Bytes"), "the PDF writer writes bytes");
+    // cut everything before the first object definition: the header and its binary comment
+    const latin1 = new TextDecoder("latin1").decode(written.bytes);
+    const headerless = bytes(written.bytes.subarray(latin1.search(/\d+ \d+ obj\b/)));
+    expect(best(headerless)).toBe("pdf");
+    const doc = await Effect.runPromise(Pdf.makePdfReader().read(headerless));
+    expect(doc.blocks.length).toBeGreaterThan(0);
   });
 
   test("a misleading file name never outranks the content", () => {
