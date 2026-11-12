@@ -9,3 +9,4 @@ export * from "./reader.ts";
 export * from "./writer.ts";
 export * from "./format.ts";
 export * from "./convert.ts";
+export * from "./diagnostic.ts";

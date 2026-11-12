@@ -155,6 +155,8 @@ const program = Effect.gen(function* () {
 
 Each loss entry says where it was (`path`: block indexes from the document's top, then a list item, slide, shape or table row index, a part such as `"notes"`, or a worksheet cell's A1 address) and how bad it is (`severity`: `dropped-content`, `dropped-formatting` or `converted`); `summary` groups the entries by feature, so 10,000 date cells are one item with a count. `LossReport` is a `Schema`, so a report encodes to JSON for logs and CLI output. `convert` takes `onLoss`: `"allow"` (the default), `"warn"` (logs a warning per summary item with `Effect.logWarning`, annotated with the formats, feature and count) or `"fail"` (writes nothing and fails with a `ConversionError` whose `loss` is the report).
 
+Readers and writers report what they meet along the way as **diagnostics** (#112): a `Diagnostic` has the `format`, the `stage` (`read` or `write`), a stable `code` (`xlsx.nonFiniteNumber` for a `NaN` written as `#NUM!`, `xlsx.sheetRenamed` for a sheet name Excel refuses, `iwork.componentSkipped` for a component a lenient iWork read skipped), a `severity` (a loss severity, or `repaired` when nothing was lost), a `path` and a `detail`. Each is a warning log record annotated with the diagnostic (`logDiagnostic`, under `DIAGNOSTIC_ANNOTATION`), so no signature changes: `convert` gathers them into `loss.diagnostics`, and any diagnostic but a `repaired` one makes the report lossy and fails `onLoss: "fail"` (one from the writer is known only once it has run, but no content is returned). A direct `reader.read` or `writer.write` call shows them through the app's loggers; `collectDiagnostics(effect)` returns them beside the result. A `MinimumLogLevel` above `Warn` filters them out before any logger, `convert`'s included.
+
 Failures are tagged errors in the error channel: `ParseError` (with the format and, where known, a source position), `WriteError`, `ProfileViolation` and `ConversionError` (a format with no reader or writer, or a loss under `onLoss: "fail"`). Every reader and writer is also available as a Context tag with a default `Layer` (`CsvReaderTag` / `CsvReaderLive`, …) for programs that inject them.
 
 ## API reference
@@ -346,7 +348,10 @@ The root entry re-exports everything; the subpaths expose one area each.
 | `collectFeaturesWithin` | function | The features a document uses inside nodes of a given feature. |
 | `unsupportedFeatures` | function | Features the document uses that are not in `allowed`. |
 | `LossEntry` | schema | One thing `narrow` could not keep: the feature, the action, its severity, its path and why. |
-| `LossReport` | schema | Everything a narrowing (or a conversion) dropped or down-converted: the entries, their summary, and whether there are none. |
+| `LossReport` | schema | Everything a narrowing (or a conversion) dropped or down-converted: the entries, their summary, the reader's and writer's diagnostics, and whether anything was lost. |
+| `Diagnostic` | schema | A non-fatal issue a reader or writer met: format, stage, `code`, severity, path and detail. |
+| `logDiagnostic` / `logDiagnostics` | function | Report diagnostics as annotated warning log records. |
+| `collectDiagnostics` | function | Run an effect and return its result with the diagnostics it reported. |
 | `LossSummaryItem` | schema | How many times a feature was lost the same way, and where the first few were. |
 | `LossSeverity` | schema | How bad a loss is: `dropped-content`, `dropped-formatting` or `converted`. |
 | `LossPathSegment` | schema | One step of a loss entry's path: a child's index, a part's name or a cell's A1 address. |
@@ -984,7 +989,7 @@ Each app has its own subpath (`/iwork/keynote`, `/iwork/pages`, `/iwork/numbers`
 Every reader takes `IworkReaderOptions`:
 
 - `limits` (`BundleLimits`): `maxEntries`, the most zip entries (default 10,000); `maxEntrySize`, the largest uncompressed entry (256 MiB); and `maxTotalSize`, the most uncompressed bytes inflated in total (512 MiB). A limit left out or `undefined` takes its default (`DEFAULT_BUNDLE_LIMITS`). A zip bomb fails with `LimitExceeded` instead of exhausting memory, and the reader's `ParseError` has `code: "LimitExceeded"`. The names, defaults and messages are the same as the OOXML readers' `limits`. Only `Index/*.iwa` components are inflated; media is read on demand with `bundle.readEntry`.
-- `lenient`: skip a component that fails to decode, with a logged warning (`Effect.logWarning`), instead of failing the whole read.
+- `lenient`: skip a component that fails to decode, reporting an `iwork.componentSkipped` diagnostic (a logged warning that `convert` collects), instead of failing the whole read.
 
 #### Documents saved as a directory
 
