@@ -9,9 +9,9 @@
  *   word of the sample's text in it.
  * - `pandoc` reads every DOCX sample and finds every word of its text.
  *
- * The tools are not dependencies, and CI installs none of them: `vp run ci`
- * runs this suite, and a missing tool skips its tests, unless `INTEROP=1` asks
- * for all of them (install them first).
+ * The tools are not dependencies: `vp run ci` runs this suite, and a missing
+ * tool skips its tests, unless `INTEROP=1` asks for all of them. CI's `lts`
+ * leg installs them and sets it, so a missing tool fails there.
  */
 import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -51,7 +51,7 @@ const TOOLS = {
 } satisfies Record<string, ReadonlyArray<string>>;
 type Tool = keyof typeof TOOLS;
 
-/** Which tools run here, and whether every one is required (`INTEROP` set). */
+/** Which tools run here, and whether every one is required (`INTEROP=1`). */
 const environment = Effect.fn("environment")(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const found = yield* Effect.forEach(
@@ -63,7 +63,7 @@ const environment = Effect.fn("environment")(function* () {
       ),
     { concurrency: "unbounded" },
   );
-  const required = Option.isSome(yield* Config.option(Config.String("INTEROP")));
+  const required = Option.contains(yield* Config.option(Config.String("INTEROP")), "1");
   const available: ReadonlyArray<Tool> = found.filter(([, ok]) => ok).map(([tool]) => tool);
   return { available, required };
 });
@@ -76,7 +76,7 @@ class Tools extends Context.Service<
   static readonly layer = Layer.effect(Tools, environment());
 }
 
-/** Whether a test needing `tools` is skipped: one is missing here and `INTEROP` does not require them. */
+/** Whether a test needing `tools` is skipped: one is missing here and `INTEROP=1` does not require them. */
 const skip = (...tools: ReadonlyArray<Tool>) =>
   Effect.map(
     Tools,

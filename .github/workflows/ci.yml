@@ -5,10 +5,15 @@ name: CI
 # the corpora and writer validation, the build, the dist and pack checks, the
 # examples, the audit), so a local `vp run ci` is exactly what runs here.
 #
-# It runs on the current LTS and the latest released Node (`test`, a matrix
-# that never cancels its siblings), and `ci` is the one stable check for
-# rulesets: it passes only when every matrix leg did. Both lines are inside
-# `engines.node` (`>=22`).
+# It runs on Node 22, the floor `engines.node` (`>=22`) promises, the current
+# LTS and the latest released Node (`test`, a matrix that never cancels its
+# siblings), and `ci` is the one stable check for rulesets: it passes only
+# when every matrix leg did. (#164, Node 22's windows-1252 decoding, got
+# through when only `latest` ran, #181.)
+#
+# The `lts` leg also installs LibreOffice, qpdf, poppler and pandoc and sets
+# INTEROP=1, so `test:interop` (our writers' output opened by those tools,
+# #134) runs there and a missing tool fails it; the other legs skip it.
 #
 # The suites run in a zone west of UTC, so nothing may read the host's zone:
 # the runners are UTC, and every OOXML write once failed west of it (#117).
@@ -30,15 +35,17 @@ jobs:
   test:
     name: ci (node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The first, uncached LibreOffice install can be slow on the apt mirror.
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        node: [lts, latest]
+        node: ["22", lts, latest]
     env:
       TZ: America/Los_Angeles
+      INTEROP: ${{ matrix.node == 'lts' && '1' || '0' }}
       # A modest ceiling for every Node process in the pipeline. NODE_OPTIONS
       # is inherited by every child, including each vitest fork.
       NODE_OPTIONS: --max-old-space-size=2048
@@ -62,10 +69,33 @@ jobs:
         with:
           path: .corpora
           key: corpora-v1-${{ hashFiles('corpora.json') }}
-      # A system tool, not a check: `test:validate` (in `vp run ci`) runs
-      # xmllint, which ubuntu-latest lacks and a Vite+ task can't apt-install.
-      - name: Install xmllint
-        run: command -v xmllint || { sudo apt-get update -q && sudo apt-get install -yq --no-install-recommends libxml2-utils; }
+      # System tools, not checks, which ubuntu-latest lacks and a Vite+ task
+      # can't apt-install: xmllint for `test:validate` on every leg, and on
+      # `lts` the interop tools for `test:interop`. Their .deb files are
+      # cached, keyed by this workflow (which names them): a first, uncached
+      # LibreOffice download is ~150 MB.
+      - name: Restore the apt package cache
+        if: matrix.node == 'lts'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: interop-apt-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            interop-apt-v1-${{ runner.os }}-
+      - name: Install system tools
+        env:
+          WITH_INTEROP: ${{ matrix.node == 'lts' }}
+        run: |
+          packages="libxml2-utils"
+          if [ "$WITH_INTEROP" = true ]; then
+            packages="$packages libreoffice-writer libreoffice-calc libreoffice-impress qpdf poppler-utils pandoc"
+          fi
+          mkdir -p ~/apt-cache/partial
+          sudo apt-get update -q
+          # shellcheck disable=SC2086 # the package list is split on purpose
+          sudo apt-get install -yq --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" $packages
+          # apt writes the cache as root; the cache action saves it as the runner user
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
       - name: Install dependencies
         run: vp install --frozen-lockfile
       - name: CI
