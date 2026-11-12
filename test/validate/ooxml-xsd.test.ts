@@ -8,11 +8,14 @@
  * under CI (`CI` set) either is a failure, so the check can't silently stop
  * running.
  */
+import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Arr from "effect/Array";
 import * as Config from "effect/Config";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Path from "effect/Path";
@@ -22,7 +25,7 @@ import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { unzipSync } from "fflate";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect } from "vite-plus/test";
 import { document, trustAs } from "@thomasfosterau/effect-document";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
 import { type AnyWriter, type Family, writeSamples } from "../samples.ts";
@@ -77,7 +80,7 @@ const Manifest = Schema.Struct({
 });
 
 /** The fetched ECMA-376 schema directory and whether `xmllint` runs, or why the check can't run. */
-const environment = Effect.gen(function* () {
+const environment = Effect.fn("environment")(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -98,9 +101,15 @@ const environment = Effect.gen(function* () {
     ...(xmllint ? [] : ["xmllint (libxml2-utils)"]),
   ];
   return { schemas: Option.getOrElse(dir, () => ""), missing, ci };
-}).pipe(Effect.provide(NodeServices.layer));
+});
 
-const { schemas, missing, ci } = await Effect.runPromise(environment);
+/** What the validators need, probed once for the suite. */
+class Environment extends Context.Service<
+  Environment,
+  { readonly schemas: string; readonly missing: ReadonlyArray<string>; readonly ci: boolean }
+>()("test/Environment") {
+  static readonly layer = Layer.effect(Environment, environment());
+}
 
 /** A document's metadata with every key the writers map to the package properties (#79). */
 const METADATA = {
@@ -189,7 +198,7 @@ const partsOf = ({ writer, family }: (typeof WRITERS)[number]) =>
   });
 
 /** Validates parts against one namespace's schema; the errors left after the known divergences. */
-const validate = (ns: Namespace, parts: ReadonlyArray<Part>) =>
+const validate = (schemas: string, ns: Namespace, parts: ReadonlyArray<Part>) =>
   Effect.scoped(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -232,26 +241,29 @@ const validate = (ns: Namespace, parts: ReadonlyArray<Part>) =>
     }),
   );
 
-describe.skipIf(!ci && !Arr.isReadonlyArrayEmpty(missing))(
-  "OOXML output validates against ECMA-376 (#134)",
-  () => {
-    test("the validators are available", () => {
-      expect(missing).toEqual([]);
-    });
+layer(Environment.layer.pipe(Layer.provideMerge(NodeServices.layer)))((it) => {
+  describe("OOXML output validates against ECMA-376 (#134)", () => {
+    it.effect("the validators are available", (ctx) =>
+      Effect.gen(function* () {
+        const { missing, ci } = yield* Environment;
+        ctx.skip(!ci && !Arr.isReadonlyArrayEmpty(missing));
+        expect(missing).toEqual([]);
+      }),
+    );
 
-    test.each(WRITERS)("$id: every part of every feature sample", async (entry) => {
-      const errors = await Effect.runPromise(
-        Effect.gen(function* () {
-          const { byNamespace, unknown } = yield* partsOf(entry);
-          const invalid = yield* Effect.forEach(
-            Rec.toEntries(byNamespace),
-            ([ns, parts]) => (isNamespace(ns) ? validate(ns, parts) : Effect.succeed([])),
-            { concurrency: 1 },
-          );
-          return [...unknown.map((u) => `no schema for ${u}`), ...invalid.flat()];
-        }).pipe(Effect.provide(NodeServices.layer)),
-      );
-      expect(errors).toEqual([]);
-    });
-  },
-);
+    it.effect.each(WRITERS)("$id: every part of every feature sample", (entry, ctx) =>
+      Effect.gen(function* () {
+        const { schemas, missing, ci } = yield* Environment;
+        ctx.skip(!ci && !Arr.isReadonlyArrayEmpty(missing));
+        const { byNamespace, unknown } = yield* partsOf(entry);
+        const invalid = yield* Effect.forEach(
+          Rec.toEntries(byNamespace),
+          ([ns, parts]) => (isNamespace(ns) ? validate(schemas, ns, parts) : Effect.succeed([])),
+          { concurrency: 1 },
+        );
+        const errors = [...unknown.map((u) => `no schema for ${u}`), ...invalid.flat()];
+        expect(errors).toEqual([]);
+      }),
+    );
+  });
+});

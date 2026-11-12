@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { assert, describe, expect, test } from "vite-plus/test";
@@ -11,7 +12,7 @@ import {
   sniffTsv,
 } from "../../src/csv/index.ts";
 
-const sniffed = (input: string) => Effect.runSync(sniffDialect(input));
+const sniffed = (input: string) => sniffDialect(input);
 
 /** A table of `rows` data rows under a header, in `dialect`, its last field quoted when it holds the separator. */
 const table = (dialect: CsvDialect, rows: number): string => {
@@ -38,43 +39,57 @@ const confidenceOf = (sniff: ReturnType<typeof sniffCsv>): number =>
   Option.match(sniff, { onNone: () => 0, onSome: (s) => s.confidence });
 
 describe("sniffDialect (#188)", () => {
-  test.each(DIALECTS)("finds the %s dialect and the header", (_, dialect) => {
-    const found = sniffed(table(dialect, 20));
-    assert(Option.isSome(found), "expected a dialect");
-    expect(found.value.options).toEqual({ dialect, skipRows: 0, treatFirstRowAsHeader: true });
-    expect(found.value.confidence).toBeGreaterThan(0.9);
-  });
+  it.effect.each(DIALECTS)("finds the %s dialect and the header", ([, dialect]) =>
+    Effect.gen(function* () {
+      const found = yield* sniffed(table(dialect, 20));
+      assert(Option.isSome(found), "expected a dialect");
+      expect(found.value.options).toEqual({ dialect, skipRows: 0, treatFirstRowAsHeader: true });
+      expect(found.value.confidence).toBeGreaterThan(0.9);
+    }),
+  );
 
-  test("skips a preamble before the table", () => {
-    const dialect = COMMA;
-    const found = sniffed(`Exported 2026-11-11\nby the report tool\n${table(dialect, 10)}`);
-    assert(Option.isSome(found), "expected a dialect");
-    expect(found.value.options.skipRows).toBe(2);
-    expect(found.value.evidence).toContain("2 preamble line(s)");
-  });
+  it.effect("skips a preamble before the table", () =>
+    Effect.gen(function* () {
+      const dialect = COMMA;
+      const found = yield* sniffed(
+        `Exported 2026-11-11\nby the report tool\n${table(dialect, 10)}`,
+      );
+      assert(Option.isSome(found), "expected a dialect");
+      expect(found.value.options.skipRows).toBe(2);
+      expect(found.value.evidence).toContain("2 preamble line(s)");
+    }),
+  );
 
-  test("says there is no header when the first row is like the rest", () => {
-    const found = sniffed("a,b\nc,d\ne,f\n");
-    assert(Option.isSome(found), "expected a dialect");
-    expect(found.value.options.treatFirstRowAsHeader).toBe(false);
-  });
+  it.effect("says there is no header when the first row is like the rest", () =>
+    Effect.gen(function* () {
+      const found = yield* sniffed("a,b\nc,d\ne,f\n");
+      assert(Option.isSome(found), "expected a dialect");
+      expect(found.value.options.treatFirstRowAsHeader).toBe(false);
+    }),
+  );
 
-  test("on a sample of a large file, agrees with reading the whole file", () => {
-    const dialect = SEMICOLON;
-    const big = table(dialect, 5000);
-    expect(big.length).toBeGreaterThan(SNIFF_SAMPLE_BYTES);
-    const found = sniffed(big);
-    assert(Option.isSome(found), "expected a dialect");
-    const withSniffed = Effect.runSync(readCsvRows(big, found.value.options));
-    const withTruth = Effect.runSync(
-      readCsvRows(big, { dialect, skipRows: 0, treatFirstRowAsHeader: true }),
-    );
-    expect(withSniffed).toEqual(withTruth);
-  });
+  it.effect("on a sample of a large file, agrees with reading the whole file", () =>
+    Effect.gen(function* () {
+      const dialect = SEMICOLON;
+      const big = table(dialect, 5000);
+      expect(big.length).toBeGreaterThan(SNIFF_SAMPLE_BYTES);
+      const found = yield* sniffed(big);
+      assert(Option.isSome(found), "expected a dialect");
+      const withSniffed = yield* readCsvRows(big, found.value.options);
+      const withTruth = yield* readCsvRows(big, {
+        dialect,
+        skipRows: 0,
+        treatFirstRowAsHeader: true,
+      });
+      expect(withSniffed).toEqual(withTruth);
+    }),
+  );
 
-  test("finds nothing in text no separator splits", () => {
-    expect(Option.isNone(sniffed("one line of prose\nand another\n"))).toBe(true);
-  });
+  it.effect("finds nothing in text no separator splits", () =>
+    Effect.gen(function* () {
+      expect(Option.isNone(yield* sniffed("one line of prose\nand another\n"))).toBe(true);
+    }),
+  );
 });
 
 describe("sniffCsv / sniffTsv (#188)", () => {

@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import { describe, expect, test } from "vite-plus/test";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -20,8 +21,6 @@ import {
   worksheet,
   rowsOf,
 } from "../../src/schema/index.ts";
-
-const run = <A, E>(e: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(e);
 
 describe("schema constructors", () => {
   test("builds a prose document", () => {
@@ -75,30 +74,34 @@ describe("text collapse", () => {
 });
 
 describe("JSON round-trip via Schema", () => {
-  test("encode then decode is identity (prose)", async () => {
-    const doc = document([header(2, [str("Hi")]), para([str("body "), strong([str("bold")])])], {
-      title: "t",
-    });
-    const encoded = await run(Schema.encodeEffect(Document)(doc));
-    // encoded is plain JSON: it survives a JSON text round trip unchanged
-    const Json = Schema.fromJsonString(Schema.Unknown);
-    const json = await run(Schema.encodeEffect(Json)(encoded));
-    expect(await run(Schema.decodeEffect(Json)(json))).toEqual(encoded);
-    const decoded = await run(Schema.decodeEffect(Document)(encoded));
-    expect(decoded).toEqual(doc);
-  });
+  it.effect("encode then decode is identity (prose)", () =>
+    Effect.gen(function* () {
+      const doc = document([header(2, [str("Hi")]), para([str("body "), strong([str("bold")])])], {
+        title: "t",
+      });
+      const encoded = yield* Schema.encodeEffect(Document)(doc);
+      // encoded is plain JSON: it survives a JSON text round trip unchanged
+      const Json = Schema.fromJsonString(Schema.Unknown);
+      const json = yield* Schema.encodeEffect(Json)(encoded);
+      expect(yield* Schema.decodeEffect(Json)(json)).toEqual(encoded);
+      const decoded = yield* Schema.decodeEffect(Document)(encoded);
+      expect(decoded).toEqual(doc);
+    }),
+  );
 
-  test("encode then decode is identity (spreadsheet with a date)", async () => {
-    const doc = document([
-      worksheet("S", [
-        [
-          cell.text("d"),
-          cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-06-26T00:00:00.000Z"))),
-        ],
-      ]),
-    ]);
-    const encoded = await run(Schema.encodeEffect(Document)(doc));
-    const decoded = await run(Schema.decodeEffect(Document)(encoded));
-    expect(decoded).toEqual(doc);
-  });
+  it.effect("encode then decode is identity (spreadsheet with a date)", () =>
+    Effect.gen(function* () {
+      const doc = document([
+        worksheet("S", [
+          [
+            cell.text("d"),
+            cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-06-26T00:00:00.000Z"))),
+          ],
+        ]),
+      ]);
+      const encoded = yield* Schema.encodeEffect(Document)(doc);
+      const decoded = yield* Schema.decodeEffect(Document)(encoded);
+      expect(decoded).toEqual(doc);
+    }),
+  );
 });

@@ -4,11 +4,12 @@
  * and decodes that JSON to the same document.
  */
 
+import { it } from "@effect/vitest";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { assert, describe, test } from "vite-plus/test";
+import { assert, describe } from "vite-plus/test";
 import {
   decodeDocumentResult,
   Document,
@@ -41,19 +42,18 @@ const agrees = (doc: Document): boolean => {
 
 describe("the stack-safe Document codec agrees with the Schema codec (#191)", () => {
   const families: ReadonlyArray<Family> = ["prose", "sheet", "deck"];
-  test.each(families)(
+  it.effect.each(families)(
     "%s documents",
-    async (family) => {
-      const result = await Effect.runPromise(
-        Arbitrary.checkEffect(
+    (family) =>
+      Effect.gen(function* () {
+        const result = yield* Arbitrary.checkEffect(
           arbitraryDocument(Profiles.Full, family),
           (doc) => Effect.sync(() => agrees(doc)),
           { runs: 100, seed: 191, size: 10 },
-        ),
-      );
-      assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined);
-      // (generous: the deck documents are large, and coverage instrumentation slows them)
-    },
+        );
+        assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined);
+        // (generous: the deck documents are large, and coverage instrumentation slows them)
+      }),
     120_000,
   );
 });

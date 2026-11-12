@@ -4,7 +4,8 @@
  * failure's `position` says where it happened when the reader knows.
  */
 
-import { describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import { describe, expect } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import { strToU8, zipSync } from "fflate";
@@ -14,6 +15,7 @@ import {
   type Document,
   type ParseError,
   type ParseErrorCode,
+  type WriteError,
   document,
   para,
   str,
@@ -32,15 +34,19 @@ import { makeXlsxReader } from "@thomasfosterau/effect-document/ooxml/xlsx";
 const failure = (
   reader: { readonly read: (c: Content) => Effect.Effect<Document, ParseError> },
   input: Content,
-): ParseError => Effect.runSync(Effect.flip(reader.read(input)));
+) => Effect.flip(reader.read(input));
 
 const NOT_A_ZIP = bytes(strToU8("plainly not a zip archive"));
 const RELS = (target: string) =>
   `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="x/officeDocument" Target="${target}"/></Relationships>`;
 /** A real DOCX package, as the writer makes it. */
-const DOCX: Content = Effect.runSync(
-  makeDocxWriter().write(trustAs(document([para([str("hi")])]))),
-);
+const DOCX = makeDocxWriter().write(trustAs(document([para([str("hi")])])));
+
+/** A reader's failure for the package `input` writes. */
+const failureOf = <E>(
+  reader: { readonly read: (c: Content) => Effect.Effect<Document, ParseError> },
+  input: Effect.Effect<Content, E>,
+) => Effect.flatMap(input, (content) => failure(reader, content));
 
 /** A minimal PDF with an `/Encrypt` entry in its trailer. */
 const ENCRYPTED_PDF = (() => {
@@ -70,11 +76,13 @@ const CFB = bytes(
 );
 
 /** The DOCX with its end-of-central-directory record cut off (22 bytes, no comment). */
-const TRUNCATED: Content = Predicate.isTagged(DOCX, "Bytes")
-  ? bytes(DOCX.bytes.subarray(0, DOCX.bytes.length - 22))
-  : DOCX;
+const TRUNCATED = Effect.map(DOCX, (docx) =>
+  Predicate.isTagged(docx, "Bytes") ? bytes(docx.bytes.subarray(0, docx.bytes.length - 22)) : docx,
+);
 
-const CASES: ReadonlyArray<readonly [string, () => ParseError, ParseErrorCode]> = [
+const CASES: ReadonlyArray<
+  readonly [string, () => Effect.Effect<ParseError, Document | WriteError>, ParseErrorCode]
+> = [
   [
     "OOXML: bytes that aren't a zip",
     () => failure(makeDocxReader(), NOT_A_ZIP),
@@ -87,11 +95,11 @@ const CASES: ReadonlyArray<readonly [string, () => ParseError, ParseErrorCode]> 
   ],
   [
     "OOXML: a zip without its central directory",
-    () => failure(makeDocxReader(), TRUNCATED),
+    () => failureOf(makeDocxReader(), TRUNCATED),
     "InvalidContainer",
   ],
-  ["OOXML: a DOCX read as PPTX", () => failure(makePptxReader(), DOCX), "WrongFormat"],
-  ["OOXML: a DOCX read as XLSX", () => failure(makeXlsxReader(), DOCX), "WrongFormat"],
+  ["OOXML: a DOCX read as PPTX", () => failureOf(makePptxReader(), DOCX), "WrongFormat"],
+  ["OOXML: a DOCX read as XLSX", () => failureOf(makeXlsxReader(), DOCX), "WrongFormat"],
   [
     "OOXML: a package without its main part",
     () =>
@@ -103,7 +111,7 @@ const CASES: ReadonlyArray<readonly [string, () => ParseError, ParseErrorCode]> 
   ],
   [
     "OOXML: a part over the entry-size limit",
-    () => failure(makeDocxReader({ limits: { maxEntrySize: 10 } }), DOCX),
+    () => failureOf(makeDocxReader({ limits: { maxEntrySize: 10 } }), DOCX),
     "LimitExceeded",
   ],
   [
@@ -125,53 +133,67 @@ const CASES: ReadonlyArray<readonly [string, () => ParseError, ParseErrorCode]> 
   ],
   [
     "iWork: a DOCX read as Keynote",
-    () => failure(Keynote.makeKeynoteReader(), DOCX),
+    () => failureOf(Keynote.makeKeynoteReader(), DOCX),
     "WrongFormat",
   ],
 ];
 
 describe("ParseError codes (#127)", () => {
-  test.each(CASES)("%s", (_, fail, code) => {
-    const error = fail();
-    expect(error._tag).toBe("ParseError");
-    expect(error.code).toBe(code);
-  });
+  it.effect.each(CASES)("%s", ([, fail, code]) =>
+    Effect.gen(function* () {
+      const error = yield* fail();
+      expect(error._tag).toBe("ParseError");
+      expect(error.code).toBe(code);
+    }),
+  );
 
-  test("an XLSX over its cell limit names the sheet", () => {
-    const sheet = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row></sheetData></worksheet>`;
-    const xlsx = bytes(
-      zipSync({
-        "_rels/.rels": strToU8(RELS("xl/workbook.xml")),
-        "[Content_Types].xml": strToU8(
-          `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`,
-        ),
-        "xl/workbook.xml": strToU8(
-          `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="s1"/></sheets></workbook>`,
-        ),
-        "xl/_rels/workbook.xml.rels": strToU8(
-          `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-        ),
-        "xl/worksheets/sheet1.xml": strToU8(sheet),
-      }),
-    );
-    const error = failure(makeXlsxReader({ maxCells: 1 }), xlsx);
-    expect(error.code).toBe("LimitExceeded");
-    expect(error.position?.sheet).toBe("Big");
-  });
+  it.effect("an XLSX over its cell limit names the sheet", () =>
+    Effect.gen(function* () {
+      const sheet = `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row></sheetData></worksheet>`;
+      const xlsx = bytes(
+        zipSync({
+          "_rels/.rels": strToU8(RELS("xl/workbook.xml")),
+          "[Content_Types].xml": strToU8(
+            `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`,
+          ),
+          "xl/workbook.xml": strToU8(
+            `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Big" sheetId="1" r:id="s1"/></sheets></workbook>`,
+          ),
+          "xl/_rels/workbook.xml.rels": strToU8(
+            `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="s1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+          ),
+          "xl/worksheets/sheet1.xml": strToU8(sheet),
+        }),
+      );
+      const error = yield* failure(makeXlsxReader({ maxCells: 1 }), xlsx);
+      expect(error.code).toBe("LimitExceeded");
+      expect(error.position?.sheet).toBe("Big");
+    }),
+  );
 
-  test("a CSV syntax error keeps its row and column", () => {
-    const error = failure(Csv.makeCsvReader(), text('a,b\n1,"2'));
-    expect(error.code).toBe("MalformedText");
-    // CSV rows count from 0: the quote opens on the second row
-    expect(error.position?.row).toBe(1);
-  });
+  it.effect("a CSV syntax error keeps its row and column", () =>
+    Effect.gen(function* () {
+      const error = yield* failure(Csv.makeCsvReader(), text('a,b\n1,"2'));
+      expect(error.code).toBe("MalformedText");
+      // CSV rows count from 0: the quote opens on the second row
+      expect(error.position?.row).toBe(1);
+    }),
+  );
 });
 
 describe("OOXML container failures say what they are (#173)", () => {
-  test("an encrypted package or legacy binary file is named as such", () => {
-    expect(failure(makeDocxReader(), CFB).reason).toMatch(/Compound File Binary.*encrypted/);
-  });
-  test("a truncated zip says its central directory is missing", () => {
-    expect(failure(makeDocxReader(), TRUNCATED).reason).toMatch(/without its central directory/);
-  });
+  it.effect("an encrypted package or legacy binary file is named as such", () =>
+    Effect.gen(function* () {
+      expect((yield* failure(makeDocxReader(), CFB)).reason).toMatch(
+        /Compound File Binary.*encrypted/,
+      );
+    }),
+  );
+  it.effect("a truncated zip says its central directory is missing", () =>
+    Effect.gen(function* () {
+      expect((yield* failureOf(makeDocxReader(), TRUNCATED)).reason).toMatch(
+        /without its central directory/,
+      );
+    }),
+  );
 });

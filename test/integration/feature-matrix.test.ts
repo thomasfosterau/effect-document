@@ -5,12 +5,13 @@
  * between the `feature-matrix` markers differs (layout aside).
  */
 
+import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect } from "vite-plus/test";
 import {
   ALL_FEATURES,
   ALL_ID_FEATURES,
@@ -118,12 +119,16 @@ const readmeMatrix = Effect.fn("readmeMatrix")(function* () {
   return from < 0 || to < 0 ? "" : readme.slice(from, to + END.length);
 });
 
-describe("feature × format matrix (#130)", () => {
-  test("the README's table is the one the profiles give", async () => {
-    const current = await Effect.runPromise(Effect.provide(readmeMatrix(), NodeServices.layer));
-    expect(
-      layoutFree(current),
-      `paste this into packages/core/README.md (then vp fmt):\n\n${renderMatrix()}\n`,
-    ).toBe(layoutFree(renderMatrix()));
+layer(NodeServices.layer)((it) => {
+  describe("feature × format matrix (#130)", () => {
+    it.effect("the README's table is the one the profiles give", () =>
+      Effect.gen(function* () {
+        const current = yield* readmeMatrix();
+        expect(
+          layoutFree(current),
+          `paste this into packages/core/README.md (then vp fmt):\n\n${renderMatrix()}\n`,
+        ).toBe(layoutFree(renderMatrix()));
+      }),
+    );
   });
 });

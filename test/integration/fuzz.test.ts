@@ -6,6 +6,7 @@
  * check. A failing case names its format, seed and mutation, so it replays.
  */
 
+import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
@@ -15,7 +16,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import { strToU8, unzipSync, zipSync } from "fflate";
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect } from "vite-plus/test";
 import {
   blocksToText,
   bulletList,
@@ -237,57 +238,55 @@ const defectAt = (c: Case, sample: Uint8Array, seed: number) => {
   );
 };
 
-describe("mutation fuzzing (#135)", () => {
-  test.each(CASES)(
-    "$format: every mutated input reads or fails with a ParseError",
-    async (c) => {
-      const defects = await Effect.runPromise(
+layer(NodeServices.layer)((it) => {
+  describe("mutation fuzzing (#135)", () => {
+    it.effect.each(CASES)(
+      "$format: every mutated input reads or fails with a ParseError",
+      (c) =>
         Effect.gen(function* () {
           const sample = yield* c.sample;
           const found = yield* Effect.forEach(
             Arr.range(0, RUNS - 1),
             (seed) => defectAt(c, sample, seed),
-            {
-              concurrency: 1,
-            },
+            { concurrency: 1 },
           );
-          return found.flat();
-        }).pipe(Effect.provide(NodeServices.layer)),
-      );
-      expect(defects).toEqual([]);
-    },
-    120_000,
-  );
-});
-
-/** A DOCX whose document part declares a billion-laughs entity chain and uses it. */
-const BILLION_LAUGHS = (() => {
-  const levels = Arr.makeBy(10, (i) =>
-    i === 0 ? `<!ENTITY lol0 "lol">` : `<!ENTITY lol${i} "${`&lol${i - 1};`.repeat(10)}">`,
-  ).join("");
-  const xml = `<?xml version="1.0"?><!DOCTYPE w:document [${levels}]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&lol9;</w:t></w:r></w:p></w:body></w:document>`;
-  return zipSync({
-    "[Content_Types].xml": strToU8(
-      `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
-    ),
-    "_rels/.rels": strToU8(
-      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
-    ),
-    "word/document.xml": strToU8(xml),
+          expect(found.flat()).toEqual([]);
+        }),
+      120_000,
+    );
   });
-})();
 
-describe("known-bad inputs (#135)", () => {
-  test("billion-laughs XML is never expanded: it fails or reads small, quickly", async () => {
-    const started = performance.now();
-    const exit = await Effect.runPromiseExit(Docx.makeDocxReader().read(bytes(BILLION_LAUGHS)));
-    expect(performance.now() - started).toBeLessThan(5_000);
-    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(false);
-    // a failure reads as nothing; a success must not hold the 3 × 10⁹ characters an expansion would
-    const textLength = Exit.match(exit, {
-      onSuccess: (doc) => blocksToText(doc.blocks).length,
-      onFailure: () => 0,
+  /** A DOCX whose document part declares a billion-laughs entity chain and uses it. */
+  const BILLION_LAUGHS = (() => {
+    const levels = Arr.makeBy(10, (i) =>
+      i === 0 ? `<!ENTITY lol0 "lol">` : `<!ENTITY lol${i} "${`&lol${i - 1};`.repeat(10)}">`,
+    ).join("");
+    const xml = `<?xml version="1.0"?><!DOCTYPE w:document [${levels}]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&lol9;</w:t></w:r></w:p></w:body></w:document>`;
+    return zipSync({
+      "[Content_Types].xml": strToU8(
+        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+      ),
+      "_rels/.rels": strToU8(
+        `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+      ),
+      "word/document.xml": strToU8(xml),
     });
-    expect(textLength).toBeLessThan(100_000);
+  })();
+
+  describe("known-bad inputs (#135)", () => {
+    it.effect("billion-laughs XML is never expanded: it fails or reads small, quickly", () =>
+      Effect.gen(function* () {
+        const started = performance.now();
+        const exit = yield* Effect.exit(Docx.makeDocxReader().read(bytes(BILLION_LAUGHS)));
+        expect(performance.now() - started).toBeLessThan(5_000);
+        expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(false);
+        // a failure reads as nothing; a success must not hold the 3 × 10⁹ characters an expansion would
+        const textLength = Exit.match(exit, {
+          onSuccess: (doc) => blocksToText(doc.blocks).length,
+          onFailure: () => 0,
+        });
+        expect(textLength).toBeLessThan(100_000);
+      }),
+    );
   });
 });

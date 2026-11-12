@@ -1,4 +1,5 @@
-import { assert, describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import { assert, describe, expect } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import {
@@ -27,7 +28,6 @@ import {
 import { Docx, Pptx } from "@thomasfosterau/effect-document/ooxml";
 import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
-const run = <A, E>(e: Effect.Effect<A, E>): A => Effect.runSync(e);
 const isSlideShow = (block: Block): block is SlideShow => Predicate.isTagged(block, "SlideShow");
 
 // A rich Word document touching links, lists and tables.
@@ -46,7 +46,10 @@ const richDocx = trustAs<FeaturesOf<typeof Docx.profile>>(
     table({ headers: ["A", "B"], rows: [[[plainText("1")], [plainText("2")]]] }),
   ]),
 );
-const docxBytes = () => run(Docx.makeDocxWriter().write(richDocx));
+const docxBytes = () =>
+  Effect.gen(function* () {
+    return yield* Docx.makeDocxWriter().write(richDocx);
+  });
 
 // A two-slide deck.
 const deck = trustAs<FeaturesOf<typeof Pptx.profile>>(
@@ -57,85 +60,114 @@ const deck = trustAs<FeaturesOf<typeof Pptx.profile>>(
     ]),
   ]),
 );
-const pptxBytes = () => run(Pptx.makePptxWriter().write(deck));
+const pptxBytes = () =>
+  Effect.gen(function* () {
+    return yield* Pptx.makePptxWriter().write(deck);
+  });
 
 describe("DOCX -> RTF (narrowing)", () => {
-  test("drops/down-converts what RTF can't represent and reports it", () => {
-    const { content, loss } = run(
-      convert({ from: Docx.format, to: Rtf.format, input: docxBytes() }),
-    );
-    const features = loss.entries.map((e) => e.feature);
-    expect(features).toEqual(
-      expect.arrayContaining([
-        "inline.link",
-        "block.bulletList",
-        "block.orderedList",
-        "block.table",
-      ]),
-    );
-    // the rendered RTF still carries the text content
-    const rtf = contentToText(content);
-    expect(rtf).toContain("Report");
-    expect(rtf).toContain("the site");
-    expect(rtf).toContain("first");
-  });
+  it.effect("drops/down-converts what RTF can't represent and reports it", () =>
+    Effect.gen(function* () {
+      const { content, loss } = yield* convert({
+        from: Docx.format,
+        to: Rtf.format,
+        input: yield* docxBytes(),
+      });
+      const features = loss.entries.map((e) => e.feature);
+      expect(features).toEqual(
+        expect.arrayContaining([
+          "inline.link",
+          "block.bulletList",
+          "block.orderedList",
+          "block.table",
+        ]),
+      );
+      // the rendered RTF still carries the text content
+      const rtf = contentToText(content);
+      expect(rtf).toContain("Report");
+      expect(rtf).toContain("the site");
+      expect(rtf).toContain("first");
+    }),
+  );
 
-  test("the narrowed result actually conforms to the RTF profile", () => {
-    const { content } = run(convert({ from: Docx.format, to: Rtf.format, input: docxBytes() }));
-    const back = run(Rtf.makeRtfReader().read(content));
-    expect(Rtf.Rtf.is(back)).toBe(true);
-  });
+  it.effect("the narrowed result actually conforms to the RTF profile", () =>
+    Effect.gen(function* () {
+      const { content } = yield* convert({
+        from: Docx.format,
+        to: Rtf.format,
+        input: yield* docxBytes(),
+      });
+      const back = yield* Rtf.makeRtfReader().read(content);
+      expect(Rtf.Rtf.is(back)).toBe(true);
+    }),
+  );
 });
 
 describe("RTF -> DOCX (widening)", () => {
-  test("is lossless because the RTF profile is a subset of DOCX", () => {
-    const rtf = run(
-      Rtf.makeRtfWriter().write(
+  it.effect("is lossless because the RTF profile is a subset of DOCX", () =>
+    Effect.gen(function* () {
+      const rtf = yield* Rtf.makeRtfWriter().write(
         trustAs<FeaturesOf<typeof Rtf.profile>>(
           document([para([str("plain "), strong([str("bold")])])]),
         ),
-      ),
-    );
-    const { content, loss } = run(convert({ from: Rtf.format, to: Docx.format, input: rtf }));
-    expect(loss.isLossless).toBe(true);
-    const back = run(Docx.makeDocxReader().read(content));
-    expect(Docx.Docx.is(back)).toBe(true);
-    expect(blocksToText(back.blocks)).toContain("plain bold");
-  });
+      );
+      const { content, loss } = yield* convert({ from: Rtf.format, to: Docx.format, input: rtf });
+      expect(loss.isLossless).toBe(true);
+      const back = yield* Docx.makeDocxReader().read(content);
+      expect(Docx.Docx.is(back)).toBe(true);
+      expect(blocksToText(back.blocks)).toContain("plain bold");
+    }),
+  );
 });
 
 describe("PPTX -> DOCX (narrowing: slides -> prose)", () => {
-  test("flattens slides to prose, reporting the slideshow conversion", () => {
-    const { content, loss } = run(
-      convert({ from: Pptx.format, to: Docx.format, input: pptxBytes() }),
-    );
-    expect(loss.entries.some((e) => e.feature === "deck.slideShow")).toBe(true);
-    const back = run(Docx.makeDocxReader().read(content));
-    expect(Docx.Docx.is(back)).toBe(true);
-    const text = blocksToText(back.blocks);
-    expect(text).toContain("Title");
-    expect(text).toContain("Body text");
-    expect(text).toContain("a");
-  });
+  it.effect("flattens slides to prose, reporting the slideshow conversion", () =>
+    Effect.gen(function* () {
+      const { content, loss } = yield* convert({
+        from: Pptx.format,
+        to: Docx.format,
+        input: yield* pptxBytes(),
+      });
+      expect(loss.entries.some((e) => e.feature === "deck.slideShow")).toBe(true);
+      const back = yield* Docx.makeDocxReader().read(content);
+      expect(Docx.Docx.is(back)).toBe(true);
+      const text = blocksToText(back.blocks);
+      expect(text).toContain("Title");
+      expect(text).toContain("Body text");
+      expect(text).toContain("a");
+    }),
+  );
 });
 
 describe("PPTX -> RTF (narrowing across families)", () => {
-  test("produces conforming RTF with the deck's text", () => {
-    const { content } = run(convert({ from: Pptx.format, to: Rtf.format, input: pptxBytes() }));
-    const back = run(Rtf.makeRtfReader().read(content));
-    expect(Rtf.Rtf.is(back)).toBe(true);
-    expect(blocksToText(back.blocks)).toContain("Body text");
-  });
+  it.effect("produces conforming RTF with the deck's text", () =>
+    Effect.gen(function* () {
+      const { content } = yield* convert({
+        from: Pptx.format,
+        to: Rtf.format,
+        input: yield* pptxBytes(),
+      });
+      const back = yield* Rtf.makeRtfReader().read(content);
+      expect(Rtf.Rtf.is(back)).toBe(true);
+      expect(blocksToText(back.blocks)).toContain("Body text");
+    }),
+  );
 });
 
 describe("DOCX -> PPTX (prose wrapped into a slide)", () => {
-  test("wraps loose prose into a single slide and conforms to PPTX", () => {
-    const { content } = run(convert({ from: Docx.format, to: Pptx.format, input: docxBytes() }));
-    const back = run(Pptx.makePptxReader().read(content));
-    expect(Pptx.Pptx.is(back)).toBe(true);
-    const ss = back.blocks.find(isSlideShow);
-    assert(ss !== undefined, "the deck has a slide show");
-    expect(ss.slides.length).toBeGreaterThanOrEqual(1);
-    expect(blocksToText(back.blocks)).toContain("Report");
-  });
+  it.effect("wraps loose prose into a single slide and conforms to PPTX", () =>
+    Effect.gen(function* () {
+      const { content } = yield* convert({
+        from: Docx.format,
+        to: Pptx.format,
+        input: yield* docxBytes(),
+      });
+      const back = yield* Pptx.makePptxReader().read(content);
+      expect(Pptx.Pptx.is(back)).toBe(true);
+      const ss = back.blocks.find(isSlideShow);
+      assert(ss !== undefined, "the deck has a slide show");
+      expect(ss.slides.length).toBeGreaterThanOrEqual(1);
+      expect(blocksToText(back.blocks)).toContain("Report");
+    }),
+  );
 });

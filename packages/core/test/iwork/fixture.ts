@@ -1,44 +1,26 @@
 /**
  * Reading the vendored fixtures under `test/fixtures` (provenance:
- * `test/fixtures/ATTRIBUTION.md`) through the `FileSystem` service.
+ * `test/fixtures/ATTRIBUTION.md`) through the `FileSystem` service, so a test
+ * runs under `layer(NodeServices.layer)` and reads the fixtures it needs.
  */
 
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import { assert } from "vite-plus/test";
 
-const readFixture = (name: string) =>
+/** The path of a vendored fixture. */
+const fixturePath = (name: string) =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const data = yield* fs.readFile(
-      yield* path.fromFileUrl(new URL(`./fixtures/${name}`, import.meta.url)),
-    );
-    return [name, data] as const;
+    return yield* path.fromFileUrl(new URL(`./fixtures/${name}`, import.meta.url));
   });
 
-/**
- * Read the named fixtures up front (a suite's `await` at module level) and
- * return a synchronous lookup, which fails the test for a name not loaded.
- */
-export const loadFixtures = async (
-  names: ReadonlyArray<string>,
-): Promise<(name: string) => Uint8Array> => {
-  const files = new Map(
-    await Effect.runPromise(
-      Effect.forEach(names, readFixture, { concurrency: "unbounded" }).pipe(
-        Effect.provide(NodeServices.layer),
-      ),
-    ),
-  );
-  return (name) => {
-    const data = files.get(name);
-    assert(data !== undefined, `fixture ${name} was not loaded`);
-    return data;
-  };
-};
+/** The bytes of the named vendored fixture, read through the `FileSystem` service. */
+export const fixture = (name: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    return yield* fs.readFile(yield* fixturePath(name));
+  });
 
 /**
  * The real `FileSystem.File.Info` of a vendored fixture, so a stubbed `stat`
@@ -46,13 +28,8 @@ export const loadFixtures = async (
  * the effect versions the peer range admits (`dev` is a `number` on 4.0.x and
  * a `bigint` from 4.1).
  */
-export const statFixture = (name: string): Promise<FileSystem.File.Info> =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      return yield* fs.stat(
-        yield* path.fromFileUrl(new URL(`./fixtures/${name}`, import.meta.url)),
-      );
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
+export const statFixture = (name: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    return yield* fs.stat(yield* fixturePath(name));
+  });

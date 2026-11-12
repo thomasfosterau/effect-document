@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -210,13 +211,15 @@ describe("the stack-safe Document codec (#191)", () => {
     expect(ok(decodeDocumentResult(encoded(doc)))).toEqual(doc);
   });
 
-  test("the Effect forms succeed and fail as the Result forms do", async () => {
-    const doc = document([x()]);
-    const json = await Effect.runPromise(encodeDocument(doc));
-    expect(await Effect.runPromise(decodeDocument(json))).toEqual(doc);
-    const error = await Effect.runPromise(Effect.flip(decodeDocument({ meta: {}, blocks: 1 })));
-    expect(error._tag).toBe("SchemaError");
-  });
+  it.effect("the Effect forms succeed and fail as the Result forms do", () =>
+    Effect.gen(function* () {
+      const doc = document([x()]);
+      const json = yield* encodeDocument(doc);
+      expect(yield* decodeDocument(json)).toEqual(doc);
+      const error = yield* Effect.flip(decodeDocument({ meta: {}, blocks: 1 }));
+      expect(error._tag).toBe("SchemaError");
+    }),
+  );
 
   test.each([
     [

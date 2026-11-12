@@ -4,6 +4,7 @@
  * itself, whole or streamed in chunks split anywhere.
  */
 
+import { it } from "@effect/vitest";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
@@ -12,7 +13,7 @@ import * as Order from "effect/Order";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { assert, describe, test } from "vite-plus/test";
+import { assert, describe } from "vite-plus/test";
 import {
   type CsvDialect,
   type CsvQuoting,
@@ -73,11 +74,11 @@ const CASES: ReadonlyArray<readonly [string, CsvDialect, CsvQuoting]> = [
 ];
 
 describe("raw grids round-trip (#92)", () => {
-  test.each(CASES)(
+  it.effect.each(CASES)(
     "%s: scanCsv(write(grid)) is grid, whole and streamed",
-    async (_, dialect, quoting) => {
-      const result = await Effect.runPromise(
-        Arbitrary.checkEffect(
+    ([_, dialect, quoting]) =>
+      Effect.gen(function* () {
+        const result = yield* Arbitrary.checkEffect(
           Arbitrary.all([grids, cuts]),
           ([grid, at]) =>
             Effect.gen(function* () {
@@ -89,9 +90,8 @@ describe("raw grids round-trip (#92)", () => {
               return sameGrid(whole, grid) && sameGrid(streamed, grid);
             }),
           { runs: 300, seed: 92 },
-        ),
-      );
-      assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined);
-    },
+        );
+        assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined);
+      }),
   );
 });

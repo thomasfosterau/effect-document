@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -60,18 +61,24 @@ describe("profile conformance", () => {
     expect(Profiles.Csv.is(richDoc)).toBe(false);
   });
 
-  test("validate: succeeds and brands a conforming document", () => {
-    const r = Effect.runSync(Effect.result(Profiles.Csv.validate(csvDoc)));
-    expect(Result.isSuccess(r)).toBe(true);
-  });
+  it.effect("validate: succeeds and brands a conforming document", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(Profiles.Csv.validate(csvDoc));
+      expect(Result.isSuccess(r)).toBe(true);
+    }),
+  );
 
-  test("validate: fails with the exact unsupported features", () => {
-    const r = Effect.runSync(Effect.result(Profiles.Csv.validate(richDoc)));
-    expect(Result.isFailure(r)).toBe(true);
-    assert(Result.isFailure(r));
-    expect(r.failure._tag).toBe("ProfileViolation");
-    expect(r.failure.unsupported).toEqual(expect.arrayContaining(["cell.date", "sheet.multiple"]));
-  });
+  it.effect("validate: fails with the exact unsupported features", () =>
+    Effect.gen(function* () {
+      const r = yield* Effect.result(Profiles.Csv.validate(richDoc));
+      expect(Result.isFailure(r)).toBe(true);
+      assert(Result.isFailure(r));
+      expect(r.failure._tag).toBe("ProfileViolation");
+      expect(r.failure.unsupported).toEqual(
+        expect.arrayContaining(["cell.date", "sheet.multiple"]),
+      );
+    }),
+  );
 
   test("profile.schema decodes a conforming document and rejects a rich one", () => {
     const ok = Schema.decodeUnknownResult(Profiles.Csv.schema)(
@@ -100,13 +107,15 @@ describe("structural rules (notWithin, #197)", () => {
     { notWithin: [{ feature: "inline.strong", within: "block.header", reason: "bold" }] },
   );
 
-  test("a document that breaks a rule doesn't conform, and validate names the feature", () => {
-    const doc = document([header(1, [strong([str("b")])])]);
-    expect(BoldHeadings.is(doc)).toBe(false);
-    const r = Effect.runSync(Effect.result(BoldHeadings.validate(doc)));
-    assert(Result.isFailure(r));
-    expect(r.failure.unsupported).toEqual(["inline.strong"]);
-  });
+  it.effect("a document that breaks a rule doesn't conform, and validate names the feature", () =>
+    Effect.gen(function* () {
+      const doc = document([header(1, [strong([str("b")])])]);
+      expect(BoldHeadings.is(doc)).toBe(false);
+      const r = yield* Effect.result(BoldHeadings.validate(doc));
+      assert(Result.isFailure(r));
+      expect(r.failure.unsupported).toEqual(["inline.strong"]);
+    }),
+  );
 
   test("the feature outside the node conforms", () => {
     expect(BoldHeadings.is(document([para([strong([str("b")])])]))).toBe(true);

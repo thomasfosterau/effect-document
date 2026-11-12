@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Rec from "effect/Record";
@@ -78,85 +79,99 @@ const rezip = (files: Record<string, string>): Content =>
   bytes(zipSync(Rec.map(files, (text) => strToU8(text))));
 
 describe.each(CASES)("$id package metadata (#79)", (c) => {
-  test("every key round-trips through docProps", async () => {
-    const out = await Effect.runPromise(c.write(c.doc(FULL)).pipe(Effect.flatMap(c.read)));
-    expect(out.meta).toEqual(FULL);
-  });
+  it.effect("every key round-trips through docProps", () =>
+    Effect.gen(function* () {
+      const out = yield* c.write(c.doc(FULL)).pipe(Effect.flatMap(c.read));
+      expect(out.meta).toEqual(FULL);
+    }),
+  );
 
-  test("a document without meta writes empty properties and invents nothing", async () => {
-    const content = await Effect.runPromise(c.write(c.doc({})));
-    const files = parts(content);
-    expect(files["docProps/core.xml"]).not.toMatch(/<dc|<cp:[a-z]+>|<dcterms/);
-    expect(files["docProps/app.xml"]).toContain("<Application>effect-document</Application>");
-    expect(files["[Content_Types].xml"]).toContain("/docProps/core.xml");
-    expect(files["_rels/.rels"]).toContain('Target="docProps/core.xml"');
-    expect(files["_rels/.rels"]).toContain('Target="docProps/app.xml"');
-    const ids = Array.from((files["_rels/.rels"] ?? "").matchAll(/Id="([^"]+)"/g), (m) => m[1]);
-    expect(ids).toEqual(["rId1", "rId2", "rId3"]);
-    const read = await Effect.runPromise(c.read(content));
-    // the Application we wrote is read back as the producing application
-    expect(read.meta).toEqual({ creator: "effect-document" });
-    const again = await Effect.runPromise(c.write(c.doc({})));
-    expect(parts(again)).toEqual(files);
-  });
+  it.effect("a document without meta writes empty properties and invents nothing", () =>
+    Effect.gen(function* () {
+      const content = yield* c.write(c.doc({}));
+      const files = parts(content);
+      expect(files["docProps/core.xml"]).not.toMatch(/<dc|<cp:[a-z]+>|<dcterms/);
+      expect(files["docProps/app.xml"]).toContain("<Application>effect-document</Application>");
+      expect(files["[Content_Types].xml"]).toContain("/docProps/core.xml");
+      expect(files["_rels/.rels"]).toContain('Target="docProps/core.xml"');
+      expect(files["_rels/.rels"]).toContain('Target="docProps/app.xml"');
+      const ids = Array.from((files["_rels/.rels"] ?? "").matchAll(/Id="([^"]+)"/g), (m) => m[1]);
+      expect(ids).toEqual(["rId1", "rId2", "rId3"]);
+      const read = yield* c.read(content);
+      // the Application we wrote is read back as the producing application
+      expect(read.meta).toEqual({ creator: "effect-document" });
+      const again = yield* c.write(c.doc({}));
+      expect(parts(again)).toEqual(files);
+    }),
+  );
 
-  test("a package using other prefixes for the same namespaces still reads", async () => {
-    const files = parts(await Effect.runPromise(c.write(c.doc({}))));
-    files["docProps/core.xml"] =
-      `<?xml version="1.0"?><x:coreProperties xmlns:x="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:d="http://purl.org/dc/elements/1.1/" xmlns:t="http://purl.org/dc/terms/">` +
-      `<d:title>Other</d:title><x:keywords>k</x:keywords><t:created>2020</t:created><d:creator>  </d:creator></x:coreProperties>`;
-    files["docProps/app.xml"] =
-      `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Elsewhere</Application></Properties>`;
-    const out = await Effect.runPromise(c.read(rezip(files)));
-    expect(out.meta).toEqual({
-      title: "Other",
-      keywords: "k",
-      created: "2020",
-      creator: "Elsewhere",
-    });
-  });
+  it.effect("a package using other prefixes for the same namespaces still reads", () =>
+    Effect.gen(function* () {
+      const files = parts(yield* c.write(c.doc({})));
+      files["docProps/core.xml"] =
+        `<?xml version="1.0"?><x:coreProperties xmlns:x="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:d="http://purl.org/dc/elements/1.1/" xmlns:t="http://purl.org/dc/terms/">` +
+        `<d:title>Other</d:title><x:keywords>k</x:keywords><t:created>2020</t:created><d:creator>  </d:creator></x:coreProperties>`;
+      files["docProps/app.xml"] =
+        `<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Elsewhere</Application></Properties>`;
+      const out = yield* c.read(rezip(files));
+      expect(out.meta).toEqual({
+        title: "Other",
+        keywords: "k",
+        created: "2020",
+        creator: "Elsewhere",
+      });
+    }),
+  );
 
-  test("elements in the wrong namespace are ignored", async () => {
-    const files = parts(await Effect.runPromise(c.write(c.doc({}))));
-    files["docProps/core.xml"] =
-      `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="urn:other"><dc:title>No</dc:title></cp:coreProperties>`;
-    const out = await Effect.runPromise(c.read(rezip(files)));
-    expect(out.meta).not.toHaveProperty("title");
-  });
+  it.effect("elements in the wrong namespace are ignored", () =>
+    Effect.gen(function* () {
+      const files = parts(yield* c.write(c.doc({})));
+      files["docProps/core.xml"] =
+        `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="urn:other"><dc:title>No</dc:title></cp:coreProperties>`;
+      const out = yield* c.read(rezip(files));
+      expect(out.meta).not.toHaveProperty("title");
+    }),
+  );
 
-  test("a package without property parts reads with no keys", async () => {
-    const files = parts(await Effect.runPromise(c.write(c.doc({}))));
-    delete files["docProps/core.xml"];
-    delete files["docProps/app.xml"];
-    const [out, found] = await Effect.runPromise(collectDiagnostics(c.read(rezip(files))));
-    expect(out.meta).toEqual({});
-    expect(found).toEqual([]);
-  });
+  it.effect("a package without property parts reads with no keys", () =>
+    Effect.gen(function* () {
+      const files = parts(yield* c.write(c.doc({})));
+      delete files["docProps/core.xml"];
+      delete files["docProps/app.xml"];
+      const [out, found] = yield* collectDiagnostics(c.read(rezip(files)));
+      expect(out.meta).toEqual({});
+      expect(found).toEqual([]);
+    }),
+  );
 
-  test("a malformed core.xml is reported and the read goes on", async () => {
-    const files = parts(await Effect.runPromise(c.write(c.doc({ title: "T" }))));
-    files["docProps/core.xml"] = "<cp:coreProperties><dc:title>oops";
-    const [out, found] = await Effect.runPromise(collectDiagnostics(c.read(rezip(files))));
-    expect(out.meta).toEqual({ creator: "effect-document" });
-    expect(found).toHaveLength(1);
-    expect(found[0]).toMatchObject({
-      format: c.id,
-      stage: "read",
-      code: `${c.id}.metadataUnreadable`,
-      severity: "dropped-content",
-      path: ["docProps/core.xml"],
-    });
-  });
+  it.effect("a malformed core.xml is reported and the read goes on", () =>
+    Effect.gen(function* () {
+      const files = parts(yield* c.write(c.doc({ title: "T" })));
+      files["docProps/core.xml"] = "<cp:coreProperties><dc:title>oops";
+      const [out, found] = yield* collectDiagnostics(c.read(rezip(files)));
+      expect(out.meta).toEqual({ creator: "effect-document" });
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        format: c.id,
+        stage: "read",
+        code: `${c.id}.metadataUnreadable`,
+        severity: "dropped-content",
+        path: ["docProps/core.xml"],
+      });
+    }),
+  );
 
-  test("an invalid date is skipped with a diagnostic; other keys are written", async () => {
-    const meta = { title: "T", created: "yesterday", modified: "2024-02-03", author: 5 };
-    const [content, found] = await Effect.runPromise(collectDiagnostics(c.write(c.doc(meta))));
-    expect(found.map((d) => [d.code, d.stage, d.severity, d.path])).toEqual([
-      [`${c.id}.metadataSkipped`, "write", "dropped-content", ["meta", "created"]],
-    ]);
-    const out = await Effect.runPromise(c.read(content));
-    expect(out.meta).toEqual({ title: "T", modified: "2024-02-03", creator: "effect-document" });
-  });
+  it.effect("an invalid date is skipped with a diagnostic; other keys are written", () =>
+    Effect.gen(function* () {
+      const meta = { title: "T", created: "yesterday", modified: "2024-02-03", author: 5 };
+      const [content, found] = yield* collectDiagnostics(c.write(c.doc(meta)));
+      expect(found.map((d) => [d.code, d.stage, d.severity, d.path])).toEqual([
+        [`${c.id}.metadataSkipped`, "write", "dropped-content", ["meta", "created"]],
+      ]);
+      const out = yield* c.read(content);
+      expect(out.meta).toEqual({ title: "T", modified: "2024-02-03", creator: "effect-document" });
+    }),
+  );
 });
 
 const written = (created: string) => corePropsXml({ created }).includes("<dcterms:created");
