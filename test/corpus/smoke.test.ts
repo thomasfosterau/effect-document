@@ -6,21 +6,24 @@
  * corpus has been fetched. Read rates per format, and every rejected file with
  * its reason, go to `.corpora/report.json` and the console.
  */
+import { layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
 import * as Console from "effect/Console";
+import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Rec from "effect/Record";
 import * as Schema from "effect/Schema";
-import { afterAll, describe, expect, test } from "vite-plus/test";
+import { expect } from "vite-plus/test";
 import { bytes, type Content, detect, type ParseError } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-document/csv";
 import { makeCsvReader } from "@thomasfosterau/effect-document/csv";
@@ -117,37 +120,78 @@ const filesIn = (id: string, dir: string) =>
     return Arr.getSomes(found);
   });
 
-/** Every corpus file, from the corpora fetched at their pins. */
-const corpusFiles = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const root = yield* path.fromFileUrl(new URL("../../", import.meta.url));
-  const manifest = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Manifest))(
-    yield* fs.readFileString(path.join(root, "corpora.json")),
-  );
-  const perCorpus = yield* Effect.forEach(
-    manifest.corpora,
-    (corpus) => {
-      const dir = path.join(root, ".corpora", corpus.id, corpus.commit);
-      return Effect.flatMap(fs.exists(path.join(dir, ".fetched")), (fetched) =>
-        fetched ? filesIn(corpus.id, dir) : Effect.succeed([]),
+/** The tallies a smoke run keeps, written to `.corpora/report.json` when the suite ends. */
+interface Tallies {
+  /** Files read and rejected, per format. */
+  readonly counts: Record<string, { read: number; rejected: number }>;
+  /** Files `detect` ranked right first, per format (#188). */
+  readonly detected: Record<string, number>;
+  /** The files `detect` did not rank as their format first: what it ranked first instead, if anything. */
+  readonly misdetections: Array<{ readonly file: string; readonly detected: string }>;
+  /** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
+  readonly rejections: Array<{ readonly file: string; readonly reason: string }>;
+}
+
+/**
+ * Every corpus file, from the corpora fetched at their pins, with the tallies
+ * of the run. Releasing the layer (the end of the suite) prints the read rates
+ * and writes the report, unless no corpus has been fetched.
+ */
+class Corpus extends Context.Service<
+  Corpus,
+  { readonly files: ReadonlyArray<CorpusFile>; readonly tallies: Tallies }
+>()("test/Corpus") {
+  static readonly layer = Layer.effect(
+    Corpus,
+    Effect.fn("Corpus.layer")(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url));
+      const manifest = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Manifest))(
+        yield* fs.readFileString(path.join(root, "corpora.json")),
       );
-    },
-    { concurrency: 1 },
+      const perCorpus = yield* Effect.forEach(
+        manifest.corpora,
+        (corpus) => {
+          const dir = path.join(root, ".corpora", corpus.id, corpus.commit);
+          return Effect.flatMap(fs.exists(path.join(dir, ".fetched")), (fetched) =>
+            fetched ? filesIn(corpus.id, dir) : Effect.succeed([]),
+          );
+        },
+        { concurrency: 1 },
+      );
+      const files = Arr.flatten(perCorpus);
+      const tallies: Tallies = { counts: {}, detected: {}, misdetections: [], rejections: [] };
+      const report = Effect.fn("Corpus.report")(function* () {
+        const formats = Rec.map(tallies.counts, ({ read, rejected }, format) => ({
+          files: read + rejected,
+          read,
+          rejected,
+          readRate: Math.round((read / (read + rejected)) * 1000) / 1000,
+          detectRate:
+            Math.round(((tallies.detected[format] ?? 0) / (read + rejected)) * 1000) / 1000,
+        }));
+        yield* Console.table(formats);
+        const json = yield* Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))({
+          formats,
+          rejections: Arr.sort(
+            tallies.rejections,
+            Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
+          ),
+          misdetections: Arr.sort(
+            tallies.misdetections,
+            Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
+          ),
+        });
+        yield* fs.writeFileString(path.join(root, ".corpora", "report.json"), `${json}\n`);
+      });
+      yield* Effect.addFinalizer(() =>
+        Arr.isReadonlyArrayEmpty(files) ? Effect.void : Effect.orDie(report()),
+      );
+      return { files, tallies };
+    })(),
   );
-  return { root, files: Arr.flatten(perCorpus) };
-}).pipe(Effect.provide(NodeServices.layer));
-
-const { root, files } = await Effect.runPromise(corpusFiles);
-
-/** Files read and rejected, per format. */
-const counts: Record<string, { read: number; rejected: number }> = {};
-/** Files `detect` ranked right first, per format (#188). */
-const detected: Record<string, number> = {};
-/** The files `detect` did not rank as their format first: what it ranked first instead, if anything. */
-const misdetections: Array<{ readonly file: string; readonly detected: string }> = [];
-/** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
-const rejections: Array<{ readonly file: string; readonly reason: string }> = [];
+}
 
 const reasonOf = (cause: Cause.Cause<unknown>): string =>
   Option.match(Cause.findErrorOption(cause), {
@@ -155,9 +199,16 @@ const reasonOf = (cause: Cause.Cause<unknown>): string =>
     onSome: (e) => (Predicate.hasProperty(e, "reason") ? String(e.reason) : String(e)),
   });
 
-describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
-  test.each(files)("$name", async ({ name, path, format }) => {
-    const exit = await Effect.runPromiseExit(
+/** How long one format's files may take in all. */
+const TEST_TIMEOUT = Duration.toMillis(Duration.minutes(30));
+
+/**
+ * Reads one corpus file, tallies the outcome, and gives the problem found
+ * with it, if any: a defect is a reader bug, a timeout a hang.
+ */
+const smoke = (tallies: Tallies, { name, path, format }: CorpusFile) =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const reader: AnyReader = READERS[format]();
@@ -165,52 +216,38 @@ describe.skipIf(Arr.isReadonlyArrayEmpty(files))("corpus smoke", () => {
         // detection never fails: a wrong guess is recorded, not a test failure
         const [best] = yield* detect(bytes(data), { formats: DETECTABLE });
         if (best?.format.id === EXPECTED_FORMAT[format])
-          detected[format] = (detected[format] ?? 0) + 1;
-        else misdetections.push({ file: name, detected: best?.format.id ?? "nothing" });
+          tallies.detected[format] = (tallies.detected[format] ?? 0) + 1;
+        else tallies.misdetections.push({ file: name, detected: best?.format.id ?? "nothing" });
         return yield* reader.read(bytes(data)).pipe(Effect.timeout(TIMEOUT));
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }),
     );
-    const tally = (counts[format] ??= { read: 0, rejected: 0 });
+    const tally = (tallies.counts[format] ??= { read: 0, rejected: 0 });
     if (Exit.isSuccess(exit)) {
       tally.read++;
-      return;
+      return [];
     }
     const cause = exit.cause;
-    // a defect is a reader bug; a timeout is a hang
-    expect(Cause.hasDies(cause), Cause.pretty(cause)).toBe(false);
-    expect(Option.exists(Cause.findErrorOption(cause), Cause.isTimeoutError), "timed out").toBe(
-      false,
-    );
     tally.rejected++;
-    rejections.push({ file: name, reason: reasonOf(cause) });
+    tallies.rejections.push({ file: name, reason: reasonOf(cause) });
+    if (Cause.hasDies(cause)) return [`${name}: a defect: ${Cause.pretty(cause)}`];
+    if (Option.exists(Cause.findErrorOption(cause), Cause.isTimeoutError))
+      return [`${name}: timed out`];
+    return [];
   });
 
-  afterAll(() =>
-    Effect.runPromise(
+layer(Corpus.layer.pipe(Layer.provideMerge(NodeServices.layer)))("corpus smoke", (it) => {
+  it.effect.each(Rec.keys(READERS))(
+    "every .%s file reads or fails with a ParseError, without a defect or a hang",
+    (format, ctx) =>
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const formats = Rec.map(counts, ({ read, rejected }, format) => ({
-          files: read + rejected,
-          read,
-          rejected,
-          readRate: Math.round((read / (read + rejected)) * 1000) / 1000,
-          detectRate: Math.round(((detected[format] ?? 0) / (read + rejected)) * 1000) / 1000,
-        }));
-        yield* Console.table(formats);
-        const report = yield* Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))({
-          formats,
-          rejections: Arr.sort(
-            rejections,
-            Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
-          ),
-          misdetections: Arr.sort(
-            misdetections,
-            Order.mapInput(Order.String, (r: { readonly file: string }) => r.file),
-          ),
+        const { files, tallies } = yield* Corpus;
+        const ofFormat = files.filter((file) => file.format === format);
+        ctx.skip(Arr.isReadonlyArrayEmpty(ofFormat));
+        const problems = yield* Effect.forEach(ofFormat, (file) => smoke(tallies, file), {
+          concurrency: 1,
         });
-        yield* fs.writeFileString(path.join(root, ".corpora", "report.json"), `${report}\n`);
-      }).pipe(Effect.provide(NodeServices.layer)),
-    ),
+        expect(problems.flat()).toEqual([]);
+      }),
+    TEST_TIMEOUT,
   );
 });

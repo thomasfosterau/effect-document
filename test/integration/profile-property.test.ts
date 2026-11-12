@@ -16,11 +16,12 @@
  * document, both normal forms and a replay token.
  */
 
+import { it } from "@effect/vitest";
 import * as Arbitrary from "effect/Arbitrary";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
-import { assert, describe, test } from "vite-plus/test";
+import { assert, describe } from "vite-plus/test";
 import { type Document, type Format, trustAs } from "@thomasfosterau/effect-document";
 import * as Csv from "@thomasfosterau/effect-document/csv";
 import { Docx, Pptx, Xlsx } from "@thomasfosterau/effect-document/ooxml";
@@ -183,25 +184,31 @@ describe("every write-profile document round-trips (#109)", () => {
     const roundTrip = (doc: Document) =>
       Effect.flatMap(format.writer!.write(trustAs(doc)), (content) => format.reader!.read(content));
     /** Both normal forms of a falsified check's shrunk document. */
-    const explain = async (
-      result: Arbitrary.CheckResult<Document, unknown>,
-    ): Promise<string | undefined> => {
-      if (!Predicate.isTagged(result, "Falsified")) return undefined;
-      const doc = result.shrunkInput;
-      const back = await Effect.runPromise(Effect.result(roundTrip(doc)));
-      const actual = Result.match(back, { onSuccess: normal, onFailure: String });
-      return `\nexpected ${normal(doc)}\nactual   ${actual}`;
-    };
-    test(`${format.id}: read(write(doc)) normalises to doc`, async () => {
-      const result = await Effect.runPromise(
-        Arbitrary.checkEffect(
-          arbitraryDocument(format.writeProfile, family, options),
-          (doc) => Effect.map(roundTrip(doc), (back) => normal(back) === normal(doc)),
-          { runs, seed: 109, size: 10 },
-        ),
-      );
-      assert.strictEqual(Arbitrary.formatCheckFailure(result), undefined, await explain(result));
-      // (generous: a hundred round trips through a format, slower still under coverage)
-    }, 120_000);
+    const explain = (result: Arbitrary.CheckResult<Document, unknown>) =>
+      Effect.gen(function* () {
+        if (!Predicate.isTagged(result, "Falsified")) return undefined;
+        const doc = result.shrunkInput;
+        const back = yield* Effect.result(roundTrip(doc));
+        const actual = Result.match(back, { onSuccess: normal, onFailure: String });
+        return `\nexpected ${normal(doc)}\nactual   ${actual}`;
+      });
+    it.effect(
+      `${format.id}: read(write(doc)) normalises to doc`,
+      () =>
+        Effect.gen(function* () {
+          const result = yield* Arbitrary.checkEffect(
+            arbitraryDocument(format.writeProfile, family, options),
+            (doc) => Effect.map(roundTrip(doc), (back) => normal(back) === normal(doc)),
+            { runs, seed: 109, size: 10 },
+          );
+          assert.strictEqual(
+            Arbitrary.formatCheckFailure(result),
+            undefined,
+            yield* explain(result),
+          );
+          // (generous: a hundred round trips through a format, slower still under coverage)
+        }),
+      120_000,
+    );
   });
 });

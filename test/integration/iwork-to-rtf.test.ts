@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vite-plus/test";
+import { layer } from "@effect/vitest";
+import { describe, expect } from "vite-plus/test";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -17,18 +18,19 @@ const fixture = Effect.fn("fixture")(function* (name: string) {
   return yield* fs.readFile(file);
 });
 
-describe("convert: Keynote -> RTF (iWork into a writable format)", () => {
-  test("flattens the deck's text into RTF", async () => {
-    const { content } = await Effect.runPromise(
-      fixture("simple-oneslide.key").pipe(
-        Effect.flatMap((data) =>
-          convert({ from: Keynote.format, to: Rtf.format, input: bytes(data) }),
-        ),
-        Effect.provide(NodeServices.layer),
-      ),
+layer(NodeServices.layer)((it) => {
+  describe("convert: Keynote -> RTF (iWork into a writable format)", () => {
+    it.effect("flattens the deck's text into RTF", () =>
+      Effect.gen(function* () {
+        const { content } = yield* fixture("simple-oneslide.key").pipe(
+          Effect.flatMap((data) =>
+            convert({ from: Keynote.format, to: Rtf.format, input: bytes(data) }),
+          ),
+        );
+        const rtf = contentToText(content);
+        expect(rtf.startsWith("{\\rtf1")).toBe(true);
+        expect(rtf).toContain("Example Presentation");
+      }),
     );
-    const rtf = contentToText(content);
-    expect(rtf.startsWith("{\\rtf1")).toBe(true);
-    expect(rtf).toContain("Example Presentation");
   });
 });

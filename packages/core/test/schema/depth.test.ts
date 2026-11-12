@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import { describe, expect, test } from "vite-plus/test";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -94,14 +95,16 @@ describe("deep nesting (#110)", () => {
     expect(nestingDepth(document([slideShow([slide([shape])])]))).toBe(3 + 5); // SlideShow > TableShape > Table > 3 quotes > Para > Str
   });
 
-  test("limitNestingDepth fails with a LimitExceeded ParseError", async () => {
-    const deep = document([quoted(DEFAULT_MAX_NESTING_DEPTH)]);
-    const error = await Effect.runPromise(Effect.flip(limitNestingDepth("test", deep)));
-    expect(error).toMatchObject({ _tag: "ParseError", format: "test", code: "LimitExceeded" });
+  it.effect("limitNestingDepth fails with a LimitExceeded ParseError", () =>
+    Effect.gen(function* () {
+      const deep = document([quoted(DEFAULT_MAX_NESTING_DEPTH)]);
+      const error = yield* Effect.flip(limitNestingDepth("test", deep));
+      expect(error).toMatchObject({ _tag: "ParseError", format: "test", code: "LimitExceeded" });
 
-    const ok = document([quoted(DEFAULT_MAX_NESTING_DEPTH - 2)]);
-    expect(await Effect.runPromise(limitNestingDepth("test", ok))).toBe(ok);
-  });
+      const ok = document([quoted(DEFAULT_MAX_NESTING_DEPTH - 2)]);
+      expect(yield* limitNestingDepth("test", ok)).toBe(ok);
+    }),
+  );
 
   test("narrow handles documents at the readers' default limit", () => {
     const doc = document([quoted(DEFAULT_MAX_NESTING_DEPTH - 2)]);

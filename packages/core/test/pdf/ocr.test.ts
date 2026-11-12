@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -113,67 +114,77 @@ const WORDS = [
 ];
 
 describe("pages without a text layer (#31)", () => {
-  test("a scanned page reads as empty and is listed in pagesWithoutText", () => {
-    const back = Effect.runSync(makePdfReader().read(bytes(scan(grayImage))));
-    expect(back.blocks).toEqual([]);
-    expect(back.meta.pagesWithoutText).toEqual([1]);
-  });
+  it.effect("a scanned page reads as empty and is listed in pagesWithoutText", () =>
+    Effect.gen(function* () {
+      const back = yield* makePdfReader().read(bytes(scan(grayImage)));
+      expect(back.blocks).toEqual([]);
+      expect(back.meta.pagesWithoutText).toEqual([1]);
+    }),
+  );
 
-  test("a page with text is not listed, even with an image on it", () => {
-    const back = Effect.runSync(
-      makePdfReader().read(bytes(scan(grayImage, "BT /F1 12 Tf 72 700 Td (Caption) Tj ET"))),
-    );
-    expect(blocksToText(back.blocks)).toBe("Caption");
-    expect(back.meta.pagesWithoutText).toBeUndefined();
-  });
+  it.effect("a page with text is not listed, even with an image on it", () =>
+    Effect.gen(function* () {
+      const back = yield* makePdfReader().read(
+        bytes(scan(grayImage, "BT /F1 12 Tf 72 700 Td (Caption) Tj ET")),
+      );
+      expect(blocksToText(back.blocks)).toBe("Caption");
+      expect(back.meta.pagesWithoutText).toBeUndefined();
+    }),
+  );
 
-  test("a page with neither text nor images is not listed", () => {
-    const back = Effect.runSync(makePdfReader().read(bytes(onePage("", {}))));
-    expect(back.meta.pagesWithoutText).toBeUndefined();
-  });
+  it.effect("a page with neither text nor images is not listed", () =>
+    Effect.gen(function* () {
+      const back = yield* makePdfReader().read(bytes(onePage("", {})));
+      expect(back.meta.pagesWithoutText).toBeUndefined();
+    }),
+  );
 });
 
 describe("OCR engine (#31)", () => {
-  test("recognised words become the page's text, line by line", () => {
-    const { engine, seen } = fakeEngine(WORDS);
-    const back = Effect.runSync(makePdfReader({ ocr: engine }).read(bytes(scan(grayImage))));
-    expect(back.blocks.map((b) => blocksToText([b]))).toEqual(["Hello world", "Second"]);
-    expect(back.meta.pagesWithoutText).toBeUndefined();
-    expect(seen).toHaveLength(1);
-    const [img] = seen;
-    assert(img !== undefined && Predicate.isTagged(img, "Samples"));
-    expect([img.width, img.height, img.components, img.bitsPerComponent, img.mask]).toEqual([
-      100,
-      100,
-      1,
-      8,
-      false,
-    ]);
-    // the Flate filter is undone, so the engine gets the samples themselves
-    expect(img.data.length).toBe(100 * 100);
-  });
+  it.effect("recognised words become the page's text, line by line", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine(WORDS);
+      const back = yield* makePdfReader({ ocr: engine }).read(bytes(scan(grayImage)));
+      expect(back.blocks.map((b) => blocksToText([b]))).toEqual(["Hello world", "Second"]);
+      expect(back.meta.pagesWithoutText).toBeUndefined();
+      expect(seen).toHaveLength(1);
+      const [img] = seen;
+      assert(img !== undefined && Predicate.isTagged(img, "Samples"));
+      expect([img.width, img.height, img.components, img.bitsPerComponent, img.mask]).toEqual([
+        100,
+        100,
+        1,
+        8,
+        false,
+      ]);
+      // the Flate filter is undone, so the engine gets the samples themselves
+      expect(img.data.length).toBe(100 * 100);
+    }),
+  );
 
-  test("pages with text are never sent to the engine", () => {
-    const { engine, seen } = fakeEngine(WORDS);
-    Effect.runSync(
-      makePdfReader({ ocr: engine }).read(
+  it.effect("pages with text are never sent to the engine", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine(WORDS);
+      yield* makePdfReader({ ocr: engine }).read(
         bytes(scan(grayImage, "BT /F1 12 Tf 72 700 Td (Caption) Tj ET")),
-      ),
-    );
-    expect(seen).toEqual([]);
-  });
+      );
+      expect(seen).toEqual([]);
+    }),
+  );
 
-  test("a page the engine finds nothing on stays in pagesWithoutText", () => {
-    const { engine } = fakeEngine([]);
-    const back = Effect.runSync(makePdfReader({ ocr: engine }).read(bytes(scan(grayImage))));
-    expect(back.meta.pagesWithoutText).toEqual([1]);
-  });
+  it.effect("a page the engine finds nothing on stays in pagesWithoutText", () =>
+    Effect.gen(function* () {
+      const { engine } = fakeEngine([]);
+      const back = yield* makePdfReader({ ocr: engine }).read(bytes(scan(grayImage)));
+      expect(back.meta.pagesWithoutText).toEqual([1]);
+    }),
+  );
 
-  test("JPEG data is passed through as it is stored", () => {
-    const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9);
-    const { engine, seen } = fakeEngine(WORDS);
-    Effect.runSync(
-      makePdfReader({ ocr: engine }).read(
+  it.effect("JPEG data is passed through as it is stored", () =>
+    Effect.gen(function* () {
+      const jpeg = Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9);
+      const { engine, seen } = fakeEngine(WORDS);
+      yield* makePdfReader({ ocr: engine }).read(
         bytes(
           scan(
             image(
@@ -188,18 +199,18 @@ describe("OCR engine (#31)", () => {
             ),
           ),
         ),
-      ),
-    );
-    const [img] = seen;
-    assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
-    expect(img.codec).toBe("jpeg");
-    expect(img.data).toEqual(jpeg);
-  });
+      );
+      const [img] = seen;
+      assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
+      expect(img.codec).toBe("jpeg");
+      expect(img.data).toEqual(jpeg);
+    }),
+  );
 
-  test("CCITT images carry their decode parameters", () => {
-    const { engine, seen } = fakeEngine([]);
-    Effect.runSync(
-      makePdfReader({ ocr: engine }).read(
+  it.effect("CCITT images carry their decode parameters", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine([]);
+      yield* makePdfReader({ ocr: engine }).read(
         bytes(
           scan(
             image(
@@ -214,23 +225,23 @@ describe("OCR engine (#31)", () => {
             ),
           ),
         ),
-      ),
-    );
-    const [img] = seen;
-    assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
-    expect(img.codec).toBe("ccitt");
-    expect(img.parameters).toEqual({ K: -1, Columns: 100, BlackIs1: true });
-    expect(Option.isNone(img.globals)).toBe(true);
-  });
+      );
+      const [img] = seen;
+      assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
+      expect(img.codec).toBe("ccitt");
+      expect(img.parameters).toEqual({ K: -1, Columns: 100, BlackIs1: true });
+      expect(Option.isNone(img.globals)).toBe(true);
+    }),
+  );
 
-  test("JBIG2 images carry their decoded globals", () => {
-    const { engine, seen } = fakeEngine([]);
-    const globals = pdfStream(
-      pdfDict({ Filter: pdfName("FlateDecode") }),
-      flateEncode(Uint8Array.of(7, 8, 9)),
-    );
-    Effect.runSync(
-      makePdfReader({ ocr: engine }).read(
+  it.effect("JBIG2 images carry their decoded globals", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine([]);
+      const globals = pdfStream(
+        pdfDict({ Filter: pdfName("FlateDecode") }),
+        flateEncode(Uint8Array.of(7, 8, 9)),
+      );
+      yield* makePdfReader({ ocr: engine }).read(
         bytes(
           scan(
             image(
@@ -246,80 +257,86 @@ describe("OCR engine (#31)", () => {
             ),
           ),
         ),
-      ),
-    );
-    const [img] = seen;
-    assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
-    expect(img.codec).toBe("jbig2");
-    expect(Option.getOrUndefined(img.globals)).toEqual(Uint8Array.of(7, 8, 9));
-  });
+      );
+      const [img] = seen;
+      assert(img !== undefined && Predicate.isTagged(img, "Encoded"));
+      expect(img.codec).toBe("jbig2");
+      expect(Option.getOrUndefined(img.globals)).toEqual(Uint8Array.of(7, 8, 9));
+    }),
+  );
 
-  test("inline images are recognised too", () => {
-    const { engine, seen } = fakeEngine(WORDS);
-    const content =
-      "q 612 0 0 792 0 0 cm BI /W 4 /H 2 /CS /G /BPC 8 ID \xff\xff\xff\xff\x00\x00\x00\x00 EI Q";
-    const back = Effect.runSync(makePdfReader({ ocr: engine }).read(bytes(onePage(content, {}))));
-    const [img] = seen;
-    assert(img !== undefined && Predicate.isTagged(img, "Samples"));
-    expect([img.width, img.height, img.components]).toEqual([4, 2, 1]);
-    expect(blocksToText(back.blocks)).toContain("Hello world");
-  });
+  it.effect("inline images are recognised too", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine(WORDS);
+      const content =
+        "q 612 0 0 792 0 0 cm BI /W 4 /H 2 /CS /G /BPC 8 ID \xff\xff\xff\xff\x00\x00\x00\x00 EI Q";
+      const back = yield* makePdfReader({ ocr: engine }).read(bytes(onePage(content, {})));
+      const [img] = seen;
+      assert(img !== undefined && Predicate.isTagged(img, "Samples"));
+      expect([img.width, img.height, img.components]).toEqual([4, 2, 1]);
+      expect(blocksToText(back.blocks)).toContain("Hello world");
+    }),
+  );
 
-  test("an image in a colour space no engine can take is skipped", () => {
-    const { engine, seen } = fakeEngine(WORDS);
-    const indexed = image(
-      2,
-      2,
-      {
-        ColorSpace: pdfArray([
-          pdfName("Indexed"),
-          pdfName("DeviceRGB"),
-          1,
-          latin1ToBytes("\0\0\0\xff\xff\xff").length,
-        ]),
-        BitsPerComponent: 8,
-      },
-      Uint8Array.of(0, 1, 1, 0),
-    );
-    const back = Effect.runSync(makePdfReader({ ocr: engine }).read(bytes(scan(indexed))));
-    expect(seen).toEqual([]);
-    expect(back.meta.pagesWithoutText).toEqual([1]);
-  });
+  it.effect("an image in a colour space no engine can take is skipped", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine(WORDS);
+      const indexed = image(
+        2,
+        2,
+        {
+          ColorSpace: pdfArray([
+            pdfName("Indexed"),
+            pdfName("DeviceRGB"),
+            1,
+            latin1ToBytes("\0\0\0\xff\xff\xff").length,
+          ]),
+          BitsPerComponent: 8,
+        },
+        Uint8Array.of(0, 1, 1, 0),
+      );
+      const back = yield* makePdfReader({ ocr: engine }).read(bytes(scan(indexed)));
+      expect(seen).toEqual([]);
+      expect(back.meta.pagesWithoutText).toEqual([1]);
+    }),
+  );
 
-  test("a truncated image is skipped rather than handed over short", () => {
-    const { engine, seen } = fakeEngine(WORDS);
-    const short = image(
-      100,
-      100,
-      { ColorSpace: pdfName("DeviceGray"), BitsPerComponent: 8 },
-      new Uint8Array(10),
-    );
-    Effect.runSync(makePdfReader({ ocr: engine }).read(bytes(scan(short))));
-    expect(seen).toEqual([]);
-  });
+  it.effect("a truncated image is skipped rather than handed over short", () =>
+    Effect.gen(function* () {
+      const { engine, seen } = fakeEngine(WORDS);
+      const short = image(
+        100,
+        100,
+        { ColorSpace: pdfName("DeviceGray"), BitsPerComponent: 8 },
+        new Uint8Array(10),
+      );
+      yield* makePdfReader({ ocr: engine }).read(bytes(scan(short)));
+      expect(seen).toEqual([]);
+    }),
+  );
 
-  test("an engine failure fails the read with a ParseError naming the page", () => {
-    const engine: OcrEngineShape = {
-      recognize: () => Effect.fail(new OcrError({ reason: "engine crashed" })),
-    };
-    const error = Effect.runSync(
-      Effect.flip(makePdfReader({ ocr: engine }).read(bytes(scan(grayImage)))),
-    );
-    expect(error.reason).toBe("OCR failed on page 1: engine crashed");
-    expect(error.cause).toBeInstanceOf(OcrError);
-  });
+  it.effect("an engine failure fails the read with a ParseError naming the page", () =>
+    Effect.gen(function* () {
+      const engine: OcrEngineShape = {
+        recognize: () => Effect.fail(new OcrError({ reason: "engine crashed" })),
+      };
+      const error = yield* Effect.flip(makePdfReader({ ocr: engine }).read(bytes(scan(grayImage))));
+      expect(error.reason).toBe("OCR failed on page 1: engine crashed");
+      expect(error.cause).toBeInstanceOf(OcrError);
+    }),
+  );
 
-  test("PdfOcrReaderLive builds the reader from the OcrEngine service", () => {
-    const { engine } = fakeEngine(WORDS);
-    const program = Effect.flatMap(PdfReaderTag, (reader) => reader.read(bytes(scan(grayImage))));
-    const back = Effect.runSync(
-      Effect.provide(
-        program,
+  it.effect("PdfOcrReaderLive builds the reader from the OcrEngine service", () =>
+    Effect.gen(function* () {
+      const { engine } = fakeEngine(WORDS);
+      const program = Effect.flatMap(PdfReaderTag, (reader) => reader.read(bytes(scan(grayImage))));
+      const services = yield* Layer.build(
         PdfOcrReaderLive.pipe(Layer.provide(Layer.succeed(OcrEngine, engine))),
-      ),
-    );
-    expect(back.blocks.map((b) => blocksToText([b]))).toEqual(["Hello world", "Second"]);
-  });
+      );
+      const back = yield* Effect.provideContext(program, services);
+      expect(back.blocks.map((b) => blocksToText([b]))).toEqual(["Hello world", "Second"]);
+    }),
+  );
 });
 
 describe("ocrGlyphs", () => {

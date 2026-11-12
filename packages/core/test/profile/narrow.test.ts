@@ -1,3 +1,4 @@
+import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Predicate from "effect/Predicate";
@@ -293,15 +294,15 @@ describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
     ]);
   });
 
-  test("without rules a profile has none, and validate names the broken rule's feature", () => {
-    const Plain = defineProfile("plain", ["block.para"]);
-    expect(Plain.onlyWithin).toEqual([]);
-    expect(Plain.fieldValues).toEqual([]);
-    const error = Effect.runSync(
-      Effect.flip(Titles.validate(deck(title([header(3, [str("T")])])))),
-    );
-    expect(error.unsupported).toEqual(["block.header"]);
-  });
+  it.effect("without rules a profile has none, and validate names the broken rule's feature", () =>
+    Effect.gen(function* () {
+      const Plain = defineProfile("plain", ["block.para"]);
+      expect(Plain.onlyWithin).toEqual([]);
+      expect(Plain.fieldValues).toEqual([]);
+      const error = yield* Effect.flip(Titles.validate(deck(title([header(3, [str("T")])]))));
+      expect(error.unsupported).toEqual(["block.header"]);
+    }),
+  );
 });
 
 describe("per-node id facets (#184)", () => {
