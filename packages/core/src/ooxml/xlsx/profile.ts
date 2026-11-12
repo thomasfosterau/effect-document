@@ -4,11 +4,12 @@
  * reader produces, which differs where the reader understands more than the
  * writer emits (ISO `t="d"` dates, non-grid sheets tagged `attr.data.kind`).
  *
- * Column widths (`<cols>`) and merged ranges (`<mergeCells>`) round-trip
- * (#66). Not (yet) preserved, so narrowed away on write with a loss report:
- * per-column styles, cell styles, attributes, run fonts, sizes and colours, and
- * dates (written as ISO text). Rich shared strings round-trip their bold,
- * italic, underline, strikethrough and superscript / subscript runs (#66). Row heights are not yet written either (#66).
+ * Column widths (`<cols>`), merged ranges (`<mergeCells>`), custom row
+ * heights (`<row ht customHeight="1">`) and rich shared strings (bold,
+ * italic, underline, strikethrough and superscript / subscript runs)
+ * round-trip (#66). Not (yet) preserved, so narrowed away on write with a
+ * loss report: per-column styles, cell styles, attributes, run fonts, sizes
+ * and colours, and dates (written as ISO text).
  */
 
 import { defineProfile, type FeaturesOf } from "../../index.ts";
