@@ -1,9 +1,10 @@
 /**
  * The import graph of each entry point, walked through `src/`: which of the
  * package's dependencies a consumer loads by importing that subpath. The core
- * entries reach neither `fflate` nor the optional
- * `@thomasfosterau/effect-parse` peer, so a consumer who uses no format needs
- * neither installed and bundles neither; `/pdf*` needs no effect-parse.
+ * entries reach none of `fflate`, `@thomasfosterau/effect-ext` (only
+ * `/encoding` does) and the optional `@thomasfosterau/effect-parse` peer, so a
+ * consumer who uses no format bundles none of them and needs no effect-parse
+ * installed; `/pdf*` needs no effect-parse.
  * `scripts/check-dist-imports.mjs` checks the same of the built `dist/`.
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -74,7 +75,7 @@ describe("module graph", () => {
     expect([...graph.keys()]).toEqual(Object.keys(options.entries));
   });
 
-  it.each(coreEntries)("%s reaches neither fflate nor effect-parse", (key) => {
+  it.each(coreEntries)("%s reaches no dependency (fflate, effect-parse, effect-ext)", (key) => {
     expect(graph.get(key)).toEqual([]);
   });
 
@@ -92,6 +93,7 @@ describe("module graph", () => {
       io: [],
       csv: [parse],
       rtf: [parse],
+      encoding: ["@thomasfosterau/effect-ext"],
       ooxml: [parse, "fflate"],
       "ooxml/xlsx": [parse, "fflate"],
       "ooxml/docx": [parse, "fflate"],

@@ -4,11 +4,11 @@ The workspace's one published package. Its core: the document schema (`src/schem
 
 ## Boundary
 
-Peers: `effect`, and `@thomasfosterau/effect-parse` as an optional peer (also a devDependency). Dependency: `fflate` (ZIP and DEFLATE). Which entry may reach which is load-bearing, because a consumer who uses no format installs no effect-parse and bundles no fflate:
+Peers: `effect`, and `@thomasfosterau/effect-parse` as an optional peer (also a devDependency). Dependencies: `fflate` (ZIP and DEFLATE) and `@thomasfosterau/effect-ext` (its `/Encoding`, for `./encoding`; owner decision on #188). Which entry may reach which is load-bearing, because a consumer who uses no format installs no effect-parse and bundles no fflate:
 
 - **The core** (`src/index.ts`, `src/schema`, `src/profile`, `src/io`; `.fallowrc.json` zone `core`, no outbound rule) imports no format and neither dependency. A format-specific rule (an OOXML style, a PDF font) never lives here; it goes in the format's directory, behind its own profile.
 - **Each format** (zones `csv`, `rtf`, `ooxml`, `pdf`, `iwork`) imports the core by relative path, never the package's own name (which resolves to `dist/`), and never another format.
-- **effect-parse** is reached only from `./csv`, `./rtf`, `./ooxml*` and `./iwork*`; **fflate** only from `./ooxml*`, `./pdf*` and `./iwork*`. `test/module-graph.test.ts` pins every entry's reach through `src/`, and `vp run check:dist` checks the built `dist/` the same way; a format that needs a new dependency changes both.
+- **effect-parse** is reached only from `./csv`, `./rtf`, `./ooxml*` and `./iwork*`; **fflate** only from `./ooxml*`, `./pdf*` and `./iwork*`; **effect-ext** only from `./encoding` (zone `encoding`, which, like a format, may import only the core). `test/module-graph.test.ts` pins every entry's reach through `src/`, and `vp run check:dist` checks the built `dist/` the same way; a format that needs a new dependency changes both.
 
 ## Invariants
 
@@ -29,6 +29,13 @@ Peers: `effect`, and `@thomasfosterau/effect-parse` as an optional peer (also a 
 - **Profile** — a named feature set with its attribute policy, the type `Doc<F>` it brands, a runtime check (`is` / `validate`) and a `Schema`.
 - **Structural rule** (`notWithin`) — a feature a profile allows, but not inside a given node (RTF's `Strong` in a `Header`, #197). The phantom `F` can't express it, so only `is` / `validate` and `narrow` enforce it; `narrow` handles the inner node as if the profile lacked the feature there.
 - **Widen / narrow** — moving a document to a superset profile (free, by assignability) or a subset one (lossy, reported).
+
+## Encoding (`src/encoding`, `./encoding`)
+
+Text encoding detection and decoding for import (#188 §2), on effect-ext's `/Encoding`: `detect.ts`. Its own subpath, not `./io`, so the core entries stay dependency-free.
+
+- **Detection never fails and says why**: `detectEncoding` looks at the first `ENCODING_SAMPLE_BYTES` (cut back to a whole UTF-8 sequence, so a split character isn't invalid UTF-8) and returns an encoding with a confidence and evidence: a byte-order mark (1), UTF-16 by zero bytes at odd or even offsets (0.7), valid UTF-8 (0.95, or 0.9 when ASCII only), else Windows-1252 (0.5). A new rule keeps that order and its confidence below a byte-order mark's.
+- **Decoding is strict**: `decodeText` decodes with `fatal: true`, so a byte sequence the encoding doesn't define is a `ParseError` (`MalformedText`, at the offset effect-ext reports), never a U+FFFD; an encoding nothing can decode here is `Unsupported`. `contentToText` and the readers stay UTF-8.
 
 ## CSV (`src/csv`, `./csv`)
 
