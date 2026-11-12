@@ -8,6 +8,7 @@
     "packages/core/src/io/index.ts",
     "packages/core/src/csv/index.ts",
     "packages/core/src/rtf/index.ts",
+    "packages/core/src/encoding/index.ts",
     "packages/core/src/ooxml/index.ts",
     "packages/core/src/ooxml/xlsx/index.ts",
     "packages/core/src/ooxml/docx/index.ts",
@@ -93,6 +94,10 @@
       {
         "name": "rtf",
         "patterns": ["packages/core/src/rtf/**", "packages/core/test/rtf/**"]
+      },
+      {
+        "name": "encoding",
+        "patterns": ["packages/core/src/encoding/**", "packages/core/test/encoding/**"]
       }
     ],
     "rules": [
@@ -118,6 +123,10 @@
       },
       {
         "from": "rtf",
+        "allow": ["core"]
+      },
+      {
+        "from": "encoding",
         "allow": ["core"]
       }
     ]

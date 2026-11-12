@@ -35,14 +35,23 @@ import {
   worksheetFromRows,
   trustAs,
   Worksheet,
+  type WorksheetRow,
   type Sniffer,
   markTruncated,
 } from "../../index.ts";
-import { collectText } from "./cellTypes.ts";
+import type { SharedString } from "./cellText.ts";
+import { sharedStringOf } from "./richText.ts";
 import { OpcError, type OpcLimits, OpcReader, ooxmlParseError } from "../shared/index.ts";
 import { findChild, findChildren, getAttr, type XmlElement } from "./xml.ts";
 import { parseWithScannedContent } from "../shared/xml.ts";
-import { parseWorksheetRows, type WorksheetRows } from "./rows.ts";
+import {
+  parseWorksheetRows,
+  type RowHeights,
+  textRowHeights,
+  treeRowHeights,
+  withRowHeights,
+  type WorksheetRows,
+} from "./rows.ts";
 import { scanSheetData } from "./sheetData.ts";
 import { withLayoutOf } from "./layout.ts";
 
@@ -129,8 +138,8 @@ const parsePart = (
 // Sheet parsing
 // ============================================================================
 
-const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
-  findChildren(root, "si").map(collectText);
+const parseSharedStrings = (root: XmlElement): ReadonlyArray<SharedString> =>
+  findChildren(root, "si").map(sharedStringOf);
 
 /**
  * A worksheet part's rows: its `sheetData` read straight into rows by
@@ -141,34 +150,72 @@ const parseSharedStrings = (root: XmlElement): ReadonlyArray<string> =>
 const readWorksheetRows = (
   pkg: OpcReader,
   target: string,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
   maxCells: number,
-): Effect.Effect<{ readonly rows: WorksheetRows; readonly root: XmlElement }, ParseError> =>
+): Effect.Effect<
+  { readonly rows: WorksheetRows; readonly root: XmlElement; readonly heights: RowHeights },
+  ParseError
+> =>
   Effect.flatMap(
     Effect.try({
       try: () => {
         const text = pkg.text(target);
         return text === null
           ? Option.none()
-          : Option.filter(
-              parseWithScannedContent(text, "sheetData", (xml, from) =>
-                scanSheetData(xml, from, sharedStrings, maxCells),
+          : Option.map(
+              Option.filter(
+                parseWithScannedContent(text, "sheetData", (xml, from) =>
+                  scanSheetData(xml, from, sharedStrings, maxCells),
+                ),
+                // the rows the tree path reads: the root's first sheetData
+                ({ root, target: scanned }) => findChild(root, "sheetData") === scanned,
               ),
-              // the rows the tree path reads: the root's first sheetData
-              ({ root, target: scanned }) => findChild(root, "sheetData") === scanned,
+              ({ value, root }) => ({
+                rows: value,
+                root,
+                heights: value.customHeights === true ? textRowHeights(text) : [],
+              }),
             );
       },
       catch: (cause) => ooxmlParseError("xlsx", cause),
     }),
     Option.match({
-      onSome: ({ value, root }) => Effect.succeed({ rows: value, root }),
+      onSome: (part) => Effect.succeed(part),
       onNone: () =>
         Effect.map(parsePart(pkg, target, "sheetData"), (root) => ({
           rows: parseWorksheetRows(root, sharedStrings, maxCells),
           root,
+          heights: treeRowHeights(root),
         })),
     }),
   );
+
+/**
+ * The failure for a sheet that needs more of `maxCells` than the sheets
+ * before it left (`remaining`): each row held costs its width, and a row with
+ * only a height costs one.
+ */
+const tooLarge = (name: string, target: string, remaining: number, maxCells: number) =>
+  new ParseError({
+    format: "xlsx",
+    reason:
+      `Worksheet "${name}" holds more than the ${remaining} cells left of the ` +
+      `workbook's ${maxCells}-cell limit (maxCells; a row with only a height counts as a cell)`,
+    code: "LimitExceeded",
+    position: { sheet: name, part: target },
+  });
+
+/**
+ * The rows a read keeps of a sheet's: all of them, or the first `maxRows`
+ * for a preview read, saying whether any were cut.
+ */
+const previewRows = (
+  rows: ReadonlyArray<WorksheetRow>,
+  maxRows: number | undefined,
+): { readonly rows: ReadonlyArray<WorksheetRow>; readonly truncated: boolean } =>
+  maxRows !== undefined && rows.length > maxRows
+    ? { rows: rows.slice(0, Math.max(0, Math.floor(maxRows))), truncated: true }
+    : { rows, truncated: false };
 
 /**
  * A sheet with no cell grid, keeping its place and name in the workbook,
@@ -208,7 +255,7 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
       const sharedStringsRel = relationships.find((rel) =>
         rel.type.endsWith(REL_SHARED_STRINGS_SUFFIX),
       );
-      const sharedStrings: ReadonlyArray<string> =
+      const sharedStrings: ReadonlyArray<SharedString> =
         sharedStringsRel === undefined
           ? []
           : parseSharedStrings(yield* parsePart(pkg, sharedStringsRel.target));
@@ -268,26 +315,18 @@ export const makeXlsxReader = (options?: XlsxReaderOptions): Reader<XlsxReadFeat
             const remaining = maxCells - allocated;
             const part = yield* readWorksheetRows(pkg, target, sharedStrings, remaining);
             const parsed = part.rows;
-            if (Predicate.isTagged(parsed, "TooLarge")) {
-              return yield* new ParseError({
-                format: "xlsx",
-                reason:
-                  `Worksheet "${name}" holds more than the ${remaining} cells left of the ` +
-                  `workbook's ${maxCells}-cell limit (maxCells)`,
-                code: "LimitExceeded",
-                position: { sheet: name, part: target },
-              });
-            }
-            allocated += parsed.cells;
-            const truncated = maxRows !== undefined && parsed.rows.length > maxRows;
-            if (truncated) cut.push(name);
+            if (Predicate.isTagged(parsed, "TooLarge"))
+              return yield* tooLarge(name, target, remaining, maxCells);
+            const sized = withRowHeights(parsed.rows, part.heights);
+            if (parsed.cells + sized.added > remaining)
+              return yield* tooLarge(name, target, remaining, maxCells);
+            allocated += parsed.cells + sized.added;
+            const preview = previewRows(sized.rows, maxRows);
+            if (preview.truncated) cut.push(name);
             const laidOut = withLayoutOf(
-              worksheetFromRows(
-                name,
-                truncated ? parsed.rows.slice(0, Math.max(0, Math.floor(maxRows))) : parsed.rows,
-              ),
+              worksheetFromRows(name, preview.rows),
               part.root,
-              truncated,
+              preview.truncated,
             );
             if (Result.isFailure(laidOut))
               return yield* new ParseError({

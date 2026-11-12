@@ -76,6 +76,10 @@
       "types": "./dist/rtf.d.ts",
       "default": "./dist/rtf.js"
     },
+    "./encoding": {
+      "types": "./dist/encoding.d.ts",
+      "default": "./dist/encoding.js"
+    },
     "./ooxml": {
       "types": "./dist/ooxml.d.ts",
       "default": "./dist/ooxml.js"
@@ -126,6 +130,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@thomasfosterau/effect-ext": "catalog:",
     "fflate": "catalog:"
   },
   "devDependencies": {

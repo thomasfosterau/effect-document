@@ -6,6 +6,7 @@
 import { assert, describe, expect, test } from "vite-plus/test";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
+import * as Struct from "effect/Struct";
 import * as Result from "effect/Result";
 import {
   findChild,
@@ -26,7 +27,8 @@ const scanned = (xml: string, maxCells: number) =>
       ),
       ({ root, target }) => findChild(root, "sheetData") === target,
     ),
-    ({ value }) => value,
+    // the rows alone: whether a row had a `customHeight` is the scanner's own note (#66)
+    ({ value }) => Struct.omit(value, ["customHeights"]),
   );
 
 /** The rows the tree path reads, or the parser's failure. */

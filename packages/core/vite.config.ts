@@ -18,6 +18,7 @@ export const options: PackageConfigOptions = {
     io: "src/io/index.ts",
     csv: "src/csv/index.ts",
     rtf: "src/rtf/index.ts",
+    encoding: "src/encoding/index.ts",
     ooxml: "src/ooxml/index.ts",
     "ooxml/xlsx": "src/ooxml/xlsx/index.ts",
     "ooxml/docx": "src/ooxml/docx/index.ts",

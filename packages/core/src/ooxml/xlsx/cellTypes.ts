@@ -11,8 +11,9 @@
 
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
-import { cell, inlinesToText, type SheetCell } from "../../index.ts";
-import { cellOfText, decodeXstring } from "./cellText.ts";
+import { cell, type SheetCell } from "../../index.ts";
+import { cellOfText, decodeXstring, type SharedString } from "./cellText.ts";
+import { richTextRunsXml } from "./richText.ts";
 import { escapeXml, findChild, type XmlElement } from "./xml.ts";
 
 // ============================================================================
@@ -36,9 +37,15 @@ export const encodeXstring = (s: string): string =>
 export const escapeXstring = (s: string): string => escapeXml(encodeXstring(s));
 
 /** Accumulates the shared strings table while rendering cells. */
+/** A rich entry of the writer's shared-string table: its `<si>` content, ready to write. */
+export interface RichEntry {
+  readonly runsXml: string;
+}
+
 export class SharedStrings {
   private readonly indices = new Map<string, number>();
-  private readonly entries: string[] = [];
+  private readonly richIndices = new Map<string, number>();
+  private readonly entries: Array<string | RichEntry> = [];
   private references = 0;
 
   intern(value: string): number {
@@ -51,7 +58,19 @@ export class SharedStrings {
     return index;
   }
 
-  get strings(): ReadonlyArray<string> {
+  /** Intern a rich string by its runs' XML (`<r>`…), shared with any cell whose runs read the same. */
+  internRich(runsXml: string): number {
+    this.references++;
+    const existing = this.richIndices.get(runsXml);
+    if (existing !== undefined) return existing;
+    const index = this.entries.length;
+    this.richIndices.set(runsXml, index);
+    this.entries.push({ runsXml });
+    return index;
+  }
+
+  /** The table's entries in index order: each a plain string, or a rich one's runs. */
+  get strings(): ReadonlyArray<string | RichEntry> {
     return this.entries;
   }
 
@@ -61,6 +80,22 @@ export class SharedStrings {
   }
 }
 
+/** A cell as SpreadsheetML: its `t` attribute (`null` for the default, a number) and its inner XML. */
+export interface RenderedCell {
+  readonly type: string | null;
+  readonly inner: string;
+}
+
+/**
+ * What {@link cellToSpreadsheetMl} renders a `NaN` or `±Infinity` number as:
+ * the `#NUM!` error cell, as one shared object so the writer can spot it by
+ * identity (and report it, #112) without a per-cell check.
+ */
+export const NON_FINITE_CELL: RenderedCell = {
+  type: "e",
+  inner: "<v>#NUM!</v>",
+};
+
 /**
  * Render a cell as a SpreadsheetML `<c>` element body, or null for a blank cell
  * (blank cells are omitted entirely). Returns the `t` attribute (or null for the
@@ -69,7 +104,7 @@ export class SharedStrings {
 export const cellToSpreadsheetMl = (
   c: SheetCell,
   sharedStrings: SharedStrings,
-): { readonly type: string | null; readonly inner: string } | null => {
+): RenderedCell | null => {
   // a branch per cell type; `Match.valueTags` keeps the mapping exhaustive
   const shared = (text: string) => ({ type: "s", inner: `<v>${sharedStrings.intern(text)}</v>` });
   return Match.valueTags(c, {
@@ -78,7 +113,7 @@ export const cellToSpreadsheetMl = (
     CellNumber: (n) =>
       Number.isFinite(n.value)
         ? { type: null, inner: `<v>${String(n.value)}</v>` }
-        : { type: "e", inner: "<v>#NUM!</v>" },
+        : NON_FINITE_CELL,
     CellBoolean: (n) => ({ type: "b", inner: `<v>${n.value ? "1" : "0"}</v>` }),
     CellError: (n) => ({ type: "e", inner: `<v>${escapeXstring(n.value)}</v>` }),
     // SpreadsheetML stores formulas without the leading "=".
@@ -90,7 +125,10 @@ export const cellToSpreadsheetMl = (
     }),
     CellText: (n) => shared(n.value),
     CellDate: (n) => shared(n.value.toISOString()),
-    CellRichText: (n) => shared(inlinesToText(n.runs)),
+    CellRichText: (n) => ({
+      type: "s",
+      inner: `<v>${sharedStrings.internRich(richTextRunsXml(n.runs, escapeXstring))}</v>`,
+    }),
   });
 };
 
@@ -127,7 +165,7 @@ export const collectText = (element: XmlElement): string => {
  */
 export const spreadsheetMlToCell = (
   c: XmlElement,
-  sharedStrings: ReadonlyArray<string>,
+  sharedStrings: ReadonlyArray<SharedString>,
   formula?: string,
 ): SheetCell => {
   const v = findChild(c, "v");

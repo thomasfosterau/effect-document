@@ -52,6 +52,7 @@
       "@thomasfosterau/effect-document/io": ["./packages/core/src/io/index.ts"],
       "@thomasfosterau/effect-document/csv": ["./packages/core/src/csv/index.ts"],
       "@thomasfosterau/effect-document/rtf": ["./packages/core/src/rtf/index.ts"],
+      "@thomasfosterau/effect-document/encoding": ["./packages/core/src/encoding/index.ts"],
       "@thomasfosterau/effect-document/ooxml": ["./packages/core/src/ooxml/index.ts"],
       "@thomasfosterau/effect-document/ooxml/xlsx": ["./packages/core/src/ooxml/xlsx/index.ts"],
       "@thomasfosterau/effect-document/ooxml/docx": ["./packages/core/src/ooxml/docx/index.ts"],

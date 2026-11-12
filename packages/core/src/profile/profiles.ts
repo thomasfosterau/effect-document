@@ -11,6 +11,7 @@ import {
   ALL_ATTR_FEATURES,
   ALL_BLOCK_FEATURES,
   ALL_DECK_FEATURES,
+  ALL_DOC_FEATURES,
   ALL_FEATURES,
   ALL_INLINE_FEATURES,
   ALL_SHEET_FEATURES,
@@ -70,6 +71,7 @@ export const Markdown = defineProfile("markdown", [
 export const Html = defineProfile("html", [
   ...ALL_BLOCK_FEATURES,
   ...ALL_INLINE_FEATURES,
+  ...ALL_DOC_FEATURES,
   ...ALL_ATTR_FEATURES,
 ]);
 
@@ -80,6 +82,7 @@ export const Presentation = defineProfile("presentation", [
   ...ALL_DECK_FEATURES,
   ...ALL_BLOCK_FEATURES,
   ...ALL_INLINE_FEATURES,
+  ...ALL_DOC_FEATURES,
   ...ALL_ATTR_FEATURES,
 ]);
 
