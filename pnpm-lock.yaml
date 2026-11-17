@@ -79,8 +79,8 @@ catalogs:
       specifier: ^1.12.0
       version: 1.13.0
     papaparse:
-      specifier: ^5.5.3
-      version: 5.7.0
+      specifier: ^5.7.1
+      version: 5.7.1
     pdfjs-dist:
       specifier: ^6.5.0
       version: 6.5.438
@@ -223,7 +223,7 @@ importers:
         version: 1.13.0
       papaparse:
         specifier: 'catalog:'
-        version: 5.7.0
+        version: 5.7.1
       pdfjs-dist:
         specifier: 'catalog:'
         version: 6.5.438
@@ -2746,8 +2746,8 @@ packages:
   pako@1.0.11:
     resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
 
-  papaparse@5.7.0:
-    resolution: {integrity: sha512-qBGxg/7Q3Kl9Wfhrz2Z74UnvnHTXLNG6jmKJFeBvP2+y4lV7So+7SR62+Zd47JvdrCkX+nDcnr0ObPzek/+6RA==}
+  papaparse@5.7.1:
+    resolution: {integrity: sha512-qOR+UDWv6D3hMxnWWOk0ZpBdCkd+kw5Yh7aXOaNSQU8A+73EA2bhW7EiUix/hY0yulUi5FRvt7PpYSI2VDvY0g==}
 
   parse5-htmlparser2-tree-adapter@6.0.1:
     resolution: {integrity: sha512-qPuWvbLgvDGilKc5BoicRovlT4MtYT6JfJyBOMDsKoiT+GiuP5qyrPCnR9HcPECIJJmZh5jRndyNThnhhb/vlA==}
@@ -5393,7 +5393,7 @@ snapshots:
 
   pako@1.0.11: {}
 
-  papaparse@5.7.0: {}
+  papaparse@5.7.1: {}
 
   parse5-htmlparser2-tree-adapter@6.0.1:
     dependencies:
