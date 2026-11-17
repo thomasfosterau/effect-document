@@ -94,8 +94,8 @@ catalogs:
       specifier: ^0.3.25
       version: 0.3.25
     read-excel-file:
-      specifier: ^9.3.14
-      version: 9.3.14
+      specifier: ^9.3.17
+      version: 9.3.17
     typescript:
       specifier: npm:@typescript/typescript6@6.0.2
       version: 6.0.2
@@ -235,7 +235,7 @@ importers:
         version: 4.0.1
       read-excel-file:
         specifier: 'catalog:'
-        version: 9.3.14
+        version: 9.3.17
       udsv:
         specifier: 'catalog:'
         version: 0.7.3
@@ -2822,8 +2822,8 @@ packages:
   react-is@17.0.2:
     resolution: {integrity: sha512-w2GsyukL62IJnlaff/nRegPQR94C/XXamvMWmSHRJ4y7Ts/4ocGRmTHvOs8PSE6pB3dWOrD/nueuU5sduBsQ4w==}
 
-  read-excel-file@9.3.14:
-    resolution: {integrity: sha512-rfEpNMthm/REIpSCLnGTrQD5aW+U9rrhFuGYF+XRO8Soz+7b+rAOW1z2vJbNiEINbFPbjRW16vz0KnX41Si9qw==}
+  read-excel-file@9.3.17:
+    resolution: {integrity: sha512-szsrzmxWxNZ1OuXKGBVHbNMmNfTkRmNJZRuBRAQxMh9eTLnhSNXqM6JVUds9in59dMgujBe2gT0kMVb0T8NlSQ==}
     engines: {node: '>=18'}
 
   readable-stream@2.3.8:
@@ -5482,7 +5482,7 @@ snapshots:
 
   react-is@17.0.2: {}
 
-  read-excel-file@9.3.14:
+  read-excel-file@9.3.17:
     dependencies:
       fflate: 0.8.3
       saxen: 11.2.0
