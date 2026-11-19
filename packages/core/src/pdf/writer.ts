@@ -153,7 +153,7 @@ const flatten = (inlines: ReadonlyArray<Inline>, style: Style, out: Pieces = [])
 /**
  * Flatten one inline of the PDF profile. The table is exhaustive over the
  * profile's inlines, so a feature added to it without a rendering here is a
- * compile error (#109).
+ * compile error.
  */
 const flattenInline = (n: InlineOf<PdfFeature>, style: Style, out: Pieces): void =>
   Match.valueTags(n, {
@@ -275,13 +275,13 @@ const breakLines = (
 // ============================================================================
 
 // ============================================================================
-// Structure (tagged PDF, #198)
+// Structure (tagged PDF)
 // ============================================================================
 
 /**
  * A structure element being built: its standard structure type (`P`, `H2`,
  * `L`, …), its attributes (`/A`) and its kids in reading order. The writer
- * tags its output (#198) so a reader can take the structure from the tags
+ * tags its output so a reader can take the structure from the tags
  * rather than infer it from the layout.
  */
 interface StructNode {
@@ -341,7 +341,7 @@ interface Anchor {
   readonly top: number;
 }
 
-/** A heading, for the document outline (#20): its level, its text and where it starts. */
+/** A heading, for the document outline: its level, its text and where it starts. */
 interface OutlineEntry {
   readonly level: number;
   readonly title: string;
@@ -632,7 +632,7 @@ const layoutBlocks = (
 
 /**
  * Lay out one block of the PDF profile; `last`: it ends its sequence.
- * Exhaustive over the profile's blocks (#109).
+ * Exhaustive over the profile's blocks.
  */
 const layoutBlock = (
   ts: Typesetter,
@@ -765,7 +765,7 @@ const descendants = (node: OutlineNode): number =>
   node.children.reduce((n, child) => n + 1 + descendants(child), 0);
 
 /**
- * Write the document outline (bookmarks) from the headings (#20): one item
+ * Write the document outline (bookmarks) from the headings: one item
  * per heading, nested by level, each going to the top of its first line.
  * `undefined` when there are no headings.
  */

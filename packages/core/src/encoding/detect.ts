@@ -1,9 +1,8 @@
 /**
- * Text encoding detection and decoding for import (#188 §2), on effect-ext's
- * `/Encoding` (owner decision: depend on it; it imports only `effect`). A
- * caller with bytes of unknown encoding asks {@link detectEncoding} what they
- * look like, shows the guess, and decodes with {@link decodeText}, the
- * detected encoding or one the user picked. `contentToText`'s UTF-8 decoding
+ * Text encoding detection and decoding for import, on effect-ext's
+ * `/Encoding`. A caller with bytes of unknown encoding asks
+ * {@link detectEncoding} what they look like, shows the guess, and decodes
+ * with {@link decodeText}, the detected encoding or one the user picked. `contentToText`'s UTF-8 decoding
  * is unchanged: this is the opt-in path.
  */
 

@@ -8,11 +8,8 @@
   "author": "Thomas Foster <me@thomasfoster.au>",
   "type": "module",
   "scripts": {
-    "changeset": "changeset",
     "version": "changeset version && vp fmt && pnpm install --lockfile-only",
     "release": "vp run -r build && pnpm -r --filter './packages/*' publish --access public --no-git-checks --ignore-scripts && changeset tag",
-    "fallow": "fallow --summary",
-    "fallow:audit": "fallow audit",
     "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
@@ -37,9 +34,11 @@
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
-  "engines": {
-    "node": ">=22",
-    "pnpm": ">=11"
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "lts"
+    }
   },
   "packageManager": "pnpm@11.28.6"
 }

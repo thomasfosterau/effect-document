@@ -1,5 +1,5 @@
 /**
- * The writer's structure tree (tagged PDF, #198): the elements it writes, the
+ * The writer's structure tree (tagged PDF): the elements it writes, the
  * marked content they own, and the parent tree that maps content back to them.
  */
 
@@ -122,7 +122,7 @@ const structure = (file: PdfFile): Shape => {
   return shape(root);
 };
 
-describe("the PDF writer's structure tree (#198)", () => {
+describe("the PDF writer's structure tree", () => {
   it.effect("marks the document as tagged", () =>
     Effect.gen(function* () {
       const file = yield* write([para([str("x")])], { lang: "en-AU" });

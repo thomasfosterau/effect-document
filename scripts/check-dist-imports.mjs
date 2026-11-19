@@ -1,8 +1,6 @@
 /**
- * Import guard for the published package, on Effect rc.118 (the family floor):
- * its built `dist/` must import no removed `effect/unstable/*` path, and the
- * core entries must reach no format dependency. Run after `vp run -r build`
- * (`vp run check:dist`).
+ * The built `dist/` imports no `effect/unstable/*` path, and the core entries
+ * reach no format dependency. Run after `vp run -r build`.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

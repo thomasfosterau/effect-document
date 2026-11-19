@@ -72,7 +72,7 @@ export type FeaturesOf<P> = P extends Profile<infer F> ? F : never;
  * an exhaustive handler table (`Match.valueTags`, or a mapped type over
  * `InlineOf<F>["_tag"]`) stops compiling when a feature joins its profile
  * without a renderer, so a write profile can't claim more than its writer
- * writes (#109).
+ * writes.
  */
 export type InlineOf<F extends Feature> = Extract<Inline, { readonly _tag: TagsOf<F> }>;
 /** The blocks a `Doc<F>` may contain (see {@link InlineOf}). */
@@ -102,9 +102,9 @@ export const isNodeIn = <F extends Feature, N extends { readonly _tag: string }>
 // ============================================================================
 
 /**
- * A structural rule (#126): `feature` may not appear inside a `within` node,
+ * A structural rule: `feature` may not appear inside a `within` node,
  * although the profile allows both on their own. For example, a format that
- * sets headings in bold can't keep `Strong` inside a `Header` (#197). A
+ * sets headings in bold can't keep `Strong` inside a `Header`. A
  * document that breaks the rule doesn't conform, and `narrow` rewrites the
  * inner node as if the profile lacked `feature` there, giving `reason` in the
  * loss entry.
@@ -138,15 +138,15 @@ export interface Profile<F extends Feature> {
   readonly features: ReadonlySet<Feature>;
   /**
    * Structural rules: features the profile allows on their own but not inside
-   * certain nodes (#126). The phantom `F` can't express them, so a `Doc<F>`
+   * certain nodes. The phantom `F` can't express them, so a `Doc<F>`
    * built in code may break one; `validate` and `narrow` check them.
    */
   readonly notWithin: ReadonlyArray<NotWithin>;
-  /** Structural rules: features the profile allows only inside certain nodes (#126); checked as `notWithin` is. */
+  /** Structural rules: features the profile allows only inside certain nodes; checked as `notWithin` is. */
   readonly onlyWithin: ReadonlyArray<OnlyWithin>;
-  /** Structural rules: the values a node's fields may hold (#126); checked as `notWithin` is. */
+  /** Structural rules: the values a node's fields may hold; checked as `notWithin` is. */
   readonly fieldValues: ReadonlyArray<FieldValues>;
-  /** Structural rules: features that must be the whole of a container's content (#67); checked as `notWithin` is. */
+  /** Structural rules: features that must be the whole of a container's content; checked as `notWithin` is. */
   readonly whole: ReadonlyArray<Whole>;
   /** Which attribute facets are allowed (derived from `features`). */
   readonly attributes: AttrPolicy;
@@ -175,7 +175,7 @@ const attrPolicyOf = (set: ReadonlySet<Feature>): AttrPolicy => ({
  * Listing `attr.id` allows ids on every node: it stands for every per-node id
  * facet (`attr.id.header`, `attr.id.link`, …), in the runtime set and in the
  * phantom type; listing only some of those facets allows ids on just those
- * nodes (#184). `options.notWithin` adds structural rules the feature set
+ * nodes. `options.notWithin` adds structural rules the feature set
  * can't express.
  *
  * ```ts

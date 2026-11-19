@@ -121,7 +121,7 @@ export const sanitizeSheetNames = (names: ReadonlyArray<string>): ReadonlyArray<
   });
 };
 
-/** The diagnostic for a sheet whose name `sanitizeSheetNames` changed (#112). */
+/** The diagnostic for a sheet whose name `sanitizeSheetNames` changed. */
 const renamedSheets = (
   names: ReadonlyArray<string>,
   written: ReadonlyArray<string>,
@@ -142,7 +142,7 @@ const renamedSheets = (
         ];
   });
 
-/** The diagnostic for a number cell SpreadsheetML cannot hold, written as `#NUM!` (#112). */
+/** The diagnostic for a number cell SpreadsheetML cannot hold, written as `#NUM!`. */
 const nonFinite = (sheet: string, address: string, cell: SheetCell): Diagnostic => ({
   format: "xlsx",
   stage: "write",
@@ -286,7 +286,7 @@ interface SheetRel {
   readonly external: boolean;
 }
 
-/** A worksheet's part, and the relationships it needs: its hyperlinks' (#67) and its comments'. */
+/** A worksheet's part, and the relationships it needs: its hyperlinks' and its comments'. */
 interface SheetPart {
   readonly xml: string;
   readonly rels: ReadonlyArray<SheetRel>;
@@ -306,7 +306,7 @@ const sheetRelsXml = (rels: SheetPart["rels"]): string =>
 
 /**
  * The relationships of a worksheet's comments, numbered after its `taken`
- * hyperlink relationships: the comments part, the VML drawing (#67), the
+ * hyperlink relationships: the comments part, the VML drawing, the
  * drawing's id being the one `<legacyDrawing>` names, and, for a sheet with
  * threads (`threadedPart`, from 1; 0 for none), its threaded comments.
  */
@@ -340,11 +340,11 @@ const commentRels = (part: number, taken: number, threadedPart: number) => ({
 
 /**
  * A worksheet's part. A `NaN` or `±Infinity` number, which SpreadsheetML
- * cannot hold, is written as `#NUM!` and reported in `notes` (#112). A rich
+ * cannot hold, is written as `#NUM!` and reported in `notes`. A rich
  * cell that breaks the `Xlsx` profile's `whole` rule (a link over only part of
  * it, which a document built through `trustAs` can hold) is listed in
  * `partial` (as `Sheet!A1`), for the writer to refuse rather than widen it
- * silently (#67). A sheet whose comments are written as part `commentPart`
+ * silently. A sheet whose comments are written as part `commentPart`
  * (from 1; 0 for none) points its `<legacyDrawing>` at their drawing.
  */
 const worksheetXml = (

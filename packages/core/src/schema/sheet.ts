@@ -46,7 +46,7 @@ export interface SheetExtent {
 
 /**
  * A worksheet row's cells by position, whether it is a {@link SheetRow} or a
- * plain row (#227): no node is built.
+ * plain row: no node is built.
  *
  * @example
  * ```ts
@@ -462,7 +462,7 @@ const validatedSparseRow = (
 /**
  * A worksheet of finished rows, for readers that build each row as they go:
  * `SheetRow`s (`sheetRow`, `sparseRow`) and plain rows (a row's cells alone,
- * standing for the row one past the one before it, #227). Rows that are what
+ * standing for the row one past the one before it). Rows that are what
  * `Worksheet` accepts unchanged (instances or positional cell arrays, in
  * strictly ascending index order) skip the schema pass; anything else is
  * checked and fails as `new Worksheet` does.
@@ -564,7 +564,7 @@ const rebuilt = (
 };
 
 /**
- * `ws` with its cell comments set (#67): a reader that builds a sheet's rows
+ * `ws` with its cell comments set: a reader that builds a sheet's rows
  * and layout first and reads its comments apart (the XLSX reader's) adds them
  * here. The rows are kept as they are, unchecked again; the comments are
  * taken unchecked when they are `CellComment` instances, and otherwise

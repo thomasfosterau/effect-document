@@ -35,7 +35,7 @@ import {
 } from "../../src/schema/index.ts";
 import { collectFeatures } from "../../src/profile/index.ts";
 
-describe("builders (#125)", () => {
+describe("builders", () => {
   test("every builder makes a node the schema round-trips, under its feature", () => {
     const inlines = [
       underline([str("u")]),
@@ -103,7 +103,7 @@ describe("builders (#125)", () => {
   });
 });
 
-describe("textInlines (#125)", () => {
+describe("textInlines", () => {
   test("splits words, spaces and line breaks as Pandoc's text builder does", () => {
     expect(textInlines("  hello   world\nagain ")).toEqual([
       str("hello"),
@@ -117,7 +117,7 @@ describe("textInlines (#125)", () => {
   });
 });
 
-describe("normalizeInlines (#125)", () => {
+describe("normalizeInlines", () => {
   test("merges adjacent Strs, drops empty ones and collapses whitespace runs", () => {
     expect(
       normalizeInlines([

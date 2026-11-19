@@ -1,6 +1,6 @@
 /**
- * Every reader classifies its failures with the same `ParseError` codes
- * (#127), so a caller can branch on `code` instead of the message, and a
+ * Every reader classifies its failures with the same `ParseError` codes,
+ * so a caller can branch on `code` instead of the message, and a
  * failure's `position` says where it happened when the reader knows.
  */
 
@@ -138,7 +138,7 @@ const CASES: ReadonlyArray<
   ],
 ];
 
-describe("ParseError codes (#127)", () => {
+describe("ParseError codes", () => {
   it.effect.each(CASES)("%s", ([, fail, code]) =>
     Effect.gen(function* () {
       const error = yield* fail();
@@ -181,7 +181,7 @@ describe("ParseError codes (#127)", () => {
   );
 });
 
-describe("OOXML container failures say what they are (#173)", () => {
+describe("OOXML container failures say what they are", () => {
   it.effect("an encrypted package or legacy binary file is named as such", () =>
     Effect.gen(function* () {
       expect((yield* failure(makeDocxReader(), CFB)).reason).toMatch(

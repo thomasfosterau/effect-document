@@ -154,7 +154,7 @@ const failures = (input: unknown): readonly [string, string] => {
   return [ours.failure.message, theirs.failure.message];
 };
 
-describe("the stack-safe Document codec (#191)", () => {
+describe("the stack-safe Document codec", () => {
   test("carries a row's plain cells and gaps through, as the Schema codec does", () => {
     const doc = document([
       worksheet("S", [
@@ -201,7 +201,7 @@ describe("the stack-safe Document codec (#191)", () => {
     expect(Result.isSuccess(encodeDocumentResult(back))).toBe(true);
   });
 
-  test("a reply chain 5,000 deep encodes and decodes (#67)", () => {
+  test("a reply chain 5,000 deep encodes and decodes", () => {
     const doc = document([worksheetWithComment(replyChain(DEEP), "S")]);
     const back = ok(decodeDocumentResult(encoded(doc)));
     const sheet = back.blocks[0];
@@ -213,7 +213,7 @@ describe("the stack-safe Document codec (#191)", () => {
     expect(levels).toHaveLength(DEEP + 1);
   });
 
-  test("a comment's author, initials, date and resolved mark agree with the Schema codec (#67)", () => {
+  test("a comment's author, initials, date and resolved mark agree with the Schema codec", () => {
     const doc = document([
       worksheetWithComment(
         new Comment({

@@ -89,7 +89,7 @@ export interface RenderedCell {
 /**
  * What {@link cellToSpreadsheetMl} renders a `NaN` or `±Infinity` number as:
  * the `#NUM!` error cell, as one shared object so the writer can spot it by
- * identity (and report it, #112) without a per-cell check.
+ * identity (and report it) without a per-cell check.
  */
 export const NON_FINITE_CELL: RenderedCell = {
   type: "e",

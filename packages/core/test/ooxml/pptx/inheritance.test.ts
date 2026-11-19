@@ -1,5 +1,5 @@
 /**
- * PPTX style inheritance (#82): bullets, margins and run marks a shape takes
+ * PPTX style inheritance: bullets, margins and run marks a shape takes
  * from its layout, its master and the presentation instead of its paragraphs.
  */
 
@@ -133,7 +133,7 @@ const marks = (i?: Inline): ReadonlyArray<string> =>
 
 const BODY_PH = `<p:ph idx="1"/>`;
 
-describe("PPTX inheritance (#82)", () => {
+describe("PPTX inheritance", () => {
   it.effect("a body placeholder takes its bullets from the master's bodyStyle", () =>
     Effect.gen(function* () {
       const shown = yield* firstShape({

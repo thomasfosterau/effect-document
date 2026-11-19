@@ -1,5 +1,5 @@
 /**
- * The document outline (bookmarks, #20): each item's title and its depth in
+ * The document outline (bookmarks): each item's title and its depth in
  * the outline tree. The layout reader takes a heading's level from the outline
  * item with its title, when there is one, instead of ranking heading sizes.
  *

@@ -81,7 +81,7 @@ const refusal = (comments: ReadonlyArray<CellComment>) =>
     (error) => error.reason,
   );
 
-describe("XLSX legacy comments (#67)", () => {
+describe("XLSX legacy comments", () => {
   const original = sheet("S", [
     note(
       0,
@@ -273,7 +273,7 @@ const workbook = (
     ...Rec.map(parts, (v) => strToU8(v)),
   });
 
-describe("XLSX threaded comments (#67)", () => {
+describe("XLSX threaded comments", () => {
   const threaded = workbook(
     {
       "xl/comments1.xml": LEGACY,
@@ -431,7 +431,7 @@ const discussion = said("Ann", "2026-02-03T10:00:00.000Z", ["Is this right?", "C
   ],
 });
 
-describe("XLSX threaded comments, written (#67)", () => {
+describe("XLSX threaded comments, written", () => {
   const original = sheet("S", [
     at(0, 0, discussion),
     note(1, 1, [para(strong([str("plain")]))], "Cy"),

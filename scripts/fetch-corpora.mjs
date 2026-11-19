@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 /**
- * Fetches the public test corpora pinned in `corpora.json` into the
- * git-ignored `.corpora/` cache (#133). Corpora are fetched, never committed:
- * each is a shallow, sparse, blob-filtered checkout of one pinned commit,
- * holding only the files its `paths` globs match, in
- * `.corpora/<id>/<commit>/`. A corpus already present at its pin is skipped,
- * so CI can cache `.corpora/` keyed by `corpora.json`.
+ * Fetches the corpora pinned in `corpora.json` into `.corpora/<id>/<commit>/`
+ * as shallow, sparse checkouts; a corpus already at its pin is skipped.
  *
  * Usage: node scripts/fetch-corpora.mjs [id ...]   (default: every corpus)
  */

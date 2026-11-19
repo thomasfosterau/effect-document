@@ -1,5 +1,5 @@
 /**
- * Format detection for import (#188): which of the formats a caller passes
+ * Format detection for import: which of the formats a caller passes
  * best explains some content, ranked, with a reason a UI can show. Each
  * format brings its own sniffer (`Format.sniff`); the core imports none, so
  * a caller pays only for the formats it passes, as with `convert`.
@@ -21,7 +21,7 @@ export interface Sniff {
 }
 
 /**
- * A format's recogniser (#188): `Option.some` with its confidence when the
+ * A format's recogniser: `Option.some` with its confidence when the
  * content looks like the format, `Option.none` when it doesn't. It looks at
  * the content only (a file name can lie), stays within the format reader's
  * resource limits, and never throws: anything it can't decode is not its
@@ -89,7 +89,7 @@ const byConfidence = Order.mapInput(
 );
 
 /**
- * The formats `content` may be, most likely first (#188). Each format's
+ * The formats `content` may be, most likely first. Each format's
  * sniffer judges the content alone; a matching file extension or MIME type
  * in `hints` only breaks ties ({@link HINT_WEIGHT}). Formats without a
  * sniffer, or whose sniffer says no, are left out, so the result may be

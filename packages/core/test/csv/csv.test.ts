@@ -314,7 +314,7 @@ describe("CSV reader", () => {
     }),
   );
 
-  it.effect("keeps a value a number only when a double holds its digits (#88)", () =>
+  it.effect("keeps a value a number only when a double holds its digits", () =>
     Effect.gen(function* () {
       const values = [
         "0.30000000000000004",
@@ -399,7 +399,7 @@ describe("CSV reader", () => {
     }),
   );
 
-  it.effect("by default the header row is sniffed and each column is typed as a whole (#88)", () =>
+  it.effect("by default the header row is sniffed and each column is typed as a whole", () =>
     Effect.gen(function* () {
       const expected = [
         ["id", "code", "n"],
@@ -425,37 +425,35 @@ describe("CSV reader", () => {
     }),
   );
 
-  it.effect(
-    "header sniffing: a typed first row is data, an all-text file has no header (#88)",
-    () =>
-      Effect.gen(function* () {
-        // no text first row: headerless numbers
-        expect(yield* sniffedValues("1,2\n3,4\n")).toEqual([
-          [1, 2],
-          [3, 4],
-        ]);
-        // every column text: nothing tells a header apart, so the first row is data
-        expect(yield* sniffedValues("name,city\nalice,paris\n")).toEqual([
-          ["name", "city"],
-          ["alice", "paris"],
-        ]);
-        // a blank in the first row: not a header, so the numbers make that column text
-        expect(yield* sniffedValues("id,\n1,2\n")).toEqual([
-          ["id", null],
-          ["1", 2],
-        ]);
-        // one row: no data to compare against
-        expect(yield* sniffedValues("a,b\n")).toEqual([["a", "b"]]);
-        // an explicit setting overrides the sniff either way
-        expect(yield* sniffedValues("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
-          ["1", "2"],
-          [3, 4],
-        ]);
-        expect(yield* sniffedValues("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
-          ["id", "n"],
-          ["1", "2"],
-        ]);
-      }),
+  it.effect("header sniffing: a typed first row is data, an all-text file has no header", () =>
+    Effect.gen(function* () {
+      // no text first row: headerless numbers
+      expect(yield* sniffedValues("1,2\n3,4\n")).toEqual([
+        [1, 2],
+        [3, 4],
+      ]);
+      // every column text: nothing tells a header apart, so the first row is data
+      expect(yield* sniffedValues("name,city\nalice,paris\n")).toEqual([
+        ["name", "city"],
+        ["alice", "paris"],
+      ]);
+      // a blank in the first row: not a header, so the numbers make that column text
+      expect(yield* sniffedValues("id,\n1,2\n")).toEqual([
+        ["id", null],
+        ["1", 2],
+      ]);
+      // one row: no data to compare against
+      expect(yield* sniffedValues("a,b\n")).toEqual([["a", "b"]]);
+      // an explicit setting overrides the sniff either way
+      expect(yield* sniffedValues("1,2\n3,4\n", { treatFirstRowAsHeader: true })).toEqual([
+        ["1", "2"],
+        [3, 4],
+      ]);
+      expect(yield* sniffedValues("id,n\n1,2\n", { treatFirstRowAsHeader: false })).toEqual([
+        ["id", "n"],
+        ["1", "2"],
+      ]);
+    }),
   );
 
   it.effect("readStream yields rows", () =>
@@ -590,7 +588,7 @@ describe("CSV scanner", () => {
     }),
   );
 
-  it.effect("a TSV line of tabs is a row of empty fields, not a blank line (#109)", () =>
+  it.effect("a TSV line of tabs is a row of empty fields, not a blank line", () =>
     Effect.gen(function* () {
       expect(
         (yield* scanCsv("a\tb\n\t\nc\td\n", TsvDialect, { treatFirstRowAsHeader: false })).rows,
@@ -641,7 +639,7 @@ describe("CSV scanner", () => {
     }),
   );
 
-  it.effect("validating column counts stays linear in the input (#177)", () =>
+  it.effect("validating column counts stays linear in the input", () =>
     Effect.gen(function* () {
       const body = Arr.makeBy(2000, (i) => `${i},x${i},"q ${i}"`).join("\n");
       const csv = `a,b,c\n${body}\nlast,row,here\n`;
@@ -939,7 +937,7 @@ describe("readCsvRows", () => {
       expect((yield* readCsvRows(csv, options)).rows).toEqual(expected);
       const doc = yield* makeCsvReader(options).read(text(csv));
       expect(firstWorksheet(doc).rows.map(rowCellsOf)).toEqual(expected);
-      // a CSV document's rows are plain rows (#227)
+      // a CSV document's rows are plain rows
       expect(firstWorksheet(doc).rows.every(isPlainRow)).toBe(true);
       const words = Arr.makeBy(w, (c) => `w${c}`);
       const scanned = yield* scanCsv(`${words.join(",")}\n${words.join(",")}\n`);
@@ -1273,7 +1271,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("writes a sparse worksheet's gaps as empty fields and empty lines (#185)", () =>
+  it.effect("writes a sparse worksheet's gaps as empty fields and empty lines", () =>
     Effect.gen(function* () {
       const ws = new Worksheet({
         name: "S",
@@ -1295,7 +1293,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("a worksheet whose gaps expand past maxFields fails before rendering (#185)", () =>
+  it.effect("a worksheet whose gaps expand past maxFields fails before rendering", () =>
     Effect.gen(function* () {
       const far = new Worksheet({
         name: "Far",
@@ -1317,7 +1315,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("a streamed row wider than maxFields fails the stream (#185)", () =>
+  it.effect("a streamed row wider than maxFields fails the stream", () =>
     Effect.gen(function* () {
       const wide = sparseRow(0, [[20, cell.text("z")]]);
       const result = yield* Effect.result(
@@ -1347,7 +1345,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("writes NaN and the infinities as text, as pandas does (#89)", () =>
+  it.effect("writes NaN and the infinities as text, as pandas does", () =>
     Effect.gen(function* () {
       expect([Number.NaN, Infinity, -Infinity].map(formatCsvNumber)).toEqual([
         "NaN",
@@ -1425,7 +1423,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("escapeChar escapes the wrapper instead of doubling it (#89)", () =>
+  it.effect("escapeChar escapes the wrapper instead of doubling it", () =>
     Effect.gen(function* () {
       const row = [cell.text('say "hi"'), cell.text("plain"), cell.number(1)];
       expect(yield* written([row], { escapeChar: "\\" })).toBe('"say \\"hi\\"",plain,1\n');
@@ -1444,7 +1442,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("escapeChar fails on a field holding the escape character (#89)", () =>
+  it.effect("escapeChar fails on a field holding the escape character", () =>
     Effect.gen(function* () {
       // `x\` would close as `"x\"`, which an escape-aware reader leaves unclosed
       const values = ["x\\", 'a\\"b', "C:\\tmp"];
@@ -1462,7 +1460,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("escapeChar does not let quoting none write separators or line breaks (#89)", () =>
+  it.effect("escapeChar does not let quoting none write separators or line breaks", () =>
     Effect.gen(function* () {
       // escaped in place, `a\,=cmd()` would be a new `=cmd()` cell to a naive reader
       const options: CsvWriterOptions = { escapeChar: "\\", quoting: "none", escapeFormulae: true };
@@ -1483,7 +1481,7 @@ describe("CSV writer", () => {
     }),
   );
 
-  it.effect("escapeChar must be one character other than the separator or wrapper (#89)", () =>
+  it.effect("escapeChar must be one character other than the separator or wrapper", () =>
     Effect.gen(function* () {
       const results = yield* Effect.forEach(
         ["", "\\\\", ",", '"', "\n"],
@@ -1582,7 +1580,7 @@ const scan = (input: string, options: Parameters<typeof scanCsv>[2]) =>
 const stream = (input: string, options: Parameters<typeof scanCsvStream>[2]) =>
   Effect.result(Stream.runCollect(scanCsvStream(Stream.make(input), undefined, options)));
 
-describe("validateHeaders (#87)", () => {
+describe("validateHeaders", () => {
   it.effect("is off by default: duplicate and empty names are kept", () =>
     Effect.gen(function* () {
       const r = yield* scan(",a,a\n1,2,3\n", { treatFirstRowAsHeader: true });

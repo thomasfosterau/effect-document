@@ -1,5 +1,5 @@
 /**
- * The package metadata (#101): `Index/Metadata.iwa`'s `TSP.PackageMetadata`,
+ * The package metadata: `Index/Metadata.iwa`'s `TSP.PackageMetadata`,
  * which lists the document's components (with the objects they refer to in
  * other components) and its data files (`Data/`), so objects can be found
  * across components and an image's bytes from its data id.
@@ -167,7 +167,7 @@ const metadataMessage = (objects: ReadonlyArray<IworkObject>): Option.Option<Uin
   ).pipe(Option.map((m) => m.payload));
 
 /**
- * Read a bundle's package metadata (#101). `None` when it has no
+ * Read a bundle's package metadata. `None` when it has no
  * `Index/Metadata.iwa` or no `TSP.PackageMetadata` in it (some older or
  * partial packages); an `IworkError` located at the component when it is there
  * but malformed.

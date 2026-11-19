@@ -74,7 +74,7 @@ const inlineRuns = (ns: ReadonlyArray<Inline>, f: Fmt): string =>
 /**
  * An inline of the PPTX profile. The table is exhaustive over the profile's
  * inlines, so a feature added to the profile without a rendering here is a
- * compile error (#109).
+ * compile error.
  */
 const pptxInline = (n: InlineOf<PptxFeature>, f: Fmt): string =>
   Match.valueTags(n, {
@@ -102,7 +102,7 @@ const HANGING = 342900;
  * The left margin of list level `lvl`, in EMU. An item's paragraph hangs its
  * bullet in it, and the item's later paragraphs are written at the same
  * margin without a bullet, as PowerPoint writes them, so the reader can tell
- * them from paragraphs after the list (#196).
+ * them from paragraphs after the list.
  */
 const levelMargin = (lvl: number): number => HANGING * (lvl + 1);
 
@@ -132,7 +132,7 @@ const blockToParas = (b: Block, lvl: number, inTitle: boolean): string => {
 
 /**
  * An item's block after its bulleted paragraph: a nested list one `lvl`
- * deeper, or a paragraph at the item's margin without a bullet (#196).
+ * deeper, or a paragraph at the item's margin without a bullet.
  */
 const itemBlock = (b: Block, lvl: number, inTitle: boolean): string =>
   Predicate.isTagged(b, "BulletList") || Predicate.isTagged(b, "OrderedList")
@@ -169,19 +169,19 @@ const listParas = (
     })
     .join("");
 
-/** A block of the PPTX profile; exhaustive over the profile's blocks (#109). */
+/** A block of the PPTX profile; exhaustive over the profile's blocks. */
 const pptxBlock = (b: BlockOf<PptxFeature>, lvl: number, inTitle: boolean): string =>
   Match.valueTags(b, {
     Para: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
     Plain: (p) => aPara("<a:buNone/>", inlineRuns(p.content, {})),
     // A slide's title: plain title text, which the reader takes back as a
-    // level-1 header (#196). The profile allows a header nowhere else; one
+    // level-1 header. The profile allows a header nowhere else; one
     // outside a title placeholder, in a document that breaks the profile's
     // rules, is a bold paragraph, the nearest PPTX has.
     Header: (h) => aPara("<a:buNone/>", inlineRuns(h.content, inTitle ? {} : { b: true })),
     BulletList: (l) => listParas(l.items, () => BULLET, lvl, inTitle),
     // The first item's `startAt` starts a new list, so adjacent ordered lists
-    // stay separate (#196), and carries the list's start.
+    // stay separate, and carries the list's start.
     OrderedList: (l) =>
       listParas(l.items, (i) => autoNum(i === 0 ? (l.start ?? 1) : undefined), lvl, inTitle),
     // a slide show isn't prose: its slides are written as slides
@@ -190,7 +190,7 @@ const pptxBlock = (b: BlockOf<PptxFeature>, lvl: number, inTitle: boolean): stri
 
 /**
  * The text of a shape of the PPTX profile, exhaustive over the profile's
- * shapes (#109). Pictures and tables, outside it, are written as empty shapes.
+ * shapes. Pictures and tables, outside it, are written as empty shapes.
  */
 const shapeContent = (shape: Shape): ReadonlyArray<Block> =>
   isNodeIn(Pptx, shape)

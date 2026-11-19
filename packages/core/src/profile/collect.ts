@@ -40,7 +40,7 @@ const addTag = (tag: string, acc: Set<Feature>): void => {
   if (f !== undefined) acc.add(f);
 };
 
-/** A node's attribute facets, its id as the id facet of `node` (its tag) (#184). */
+/** A node's attribute facets, its id as the id facet of `node` (its tag). */
 const addAttr = (attr: Attributes | undefined, node: string, acc: Set<Feature>): void => {
   usedAttrFeatures(attr).forEach((f) => acc.add(f === "attr.id" ? idFeatureOf(node) : f));
 };
@@ -126,7 +126,7 @@ const walkCell = (c: SheetCell, acc: Set<Feature>, stack: Stack): void => {
   if (Predicate.isTagged(c, "CellRichText")) pushInlines(c.runs, stack);
 };
 
-/** Whether a worksheet hides anything: itself, a column or a row (`sheet.hidden`, #66). */
+/** Whether a worksheet hides anything: itself, a column or a row (`sheet.hidden`). */
 const hidesAnything = (w: Worksheet): boolean =>
   w.visibility !== undefined ||
   w.columns.some((col) => col.hidden === true) ||
@@ -135,13 +135,13 @@ const hidesAnything = (w: Worksheet): boolean =>
 /**
  * The feature a walked node stands for: its tag's, or `review.comments` for a
  * comment (which has no tag), so a structural rule can name "inside a
- * comment" as it names "inside a heading" (#67).
+ * comment" as it names "inside a heading".
  */
 const workFeature = (work: Work): Feature | undefined =>
   work.k === "comment" ? "review.comments" : featureOfTag(work.n._tag);
 
 /**
- * Whether `c` uses thread features (#67): it has replies or a resolved mark.
+ * Whether `c` uses thread features: it has replies or a resolved mark.
  * The test behind `review.threads`; a format that writes threads writes a
  * comment as one by this test.
  */
@@ -152,7 +152,7 @@ export const isThreadComment = (c: Comment): boolean =>
  * The features a walked node is inside of, for a structural rule's `within`:
  * a comment is `review.comments`, and a comment of a thread (one that is
  * {@link isThreadComment}, or a reply) is also `review.threads`, so a format
- * that holds threads as plain text can say so (#67).
+ * that holds threads as plain text can say so.
  */
 const workContainers = (work: Work): ReadonlyArray<Feature> =>
   work.k === "comment"
@@ -299,7 +299,7 @@ export const collectFeatures = (doc: Document): Set<Feature> => {
 /**
  * The features a document uses inside nodes of the feature `within` (their
  * descendants, not the nodes themselves): what a profile's `notWithin` rules
- * check (#197).
+ * check.
  */
 export const collectFeaturesWithin = (doc: Document, within: Feature): Set<Feature> => {
   const inside = new Set<Feature>();
@@ -320,7 +320,7 @@ export const unsupportedFeatures = (doc: Document, allowed: ReadonlySet<Feature>
   return [...collectFeatures(doc)].filter((f) => !allowed.has(f));
 };
 
-/** The features of `whole` rules about rich cells (#67) that `ws`'s rich cells break. */
+/** The features of `whole` rules about rich cells that `ws`'s rich cells break. */
 const wholeViolations = (ws: Worksheet, whole: ReadonlyArray<Whole>): ReadonlyArray<Feature> => {
   const rules = whole.filter((r) => r.within === "cell.richText");
   if (Arr.isReadonlyArrayEmpty(rules)) return [];
@@ -338,7 +338,7 @@ const wholeViolations = (ws: Worksheet, whole: ReadonlyArray<Whole>): ReadonlyAr
 
 /**
  * The features a document uses where a profile's `onlyWithin`, `fieldValues`
- * or `whole` rules keep them out (#126, #67): a node of an `onlyWithin` rule's
+ * or `whole` rules keep them out: a node of an `onlyWithin` rule's
  * feature with no ancestor that is a qualifying `within` node, a node of a
  * `fieldValues` rule's feature whose field holds another value, and a `whole`
  * rule's feature over only part of a rich cell. One walk,

@@ -1,5 +1,5 @@
 /**
- * Format detection (#188): `detect` ranks the right format first for every
+ * Format detection: `detect` ranks the right format first for every
  * format's own output and every fixture, a file name only breaks ties, and
  * nothing a sniffer meets makes detection fail.
  */
@@ -119,7 +119,7 @@ const kept = {
 };
 
 layer(NodeServices.layer)((it) => {
-  describe("detect (#188)", () => {
+  describe("detect", () => {
     it.effect.each(WRITTEN)("%s output is detected as %s", ([id, written]) =>
       Effect.gen(function* () {
         expect(yield* best(yield* written())).toBe(id);
@@ -137,7 +137,7 @@ layer(NodeServices.layer)((it) => {
       }),
     );
 
-    it.effect("a PDF without its header is still a PDF, as the reader reads it (#173)", () =>
+    it.effect("a PDF without its header is still a PDF, as the reader reads it", () =>
       Effect.gen(function* () {
         const written = yield* writeWith(Pdf.format, prose);
         assert(Predicate.isTagged(written, "Bytes"), "the PDF writer writes bytes");

@@ -1,5 +1,5 @@
 /**
- * Package metadata (#79): the core-properties part (`docProps/core.xml`, ECMA-376
+ * Package metadata: the core-properties part (`docProps/core.xml`, ECMA-376
  * Part 2, Dublin Core) and the extended-properties part (`docProps/app.xml`)
  * mapped to and from `Document.meta`, for DOCX, XLSX and PPTX alike.
  *
@@ -223,7 +223,7 @@ const readPart = (
 };
 
 /**
- * The metadata an Office package carries (#79), found through the package
+ * The metadata an Office package carries, found through the package
  * relationships (`/metadata/core-properties` and `/extended-properties`) and
  * matched by namespace URI and local name, so any prefix works. Never throws:
  * a missing part gives no keys, and an unreadable one is reported in

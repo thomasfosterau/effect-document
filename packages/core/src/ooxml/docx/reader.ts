@@ -162,7 +162,7 @@ const hyperlinkField = (instr: string): string | null => {
   return url === null ? null : url[1]!;
 };
 
-/** Which bookmarks (by name) become spans carrying their name as an id (#184). */
+/** Which bookmarks (by name) become spans carrying their name as an id. */
 type BookmarkFilter = (name: string) => boolean;
 
 /** No bookmark becomes a span (code, whose text has no inlines to wrap). */
@@ -227,7 +227,7 @@ class InlineCollector {
 
   /**
    * Close bookmark `wid`: its content becomes a `Span` with the bookmark's name
-   * as its id (#184). A bookmark that started inside it and is still open
+   * as its id. A bookmark that started inside it and is still open
    * overlaps it, so it is dropped; content with a page break isn't wrapped.
    */
   private closeBookmark(wid: string | undefined): void {
@@ -465,7 +465,7 @@ const linkAnchors = (body: XmlElement): HashSet.HashSet<string> =>
   );
 
 /**
- * A heading paragraph's id: the name of its first bookmark (#184). Word's
+ * A heading paragraph's id: the name of its first bookmark. Word's
  * hidden bookmarks (`_GoBack`, `_Toc…`, any name starting with `_`) are
  * skipped unless a link in the document goes to them.
  */
@@ -515,7 +515,7 @@ interface ParagraphBookmarks {
 
 /**
  * A paragraph's id (a heading's first kept bookmark) and the bookmarks in it
- * that become spans: the other kept ones (#184).
+ * that become spans: the other kept ones.
  */
 const paragraphBookmarks = (p: XmlElement, ctx: Ctx, heading: boolean): ParagraphBookmarks => {
   const id = heading ? bookmarkId(p, ctx) : undefined;
@@ -653,7 +653,7 @@ const bodyToBlocks = (parent: XmlElement, ctx: Ctx, depth: Depth): Block[] => {
         key: li.numId,
         restart: false,
         start: ctx.numbering.start(li.numId, li.ilvl),
-        // a paragraph or table indented to the level continues the item (#195)
+        // a paragraph or table indented to the level continues the item
         indent: ctx.numbering.indent(li.numId, li.ilvl),
       },
       listItemBlock(p, ctx),
@@ -738,7 +738,7 @@ export const DocxReaderTag = makeReaderTag<DocxFeature>("docx");
 export const DocxReaderLive = Layer.succeed(DocxReaderTag, makeDocxReader());
 
 /**
- * The DOCX sniffer, for `detect` (#188): a zip whose main part (found as
+ * The DOCX sniffer, for `detect`: a zip whose main part (found as
  * the reader finds it) is declared a WordprocessingML main part, which is what
  * the reader requires.
  */

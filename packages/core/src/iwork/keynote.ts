@@ -3,7 +3,7 @@
  *
  * Reads text from Apple Keynote (.key) presentations: each `Slide-*.iwa`
  * component becomes a slide, and its `TSWP.StorageArchive` text is extracted
- * into a text-box of paragraphs. Slides follow the show's slide tree (#99),
+ * into a text-box of paragraphs. Slides follow the show's slide tree,
  * through the object resolver; a package without one keeps its components'
  * numeric order.
  * Styling and exact title/body roles are not yet reconstructed.

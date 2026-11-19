@@ -2,7 +2,7 @@
  * Grouping list paragraphs into nested lists, shared by the DOCX and PPTX
  * readers: both formats store a list as a run of paragraphs, each with a
  * level, and an item's later blocks as unnumbered paragraphs (or tables)
- * indented to the item's level (#195, #196).
+ * indented to the item's level.
  */
 
 import * as Arr from "effect/Array";

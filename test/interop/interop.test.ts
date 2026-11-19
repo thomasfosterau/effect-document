@@ -1,5 +1,5 @@
 /**
- * Interoperability with independent implementations (#134): what our writers
+ * Interoperability with independent implementations: what our writers
  * produce must open in other tools.
  *
  * - LibreOffice (headless) converts the DOCX, XLSX, PPTX and RTF sample of
@@ -90,7 +90,7 @@ const wordsIn = (text: string): ReadonlyArray<string> =>
 /** The words of a document's text, for checking another tool recovered it. */
 const wordsOf = (doc: Document): ReadonlyArray<string> => wordsIn(blocksToText(doc.blocks));
 
-/** The text of a worksheet's shown cells: none for a hidden sheet, nothing from a hidden row or column (#66). */
+/** The text of a worksheet's shown cells: none for a hidden sheet, nothing from a hidden row or column. */
 const shownSheetText = (ws: Worksheet): string =>
   ws.visibility === undefined
     ? rowsOf(ws)

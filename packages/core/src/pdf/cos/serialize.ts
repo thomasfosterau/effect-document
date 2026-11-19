@@ -281,7 +281,7 @@ export const rewritePdf = (
   }
   // a repaired trailer may hold the catalog or info dictionary directly
   // a fold, not `Math.max(...keys)`: a spread of every object number
-  // overflows the stack on a file with that many objects (#225)
+  // overflows the stack on a file with that many objects
   let free = Arr.reduce(objects.keys(), 0, (m, num) => Math.max(m, num)) + 1;
   const indirect = (o: PdfObject | undefined): PdfRef | undefined => {
     if (o === undefined || o === null) return undefined;

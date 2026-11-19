@@ -1,5 +1,5 @@
 /**
- * Schema validation of OOXML writer output (#134): every XML part the DOCX,
+ * Schema validation of OOXML writer output: every XML part the DOCX,
  * XLSX and PPTX writers produce, for a sample of every feature their writers
  * accept, is validated with `xmllint` against the ECMA-376 transitional
  * schemas (the `ecma-376-schemas` corpus, `vp run corpora:fetch`).
@@ -111,7 +111,7 @@ class Environment extends Context.Service<
   static readonly layer = Layer.effect(Environment, environment());
 }
 
-/** A document's metadata with every key the writers map to the package properties (#79). */
+/** A document's metadata with every key the writers map to the package properties. */
 const METADATA = {
   title: "A <title> & more",
   subject: "Subject",
@@ -130,7 +130,7 @@ const METADATA = {
 
 /**
  * Namespaces of Microsoft extension parts, which ECMA-376 has no schema for
- * (MS-XLSX's threaded comments and person list, #67): their parts are not
+ * (MS-XLSX's threaded comments and person list): their parts are not
  * validated here, only the ECMA parts around them (the legacy placeholder
  * note, the relationships and the content types). The shapes are checked
  * against the reader and the files Excel writes (`test/ooxml/xlsx/comments.test.ts`).
@@ -182,7 +182,7 @@ const xmlParts = (feature: string, bytes: Uint8Array): ReadonlyArray<Part> =>
 const partsOf = ({ writer, family }: (typeof WRITERS)[number]) =>
   Effect.gen(function* () {
     const samples = yield* writeSamples(writer, family);
-    // the first sample again with every metadata key, so docProps/core.xml and app.xml are validated populated (#79)
+    // the first sample again with every metadata key, so docProps/core.xml and app.xml are validated populated
     const first = Arr.head(samples);
     const withMeta = Option.isNone(first)
       ? []
@@ -253,7 +253,7 @@ const validate = (schemas: string, ns: Namespace, parts: ReadonlyArray<Part>) =>
   );
 
 layer(Environment.layer.pipe(Layer.provideMerge(NodeServices.layer)))((it) => {
-  describe("OOXML output validates against ECMA-376 (#134)", () => {
+  describe("OOXML output validates against ECMA-376", () => {
     it.effect("the validators are available", (ctx) =>
       Effect.gen(function* () {
         const { missing, ci } = yield* Environment;

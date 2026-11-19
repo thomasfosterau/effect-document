@@ -1,5 +1,5 @@
 /**
- * A worksheet's layout (#66): its column widths and hidden columns
+ * A worksheet's layout: its column widths and hidden columns
  * (`<cols>`) and merged ranges (`<mergeCells>`), read from the parsed part and written around its
  * `sheetData`. Both are per sheet, a handful of elements, so they are read
  * from the element tree on both of the reader's paths.

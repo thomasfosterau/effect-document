@@ -102,7 +102,7 @@ const twoSheets = () =>
     );
   });
 
-describe("convert onLoss (#112)", () => {
+describe("convert onLoss", () => {
   it.effect('"fail" refuses a lossy conversion with the report on the ConversionError', () =>
     Effect.gen(function* () {
       const input = yield* twoSheets();

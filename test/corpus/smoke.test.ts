@@ -1,8 +1,8 @@
 /**
- * Corpus smoke mode (#133): every reader over every file of its format in the
+ * Corpus smoke mode: every reader over every file of its format in the
  * fetched corpora (`corpora.json`, fetched by `vp run corpora:fetch` into
  * `.corpora/`). A reader may reject a file with a `ParseError`; it must never
- * die (a defect, #127) or hang past the timeout. The suite skips when no
+ * die (a defect) or hang past the timeout. The suite skips when no
  * corpus has been fetched. Read rates per format, and every rejected file with
  * its reason, go to `.corpora/report.json` and the console.
  */
@@ -54,7 +54,7 @@ const READERS = {
 
 type Format = keyof typeof READERS;
 
-/** Every format `detect` chooses among (#188), and the one each extension should be detected as. */
+/** Every format `detect` chooses among, and the one each extension should be detected as. */
 const DETECTABLE = [
   Csv.format,
   Csv.tsvFormat,
@@ -150,13 +150,13 @@ const dialectAgreement = (text: string) =>
 interface Tallies {
   /** Files read and rejected, per format. */
   readonly counts: Record<string, { read: number; rejected: number }>;
-  /** Files `detect` ranked right first, per format (#188). */
+  /** Files `detect` ranked right first, per format. */
   readonly detected: Record<string, number>;
   /** The files `detect` did not rank as their format first: what it ranked first instead, if anything. */
   readonly misdetections: Array<{ readonly file: string; readonly detected: string }>;
   /** The files a reader rejected, and why: candidates for a reader fix or a known-bad note. */
   readonly rejections: Array<{ readonly file: string; readonly reason: string }>;
-  /** CSV files whose sniffed dialect (from the sample) a scan of the whole file agrees with, and those where it doesn't: no dialect sniffed, the whole-file scan failing, or its rows less even than the sample promised (#188 §3). */
+  /** CSV files whose sniffed dialect (from the sample) a scan of the whole file agrees with, and those where it doesn't: no dialect sniffed, the whole-file scan failing, or its rows less even than the sample promised. */
   readonly dialects: {
     agreed: number;
     readonly disagreements: Array<{ readonly file: string; readonly reason: string }>;

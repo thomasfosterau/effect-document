@@ -1,5 +1,5 @@
 /**
- * Stand-ins for the schemas the ECMA-376 XSDs import but do not ship (#134).
+ * Stand-ins for the schemas the ECMA-376 XSDs import but do not ship.
  *
  * The OOXML schemas import the `xml:` namespace (W3C `xml.xsd`) and, for
  * core properties, the Dublin Core element and term namespaces by URL, and

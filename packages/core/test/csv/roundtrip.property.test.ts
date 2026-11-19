@@ -1,5 +1,5 @@
 /**
- * `read(write(grid))` on raw string grids (#92 item 3): any grid of fields,
+ * `read(write(grid))` on raw string grids: any grid of fields,
  * written under each quoting mode that can write every field, scans back to
  * itself, whole or streamed in chunks split anywhere.
  */
@@ -73,7 +73,7 @@ const CASES: ReadonlyArray<readonly [string, CsvDialect, CsvQuoting]> = [
   ["TSV, minimal quoting", TsvDialect, "minimal"],
 ];
 
-describe("raw grids round-trip (#92)", () => {
+describe("raw grids round-trip", () => {
   it.effect.each(CASES)(
     "%s: scanCsv(write(grid)) is grid, whole and streamed",
     ([_, dialect, quoting]) =>

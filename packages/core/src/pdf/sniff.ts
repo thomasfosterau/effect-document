@@ -1,8 +1,8 @@
 /**
- * Recognising PDF content for `detect` (#188): the `%PDF-` header, which
+ * Recognising PDF content for `detect`: the `%PDF-` header, which
  * readers accept anywhere in the first kilobyte (junk before it is common),
  * or, without one, an object definition opening the file, which the reader
- * reads too (#173).
+ * reads too.
  */
 
 import * as Option from "effect/Option";

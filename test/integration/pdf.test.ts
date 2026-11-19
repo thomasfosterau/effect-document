@@ -54,7 +54,7 @@ describe("DOCX -> PDF (narrowing)", () => {
         ).toEqual(["converted"]);
         const back = yield* Pdf.makePdfReader().read(content);
         expect(Pdf.Pdf.is(back)).toBe(true);
-        // the table's rows come back as paragraphs (#111)
+        // the table's rows come back as paragraphs
         expect(back.blocks.map((b) => b._tag)).toEqual([
           "Header",
           "Para",

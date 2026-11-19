@@ -347,7 +347,7 @@ export interface WorksheetEncoded {
   readonly attr?: Attrs | undefined;
   readonly name: string;
   readonly columns: ReadonlyArray<SheetColumnEncoded>;
-  /** A row, or a plain row's cells alone (#227). */
+  /** A row, or a plain row's cells alone. */
   readonly rows: ReadonlyArray<SheetRowEncoded | ReadonlyArray<RowCellEncoded>>;
   readonly merges: ReadonlyArray<MergeRangeEncoded>;
   readonly visibility?: SheetVisibility | undefined;
@@ -820,7 +820,7 @@ export type PlainCell = typeof PlainCell.Type;
  * because the union's constructor converts what it is given: `{ col: 0 }` is a
  * valid `CellBlank` constructor input (the tag has a default and `style` is
  * optional), so `new SheetRow` turned it into a blank cell where decoding
- * rejects it (#228).
+ * rejects it.
  */
 const SheetCellInstance = Schema.declare(
   (u): u is SheetCell => {
@@ -893,7 +893,7 @@ export class SheetRow extends Schema.Class<SheetRow>("SheetRow")({
  * A plain row: a row's cells by position, as {@link SheetRow}'s `cells` are,
  * standing in a worksheet's `rows` for the unstyled `SheetRow` one past the
  * row before it (row 0 when it is the first) with no `height`. It is how a
- * reader writes the common row without a node for it (#227), and is a bare
+ * reader writes the common row without a node for it, and is a bare
  * array in JSON; `rowsOf` gives the `SheetRow` it stands for (the two are
  * the same row, though not `Equal`).
  */
@@ -964,12 +964,12 @@ export class MergeRange extends Schema.Class<MergeRange>("MergeRange")({
   toCol: Schema.Number,
 }) {}
 /**
- * A review comment (#67): a note a reviewer attached to something, with who
+ * A review comment: a note a reviewer attached to something, with who
  * wrote it, when, and whether the discussion is resolved. Its `content` is
  * blocks, as a note's is, and `replies` are the comments that answer it, in
  * order, so a thread is one `Comment` with its replies. It is not tied to a
  * place: a {@link CellComment} anchors one to a worksheet cell (and prose
- * comments, #115, will anchor it in a document's text).
+ * comments, will anchor it in a document's text).
  */
 export class Comment extends Schema.Class<Comment, { readonly brand: unique symbol }>("Comment")({
   author: Schema.optional(Schema.String),
@@ -981,8 +981,8 @@ export class Comment extends Schema.Class<Comment, { readonly brand: unique symb
 }) {}
 
 /**
- * A {@link Comment} anchored to the worksheet cell at 0-based `row` and `col`
- * (#67). A worksheet lists its comments in `comments`, not on the cells, so a
+ * A {@link Comment} anchored to the worksheet cell at 0-based `row` and `col`.
+ * A worksheet lists its comments in `comments`, not on the cells, so a
  * cell without one costs nothing; the cell may be blank or beyond the rows the
  * sheet holds, as a note can sit on an empty cell.
  */
@@ -1002,7 +1002,7 @@ export class CellComment extends Schema.Class<CellComment, { readonly brand: uni
  * is a {@link SheetRow} or a {@link PlainRow} (its cells alone, standing for
  * the row one past the one before it): read rows through `rowsOf`,
  * `rowIndexes` and `rowCellsOf`, which handle both. A hidden worksheet has a
- * {@link SheetVisibility}; a shown one has none. Its cell comments (#67) are
+ * {@link SheetVisibility}; a shown one has none. Its cell comments are
  * `comments`, one {@link CellComment} per commented cell; a sheet without any
  * has no `comments` key.
  */

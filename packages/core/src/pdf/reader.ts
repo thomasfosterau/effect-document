@@ -74,7 +74,7 @@ export const readMeta = (file: PdfFile): Meta => {
 };
 
 /**
- * A PDF failure's `ParseError` code (#127): `LimitExceeded` when the parser
+ * A PDF failure's `ParseError` code: `LimitExceeded` when the parser
  * refused input nested too deeply, `MalformedBinary` for any other syntax or
  * filter failure, `Encrypted` for an encrypted file.
  */
@@ -211,7 +211,7 @@ export const makePdfReader = (options?: PdfReaderOptions): Reader<PdfFeature> =>
 
 /**
  * A document's blocks: from its structure tree when it is a tagged PDF whose
- * tree owns its text (#198), else inferred from the layout.
+ * tree owns its text, else inferred from the layout.
  */
 export const readBlocks = (file: PdfFile, pages: ReadonlyArray<PageText>): Block[] =>
   // a tree the reader trips over is no worse than no tree: the layout still reads

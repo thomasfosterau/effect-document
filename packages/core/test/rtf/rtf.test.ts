@@ -236,7 +236,7 @@ describe("RTF reader: character decoding", () => {
 
   it.effect("cp1252's 0x80–0x9F decode as the WHATWG windows-1252 characters on every Node", () =>
     Effect.gen(function* () {
-      // Node 22's TextDecoder("windows-1252") yields the C1 controls here (#164)
+      // Node 22's TextDecoder("windows-1252") yields the C1 controls here
       const escapes = Arr.makeBy(32, (i) => `\\'${(0x80 + i).toString(16)}`).join("");
       expect(yield* readText(`{\\rtf1\\ansi\\ansicpg1252 ${escapes}\\par}`)).toBe(
         "€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ",

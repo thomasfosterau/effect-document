@@ -25,7 +25,7 @@ import { readPackageMetadata } from "./metadata.ts";
 export interface IworkReaderOptions {
   /**
    * Skip a component that fails to decode instead of failing the whole read,
-   * reporting it as an `iwork.componentSkipped` diagnostic (#112: a warning
+   * reporting it as an `iwork.componentSkipped` diagnostic (a warning
    * log record that `convert` collects into its report). Defaults to false.
    */
   readonly lenient?: boolean | undefined;
@@ -33,7 +33,7 @@ export interface IworkReaderOptions {
   readonly limits?: BundleLimits | undefined;
 }
 
-/** The `ParseError` code of each codec failure (#127); an I/O failure has none. */
+/** The `ParseError` code of each codec failure; an I/O failure has none. */
 const IWORK_CODE = {
   NotZip: "InvalidContainer",
   NotIwork: "WrongFormat",
@@ -98,9 +98,8 @@ interface VersionRange {
 }
 
 /**
- * The `fileFormatVersion` majors each reader is known to read (#101, owner
- * decision: a provisional range now). Provisional: they are the majors of the
- * documents it has been run on, the vendored fixtures and the corpora
+ * The `fileFormatVersion` majors each reader is known to read. Provisional:
+ * they are the majors of the documents it has been run on, the vendored fixtures and the corpora
  * (`corpora.json`), and widen as more are. Numbers' version follows the app's
  * (11.0.3 to 26.4.0 across numbers-parser's test files, all read); Keynote's
  * fixture is 3.2.13. Pages has no document to check against yet, so it has no

@@ -98,7 +98,7 @@ describe("DOCX round-trip", () => {
     }),
   );
 
-  it.effect("a link reads back without an Underline: its look is the Hyperlink style (#109)", () =>
+  it.effect("a link reads back without an Underline: its look is the Hyperlink style", () =>
     Effect.gen(function* () {
       const back = yield* roundtrip([para([link([str("here")], "https://example.com")])]);
       const p = back.blocks[0];
@@ -124,7 +124,7 @@ describe("DOCX round-trip", () => {
     }),
   );
 
-  it.effect("adjacent bullet lists stay two lists (#109)", () =>
+  it.effect("adjacent bullet lists stay two lists", () =>
     Effect.gen(function* () {
       const back = yield* roundtrip([
         bulletList([[plainText("a")]]),
@@ -134,7 +134,7 @@ describe("DOCX round-trip", () => {
     }),
   );
 
-  it.effect("a heading that leads a list item keeps its level (#109)", () =>
+  it.effect("a heading that leads a list item keeps its level", () =>
     Effect.gen(function* () {
       const back = yield* roundtrip([bulletList([[header(2, [str("h")])]])]);
       expect(back.blocks[0]).toMatchObject({
@@ -215,7 +215,7 @@ const nestedDocx = (n: number) =>
     return yield* makeDocxWriter().write(doc([nestedTables(n)]));
   });
 
-describe("DOCX nesting limit (#110)", () => {
+describe("DOCX nesting limit", () => {
   it.effect("tables nested past maxDepth fail with a LimitExceeded ParseError", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(
@@ -280,7 +280,7 @@ const indented = (t: string, ind: string) =>
 const bm = (id: number, name: string, inner: string) =>
   `<w:bookmarkStart w:id="${id}" w:name="${name}"/>${inner}<w:bookmarkEnd w:id="${id}"/>`;
 
-describe("DOCX correctness (#72)", () => {
+describe("DOCX correctness", () => {
   const W = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
   const PKG = "http://schemas.openxmlformats.org/package/2006/relationships";
   const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -358,7 +358,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("an item's blocks after its first paragraph stay in the item (#195)", () =>
+  it.effect("an item's blocks after its first paragraph stay in the item", () =>
     Effect.gen(function* () {
       const lists = [
         bulletList([[plainText("a"), para([str("a, continued")])], [plainText("b")]]),
@@ -371,7 +371,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("an item that starts with a code block, table or list keeps it (#195)", () =>
+  it.effect("an item that starts with a code block, table or list keeps it", () =>
     Effect.gen(function* () {
       const list = bulletList([
         [codeBlock("first")],
@@ -382,7 +382,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("a continuation after a nested list returns to its own item (#195)", () =>
+  it.effect("a continuation after a nested list returns to its own item", () =>
     Effect.gen(function* () {
       const list = bulletList([
         [
@@ -399,7 +399,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("continuation blocks are indented to their item's level (#195)", () =>
+  it.effect("continuation blocks are indented to their item's level", () =>
     Effect.gen(function* () {
       const xml = (yield* parts([
         bulletList([[plainText("a"), para([str("p")]), table({ rows: [[[para([str("t")])]]] })]]),
@@ -480,7 +480,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("a paragraph indented to an open list's level continues its last item (#195)", () =>
+  it.effect("a paragraph indented to an open list's level continues its last item", () =>
     Effect.gen(function* () {
       const numbering =
         `<w:abstractNum w:abstractNumId="3"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl>` +
@@ -557,7 +557,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("13b. a heading's bookmark is its id, and round-trips with a link to it (#184)", () =>
+  it.effect("13b. a heading's bookmark is its id, and round-trips with a link to it", () =>
     Effect.gen(function* () {
       const h = (name: string, text: string) =>
         `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:bookmarkStart w:id="0" w:name="${name}"/>${r(text)}<w:bookmarkEnd w:id="0"/></w:p>`;
@@ -584,7 +584,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("13c. other bookmarked text is a span with the bookmark as its id (#184)", () =>
+  it.effect("13c. other bookmarked text is a span with the bookmark as its id", () =>
     Effect.gen(function* () {
       const back = yield* read(
         [
@@ -621,7 +621,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("13d. overlapping bookmarks keep the outer one (#184)", () =>
+  it.effect("13d. overlapping bookmarks keep the outer one", () =>
     Effect.gen(function* () {
       const back = yield* read(
         `<w:p><w:bookmarkStart w:id="1" w:name="a"/>${r("one ")}<w:bookmarkStart w:id="2" w:name="b"/>${r("two")}<w:bookmarkEnd w:id="1"/>${r(" three")}<w:bookmarkEnd w:id="2"/></w:p>`,
@@ -632,7 +632,7 @@ describe("DOCX correctness (#72)", () => {
     }),
   );
 
-  it.effect("13e. a span's id round-trips as a bookmark a link can go to (#184)", () =>
+  it.effect("13e. a span's id round-trips as a bookmark a link can go to", () =>
     Effect.gen(function* () {
       const blocks = [
         para([str("Go "), link([str("there")], "#t"), str(".")]),

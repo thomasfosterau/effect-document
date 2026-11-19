@@ -1,5 +1,5 @@
 /**
- * Inherited lists in real decks (#82): Apache POI's `45545_Comment.pptx` and
+ * Inherited lists in real decks: Apache POI's `45545_Comment.pptx` and
  * `45541_Footer.pptx` state no bullet on any paragraph (their bullets come from
  * the master's `bodyStyle`), so a reader that sees only explicit bullets finds
  * no list in them. Skips when the corpus is not fetched (`vp run corpora:fetch`).
@@ -29,7 +29,7 @@ const itemCount = (blocks: ReadonlyArray<Block>): number =>
   );
 
 layer(NodeServices.layer)((it) => {
-  describe("PPTX inheritance on real decks (#82)", () => {
+  describe("PPTX inheritance on real decks", () => {
     it.effect.each(["45545_Comment.pptx", "45541_Footer.pptx"])(
       "%s: lists that only the master states are read",
       (name, ctx) =>

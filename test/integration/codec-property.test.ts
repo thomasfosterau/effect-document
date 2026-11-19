@@ -1,5 +1,5 @@
 /**
- * The stack-safe Document codec agrees with the Schema codec (#191): on random
+ * The stack-safe Document codec agrees with the Schema codec: on random
  * documents of every family, it encodes to the same JSON (key order included)
  * and decodes that JSON to the same document.
  */
@@ -40,7 +40,7 @@ const agrees = (doc: Document): boolean => {
   );
 };
 
-describe("the stack-safe Document codec agrees with the Schema codec (#191)", () => {
+describe("the stack-safe Document codec agrees with the Schema codec", () => {
   const families: ReadonlyArray<Family> = ["prose", "sheet", "deck"];
   it.effect.each(families)(
     "%s documents",

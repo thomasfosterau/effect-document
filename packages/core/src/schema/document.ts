@@ -62,7 +62,7 @@ export type Meta = Schema.Schema.Type<typeof Meta>;
 
 /**
  * A complete document: metadata, a sequence of blocks and, when it embeds
- * any, its media bag (`resources`, #113): the binary resources its nodes
+ * any, its media bag (`resources`): the binary resources its nodes
  * refer to by `resource:<id>` URLs. A document without one has no
  * `resources` key, and a document using one has the `doc.resources` feature.
  */
@@ -122,7 +122,7 @@ export const table = (options: {
   readonly rows: ReadonlyArray<ReadonlyArray<ReadonlyArray<Block>>>;
 }): Table => {
   // a fold, not `Math.max(...widths)`: a spread of every row overflows the
-  // stack on a large table (#225)
+  // stack on a large table
   const colCount = options.rows.reduce(
     (w, r) => Math.max(w, r.length),
     options.headers?.length ?? 0,
@@ -207,7 +207,7 @@ export const slideShow = (slides: ReadonlyArray<Slide>): SlideShow => new SlideS
 // ============================================================================
 
 /**
- * Construct a document from blocks, with optional metadata and media bag (#113).
+ * Construct a document from blocks, with optional metadata and media bag.
  * An empty or absent bag leaves the document without a `resources` key.
  */
 export const document = (
@@ -232,7 +232,7 @@ export interface WithResource {
 }
 
 /**
- * Add `resource` to `doc`'s media bag (#113), deduplicated by content (see
+ * Add `resource` to `doc`'s media bag, deduplicated by content (see
  * `addResource`), returning the new document and the `resource:` URL for an
  * `Image` or `Picture` to refer to it by.
  */
@@ -381,7 +381,7 @@ const expandBlock = (block: Block): TextPart[] => {
       ),
     // A worksheet's text is its cells, tab-separated within a row and one line
     // per row it holds: gaps are not laid out, so the text stays proportional
-    // to the cells however far apart they are (#185).
+    // to the cells however far apart they are.
     Worksheet: (n) =>
       joinParts(
         n.rows.map((row) =>

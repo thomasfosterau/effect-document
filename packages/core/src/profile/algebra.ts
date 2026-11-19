@@ -1,5 +1,5 @@
 /**
- * The profile algebra (#126): profiles built from profiles, typed at the type
+ * The profile algebra: profiles built from profiles, typed at the type
  * level and at runtime alike, so a format's profile can be spelled as "the
  * built-in one, without notes" instead of a hand-copied list that drifts.
  * Structural rules combine as the operation implies: a union keeps only the
@@ -60,7 +60,7 @@ const listOf = <F extends Feature>(p: Profile<F>): ReadonlyArray<F> =>
   [...p.features].filter((f): f is F => p.features.has(f));
 
 /**
- * A profile allowing what either `a` or `b` allows (#126): the union of their
+ * A profile allowing what either `a` or `b` allows: the union of their
  * features, keeping only the structural rules both have, since a document
  * either side accepts must be accepted.
  */
@@ -77,7 +77,7 @@ export const unionProfiles = <A extends Feature, B extends Feature>(
   });
 
 /**
- * A profile allowing only what both `a` and `b` allow (#126): the features
+ * A profile allowing only what both `a` and `b` allow: the features
  * they share, under every structural rule of either.
  */
 export const intersectProfiles = <A extends Feature, B extends Feature>(
@@ -97,7 +97,7 @@ export const intersectProfiles = <A extends Feature, B extends Feature>(
   );
 
 /**
- * `p` without `features` (#126), and without the structural rules about
+ * `p` without `features`, and without the structural rules about
  * them. Removing `attr.id` removes every per-node id facet with it.
  *
  * ```ts
@@ -127,7 +127,7 @@ export const withoutFeatures = <F extends Feature, const R extends ReadonlyArray
 };
 
 /**
- * `p` with `features` added (#126), keeping its structural rules. Adding
+ * `p` with `features` added, keeping its structural rules. Adding
  * `attr.id` adds every per-node id facet, as `defineProfile` does.
  *
  * ```ts
@@ -142,7 +142,7 @@ export const extendProfile = <F extends Feature, const A extends ReadonlyArray<F
   defineProfile(id, Arr.dedupe([...listOf(p), ...features]), rulesOf(p));
 
 /**
- * Whether every document `a` accepts, `b` accepts too (#126): `a`'s features
+ * Whether every document `a` accepts, `b` accepts too: `a`'s features
  * are all `b`'s, and each of `b`'s structural rules about a feature `a`
  * allows is one of `a`'s (otherwise `a` would accept a document `b`'s rule
  * refuses). {@link IsSubProfile} is the type-level counterpart, without the
@@ -165,7 +165,7 @@ export const isSubProfile = (a: Profile<Feature>, b: Profile<Feature>): boolean 
 };
 
 /**
- * The smallest profile `doc` conforms to (#126): exactly the features it
+ * The smallest profile `doc` conforms to: exactly the features it
  * uses, with no structural rules. Useful to ask which formats can hold a
  * document losslessly: those whose write profile it is a sub-profile of.
  */

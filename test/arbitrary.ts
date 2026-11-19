@@ -1,15 +1,14 @@
 /**
  * Arbitrary documents restricted to a profile, and the normalisation that
  * compares a document with its round trip. Together they enforce the profile
- * policy (#109): every feature in a format's write profile survives
+ * policy: every feature in a format's write profile survives
  * `read(write(doc))`, for arbitrary documents in that profile
  * (`integration/profile-property.test.ts`).
  *
  * The generators draw only from the features a profile allows, so a feature
  * added to a write profile without writer and reader support makes the
  * property fail. Text is drawn from a plain alphabet: hostile strings (escapes,
- * control characters, astral and RTL text) are the string-biasing half of the
- * property-testing work in #132.
+ * control characters, astral and RTL text) are not generated yet.
  */
 
 import * as DateTime from "effect/DateTime";
@@ -205,22 +204,22 @@ const inlines = (
 interface Ctx {
   readonly has: (f: Feature) => boolean;
   readonly options: ShapeOptions;
-  /** The profile's structural rules: features it keeps out of certain nodes (#197). */
+  /** The profile's structural rules: features it keeps out of certain nodes. */
   readonly rules: ReadonlyArray<NotWithin>;
-  /** Features the profile allows only inside certain nodes (#126); `has` starts without them. */
+  /** Features the profile allows only inside certain nodes; `has` starts without them. */
   readonly onlyWithin: ReadonlyArray<OnlyWithin>;
-  /** The values the profile allows in a node's fields (#126). */
+  /** The values the profile allows in a node's fields. */
   readonly fieldValues: ReadonlyArray<FieldValues>;
   /** The profile's own features, to allow an `onlyWithin` feature again inside its node. */
   readonly profile: (f: Feature) => boolean;
-  /** Features that must be the whole of a container's content (#67). */
+  /** Features that must be the whole of a container's content. */
   readonly whole: ReadonlyArray<Whole>;
 }
 
 /**
  * The context for the contents of a `within` node, whose fields `holds`
  * checks a rule's `where` against: with the features an `onlyWithin` rule
- * allows only inside such a node (#126).
+ * allows only inside such a node.
  */
 const admit = (ctx: Ctx, within: Feature, holds: (where: FieldMatch) => boolean): Ctx => {
   const admitted = ctx.onlyWithin
@@ -335,7 +334,7 @@ const block = (ctx: Ctx, depth: number): Arbitrary.Arbitrary<Block> => {
             inlines(inside(ctx, "block.header"), 2),
             int(0, 9),
           ]),
-          // an id on some headings, where the profile allows one (#184)
+          // an id on some headings, where the profile allows one
           ([level, content, n]): Block =>
             new Header({
               level,
@@ -456,13 +455,13 @@ export interface ShapeOptions {
   /**
    * Type each column with a single cell feature (plus blanks), for formats
    * that carry types per column rather than per cell (CSV infers each column's
-   * type from all of its values, #88).
+   * type from all of its values).
    */
   readonly columnTyped?: boolean | undefined;
 }
 
 /**
- * A comment of a profile with `review.comments` (#67): its body is blocks the
+ * A comment of a profile with `review.comments`: its body is blocks the
  * profile allows inside a comment (an `onlyWithin` rule may admit them only
  * there), with sometimes an author. A profile with `review.threads` also gets
  * the rest of a thread: initials, a date, a resolved mark and replies (which
@@ -550,7 +549,7 @@ const sheetOf = (name: string, ctx: Ctx): Arbitrary.Arbitrary<Worksheet> => {
   const kinds = CELL_FEATURES.filter(ctx.has);
   const valued = kinds.filter((f) => f !== "cell.blank");
   // a rich cell's runs are inline content the profile allows, as a paragraph's
-  // are, a feature a `whole` rule keeps to a cell's whole content (#67) only so
+  // are, a feature a `whole` rule keeps to a cell's whole content only so
   const whole = ctx.whole.filter((r) => r.within === "cell.richText").map((r) => r.feature);
   const runs = inlines({ ...ctx, has: (f) => ctx.has(f) && !whole.includes(f) }, 2);
   const linked = Arbitrary.map(runs, (content): ReadonlyArray<Inline> => [

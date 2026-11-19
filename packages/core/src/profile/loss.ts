@@ -1,5 +1,5 @@
 /**
- * The loss report (#112): what `narrow` and `convert` dropped or
+ * The loss report: what `narrow` and `convert` dropped or
  * down-converted, where, and how badly, as `Schema`s so a report encodes to
  * JSON. Its own module so the error types (`ConversionError` carries a
  * report) need nothing of `narrow`.
@@ -20,7 +20,7 @@ export const LossPathSegment = Schema.Union([Schema.Int, Schema.String]);
 export type LossPathSegment = typeof LossPathSegment.Type;
 
 /**
- * How bad a loss is (#112), so a caller can act on what matters to it:
+ * How bad a loss is, so a caller can act on what matters to it:
  * `dropped-content` (content is gone: a note, a picture, a sheet),
  * `dropped-formatting` (no text is gone, only how it looked or was
  * arranged: attributes, cell styles, column widths, merges, a horizontal
@@ -44,7 +44,7 @@ export const LossEntry = Schema.Struct({
   action: Schema.Literals(["dropped", "converted"]),
   /** How bad it is: see {@link LossSeverity}. */
   severity: LossSeverity,
-  /** Where it was: the path from the document's blocks (see {@link LossPathSegment}), or `["resources", id]` for a resource of its media bag (#113); empty for the document as a whole. */
+  /** Where it was: the path from the document's blocks (see {@link LossPathSegment}), or `["resources", id]` for a resource of its media bag; empty for the document as a whole. */
   path: Schema.Array(LossPathSegment),
   /** A short human-readable explanation. */
   detail: Schema.String,
@@ -52,7 +52,7 @@ export const LossEntry = Schema.Struct({
 /** One thing `narrow` could not keep, as a type. */
 export type LossEntry = typeof LossEntry.Type;
 
-/** How many times a feature was lost the same way, and where the first few were (#112). */
+/** How many times a feature was lost the same way, and where the first few were. */
 export const LossSummaryItem = Schema.Struct({
   feature: Schema.Literals(ALL_FEATURES),
   action: Schema.Literals(["dropped", "converted"]),
@@ -93,7 +93,7 @@ export const losesNothing = (severity: DiagnosticSeverity): boolean =>
   severity === "repaired" || severity === "notice";
 
 /**
- * A non-fatal issue a reader or writer met (#112): a component skipped, a
+ * A non-fatal issue a reader or writer met: a component skipped, a
  * value written in another form, a name changed. Unlike a {@link LossEntry}
  * it is not a document feature, so it has no `feature`: its `code` names the
  * kind of issue (`"iwork.componentSkipped"`, `"xlsx.sheetRenamed"`), stable
@@ -126,7 +126,7 @@ export const LossReport = Schema.Struct({
   summary: Schema.Array(LossSummaryItem),
   /**
    * What the reader and writer reported along the way, in the order they
-   * reported it (#112); empty from `narrow`, which reads and writes nothing.
+   * reported it; empty from `narrow`, which reads and writes nothing.
    */
   diagnostics: Schema.Array(Diagnostic),
   /** True when nothing was lost: no entries, and no diagnostic but `repaired` or `notice` ones. */

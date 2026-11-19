@@ -35,12 +35,12 @@ export type NestedNode = Block | Inline | Shape;
  * of nested tables overflows from about 240 levels in a fresh process, a
  * `DefinitionList` chain from about 290 and a `BlockQuote` chain from about
  * 630, so readers stop at 128. `encodeDocument` / `decodeDocument` handle any
- * depth (#191), but `narrow` and the writers still recurse.
+ * depth, but `narrow` and the writers still recurse.
  */
 export const DEFAULT_MAX_NESTING_DEPTH = 128;
 
 /**
- * The blocks of a worksheet's comments (#67): each comment's body and those of
+ * The blocks of a worksheet's comments: each comment's body and those of
  * its replies, replies of replies and so on, collected with a work list so a
  * long reply chain can't overflow the stack. They count as directly inside
  * the worksheet.

@@ -100,7 +100,7 @@ describe("defineProfile", () => {
   });
 });
 
-describe("structural rules (notWithin, #197)", () => {
+describe("structural rules (notWithin)", () => {
   const BoldHeadings = defineProfile(
     "bold-headings",
     ["block.para", "block.header", "inline.str", "inline.strong"],

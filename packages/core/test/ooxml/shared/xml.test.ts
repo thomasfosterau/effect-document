@@ -150,7 +150,7 @@ describe("getAttr", () => {
   });
 });
 
-describe("hardening (#55)", () => {
+describe("hardening", () => {
   test("20,000 levels of nesting parse without overflowing the stack", () => {
     const depth = 20_000;
     const root = parseXml("<a>".repeat(depth) + "x" + "</a>".repeat(depth));

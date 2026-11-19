@@ -1,5 +1,5 @@
 /**
- * CSV edge cases from #92's list: empty input, a lone empty field, a BOM in
+ * CSV edge cases: empty input, a lone empty field, a BOM in
  * text input, CR-only line breaks with skipped rows, TSV round trips, and
  * synthesis seeds outside the generator's range.
  */
@@ -26,7 +26,7 @@ const synthesized = (seed: number) =>
     return (yield* synthesizeTable({ columns: 2, quantity: 3, seed })).rows;
   });
 
-describe("CSV edge cases (#92)", () => {
+describe("CSV edge cases", () => {
   it.effect("empty input reads as one empty worksheet, and as no rows", () =>
     Effect.gen(function* () {
       const doc = yield* makeCsvReader().read(text(""));
@@ -86,7 +86,7 @@ describe("CSV edge cases (#92)", () => {
   );
 });
 
-describe("synthesis seeds (#92)", () => {
+describe("synthesis seeds", () => {
   it.effect("a seed in the generator's range keeps its table", () =>
     Effect.gen(function* () {
       // recorded before seeds were normalised: valid seeds must not change

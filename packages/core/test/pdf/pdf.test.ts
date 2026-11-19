@@ -293,7 +293,7 @@ layer(NodeServices.layer)((it) => {
       }),
     );
 
-    it.effect("a tagged line ending in a plain hyphen keeps the space after it (#198)", () =>
+    it.effect("a tagged line ending in a plain hyphen keeps the space after it", () =>
       Effect.gen(function* () {
         // every line ends in "a-", and the writer wraps only at spaces
         const text = Arr.makeBy(80, () => "a-").join(" ");
@@ -483,7 +483,7 @@ layer(NodeServices.layer)((it) => {
     );
   });
 
-  describe("PDF nesting limit (#110)", () => {
+  describe("PDF nesting limit", () => {
     it.effect("output nested deeper than maxDepth fails with a LimitExceeded ParseError", () =>
       Effect.gen(function* () {
         const pdf = yield* write([

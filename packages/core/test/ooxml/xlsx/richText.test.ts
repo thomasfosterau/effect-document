@@ -57,7 +57,7 @@ const workbookWith = (si: string) =>
     );
   });
 
-describe("XLSX rich shared strings (#66)", () => {
+describe("XLSX rich shared strings", () => {
   it.effect("round-trip the marks, keeping the space between runs", () =>
     Effect.gen(function* () {
       const rich = new CellRichText({

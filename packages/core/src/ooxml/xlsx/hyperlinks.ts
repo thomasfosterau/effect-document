@@ -1,5 +1,5 @@
 /**
- * Cell hyperlinks (#67): a worksheet's `<hyperlinks>` read as a `Link` around
+ * Cell hyperlinks: a worksheet's `<hyperlinks>` read as a `Link` around
  * a text cell's content (the cell becoming a `CellRichText` of it), and a
  * `CellRichText` holding a `Link` written back as one. SpreadsheetML links a
  * whole cell, not a run of its text: a link to a URL is a relationship of the

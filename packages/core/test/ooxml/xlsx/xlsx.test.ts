@@ -191,7 +191,7 @@ const held = (ws: Worksheet) => ws.rows.reduce((n, r) => n + rowEntries(r).lengt
 const columnsOf = (ws: Worksheet) =>
   rowsOf(ws).map((r) => [r.index, rowEntries(r).map(([col]) => col)]);
 
-describe("XLSX reader sparse worksheets (#62, #185)", () => {
+describe("XLSX reader sparse worksheets", () => {
   it.effect("empty rows and style-only cells are not kept", () =>
     Effect.gen(function* () {
       const xlsx = packageWith(
@@ -308,7 +308,7 @@ const readSheets = (xlsx: ReturnType<typeof packageWith>) =>
 /** A worksheet's dense grid, as text. */
 const cellTexts = (ws: Worksheet) => grid(ws).map((r) => r.map((c) => cellToText(c)));
 
-describe("XLSX reader fixes (#60)", () => {
+describe("XLSX reader fixes", () => {
   it.effect("chartsheets, dialogsheets and macrosheets read as empty tagged sheets", () =>
     Effect.gen(function* () {
       const xlsx = packageWith([
@@ -456,7 +456,7 @@ const parts = (doc: Doc<SpreadsheetF>) =>
     return (path: string) => (files[path] === undefined ? undefined : strFromU8(files[path]));
   });
 
-describe("XLSX writer validity (#61)", () => {
+describe("XLSX writer validity", () => {
   it.effect("NaN and ±Infinity are written as #NUM! errors", () =>
     Effect.gen(function* () {
       const doc = sheetDoc([

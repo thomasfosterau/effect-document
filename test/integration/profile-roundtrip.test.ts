@@ -1,5 +1,5 @@
 /**
- * Profile honesty (#109): every feature in a format's write profile must
+ * Profile honesty: every feature in a format's write profile must
  * survive `read(write(doc))`. For each such feature a small sample document
  * exercising it is written and read back; the feature must still be used
  * (or, for the few purely textual normalisations, the text must match).
@@ -32,7 +32,7 @@ import { type Family, sampleFor } from "../samples.ts";
 /**
  * Features whose loss is a purely textual normalisation (same text, simpler
  * nodes). An unstyled blank cell is one: a sparse worksheet holds only the
- * cells it has, so XLSX writes no `<c>` for it and reads back the gap (#185).
+ * cells it has, so XLSX writes no `<c>` for it and reads back the gap.
  */
 const TEXTUAL: ReadonlySet<Feature> = new Set([
   "inline.space",
@@ -55,7 +55,7 @@ export const FORMATS: ReadonlyArray<readonly [Format<any, any>, Family]> = [
   [Pdf.format, "prose"],
 ];
 
-describe("write profiles round-trip (#109)", () => {
+describe("write profiles round-trip", () => {
   it.effect.each(FORMATS.map(([format, family]) => ({ id: format.id, format, family })))(
     "$id: every write-profile feature survives write -> read",
     ({ format, family }) =>
@@ -86,7 +86,7 @@ describe("write profiles round-trip (#109)", () => {
   );
 });
 
-describe("convert reports what a writer can't preserve (#109)", () => {
+describe("convert reports what a writer can't preserve", () => {
   it.effect("XLSX -> XLSX reports a date cell, which the writer stores as text", () =>
     Effect.gen(function* () {
       // A workbook whose A1 is an ISO date cell (t="d"), which the reader reads as CellDate.

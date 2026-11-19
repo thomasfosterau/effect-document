@@ -21,7 +21,7 @@ import { candidateTables } from "../../src/schema/tables.ts";
 const cellOf = (t: string, span?: { rowSpan?: number; colSpan?: number }) =>
   new TableCell({ content: [para([str(t)])], ...span });
 
-describe("candidateTables (#188)", () => {
+describe("candidateTables", () => {
   test("lists worksheets with their extent and a header guess", () => {
     const doc = document([
       worksheet("People", [

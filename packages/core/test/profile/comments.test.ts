@@ -76,7 +76,7 @@ const noComments: Profile<Feature> = defineProfile(
   ),
 );
 
-describe("Worksheet comments (#67)", () => {
+describe("Worksheet comments", () => {
   test("a sheet without comments has no comments key; one with them keeps new Worksheet's key order", () => {
     const plain = worksheet("S", [["a"]]);
     expect("comments" in plain).toBe(false);
@@ -174,7 +174,7 @@ describe("Worksheet comments (#67)", () => {
   });
 });
 
-describe("narrow: comments (#67)", () => {
+describe("narrow: comments", () => {
   test("a target without comments drops each, one entry per comment at its cell", () => {
     const doc = document([sheetWith([noteAt(0, 1, ["x"]), noteAt(1, 0, ["y"])])]);
     const { document: out, loss } = narrow(doc, noComments);
@@ -301,7 +301,7 @@ describe("narrow: comments (#67)", () => {
   });
 });
 
-describe("threads as a container for structural rules (#67)", () => {
+describe("threads as a container for structural rules", () => {
   const thread = noteAt(0, 0, ["q"], { replies: [reply("Bo", "a")] });
   const resolved = noteAt(1, 0, ["r"], { resolved: false });
   const dated = noteAt(1, 1, ["n"], { date: DateTime.toDateUtc(DateTime.makeUnsafe(0)) });

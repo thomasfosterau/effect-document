@@ -86,13 +86,13 @@ export type DeckFeature =
 
 /**
  * Document-level features: what a document holds beside its blocks.
- * `doc.resources` is a media bag (#113), binary resources (images, fonts,
+ * `doc.resources` is a media bag, binary resources (images, fonts,
  * embedded files) that nodes reference by a `resource:` URL.
  */
 export type DocFeature = "doc.resources";
 
 /**
- * Review features (#67): what reviewers add beside the content.
+ * Review features: what reviewers add beside the content.
  * `review.comments` is a comment attached to something (a worksheet cell, for
  * now); `review.threads` is a comment with replies or a resolved mark, a
  * discussion rather than a note. A comment's body is blocks, so a profile
@@ -109,7 +109,7 @@ export type ReviewFeature = "review.comments" | "review.threads";
 export type AttrFeature = "attr.id" | "attr.classes" | "attr.keyValue" | "attr.style";
 
 /**
- * Per-node id facets (#184): an `attr.id` allowed on one kind of node only, for
+ * Per-node id facets: an `attr.id` allowed on one kind of node only, for
  * a format that can carry an id there and nowhere else (DOCX keeps a heading's
  * id as a bookmark). A profile that lists `attr.id` gets every one of these
  * (see `defineProfile`), and a document's id on a node is collected as that
@@ -356,16 +356,16 @@ export const ALL_DECK_FEATURES: ReadonlyArray<DeckFeature> = [
   "shape.placeholder",
 ];
 
-/** Every document-level feature (#113), for assembling profiles. */
+/** Every document-level feature, for assembling profiles. */
 export const ALL_DOC_FEATURES: ReadonlyArray<DocFeature> = ["doc.resources"];
 
-/** Every review feature (#67), for assembling profiles. */
+/** Every review feature, for assembling profiles. */
 export const ALL_REVIEW_FEATURES: ReadonlyArray<ReviewFeature> = [
   "review.comments",
   "review.threads",
 ];
 
-/** Every per-node id facet (#184). */
+/** Every per-node id facet. */
 export const ALL_ID_FEATURES: ReadonlyArray<IdFeature> = Rec.values(ID_FEATURE);
 
 /** A feature list with `attr.id` expanded to every per-node id facet, as {@link WithIdFeatures} does at the type level. */

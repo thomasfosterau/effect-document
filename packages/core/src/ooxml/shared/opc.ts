@@ -96,7 +96,7 @@ const resolveLimits = (limits: OpcLimits | undefined): ResolvedOpcLimits => ({
  * Why a package can't be read: a broken limit, the wrong kind, a missing part,
  * not a zip at all, or a Compound File Binary container in its place
  * (`Encrypted`: a password-protected OOXML package, or a legacy binary Office
- * file, #173).
+ * file).
  */
 export type OpcErrorKind =
   | "LimitExceeded"
@@ -172,7 +172,7 @@ const signatureAt = (b: Uint8Array, at: number, sig: ReadonlyArray<number>): boo
 
 /**
  * What is wrong with a would-be package before unzipping it, if anything
- * fflate would only report as "invalid zip data" (#173): a Compound File
+ * fflate would only report as "invalid zip data": a Compound File
  * Binary container (Office keeps an encrypted OOXML package in one, and the
  * legacy `.xls` / `.doc` / `.ppt` are one), or a zip whose end-of-central-
  * directory record is missing (a truncated or streamed archive).
@@ -222,7 +222,7 @@ export class OpcReader {
     if (Option.isSome(notZip)) throw notZip.value;
     // List the central directory without inflating anything. fflate reports
     // an unreadable archive only by throwing: it becomes the package's own
-    // tagged kind (#127), and an OpcError thrown from the filter stays as it is.
+    // tagged kind, and an OpcError thrown from the filter stays as it is.
     const listed = Result.try({
       try: () =>
         unzipSync(data, {

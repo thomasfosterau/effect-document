@@ -1,5 +1,5 @@
 /**
- * Recognising CSV and TSV content for `detect` (#188), on a bounded sample:
+ * Recognising CSV and TSV content for `detect`, on a bounded sample:
  * text without NUL bytes whose lines split into the same number of fields by
  * the separator. Separators inside quotes are not counted.
  */
@@ -85,7 +85,7 @@ export interface SniffedDialect {
   /**
    * The reader options the sample implies: the dialect (separator, wrapper,
    * line break), the preamble lines to skip, and whether the first row read
-   * is a header (the reader's own rule, #88, applied to the sample).
+   * is a header (the reader's own rule, applied to the sample).
    */
   readonly options: {
     readonly dialect: CsvDialect;
@@ -128,7 +128,7 @@ const modeOf = (
   );
 
 /**
- * The CSV dialect a bounded sample of text follows (#188): its separator (of
+ * The CSV dialect a bounded sample of text follows: its separator (of
  * {@link SNIFF_SEPARATORS}), its line break, how many preamble lines come
  * before the table, and whether the table's first row is a header. A field
  * wrapped in double quotes may hold separators and line breaks. Only the

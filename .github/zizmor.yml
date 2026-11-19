@@ -1,11 +1,10 @@
-# zizmor (GitHub Actions static analysis) configuration. Run it with
-# `uvx zizmor .github`; every workflow should report no
-# findings beyond what is configured away here, each with its reason.
+# `uvx zizmor --offline .github` should report nothing beyond what is configured here.
 rules:
   dependabot-cooldown:
     config:
-      # The owner's supply-chain policy: pnpm holds a new version for 8 hours
-      # (`minimumReleaseAge: 480` in pnpm-workspace.yaml) and Dependabot's
-      # cooldown, which counts whole days, waits 1 — longer than pnpm, so a
-      # Dependabot PR never proposes a version pnpm would refuse.
       days: 1
+  # Exact release tags, locked to commits by `.github/workflows/actions.lock`.
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin

@@ -6,7 +6,7 @@
 import { ParseError, type ParseErrorCode } from "../../index.ts";
 import { OpcError, type OpcErrorKind, XmlPartError } from "./opc.ts";
 
-/** The `ParseError` code of each package failure (#127). */
+/** The `ParseError` code of each package failure. */
 const OPC_CODE = {
   LimitExceeded: "LimitExceeded",
   WrongPackageType: "WrongFormat",

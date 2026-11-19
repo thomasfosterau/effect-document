@@ -11,7 +11,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { cell, type CellRichText, type SheetCell } from "../../index.ts";
 
-/** A shared string: its text, or a `CellRichText` for an `<si>` of formatted runs (#66). */
+/** A shared string: its text, or a `CellRichText` for an `<si>` of formatted runs. */
 export type SharedString = string | CellRichText;
 
 /**

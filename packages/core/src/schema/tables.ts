@@ -1,5 +1,5 @@
 /**
- * The tabular regions of a document (#188): every worksheet and every prose
+ * The tabular regions of a document: every worksheet and every prose
  * table, wherever it sits, each with a stable locator, its name or caption,
  * its size and a header guess, and prose tables flattened to a text grid,
  * so an import step can list them and let a user pick one.
@@ -13,7 +13,7 @@ import { blocksToText, inlinesToText } from "./document.ts";
 import { cellOf, rowCellsOf, sheetExtent } from "./sheet.ts";
 
 /**
- * Where a region is in its document, as a loss entry's path is (#112):
+ * Where a region is in its document, as a loss entry's path is:
  * block indexes from the top, then list-item, slide, shape and table-cell
  * indexes, and parts such as `"caption"` or `"body"`. Stable for an unchanged
  * document, so a caller can keep it and find the region again.
@@ -40,7 +40,7 @@ export interface WorksheetRegion {
   /**
    * Whether the first row looks like a header: every cell in it is text, and
    * some column below it holds a number, boolean or date (the CSV reader's
-   * rule, #88). A heuristic for a UI's default, which the user may override.
+   * rule). A heuristic for a UI's default, which the user may override.
    */
   readonly headerRow: boolean;
   /** The worksheet itself, for reading its cells. */
@@ -129,7 +129,7 @@ const tableRegion = (table: Table, locator: TableLocator): ProseTableRegion => {
   };
 };
 
-/** The #88 header rule over a worksheet's first two rows' worth of cells. */
+/** The header-sniffing rule over a worksheet's first two rows' worth of cells. */
 const hasHeaderRow = (ws: Worksheet): boolean => {
   const [first, ...rest] = ws.rows;
   if (first === undefined || Arr.isReadonlyArrayEmpty(rest)) return false;
@@ -184,7 +184,7 @@ const childBlocks = (
 };
 
 /**
- * Every tabular region of `doc`, in document order (#188): each `Worksheet`,
+ * Every tabular region of `doc`, in document order: each `Worksheet`,
  * each prose `Table` (inside quotes, `Div`s, `Figure`s, list items and other
  * tables' cells too) and each slide's table shape. The walk keeps its own
  * stack, so a deeply nested document can't overflow the call stack.

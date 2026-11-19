@@ -1,5 +1,5 @@
 /**
- * Mutation fuzzing (#135): every reader, fed seeded mutations of a valid file
+ * Mutation fuzzing: every reader, fed seeded mutations of a valid file
  * of its format, ends in `Success` or a typed `ParseError`, never a defect.
  * Zip-based formats are mutated inside an entry (the XML or IWA), not in the
  * zip's own bytes, so the corruption reaches the reader rather than the CRC
@@ -239,7 +239,7 @@ const defectAt = (c: Case, sample: Uint8Array, seed: number) => {
 };
 
 layer(NodeServices.layer)((it) => {
-  describe("mutation fuzzing (#135)", () => {
+  describe("mutation fuzzing", () => {
     it.effect.each(CASES)(
       "$format: every mutated input reads or fails with a ParseError",
       (c) =>
@@ -273,7 +273,7 @@ layer(NodeServices.layer)((it) => {
     });
   })();
 
-  describe("known-bad inputs (#135)", () => {
+  describe("known-bad inputs", () => {
     it.effect("billion-laughs XML is never expanded: it fails or reads small, quickly", () =>
       Effect.gen(function* () {
         const started = performance.now();

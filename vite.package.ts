@@ -1,17 +1,5 @@
-/**
- * The one Vite+ configuration every package in this workspace shares: the
- * task graph (`check`, `build`, `test:unit`, `test:coverage`), the `vp pack`
- * (tsdown) settings, the alias that lets tests import the package by name and
- * resolve to `src/`, and the vitest / coverage settings. Each
- * `packages/<name>/vite.config.ts` is a one-call instantiation of it.
- *
- * Shape copied from the effect-web library's `vite.package.ts`, with one
- * difference: entry points are named explicitly (`entries` maps an export
- * subpath to its source file), because several packages here expose a
- * single module (`./pages`, `./profiles`) rather than a directory barrel.
- * Written against Vite+ 1.x, which takes a task's `env` / `input` / `output`
- * under `cache` (effect-web, on 0.3.x, sets them on the task itself).
- */
+// The Vite+ configuration the package shares: its tasks, `vp pack` settings,
+// the test alias that resolves the package name to `src/`, and vitest.
 import { defineConfig } from "vite-plus";
 
 /** What differs per package. */

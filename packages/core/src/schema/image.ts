@@ -1,5 +1,5 @@
 /**
- * Image metadata from file headers (#113): the media type, pixel size and,
+ * Image metadata from file headers: the media type, pixel size and,
  * where the file records it, resolution of a PNG, JPEG, GIF or SVG, so a
  * writer can size an image (DOCX and PPTX need extents in EMUs) without an
  * image codec. Pure functions over bytes; nothing is decoded but the header.
@@ -194,7 +194,7 @@ const svg = (b: Uint8Array): Option.Option<ImageInfo> => {
 };
 
 /**
- * What an image's header says (#113): its media type, its size in pixels and,
+ * What an image's header says: its media type, its size in pixels and,
  * when recorded, its resolution. `None` for content that isn't a PNG, JPEG,
  * GIF or SVG with a readable size. Never throws.
  */

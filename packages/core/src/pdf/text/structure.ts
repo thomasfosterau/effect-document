@@ -1,5 +1,5 @@
 /**
- * The structure tree of a tagged PDF (#198, #19): the elements a generator
+ * The structure tree of a tagged PDF: the elements a generator
  * recorded (headings, paragraphs, lists, code, quotes, …) and the marked
  * content on each page that each one owns.
  *

@@ -1,5 +1,5 @@
 /**
- * Rich shared strings (#66): an `<si>` of formatted runs (`<r><rPr>…</rPr><t>…</t></r>`)
+ * Rich shared strings: an `<si>` of formatted runs (`<r><rPr>…</rPr><t>…</t></r>`)
  * read as a `CellRichText`, and a `CellRichText` written back as one. The marks
  * kept are the ones SpreadsheetML's run properties and the schema share: bold
  * (`b`), italic (`i`), underline (`u`), strikethrough (`strike`) and
@@ -120,7 +120,7 @@ export const sharedStringOf = (si: XmlElement): string | CellRichText => {
 const LINE_BREAKS = /\r\n|\r|\n/;
 
 /**
- * A rich text element's (a comment's `<text>`, #67) text as lines of inlines,
+ * A rich text element's (a comment's `<text>`) text as lines of inlines,
  * one line per line break in its runs, a line's runs under their marks as
  * {@link sharedStringOf} nests them. A bare `<t>` is one unmarked run.
  * Whitespace at the edges of a line is kept, and a blank line is an empty one.
@@ -161,7 +161,7 @@ const piecesOf = (inlines: ReadonlyArray<Inline>, marks: Marks): ReadonlyArray<P
       Match.tag("Strikeout", (n) => piecesOf(n.content, { ...marks, strike: true })),
       Match.tag("Superscript", (n) => piecesOf(n.content, { ...marks, vertAlign: "superscript" })),
       Match.tag("Subscript", (n) => piecesOf(n.content, { ...marks, vertAlign: "subscript" })),
-      // a link's text is the cell's: the link itself is the worksheet's <hyperlinks> (#67)
+      // a link's text is the cell's: the link itself is the worksheet's <hyperlinks>
       Match.tag("Link", (n) => piecesOf(n.content, marks)),
       // anything else is outside the XLSX profile, and narrow replaces it before a write
       Match.orElse(() => []),
