@@ -27,7 +27,7 @@ const Headed = defineProfile("headed", ["block.para", "block.header", "inline.st
   notWithin: [{ feature: "inline.strong", within: "block.header", reason: "bold headings" }],
 });
 
-describe("profile algebra (#126)", () => {
+describe("profile algebra", () => {
   test("a union allows what either side allows, keeping only shared rules", () => {
     const Both = unionProfiles("both", Prose, Headed);
     expect(Arr.sort([...Both.features], Order.String)).toEqual(
@@ -133,7 +133,7 @@ const LooseDeck = defineProfile(
   { onlyWithin: [UNSCOPED] },
 );
 
-describe("profile algebra over onlyWithin and fieldValues rules (#126)", () => {
+describe("profile algebra over onlyWithin and fieldValues rules", () => {
   test("a rule's condition is part of its identity: a union keeps only identical rules", () => {
     expect(unionProfiles("same", Deck, Deck).onlyWithin).toEqual([TITLES]);
     expect(unionProfiles("same", Deck, Deck).fieldValues).toEqual([LEVELS]);
@@ -156,7 +156,7 @@ describe("profile algebra over onlyWithin and fieldValues rules (#126)", () => {
   });
 });
 
-describe("whole rules (#67)", () => {
+describe("whole rules", () => {
   const Cells = defineProfile(
     "cells",
     ["sheet.worksheet", "cell.richText", "inline.str", "inline.link"] as const,

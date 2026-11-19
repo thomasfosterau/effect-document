@@ -40,11 +40,11 @@ export const Pdf = defineProfile("pdf", pdfFeatures);
 export type PdfFeature = FeaturesOf<typeof Pdf>;
 
 /**
- * What the PDF writer preserves through `read(write(doc))` (#109). Block
+ * What the PDF writer preserves through `read(write(doc))`. Block
  * quotes, rules, line breaks, underline and strikeout aren't recovered by the
  * reader, so those are narrowed away (with a loss report) on write. Inline
  * code is kept: the writer tags its output and the reader takes blocks from
- * the tags, so a monospace run stays inside its paragraph (#198, #212).
+ * the tags, so a monospace run stays inside its paragraph.
  */
 export const PdfWrite = defineProfile(
   "pdf-write",
@@ -65,7 +65,7 @@ export const PdfWrite = defineProfile(
   ] as const,
   {
     // Headings are set in bold, so the reader takes bold in a heading as the
-    // heading's own look (#197).
+    // heading's own look.
     notWithin: [
       {
         feature: "inline.strong",

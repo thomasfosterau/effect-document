@@ -36,7 +36,7 @@ const withPixel = (): Document => {
   );
 };
 
-describe("media bag (#113)", () => {
+describe("media bag", () => {
   test("resource: URLs name the bag's ids; other URLs name none", () => {
     expect(resourceIdOf(resourceUrl("abc"))).toEqual(Option.some("abc"));
     expect(Option.isNone(resourceIdOf("https://example.com/a.png"))).toBe(true);
@@ -173,7 +173,7 @@ const svgSize = (svg: string) => Option.map(imageInfo(bytesOf(svg)), (i) => [i.w
 const extentAt = (dpi: Option.Option<{ x: number; y: number }>) =>
   emuExtent({ mediaType: "image/png", width: 96, height: 192, dpi });
 
-describe("imageInfo (#113)", () => {
+describe("imageInfo", () => {
   test("reads a PNG's size and its pHYs resolution", () => {
     expect(imageInfo(pngHeader(640, 480, 11811))).toEqual(
       Option.some({

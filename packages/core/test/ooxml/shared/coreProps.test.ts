@@ -78,7 +78,7 @@ const parts = (content: Content): Record<string, string> => {
 const rezip = (files: Record<string, string>): Content =>
   bytes(zipSync(Rec.map(files, (text) => strToU8(text))));
 
-describe.each(CASES)("$id package metadata (#79)", (c) => {
+describe.each(CASES)("$id package metadata", (c) => {
   it.effect("every key round-trips through docProps", () =>
     Effect.gen(function* () {
       const out = yield* c.write(c.doc(FULL)).pipe(Effect.flatMap(c.read));

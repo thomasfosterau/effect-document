@@ -11,7 +11,7 @@
  * relationship or part is missing fails the read, as in XLSX.
  *
  * Bullets, margins and run marks a paragraph does not state are inherited
- * (#82, `inheritance.ts`): from the shape's own list style, its layout and
+ * (`inheritance.ts`): from the shape's own list style, its layout and
  * master placeholders, the master's text styles and the presentation's
  * defaults. A slide's `layout` is its layout part's name.
  */
@@ -164,7 +164,7 @@ const itemOf = (
     kind: ordered ? "ordered" : "bullet",
     level: lvl,
     key: "",
-    // an ordered item that says where it restarts begins a new list (#196);
+    // an ordered item that says where it restarts begins a new list;
     // a start inherited from a list style only starts the list
     restart: ordered && Option.isSome(own) && Option.isSome(own.value.startAt),
     start: ordered ? Option.getOrElse(bu.value.startAt, ONE) : 1,
@@ -194,7 +194,7 @@ const txBodyToBlocks = (
     const marL = Option.isSome(own) ? own : level.marL;
     const item = itemOf(level, lvl, marL, Arr.isReadonlyArrayEmpty(inlines), pPr);
     if (Option.isNone(item))
-      // an unbulleted paragraph at an open list's margin continues its last item (#196)
+      // an unbulleted paragraph at an open list's margin continues its last item
       // (in a title placeholder, a paragraph outside the lists is a heading)
       lists.place(Option.getOrUndefined(marL), (continued) => [
         asHeaders && !continued
@@ -294,7 +294,7 @@ export const PptxReaderTag = makeReaderTag<PptxReadFeature>("pptx");
 export const PptxReaderLive = Layer.succeed(PptxReaderTag, makePptxReader());
 
 /**
- * The PPTX sniffer, for `detect` (#188): a zip whose main part (found as
+ * The PPTX sniffer, for `detect`: a zip whose main part (found as
  * the reader finds it) is declared a PresentationML main part, which is what
  * the reader requires.
  */

@@ -1,5 +1,5 @@
 /**
- * Recognising an OOXML package for `detect` (#188): a zip whose main part,
+ * Recognising an OOXML package for `detect`: a zip whose main part,
  * found through `_rels/.rels` as the readers find it, has one of a format's
  * content types. Opened under the readers' zip limits, and never throws.
  */

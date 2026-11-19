@@ -76,7 +76,7 @@ interface Scan {
   last: RowCellsSoFar;
   lastIndex: number;
   cells: number;
-  /** Whether a `<row>` read so far has a `customHeight` or `hidden` attribute (#66): only then are they read. */
+  /** Whether a `<row>` read so far has a `customHeight` or `hidden` attribute: only then are they read. */
   rowProps: boolean;
 }
 

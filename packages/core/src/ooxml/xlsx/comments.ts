@@ -1,5 +1,5 @@
 /**
- * Cell comments (#67): a worksheet's legacy notes (`xl/commentsN.xml`, shown
+ * Cell comments: a worksheet's legacy notes (`xl/commentsN.xml`, shown
  * with a VML drawing) and, when present, Excel's threaded comments
  * (`xl/threadedComments/threadedCommentN.xml`, with the workbook's
  * `xl/persons/person.xml` naming their authors), read as the sheet's

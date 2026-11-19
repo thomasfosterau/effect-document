@@ -60,7 +60,7 @@ const chain = (wrap: (b: Block) => Block, depth: number): Document => {
   return document([Array.from({ length: levels }).reduce<Block>((b) => wrap(b), base)]);
 };
 
-describe("deep nesting (#110)", () => {
+describe("deep nesting", () => {
   test("Profile.is and collectFeatures handle 20,000 levels", () => {
     const doc = document([quoted(DEEP), para([emphasised(DEEP)])]);
     expect(Profiles.Markdown.is(doc)).toBe(true);

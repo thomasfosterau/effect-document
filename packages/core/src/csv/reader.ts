@@ -122,7 +122,7 @@ export interface CsvReaderOptions extends CsvScanOptions, CsvInferenceOptions {
   /** Name of the produced worksheet (defaults to "Sheet1"). */
   readonly sheetName?: string | undefined;
   /**
-   * A preview read (#188): read at most this many records after `skipRows`,
+   * A preview read: read at most this many records after `skipRows`,
    * a header row counting as one, and none of the rest of the input. When
    * the input had more, the document's metadata says so (`truncated`, see
    * `isTruncated`), so a preview never passes for the whole file. Types are
@@ -441,7 +441,7 @@ const sniffHeader = (
  * per value after its first text value.
  */
 /**
- * The rows of typed cells, as plain worksheet rows (#227: a row's cells
+ * The rows of typed cells, as plain worksheet rows (a row's cells
  * alone, standing for the row after the one before it). Each row is typed
  * whole as soon as its cells are, so the strings it came from die young (and
  * cost the collector nothing) instead of living until every row is typed.

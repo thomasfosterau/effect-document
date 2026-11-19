@@ -1,5 +1,5 @@
 /**
- * Constructors for the nodes `document.ts` has none for (#125), and a
+ * Constructors for the nodes `document.ts` has none for, and a
  * text-friendly builder after Pandoc's `Text.Pandoc.Builder`: `textInlines`
  * splits a string into `Str` / `Space` / `SoftBreak` runs, and
  * `normalizeInlines` merges what readers tend to leave split, for stable
@@ -158,7 +158,7 @@ const isSpacing = (i: Inline): boolean =>
   Predicate.isTagged(i, "Space") || Predicate.isTagged(i, "SoftBreak");
 
 /**
- * `inlines` normalised, as readers should emit them (#125): adjacent `Str`s
+ * `inlines` normalised, as readers should emit them: adjacent `Str`s
  * merged, empty `Str`s dropped, and each run of `Space` / `SoftBreak` collapsed
  * to one (a `SoftBreak` if the run holds one). Shallow: the content of
  * containers (`Emph`, `Link`, …) is left as it is.

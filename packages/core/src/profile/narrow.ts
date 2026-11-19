@@ -209,24 +209,24 @@ const cellAddress = (col: number, row: number): string => `${columnLetters(col)}
 interface Ctx {
   readonly allowed: ReadonlySet<Feature>;
   readonly rec: Recorder;
-  /** The target profile's structural rules (#126). */
+  /** The target profile's structural rules. */
   readonly rules: ReadonlyArray<NotWithin>;
-  /** The target profile's `onlyWithin` rules, for features it allows only inside certain nodes (#126). */
+  /** The target profile's `onlyWithin` rules, for features it allows only inside certain nodes. */
   readonly onlyWithin: ReadonlyArray<OnlyWithin>;
-  /** The target profile's `fieldValues` rules (#126). */
+  /** The target profile's `fieldValues` rules. */
   readonly fieldValues: ReadonlyArray<FieldValues>;
   /** The target profile's features, to allow an `onlyWithin` feature again inside its node. */
   readonly profile: ReadonlySet<Feature>;
-  /** The target profile's `whole` rules (#67). */
+  /** The target profile's `whole` rules. */
   readonly whole: ReadonlyArray<Whole>;
 }
 
 /**
  * The context for the contents of a kept node (`node`, of the feature
  * `within`): the features an `onlyWithin` rule allows only inside such a node
- * are allowed again (#126), and the features a `notWithin` rule keeps out of
+ * are allowed again, and the features a `notWithin` rule keeps out of
  * it are no longer allowed there, their loss entries giving the rule's reason
- * (#197).
+ *.
  */
 const inside = (within: Feature, node: RuleNode, ctx: Ctx): Ctx => {
   const admitted = ctx.onlyWithin.filter(
@@ -278,7 +278,7 @@ const keepFacet = <A>(
   return undefined;
 };
 
-/** A node's attributes narrowed to the target; `node` is its tag, for its id facet (#184). */
+/** A node's attributes narrowed to the target; `node` is its tag, for its id facet. */
 const narrowAttr = (
   attr: Attributes | undefined,
   node: IdNode,
@@ -356,7 +356,7 @@ const always = (n: Inline): Inline[] => [n];
 const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
   Str: always,
   Space: always,
-  // kept by every profile, except where one of its `notWithin` rules keeps it out of a node (#67)
+  // kept by every profile, except where one of its `notWithin` rules keeps it out of a node
   SoftBreak: (n, ctx) => {
     if (ctx.allowed.has("inline.softBreak") || !ctx.profile.has("inline.softBreak")) return [n];
     ctx.rec.convert("inline.softBreak", "line break reduced to a space");
@@ -419,7 +419,7 @@ const INLINE: TagHandlers<Inline, [Ctx], Inline[]> = {
           target: n.target,
         }),
       ];
-    // the alt text, then the URL in parentheses, so where the image was is kept (#111)
+    // the alt text, then the URL in parentheses, so where the image was is kept
     const alt = narrowInlines(n.alt, ctx);
     const url = n.target.url === "" ? [] : [new Str({ text: `(${n.target.url})` })];
     ctx.rec.convert("inline.image", "Image reduced to its alt text and URL");
@@ -500,7 +500,7 @@ const firstOf = (inlines: ReadonlyArray<Inline>, feature: Feature): Inline | und
   );
 
 /**
- * `runs` (a rich cell's) under the target's `whole` rules (#67): where a rule's
+ * `runs` (a rich cell's) under the target's `whole` rules: where a rule's
  * feature covers only part of them, they are narrowed as if the profile
  * lacked it (each such node unwrapped, a `converted` loss with the rule's
  * reason), and a `Link` is then put back around all of them, keeping the
@@ -615,7 +615,7 @@ const isHiddenRow = (r: WorksheetRow): boolean => !isPlainRow(r) && r.hidden ===
 /**
  * A row with its cells narrowed, and shown when `show` (the target has no
  * `sheet.hidden`): the row itself when nothing changes, and a plain row stays
- * a plain row (#227).
+ * a plain row.
  */
 const narrowRow = (r: WorksheetRow, row: number, ctx: Ctx, show: boolean): WorksheetRow => {
   const old = rowCellsOf(r);
@@ -662,7 +662,7 @@ const narrowColumns = (
   );
 };
 
-// ---- comments (#67) -------------------------------------------------------
+// ---- comments -------------------------------------------------------
 
 /** "Author: text" for a reply's paragraph (just the text when the reply has no author). */
 const replyText = (reply: Comment): string => {
@@ -789,7 +789,7 @@ const narrowWorksheet = (w: Worksheet, ctx: Ctx): Worksheet => {
 };
 
 /**
- * A worksheet's comments as the notes a prose table keeps them in (#67): for
+ * A worksheet's comments as the notes a prose table keeps them in: for
  * each commented cell of `grid`, a `Note` after the cell's text holding the
  * comments' blocks, each reply a paragraph "Author: text", keyed by
  * `"row,col"`. Each comment is reported `converted`; one on a cell outside the
@@ -1092,7 +1092,7 @@ const FALLBACK: TagHandlers<Block, [Feature, Ctx], Block[]> = {
 };
 
 /**
- * A grid's rows as paragraphs (#111), for a target with neither tables nor
+ * A grid's rows as paragraphs, for a target with neither tables nor
  * worksheets: one per row, its cells' text joined by tabs, so the data stays
  * readable (and splittable) instead of being dropped. Re-narrowed, so a target
  * without paragraphs gets what it has.
@@ -1184,7 +1184,7 @@ const narrowBlock = (b: Block, ctx: Ctx): Block[] => {
  */
 export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): NarrowResult<To> => {
   // a feature an `onlyWithin` rule admits only inside certain nodes starts
-  // out disallowed; `inside` allows it again within such a node (#126)
+  // out disallowed; `inside` allows it again within such a node
   const confined = to.onlyWithin.filter((r) => to.features.has(r.feature));
   const ctx: Ctx = {
     allowed: Arr.isReadonlyArrayEmpty(confined)
@@ -1230,7 +1230,7 @@ export const narrow = <To extends Feature>(doc: Document, to: Profile<To>): Narr
 };
 
 /**
- * The media bag the target keeps (#113): `doc`'s when it allows
+ * The media bag the target keeps: `doc`'s when it allows
  * `doc.resources`, otherwise none, each resource reported at the path
  * `["resources", id]`. The `resource:` URLs that referred to them are left as
  * they are, so a caller that wants the files (Pandoc's `--extract-media`)

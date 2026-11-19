@@ -1,5 +1,5 @@
 /**
- * `narrow` degrades instead of dropping (#111): a grid becomes paragraphs in a
+ * `narrow` degrades instead of dropping: a grid becomes paragraphs in a
  * target without tables, a horizontal rule a `***` paragraph, an image its alt
  * text and URL; each reported as `converted`.
  */
@@ -25,7 +25,7 @@ import * as Rtf from "@thomasfosterau/effect-document/rtf";
 
 const Prose = defineProfile("prose", ["block.para", "inline.str", "inline.space"]);
 
-describe("narrow degrades content (#111)", () => {
+describe("narrow degrades content", () => {
   it.effect("CSV -> RTF keeps the data as a paragraph per row", () =>
     Effect.gen(function* () {
       const { content, loss } = yield* convert({

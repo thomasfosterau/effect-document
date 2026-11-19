@@ -1,5 +1,5 @@
 /**
- * Preview reads (#188): a reader given `maxRows` reads only the first rows
+ * Preview reads: a reader given `maxRows` reads only the first rows
  * of a table, so a UI can show a large file without parsing all of it. A
  * truncated document says so in its metadata, under {@link TRUNCATED_META_KEY},
  * so it never passes for the whole file.

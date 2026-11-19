@@ -1,5 +1,5 @@
 /**
- * The diagnostics channel (#112, owner decision: option 3): readers and
+ * The diagnostics channel: readers and
  * writers report non-fatal issues as annotated warning log records, and
  * `convert` collects them into its report.
  */
@@ -40,7 +40,7 @@ const note = (code: string, severity: Diagnostic["severity"]): Diagnostic => ({
 });
 
 layer(NodeServices.layer)((it) => {
-  describe("collectDiagnostics (#112)", () => {
+  describe("collectDiagnostics", () => {
     it.effect(
       "gathers reported diagnostics in order, ignores other logs, and leaves the loggers alone",
       () =>
@@ -76,7 +76,7 @@ layer(NodeServices.layer)((it) => {
     worksheet("data", [[cell.text("y")]]),
   ]);
 
-  describe("XLSX writer diagnostics (#112, from #61)", () => {
+  describe("XLSX writer diagnostics", () => {
     it.effect("reports each non-finite number written as #NUM! and each renamed sheet", () =>
       Effect.gen(function* () {
         const [, found] = yield* collectDiagnostics(Xlsx.makeXlsxWriter().write(trustAs(AWKWARD)));
@@ -114,7 +114,7 @@ layer(NodeServices.layer)((it) => {
     },
   };
 
-  describe("convert collects diagnostics (#112)", () => {
+  describe("convert collects diagnostics", () => {
     it.effect("the writer's diagnostics are in the report, which is then not lossless", () =>
       Effect.gen(function* () {
         const { loss } = yield* convert({
@@ -163,7 +163,7 @@ layer(NodeServices.layer)((it) => {
     return zipSync({ ...files, "Index/Slide-8060.iwa": new Uint8Array([0, 0x40, 0]) });
   });
 
-  describe("iWork reader diagnostics (#112)", () => {
+  describe("iWork reader diagnostics", () => {
     it.effect("a lenient read reports the component it skipped", () =>
       Effect.gen(function* () {
         const input = bytes(yield* brokenKeynote());

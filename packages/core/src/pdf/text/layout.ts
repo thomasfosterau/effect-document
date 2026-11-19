@@ -272,7 +272,7 @@ const runsToInlines = (runs: ReadonlyArray<Run>, inCode = false): Inline[] => {
  * and a hyphen before a lowercase letter for a word broken across lines (the
  * guess untagged text needs); `"tagged"` follows Tagged PDF, where a hyphen
  * the line breaking added is a soft hyphen (U+00AD), so only that one joins
- * and a plain hyphen (U+002D) at a line end is part of the text (#198).
+ * and a plain hyphen (U+002D) at a line end is part of the text.
  */
 type Hyphenation = "layout" | "tagged";
 
@@ -421,7 +421,7 @@ const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
 /**
  * Infer prose blocks from the text of a document's pages. A heading whose
  * text is an `outline` item's title takes its level from the item's depth
- * (#20); the rest are ranked by size.
+ *; the rest are ranked by size.
  */
 export const layoutBlocks = (
   pages: ReadonlyArray<PageText>,
@@ -623,7 +623,7 @@ const isPrintableAscii = (s: string): boolean => {
 };
 
 // ============================================================================
-// Tagged PDF: blocks from the structure tree (#198)
+// Tagged PDF: blocks from the structure tree
 // ============================================================================
 
 /** Structure types whose content runs inline, within the paragraph around them. */

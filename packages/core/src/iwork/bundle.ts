@@ -272,13 +272,12 @@ export const openBundleDirectory = (
       .readDirectory(root, { recursive: true })
       .pipe(Effect.mapError(io))).map((n) => n.replaceAll("\\", "/"));
     if (names.length > limits.maxEntries) {
-      return yield* Effect.fail(
-        codecError("LimitExceeded", `more than ${limits.maxEntries} zip entries`),
-      );
+      return yield* codecError("LimitExceeded", `more than ${limits.maxEntries} zip entries`);
     }
     if (names.includes(ENCRYPTED_MARKER)) {
-      return yield* Effect.fail(
-        codecError("Encrypted", "encrypted (password-protected) iWork documents are not supported"),
+      return yield* codecError(
+        "Encrypted",
+        "encrypted (password-protected) iWork documents are not supported",
       );
     }
     const budget: Budget = { limits, total: 0 };
@@ -297,8 +296,7 @@ export const openBundleDirectory = (
         ),
       { concurrency: 1, discard: true },
     );
-    if (Arr.isReadonlyArrayEmpty(Object.keys(components)))
-      return yield* Effect.fail(noComponents(names));
+    if (Arr.isReadonlyArrayEmpty(Object.keys(components))) return yield* noComponents(names);
     const readEntry = (entry: string) => readChecked(entry, { limits, total: 0 });
     return { components, entries: names, readEntry };
   });

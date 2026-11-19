@@ -546,7 +546,7 @@ export const scanCsv = (
 
 /**
  * Record `i`'s source row, for an error. Positions are needed only to report
- * one, so they are found then, by scanning again with offsets (#177).
+ * one, so they are found then, by scanning again with offsets.
  */
 const rowsOf = (
   source: string,

@@ -1,5 +1,5 @@
 /**
- * Binary resources (#113): the media bag a document carries beside its blocks
+ * Binary resources: the media bag a document carries beside its blocks
  * (images, fonts, embedded files), after Pandoc's `MediaBag`. A node refers to
  * one by a `resource:<id>` URL in the string it already has (`Image.target.url`,
  * `Picture.src`), so external URLs keep working and no node changes shape.
@@ -73,7 +73,7 @@ export interface AddedResource {
 
 /**
  * Add `resource` to `resources` under its {@link contentId}, deduplicating
- * by content (#113): when the bag already holds the same bytes of the same
+ * by content: when the bag already holds the same bytes of the same
  * media type, it is returned unchanged with that resource's id. The input is
  * not modified.
  */

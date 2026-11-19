@@ -26,10 +26,10 @@ export const KN_PLACEHOLDER_ARCHIVE: ReadonlySet<number> = new Set(
 /** `KN.DocumentArchive` - the Keynote document root. */
 export const KN_DOCUMENT_ARCHIVE = TYPE_IDS["KN.DocumentArchive"][0];
 
-/** `KN.ShowArchive` - the show: its theme, size and slide tree (#99). */
+/** `KN.ShowArchive` - the show: its theme, size and slide tree. */
 export const KN_SHOW_ARCHIVE = TYPE_IDS["KN.ShowArchive"][0];
 
-/** `KN.SlideNodeArchive` - one node of the slide tree: a slide and the slides nested under it (#99). */
+/** `KN.SlideNodeArchive` - one node of the slide tree: a slide and the slides nested under it. */
 export const KN_SLIDE_NODE_ARCHIVE = TYPE_IDS["KN.SlideNodeArchive"][0];
 
 /**
@@ -62,7 +62,7 @@ export const TN_SHEET_NAME_FIELD = FIELDS["TN.SheetArchive"].name;
 
 /**
  * `TSP.PackageMetadata` - the package's component and data-file lists, in
- * `Index/Metadata.iwa` (#101).
+ * `Index/Metadata.iwa`.
  */
 export const TSP_PACKAGE_METADATA = TYPE_IDS["TSP.PackageMetadata"][0];
 

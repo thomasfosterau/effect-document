@@ -4,7 +4,7 @@
  * links, plus code blocks (a `Code`-styled paragraph). (No spreadsheets or
  * slides.)
  *
- * Following the profile policy (#109), it holds only what survives
+ * Following the profile policy, it holds only what survives
  * `read(write(doc))`. The writer also renders block quotes, divs and line
  * blocks (flattened), rules, inline code and quotations (as marks), but
  * they don't read back as such, so converting to DOCX narrows them with a
@@ -35,7 +35,7 @@ export const docxFeatures = [
   "inline.smallCaps",
   "inline.link",
   // a heading's id, kept as a bookmark around it, and any other bookmarked
-  // text as a span with an id (#184); ids elsewhere are not kept
+  // text as a span with an id; ids elsewhere are not kept
   "inline.span",
   "attr.id.header",
   "attr.id.span",

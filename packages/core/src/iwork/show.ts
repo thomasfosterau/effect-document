@@ -1,5 +1,5 @@
 /**
- * A Keynote show's slide order (#99): `KN.DocumentArchive.show` →
+ * A Keynote show's slide order: `KN.DocumentArchive.show` →
  * `KN.ShowArchive.slideTree` → its slide nodes, each node's slide and then the
  * slides nested under it, depth first. Component ids are not show order, so
  * the reader sorts slide components by this instead.
@@ -116,7 +116,7 @@ const topNodes = (
 };
 
 /**
- * The slide ids of a Keynote bundle in show order (#99): `None` when the
+ * The slide ids of a Keynote bundle in show order: `None` when the
  * document root, its show or its slide tree can't be found (an older or
  * partial package), so the reader falls back to component order. Fails only
  * on a component that is there but malformed.
@@ -151,7 +151,7 @@ export const showOrder = (
 const SLIDE_ID = /\/Slide-(\d+)(?:-\d+)?\.iwa$/;
 
 /**
- * Slide component paths in show order (#99): each by the position of the
+ * Slide component paths in show order: each by the position of the
  * slide it is named after (a component's identifier is its root object's, the
  * slide), components of the same slide and those of slides the show doesn't
  * list keeping their given order, the unlisted after the listed.

@@ -1,5 +1,5 @@
 /**
- * The cross-component object resolver (#101): follows a `TSP.Reference` to
+ * The cross-component object resolver: follows a `TSP.Reference` to
  * the object it names wherever that object lives, decoding each component at
  * most once and only when a lookup needs it.
  *
@@ -57,7 +57,7 @@ const hintsOf = (metadata: PackageMetadata): MutableHashMap.MutableHashMap<bigin
 };
 
 /**
- * A resolver over `bundle` (#101), reading its package metadata first. Fails
+ * A resolver over `bundle`, reading its package metadata first. Fails
  * only when the metadata component is there but malformed.
  */
 export const makeObjectResolver = (

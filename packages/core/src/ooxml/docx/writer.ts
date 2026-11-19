@@ -72,7 +72,7 @@ const MAX_ILVL = 8;
  * The left indent, in twentieths of a point, of list level `ilvl`: the
  * numbering part indents each level by it, and an item's blocks after its
  * first paragraph are indented to it, as Word indents a list's continuation
- * paragraphs, so the reader can put them back in the item (#195).
+ * paragraphs, so the reader can put them back in the item.
  */
 const levelIndent = (ilvl: number): number => 720 * (ilvl + 1);
 
@@ -116,7 +116,7 @@ class RelCollector {
   /**
    * A fresh numbering instance for one list: a bullet list, or an ordered
    * list starting at `start`. Every list gets its own, so adjacent lists of
-   * the same kind stay separate lists (#109) and each ordered list restarts.
+   * the same kind stay separate lists and each ordered list restarts.
    */
   addList(start: number | "bullet"): number {
     this.lists.push(start);
@@ -129,7 +129,7 @@ class RelCollector {
   private bookmarks = 0;
   /**
    * `inner` (a paragraph's runs) inside a bookmark named `name`, if there is
-   * one: how a heading's id is kept (#184), and what a `#name` link goes to.
+   * one: how a heading's id is kept, and what a `#name` link goes to.
    * Each bookmark gets a fresh `w:id`.
    */
   bookmarked(name: string | undefined, inner: string): string {
@@ -183,14 +183,14 @@ const hyperlinkRuns = (n: Link, f: Fmt, rel: RelCollector): string => {
     ? `w:anchor="${escapeAttr(n.target.url.substring(1))}"`
     : `r:id="${rel.addHyperlink(n.target.url)}"`;
   // The look comes from the Hyperlink style rather than a direct underline,
-  // so the reader doesn't mistake it for an `Underline` (#109).
+  // so the reader doesn't mistake it for an `Underline`.
   return `<w:hyperlink ${target}>${inlineRuns(n.content, { ...f, link: true }, rel)}</w:hyperlink>`;
 };
 
 /**
  * An inline of the DOCX profile. The table is exhaustive over the profile's
  * inlines, so a feature added to the profile without a rendering here is a
- * compile error (#109).
+ * compile error.
  */
 const docxInline = (n: InlineOf<DocxFeature>, f: Fmt, rel: RelCollector): string =>
   Match.valueTags(n, {
@@ -206,7 +206,7 @@ const docxInline = (n: InlineOf<DocxFeature>, f: Fmt, rel: RelCollector): string
     Subscript: (m) => inlineRuns(m.content, { ...f, vert: "subscript" }, rel),
     SmallCaps: (m) => inlineRuns(m.content, { ...f, caps: true }, rel),
     Link: (l) => hyperlinkRuns(l, f, rel),
-    // a span is its content; its id, a bookmark around it (#184)
+    // a span is its content; its id, a bookmark around it
     Span: (sp) => rel.bookmarked(sp.attr?.id, inlineRuns(sp.content, f, rel)),
   });
 
@@ -255,7 +255,7 @@ const listParagraph = (
  * Render a list. Each item's first paragraph carries the numbering (an empty
  * one when the item starts with another block); nested lists go one `w:ilvl`
  * deeper, and the item's other blocks follow indented to its level, as
- * Word's continuation paragraphs are, so they read back into the item (#195).
+ * Word's continuation paragraphs are, so they read back into the item.
  */
 const renderList = (
   items: ReadonlyArray<ReadonlyArray<Block>>,
@@ -306,7 +306,7 @@ const renderTable = (t: Table, rel: RelCollector, indent: number): string => {
 /**
  * A block of the DOCX profile; `ilvl` is the list level a nested list here
  * would take (0 outside lists) and `indent` the left indent of a list item's
- * continuation block (0 outside lists). Exhaustive over the profile's blocks (#109).
+ * continuation block (0 outside lists). Exhaustive over the profile's blocks.
  */
 const docxBlock = (
   b: BlockOf<DocxFeature>,

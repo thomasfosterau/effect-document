@@ -17,7 +17,7 @@ import { TSP_PACKAGE_METADATA } from "../../src/iwork/registry.ts";
 import { lenField, record, varint, varintField } from "./encode.ts";
 import { fixture } from "./fixture.ts";
 
-/** `TSP.PackageMetadata`'s `file_format_version` (#101): field 7, packed varints. */
+/** `TSP.PackageMetadata`'s `file_format_version`: field 7, packed varints. */
 const metadataIwa = (version: ReadonlyArray<number>): Uint8Array =>
   chunk(
     new Uint8Array(
@@ -42,7 +42,7 @@ const diagnosticsOf = (read: Effect.Effect<unknown, ParseError>) =>
   Effect.map(collectDiagnostics(read), ([, found]) => found);
 
 layer(NodeServices.layer)((it) => {
-  describe("iWork fileFormatVersion (#101)", () => {
+  describe("iWork fileFormatVersion", () => {
     it.effect("the fixtures' versions are known: no diagnostic", () =>
       Effect.gen(function* () {
         expect(

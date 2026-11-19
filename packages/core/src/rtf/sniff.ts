@@ -1,4 +1,4 @@
-/** Recognising RTF content for `detect` (#188): text that opens with `{\rtf`. */
+/** Recognising RTF content for `detect`: text that opens with `{\rtf`. */
 
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";

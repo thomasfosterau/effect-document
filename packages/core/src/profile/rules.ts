@@ -1,8 +1,8 @@
 /**
- * The data structural rules beyond `notWithin` are written in (#126): where a
+ * The data structural rules beyond `notWithin` are written in: where a
  * feature may appear (`OnlyWithin`), what a node's fields may hold
  * (`FieldValues`) and a feature that must be the whole of a node's content
- * (`Whole`, #67), and the checks of a node against a rule.
+ * (`Whole`), and the checks of a node against a rule.
  */
 
 import * as Predicate from "effect/Predicate";
@@ -21,10 +21,10 @@ export interface FieldMatch {
 }
 
 /**
- * A structural rule (#126): `feature` may appear only inside a `within` node
+ * A structural rule: `feature` may appear only inside a `within` node
  * (one whose fields also satisfy `where`, when given), although the profile
  * allows both. For example, PPTX keeps a heading only as a slide's title, in
- * a title placeholder (#196). A document with the feature anywhere else
+ * a title placeholder. A document with the feature anywhere else
  * doesn't conform, and `narrow` rewrites it there as if the profile lacked
  * it, giving `reason` in the loss entry.
  */
@@ -40,9 +40,9 @@ export interface OnlyWithin {
 }
 
 /**
- * A structural rule (#126): a node of `feature` must have its field `field`
+ * A structural rule: a node of `feature` must have its field `field`
  * holding one of `oneOf`. For example, PPTX keeps a heading only at level 1
- * (#196). A node with another value doesn't conform, and `narrow` rewrites it
+ *. A node with another value doesn't conform, and `narrow` rewrites it
  * as if the profile lacked `feature`, giving `reason` in the loss entry.
  */
 export interface FieldValues extends FieldMatch {
@@ -71,7 +71,7 @@ export const fieldMatches = (node: RuleNode, match: FieldMatch): boolean => {
 export type WholeContainer = "cell.richText";
 
 /**
- * A structural rule (#67): inside a `within` node, `feature` appears only as
+ * A structural rule: inside a `within` node, `feature` appears only as
  * that node's whole content, the one top-level node of its content with no
  * other node of `feature` inside it. For example, XLSX links a whole cell,
  * never part of its text, so a `Link` in a rich cell must be the cell's only

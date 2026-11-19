@@ -52,9 +52,9 @@ const sheetJson = (rows: unknown) => ({
   blocks: [{ _tag: "Worksheet", name: "S", columns: [], merges: [], rows }],
 });
 
-describe("sparse worksheet (#185)", () => {
+describe("sparse worksheet", () => {
   test("holds only the cells it has", () => {
-    // the rows it has; within a row, a gap is a position (positional cells, #226)
+    // the rows it has; within a row, a gap is a position (positional cells)
     expect(sparse.rows.flatMap((r) => rowEntries(r))).toHaveLength(2);
     expect(sheetExtent(sparse)).toEqual({ rows: 4, columns: 3 });
     expect(sheetExtent(new Worksheet({ name: "E", columns: [], rows: [], merges: [] }))).toEqual({
@@ -238,7 +238,7 @@ describe("sparse worksheet (#185)", () => {
     );
   });
 
-  test("the constructors reject a plain object as a cell (#228)", () => {
+  test("the constructors reject a plain object as a cell", () => {
     // `Reflect.construct` passes input the types would refuse, as untyped
     // callers (JavaScript, JSON) can
     const notACell = { col: 0 };
@@ -253,7 +253,7 @@ describe("sparse worksheet (#185)", () => {
   });
 });
 
-describe("plain rows (#227)", () => {
+describe("plain rows", () => {
   const decode = Schema.decodeUnknownResult(Document);
   const text = { _tag: "CellText", value: "v" };
   /** Row 0 and 1 plain, row 4 a node with a height, row 5 plain. */

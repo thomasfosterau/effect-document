@@ -8,8 +8,7 @@
  * is a slide's title: the reader takes a title placeholder's paragraphs as
  * level-1 headers, and the writer writes a header there as plain title text,
  * so the profile allows `block.header` only at level 1, only inside a title
- * placeholder and not inside a list (#196, with the structural rules of
- * #126). A header anywhere else narrows to a paragraph, with the rule's reason
+ * placeholder and not inside a list (with structural rules). A header anywhere else narrows to a paragraph, with the rule's reason
  * in the loss report.
  */
 
@@ -71,7 +70,7 @@ export type PptxFeature = FeaturesOf<typeof Pptx>;
 
 /**
  * What the PPTX reader produces: {@link Pptx} plus `deck.layout`, the name
- * of the slide layout a slide uses (`Slide.layout`, #82). The writer writes
+ * of the slide layout a slide uses (`Slide.layout`). The writer writes
  * one blank layout, so it cannot keep the name and `Pptx` lacks the feature:
  * narrowing a read deck to `Pptx` drops it, reported in the loss report.
  */

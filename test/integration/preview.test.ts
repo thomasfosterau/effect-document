@@ -1,5 +1,5 @@
 /**
- * Preview reads (#188): `maxRows` bounds what a reader returns, and a
+ * Preview reads: `maxRows` bounds what a reader returns, and a
  * truncated document always says so, so a preview never passes for the
  * whole file.
  */
@@ -28,7 +28,7 @@ const sheets = (doc: Document) => doc.blocks.filter((b) => Predicate.isTagged(b,
 // a quoted field spans a line break: records, not lines, are counted
 const CSV = 'name,qty\n"multi\nline",1\nb,2\nc,3\nd,4\n';
 
-describe("CSV preview reads (#188)", () => {
+describe("CSV preview reads", () => {
   it.effect("reads the first maxRows records, a header counting as one, and says it was cut", () =>
     Effect.gen(function* () {
       const doc = yield* Csv.makeCsvReader({ maxRows: 3 }).read(text(CSV));
@@ -80,7 +80,7 @@ const workbook = () =>
     );
   });
 
-describe("XLSX preview reads (#188)", () => {
+describe("XLSX preview reads", () => {
   it.effect("keeps maxRows rows of each sheet and names the sheets it cut", () =>
     Effect.gen(function* () {
       const doc = yield* makeXlsxReader({ maxRows: 2 }).read(yield* workbook());

@@ -29,12 +29,12 @@ export interface ConvertOptions<A extends Feature, B extends Feature> {
   /** Source content. */
   readonly input: Content;
   /**
-   * What to do when narrowing to the target loses something (#112):
+   * What to do when narrowing to the target loses something:
    * `"allow"` (the default) returns the content with the report, `"warn"`
    * also logs a warning per summary item (`Effect.logWarning`, annotated
    * with the formats, feature, action, severity and count), and `"fail"`
    * fails with a `ConversionError` whose `loss` is the report, like
-   * `pandoc --fail-if-warnings`. The reader's diagnostics (#112) count, so
+   * `pandoc --fail-if-warnings`. The reader's diagnostics count, so
    * `"fail"` stops before writing; the writer's are known only once it has
    * run, so on one of those `"fail"` still returns no content. A `repaired`
    * or `notice` diagnostic loses nothing and never fails.

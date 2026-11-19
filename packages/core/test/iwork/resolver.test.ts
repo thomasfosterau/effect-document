@@ -37,7 +37,7 @@ const ok = <A, E>(r: Result.Result<A, E>): A => {
 };
 
 layer(NodeServices.layer)((it) => {
-  describe("package metadata (#101)", () => {
+  describe("package metadata", () => {
     it.effect("lists a Keynote package's components and data files", () =>
       Effect.gen(function* () {
         const bundle = yield* bundleOf("simple-oneslide.key");
@@ -93,7 +93,7 @@ layer(NodeServices.layer)((it) => {
     });
   });
 
-  describe("object resolver (#101)", () => {
+  describe("object resolver", () => {
     it.effect("resolves a component's root by decoding that component only", () =>
       Effect.gen(function* () {
         const resolver = ok(makeObjectResolver(yield* bundleOf("simple-oneslide.key")));
@@ -137,7 +137,7 @@ layer(NodeServices.layer)((it) => {
     );
   });
 
-  describe("referenceAt (#101)", () => {
+  describe("referenceAt", () => {
     test("reads the identifier of a TSP.Reference field", () => {
       const message = parseMessage(new Uint8Array(lenField(3, varintField(1, 8060))));
       expect(referenceAt(message, 3)).toEqual(Option.some(8060n));
@@ -145,7 +145,7 @@ layer(NodeServices.layer)((it) => {
     });
   });
 
-  describe("Keynote show order (#99)", () => {
+  describe("Keynote show order", () => {
     it.effect("a real deck's slide tree names its slide", () =>
       Effect.gen(function* () {
         expect(ok(showOrder(yield* bundleOf("simple-oneslide.key")))).toEqual(Option.some([8060n]));

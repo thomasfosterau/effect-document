@@ -1,5 +1,5 @@
 /**
- * A stack-safe wire codec for {@link Document} (#191).
+ * A stack-safe wire codec for {@link Document}.
  *
  * `Schema.encodeUnknownSync(Document)` and its decode twin recurse through the
  * schema once per level of the value, several frames per level, so a document
@@ -114,7 +114,7 @@ interface Child {
   /** Whether the array may hold gaps (a row's cells): `undefined`, written `null`. */
   readonly gaps: boolean;
   /**
-   * Whether an entry may be a plain row (a worksheet's rows, #227): an array
+   * Whether an entry may be a plain row (a worksheet's rows): an array
    * of a row's positions in place of a node.
    */
   readonly plainRows: boolean;
@@ -162,7 +162,7 @@ const manyMany = (key: string, ref: Ref): Child => ({
 });
 /** An array whose positions may be gaps (a row's cells). */
 const positions = (key: string, ref: Ref): Child => ({ ...many(key, ref), gaps: true });
-/** A worksheet's rows: each a row node, or a plain row's positions (#227). */
+/** A worksheet's rows: each a row node, or a plain row's positions. */
 const sheetRows = (key: string, ref: Ref): Child => ({ ...many(key, ref), plainRows: true });
 
 const inlines = (key: string): Child => many(key, "Inline");
@@ -630,7 +630,7 @@ export const encodeDocumentResult = (
   Result.mapBoth(walk(document, DOCUMENT, encoding), {
     onFailure: (issue) => new Schema.SchemaError(issue),
     // SAFETY: the root is encoded field by field with `Document`'s own and recursive fields.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness -- the walker builds plain JSON field by field from `Document`'s own schemas; a deep `Schema.is` to prove it would bring back the recursion the walker exists to avoid (#191)
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion, effect/casting-awareness -- the walker builds plain JSON field by field from `Document`'s own schemas; a deep `Schema.is` to prove it would bring back the recursion the walker exists to avoid
     onSuccess: (json) => json as DocumentEncoded,
   });
 

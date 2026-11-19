@@ -7,7 +7,7 @@ import { ALL_FEATURES } from "../schema/feature.ts";
 import { LossReport } from "../profile/loss.ts";
 
 /**
- * Best-effort source position of a parse failure (#127): as much of it as the
+ * Best-effort source position of a parse failure: as much of it as the
  * reader knows. `row` and `column` are counted as the format counts them: a
  * CSV source row and column from 0, an XML part's line and column from 1;
  * `part` is a package part (`word/document.xml`), `offset` a
@@ -29,7 +29,7 @@ export const SourcePosition = Schema.Struct({
 export type SourcePosition = typeof SourcePosition.Type;
 
 /**
- * What kind of failure a {@link ParseError} is (#127), shared by every reader
+ * What kind of failure a {@link ParseError} is, shared by every reader
  * so a caller can branch on it rather than on the message:
  * - `InvalidContainer`: the archive itself is unreadable (not a zip);
  * - `WrongFormat`: a valid container or file of another format (a DOCX read
@@ -105,6 +105,6 @@ export class ProfileViolation extends Schema.TaggedError<ProfileViolation>()("Pr
 export class ConversionError extends Schema.TaggedError<ConversionError>()("ConversionError", {
   reason: Schema.String,
   cause: Schema.optional(Schema.Unknown),
-  /** What the conversion would have lost, when `convert`'s `onLoss: "fail"` refused it (#112). */
+  /** What the conversion would have lost, when `convert`'s `onLoss: "fail"` refused it. */
   loss: Schema.optional(LossReport),
 }) {}

@@ -113,7 +113,7 @@ const WORDS = [
   word("Second", 10, 40, 40, 44),
 ];
 
-describe("pages without a text layer (#31)", () => {
+describe("pages without a text layer", () => {
   it.effect("a scanned page reads as empty and is listed in pagesWithoutText", () =>
     Effect.gen(function* () {
       const back = yield* makePdfReader().read(bytes(scan(grayImage)));
@@ -140,7 +140,7 @@ describe("pages without a text layer (#31)", () => {
   );
 });
 
-describe("OCR engine (#31)", () => {
+describe("OCR engine", () => {
   it.effect("recognised words become the page's text, line by line", () =>
     Effect.gen(function* () {
       const { engine, seen } = fakeEngine(WORDS);

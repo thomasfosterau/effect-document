@@ -410,7 +410,7 @@ describe("PdfFile", () => {
     }),
   );
 
-  test("rewritePdf takes more objects than a spread's argument limit (#225)", () => {
+  test("rewritePdf takes more objects than a spread's argument limit", () => {
     const file = PdfFile.open(xrefStreamPdf());
     const count = 300_000;
     // oxlint-disable-next-line effect/avoid-native-object-helpers -- rewritePdf's `overrides` is a ReadonlyMap (its public API)
@@ -437,7 +437,7 @@ describe("PdfFile", () => {
 const nested = (open: string, close: string, n: number) =>
   enc(open.repeat(n) + "1" + close.repeat(n));
 
-describe("nesting limit (#110)", () => {
+describe("nesting limit", () => {
   const limitExceeded = { _tag: "PdfSyntaxError", code: "LimitExceeded" };
 
   test("arrays and dictionaries up to MAX_OBJECT_NESTING parse", () => {
@@ -464,7 +464,7 @@ describe("nesting limit (#110)", () => {
   });
 });
 
-describe("a file without its %PDF- header (#173)", () => {
+describe("a file without its %PDF- header", () => {
   it.effect("is read when it starts with object definitions, repaired by the object scan", () =>
     Effect.gen(function* () {
       const whole = yield* pdfBytes("Headless", "T");

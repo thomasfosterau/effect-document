@@ -34,7 +34,7 @@ export const Csv = defineProfile("csv", csvFeatures);
 
 /**
  * A full spreadsheet (XLSX/ODS): multi-sheet, all cell types, styling,
- * merges, and cell comments (#67). A comment's body is blocks, so the prose
+ * merges, and cell comments. A comment's body is blocks, so the prose
  * blocks are allowed, but only inside a comment (`onlyWithin`): a spreadsheet
  * document is still worksheets at its top level.
  */

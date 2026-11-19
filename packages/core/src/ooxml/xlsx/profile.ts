@@ -1,5 +1,5 @@
 /**
- * The XLSX profiles. Following the profile policy (#109), the write profile
+ * The XLSX profiles. Following the profile policy, the write profile
  * holds only what survives `read(write(doc))`; the read profile is what the
  * reader produces, which differs where the reader understands more than the
  * writer emits (ISO `t="d"` dates, non-grid sheets tagged `attr.data.kind`).
@@ -8,7 +8,7 @@
  * heights (`<row ht customHeight="1">`), hidden rows, columns and worksheets
  * (`hidden="1"`, `<sheet state>`) and rich shared strings (bold,
  * italic, underline, strikethrough and superscript / subscript runs)
- * round-trip (#66), and so do cell comments (#67): legacy notes
+ * round-trip, and so do cell comments: legacy notes
  * (`xl/commentsN.xml` with the VML drawing Excel shows them with), whose body
  * is paragraphs, and so do threaded comments (replies, a resolved mark, a
  * date), whose text is plain (see `xlsxRules`). Not (yet) preserved, so narrowed away on write with a
@@ -24,7 +24,7 @@ export const xlsxFeatures = [
   "sheet.multiple",
   "sheet.merges",
   "sheet.columns",
-  // hidden rows, columns and worksheets (#66): `hidden="1"` and `<sheet state>`
+  // hidden rows, columns and worksheets: `hidden="1"` and `<sheet state>`
   "sheet.hidden",
   "cell.text",
   "cell.number",
@@ -32,7 +32,7 @@ export const xlsxFeatures = [
   "cell.error",
   "cell.blank",
   "cell.formula",
-  // a rich shared string (#66): runs of text under bold, italic, underline,
+  // a rich shared string: runs of text under bold, italic, underline,
   // strikethrough and superscript / subscript marks
   "cell.richText",
   "inline.str",
@@ -44,9 +44,9 @@ export const xlsxFeatures = [
   "inline.strikeout",
   "inline.superscript",
   "inline.subscript",
-  // a hyperlink (#67): over a whole cell, as the worksheet's <hyperlinks> holds it
+  // a hyperlink: over a whole cell, as the worksheet's <hyperlinks> holds it
   "inline.link",
-  // a cell comment (#67): a legacy note, whose body is paragraphs (`block.para`,
+  // a cell comment: a legacy note, whose body is paragraphs (`block.para`,
   // allowed only inside a comment: see `xlsxRules`), or a thread of Excel's
   // threaded comments, whose text is plain
   "review.comments",
@@ -65,7 +65,7 @@ const threadPlainFeatures = [
 ] as const;
 
 /**
- * The structural rules both XLSX profiles keep (#67): paragraphs only inside
+ * The structural rules both XLSX profiles keep: paragraphs only inside
  * a cell comment, and, as SpreadsheetML links a whole cell
  * (`<hyperlink ref>`), a `Link` in a rich cell is its only run.
  */

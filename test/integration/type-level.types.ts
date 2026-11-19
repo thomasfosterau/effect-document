@@ -64,7 +64,7 @@ export const rtfIntoDocx: Doc<FeaturesOf<typeof Docx.profile>> = rtfDoc;
 // @ts-expect-error a DOCX document may hold tables, which the PDF writer can't represent
 export const docxIntoPdf = pdfWriter.write(docxDoc);
 
-// (6) A profile's node types (#109): `TagsOf` maps features to the tags of
+// (6) A profile's node types: `TagsOf` maps features to the tags of
 // the nodes they name, and `BlockOf` / `InlineOf` / `CellOf` are the nodes a
 // document of the profile may hold, which writers render exhaustively.
 type CsvTags = TagsOf<CsvF>;
@@ -74,7 +74,7 @@ export const notCsvTag: CsvTags = "CellDate";
 declare const csvCell: CellOf<CsvF>;
 export const csvCellTag: "CellText" | "CellNumber" | "CellBoolean" | "CellBlank" = csvCell._tag;
 declare const pdfInline: InlineOf<FeaturesOf<typeof Pdf.format.writeProfile>>;
-// Inline code is in the PDF write profile: the tags carry it back (#212).
+// Inline code is in the PDF write profile: the tags carry it back.
 export const pdfCode: typeof pdfInline._tag = "Code";
 // @ts-expect-error underline is not in the PDF write profile: it is only a drawn line
 export const pdfUnderline: typeof pdfInline._tag = "Underline";
@@ -82,7 +82,7 @@ declare const docxBlock: BlockOf<FeaturesOf<typeof Docx>>;
 // @ts-expect-error a rule is not in the DOCX profile
 export const docxRule: "HorizontalRule" = docxBlock._tag;
 
-// (7) Per-node id facets (#184): a profile listing `attr.id` allows every
+// (7) Per-node id facets: a profile listing `attr.id` allows every
 // node's id facet, so a document with heading ids widens into it; a profile
 // listing only the heading facet holds heading ids and no others.
 type HtmlF = FeaturesOf<typeof Profiles.Html>;
@@ -95,7 +95,7 @@ declare const linkIdDoc: Doc<"inline.link" | "inline.str" | "attr.id.link">;
 export const linkIdsIntoHeadingIds: Doc<"inline.link" | "inline.str" | "attr.id.header"> =
   linkIdDoc;
 
-// (#126) The profile algebra is typed: a union's documents take either side's
+// The profile algebra is typed: a union's documents take either side's
 // features, `withoutFeatures` removes them from the phantom too, and
 // `IsSubProfile` compares feature sets.
 const CsvOrSpreadsheet = unionProfiles("csv-or-sheet", Profiles.Csv, Profiles.Spreadsheet);

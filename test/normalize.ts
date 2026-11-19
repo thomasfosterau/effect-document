@@ -1,6 +1,6 @@
 /**
  * A normal form for comparing a document with its round trip through a
- * format (#109). Two documents with the same normal form say the same thing;
+ * format. Two documents with the same normal form say the same thing;
  * the normalisations are the representational choices the schema leaves open
  * and no format can be expected to keep:
  *
@@ -68,7 +68,7 @@ export interface NormalShape {
 }
 
 /**
- * A normalised comment (#67): who wrote it, when, whether it is resolved and
+ * A normalised comment: who wrote it, when, whether it is resolved and
  * its initials (`meta`, one string), its body in normal form, and its replies.
  */
 export interface NormalComment {
@@ -84,7 +84,7 @@ export type NormalBlock =
       readonly _tag: "Header";
       readonly level: number;
       readonly text: ReadonlyArray<Token>;
-      /** The heading's id, when it has one (#184). */
+      /** The heading's id, when it has one. */
       readonly id?: string | undefined;
     }
   | { readonly _tag: "Code"; readonly text: string }
@@ -103,7 +103,7 @@ export type NormalBlock =
       readonly _tag: "Sheet";
       readonly name: string;
       readonly rows: ReadonlyArray<ReadonlyArray<NormalCell>>;
-      /** The sheet's comments with their cells (#67); empty when it has none. */
+      /** The sheet's comments with their cells; empty when it has none. */
       readonly comments: ReadonlyArray<{ readonly cell: string; readonly comment: NormalComment }>;
     }
   | { readonly _tag: "Slides"; readonly slides: ReadonlyArray<ReadonlyArray<NormalShape>> }
@@ -309,7 +309,7 @@ const normalizeBlock = (block: Block): NormalBlock =>
     Match.orElse((node): NormalBlock => ({ _tag: "Other", node: node._tag })),
   );
 
-/** A comment in normal form (#67): its body normalised as any blocks are. */
+/** A comment in normal form: its body normalised as any blocks are. */
 const normalizeComment = (comment: Comment): NormalComment => ({
   meta: [
     comment.author ?? "",

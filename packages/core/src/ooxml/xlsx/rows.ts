@@ -71,7 +71,7 @@ const byIndex = Order.mapInput(Order.Number, ([index]: readonly [number, unknown
  * The rows read, ascending by index (each row's cells are positional
  * already). Rows may arrive in any order, but writers emit them in order, so
  * the sort is skipped when it would change nothing. A row right after the one
- * before it is a plain row (#227: its cells alone, no node); one after a gap
+ * before it is a plain row (its cells alone, no node); one after a gap
  * is a `SheetRow` carrying its index.
  */
 export const rowsInOrder = (cellMap: ReadonlyMap<number, RowCellsSoFar>): Array<WorksheetRow> => {
@@ -157,7 +157,7 @@ export const parseWorksheetRows = (
 };
 
 // ============================================================================
-// Row heights and hidden rows (#66)
+// Row heights and hidden rows
 // ============================================================================
 
 /**

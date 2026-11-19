@@ -1,8 +1,8 @@
 /**
- * Recognising an iWork package for `detect` (#188), and which app made it:
+ * Recognising an iWork package for `detect`, and which app made it:
  * the bundle opens under the readers' zip limits, and the root object of
  * `Index/Document.iwa` (identifier 1) says Pages (`TP.DocumentArchive`) or
- * Keynote / Numbers, which share a type id (#99) and are told apart by
+ * Keynote / Numbers, which share a type id and are told apart by
  * Keynote's `Slide-*.iwa` components.
  */
 

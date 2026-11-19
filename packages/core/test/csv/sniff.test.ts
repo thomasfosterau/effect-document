@@ -38,7 +38,7 @@ const DIALECTS: ReadonlyArray<readonly [string, CsvDialect]> = [
 const confidenceOf = (sniff: ReturnType<typeof sniffCsv>): number =>
   Option.match(sniff, { onNone: () => 0, onSome: (s) => s.confidence });
 
-describe("sniffDialect (#188)", () => {
+describe("sniffDialect", () => {
   it.effect.each(DIALECTS)("finds the %s dialect and the header", ([, dialect]) =>
     Effect.gen(function* () {
       const found = yield* sniffed(table(dialect, 20));
@@ -92,7 +92,7 @@ describe("sniffDialect (#188)", () => {
   );
 });
 
-describe("sniffCsv / sniffTsv (#188)", () => {
+describe("sniffCsv / sniffTsv", () => {
   test("are sure of consistent rows of their own separator only", () => {
     const csv = text(table(COMMA, 5));
     const tsv = text(table(TAB, 5));

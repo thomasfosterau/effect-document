@@ -159,7 +159,7 @@ describe("narrow: column-level styling", () => {
   });
 });
 
-describe("narrow: hidden rows, columns and worksheets (#66)", () => {
+describe("narrow: hidden rows, columns and worksheets", () => {
   // column and row metadata, but nothing hidden
   const Shown = defineProfile("shown", [
     "sheet.worksheet",
@@ -226,7 +226,7 @@ describe("narrow: spreadsheet -> prose", () => {
   });
 });
 
-describe("narrow: structural rules (notWithin, #197)", () => {
+describe("narrow: structural rules (notWithin)", () => {
   const BoldHeadings = defineProfile(
     "bold-headings",
     ["block.para", "block.header", "inline.str", "inline.space", "inline.strong"],
@@ -282,7 +282,7 @@ const title = (content: ConstructorParameters<typeof Placeholder>[0]["content"])
   content,
 });
 
-describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
+describe("narrow: structural rules (onlyWithin, fieldValues)", () => {
   const Titles = defineProfile(
     "titles",
     [
@@ -365,7 +365,7 @@ describe("narrow: structural rules (onlyWithin, fieldValues, #126)", () => {
   );
 });
 
-describe("per-node id facets (#184)", () => {
+describe("per-node id facets", () => {
   const HeadingIds = defineProfile("heading-ids", [
     "block.para",
     "block.header",

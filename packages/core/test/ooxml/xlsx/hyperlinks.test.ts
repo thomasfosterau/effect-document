@@ -56,7 +56,7 @@ const read = (data: Uint8Array) =>
 const linked = (text: string, url: string, title?: string) =>
   new CellRichText({ runs: [link([str(text)], url, title)] });
 
-describe("XLSX hyperlinks (#67)", () => {
+describe("XLSX hyperlinks", () => {
   it.effect("round-trip an external link (with its tooltip) and one inside the workbook", () =>
     Effect.gen(function* () {
       const sheet = worksheet("S", [

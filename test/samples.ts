@@ -1,8 +1,8 @@
 /**
  * A small sample document for each feature, shared by the suites that write
  * every feature a format supports: the write-profile round trip
- * (`integration/profile-roundtrip.test.ts`, #109) and the output validators
- * (`validate/`, #134).
+ * (`integration/profile-roundtrip.test.ts`) and the output validators
+ * (`validate/`).
  */
 
 import * as DateTime from "effect/DateTime";
@@ -100,7 +100,7 @@ const INLINE: Partial<Record<Feature, Inline>> = {
   "inline.link": new Link({ content: [s("x")], target: { url: "https://example.com/" } }),
   "inline.image": new Image({ alt: [s("x")], target: { url: "x.png" } }),
   "inline.note": new Note({ content: [para([s("x")])] }),
-  // a span says something through its id (#184)
+  // a span says something through its id
   "inline.span": new Span({ attr: { id: "x" }, content: [s("x")] }),
 };
 
@@ -128,7 +128,7 @@ const BLOCK: Partial<Record<Feature, Block>> = {
 /**
  * A worksheet with a header row above `rows`, as real spreadsheets and CSV
  * files have: the CSV reader sniffs a text first row over typed columns as the
- * header (#88), so a sample's typed cells sit in the data rows.
+ * header, so a sample's typed cells sit in the data rows.
  */
 const sheet = (name: string, rows: ReadonlyArray<ReadonlyArray<SheetCell>>) =>
   worksheet(name, [(rows[0] ?? []).map((_, c) => cell.text(`h${c + 1}`)), ...rows]);
@@ -255,7 +255,7 @@ const DECK: Partial<Record<Feature, Block[]>> = {
   "shape.placeholder": [
     slideShow([slide([new Placeholder({ placeholderType: "body", content: [para([s("x")])] })])]),
   ],
-  // a deck's heading is a slide's title, in a title placeholder (#196)
+  // a deck's heading is a slide's title, in a title placeholder
   "block.header": [
     slideShow([
       slide([new Placeholder({ placeholderType: "title", content: [header(1, [s("x")])] })]),

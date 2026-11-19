@@ -56,7 +56,7 @@ const firstSheet = (data: Uint8Array) =>
     return ws;
   });
 
-describe("withSheetLayout (#66)", () => {
+describe("withSheetLayout", () => {
   test("is the worksheet new Worksheet builds: Equal, with the same keys in the same order", () => {
     const columns = [new SheetColumn({ width: 20 })];
     const merges = [merge(0, 0, 0, 1)];
@@ -92,7 +92,7 @@ describe("withSheetLayout (#66)", () => {
   });
 });
 
-describe("XLSX column widths and merged ranges (#66)", () => {
+describe("XLSX column widths and merged ranges", () => {
   it.effect("round-trip, consecutive columns of one width as one <col>", () =>
     Effect.gen(function* () {
       const columns = [
@@ -231,7 +231,7 @@ describe("XLSX column widths and merged ranges (#66)", () => {
 const shape = (ws: Worksheet) =>
   rowsOf(ws).map((r) => [r.index, r.height, r.cells.length] as const);
 
-describe("XLSX custom row heights (#66)", () => {
+describe("XLSX custom row heights", () => {
   const HEIGHTS = worksheetFromRows("S", [
     sheetRow(0, [cell.text("tall")], 30),
     ["plain"],

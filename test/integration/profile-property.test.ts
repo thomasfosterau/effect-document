@@ -1,5 +1,5 @@
 /**
- * Profile honesty, as a property (#109): for every format with a writer and a
+ * Profile honesty, as a property: for every format with a writer and a
  * reader, every document in its write profile survives `read(write(doc))` up
  * to normalisation (`../normalize.ts`). A failure means the profile claims a
  * feature (or a combination of features) the format doesn't preserve, or a
@@ -8,7 +8,7 @@
  *
  * A profile is a set of features, so it can't express every limit a format
  * has (a list item that holds one paragraph, headings that are always bold).
- * Those are listed per format below, each with the issue that tracks it: as
+ * Those are listed per format below: as
  * shape options for the generator, or as limits that erase the distinction
  * from both sides before comparing.
  *
@@ -45,10 +45,9 @@ import {
 /**
  * A known limit of a format: a distinction it can't keep that its profile
  * can't express. It rewrites the normal form of both sides so that the
- * distinction is erased, and names the issue that tracks lifting it.
+ * distinction is erased.
  */
 interface Limit {
-  readonly issue: string;
   readonly erase: (normal: Normal) => Normal;
 }
 
@@ -114,7 +113,7 @@ const marksOf = (t: Token): ReadonlyArray<string> =>
 
 /**
  * A heading without an id whose whole text is one span reads as the heading's
- * id: a bookmark around a whole heading paragraph is its id (#184).
+ * id: a bookmark around a whole heading paragraph is its id.
  */
 const wholeSpanHeadings = (normal: Normal): Normal =>
   mapBlocks(normal, (b) => {
@@ -162,7 +161,7 @@ const bareComment = (c: NormalComment, keepDate: boolean): NormalComment => {
 const byTime = Order.mapInput(Order.String, (c: NormalComment) => metaFields(c)[2]);
 
 /**
- * What a comment in a workbook can't keep (#67), erased from both sides:
+ * What a comment in a workbook can't keep, erased from both sides:
  * initials (Excel's notes and threaded comments have nowhere for them); the
  * date of a comment that is no thread (a legacy note holds none); and the
  * shape of a thread, which Excel keeps flat and ordered by time (a reply to a
@@ -193,19 +192,19 @@ const flatThreads = (normal: Normal): Normal =>
   );
 
 const CASES: ReadonlyArray<Case> = [
-  // CSV carries a type per column, not per cell (#88).
+  // CSV carries a type per column, not per cell.
   { format: Csv.format, family: "sheet", options: { columnTyped: true }, runs: 100 },
   { format: Csv.tsvFormat, family: "sheet", options: { columnTyped: true }, runs: 50 },
   {
     format: Xlsx.format,
     family: "sheet",
-    limits: [{ issue: "#67", erase: flatThreads }],
+    limits: [{ erase: flatThreads }],
     runs: 100,
   },
   {
     format: Docx.format,
     family: "prose",
-    limits: [{ issue: "#184", erase: wholeSpanHeadings }],
+    limits: [{ erase: wholeSpanHeadings }],
     runs: 100,
   },
   {
@@ -213,9 +212,9 @@ const CASES: ReadonlyArray<Case> = [
     family: "deck",
     limits: [
       // DrawingML has no list container: adjacent bullet lists read back as one.
-      { issue: "#196", erase: adjacentBulletLists },
+      { erase: adjacentBulletLists },
       // A title placeholder's text reads back as level-1 headings.
-      { issue: "#196", erase: titleHeadings },
+      { erase: titleHeadings },
     ],
     runs: 100,
   },
@@ -228,14 +227,14 @@ const CASES: ReadonlyArray<Case> = [
     format: Pdf.format,
     family: "prose",
     // The writer tags its output and the reader takes the structure from the
-    // tags (#198), so headings keep their levels, paragraphs and lists their
+    // tags, so headings keep their levels, paragraphs and lists their
     // breaks, list items their paragraphs, and a line's trailing hyphen its
     // space (only a soft hyphen joins a tagged word across lines).
     runs: 50,
   },
 ];
 
-describe("every write-profile document round-trips (#109)", () => {
+describe("every write-profile document round-trips", () => {
   CASES.forEach(({ format, family, options, runs, limits = [] }) => {
     const normal = (doc: Document): string =>
       normalJson(limits.reduce((n, l) => l.erase(n), normalize(doc)));

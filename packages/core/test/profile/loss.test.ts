@@ -24,7 +24,7 @@ import {
 
 const day = cell.date(DateTime.toDateUtc(DateTime.makeUnsafe("2026-01-02T00:00:00Z")));
 
-describe("loss report paths, severity and summary (#112)", () => {
+describe("loss report paths, severity and summary", () => {
   test("a cell's entry names its block and A1 address", () => {
     const doc = document([
       para([str("intro")]),

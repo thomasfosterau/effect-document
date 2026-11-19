@@ -46,7 +46,7 @@ export interface RtfWriterOptions {
 
 // The node types the profile allows. Branches over these use the exhaustive
 // `Match.valueTags`, so a feature added to the profile but not to the writer
-// is a compile error (#109).
+// is a compile error.
 type RtfInline = InlineOf<RtfFeature>;
 type RtfBlock = BlockOf<RtfFeature>;
 

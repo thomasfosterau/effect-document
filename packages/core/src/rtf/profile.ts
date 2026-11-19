@@ -25,7 +25,7 @@ export const rtfFeatures = [
 /**
  * The RTF profile. Headings are set in bold, so the reader takes bold in a
  * heading as the heading's own look: `Strong` inside a `Header` doesn't
- * round-trip, and `narrow` unwraps it with a loss entry (#197).
+ * round-trip, and `narrow` unwraps it with a loss entry.
  */
 export const Rtf = defineProfile("rtf", rtfFeatures, {
   notWithin: [

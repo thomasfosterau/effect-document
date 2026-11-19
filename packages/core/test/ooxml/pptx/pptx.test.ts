@@ -108,14 +108,14 @@ describe("PPTX round-trip", () => {
     Effect.gen(function* () {
       const back = yield* readBack([slide([textBox([para([str("hello")])])])]);
       expect(PptxRead.is(back)).toBe(true);
-      // the writer's one layout is named, which only the read profile keeps (#82)
+      // the writer's one layout is named, which only the read profile keeps
       const { document: narrowed, loss } = narrow(back, Pptx);
       expect(Pptx.is(narrowed)).toBe(true);
       expect(loss.entries.map((e) => e.feature)).toEqual(["deck.layout"]);
     }),
   );
 
-  it.effect("a list item's later paragraphs stay in the item (#196)", () =>
+  it.effect("a list item's later paragraphs stay in the item", () =>
     Effect.gen(function* () {
       const blocks = [
         bulletList([
@@ -132,7 +132,7 @@ describe("PPTX round-trip", () => {
     }),
   );
 
-  it.effect("an item's later paragraph in a title placeholder stays a paragraph (#196)", () =>
+  it.effect("an item's later paragraph in a title placeholder stays a paragraph", () =>
     Effect.gen(function* () {
       const content = [bulletList([[plainText("a"), para([str("a, continued")])]])];
       const ss = firstSlideShow(
@@ -144,14 +144,14 @@ describe("PPTX round-trip", () => {
     }),
   );
 
-  it.effect("an item that starts with a nested list keeps it (#196)", () =>
+  it.effect("an item that starts with a nested list keeps it", () =>
     Effect.gen(function* () {
       const blocks = [bulletList([[bulletList([[plainText("inner")]])], [plainText("b")]])];
       expect(yield* shapeBack(blocks)).toEqual(blocks);
     }),
   );
 
-  it.effect("adjacent ordered lists stay two lists, and keep their start (#196)", () =>
+  it.effect("adjacent ordered lists stay two lists, and keep their start", () =>
     Effect.gen(function* () {
       const blocks = [
         orderedList([[plainText("a")], [plainText("b")]]),
@@ -187,7 +187,7 @@ const titled = (placeholderType: string, level: number) =>
     ]),
   ]);
 
-describe("PPTX reader fixes (#81)", () => {
+describe("PPTX reader fixes", () => {
   it.effect("shapes inside (nested) group shapes are read in order", () =>
     Effect.gen(function* () {
       const tree =
@@ -244,7 +244,7 @@ describe("PPTX reader fixes (#81)", () => {
     }),
   );
 
-  test("the write profile takes a level-1 heading in a title placeholder only (#196)", () => {
+  test("the write profile takes a level-1 heading in a title placeholder only", () => {
     expect(Pptx.is(titled("title", 1))).toBe(true);
     expect(Pptx.is(titled("ctrTitle", 1))).toBe(true);
     expect(Pptx.is(titled("body", 1))).toBe(false);
@@ -266,7 +266,7 @@ describe("PPTX reader fixes (#81)", () => {
     ]);
   });
 
-  it.effect("a title heading narrows to PPTX losslessly and round-trips (#196)", () =>
+  it.effect("a title heading narrows to PPTX losslessly and round-trips", () =>
     Effect.gen(function* () {
       const doc = document([
         slideShow([

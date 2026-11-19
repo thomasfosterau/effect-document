@@ -92,8 +92,8 @@ const OBJECT_START = /(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b/;
 /**
  * Whether the first KiB of `bytes` holds an indirect object definition
  * (`12 0 obj`) at the start of a line: a PDF without its `%PDF-` header that
- * `PdfFile.open` still reads, as pdf.js does (#173). `detect`'s PDF sniffer
- * asks the same (#188).
+ * `PdfFile.open` still reads, as pdf.js does. `detect`'s PDF sniffer
+ * asks the same.
  */
 export const opensWithObject = (bytes: Uint8Array): boolean =>
   OBJECT_START.test(String.fromCharCode(...bytes.subarray(0, 1024)));
@@ -161,7 +161,7 @@ export class PdfFile {
   /** Open a PDF from its bytes. Throws `PdfSyntaxError` if it is not a readable PDF. */
   static open(bytes: Uint8Array): PdfFile {
     // A file without its header is still read when an object definition
-    // starts it (as pdf.js does, #173): the catalog check that follows
+    // starts it (as pdf.js does): the catalog check that follows
     // rejects anything that isn't a PDF after all.
     if (indexOf(bytes.subarray(0, 1024), ascii("%PDF-")) < 0 && !opensWithObject(bytes)) {
       throw new PdfSyntaxError({ reason: "not a PDF file: missing %PDF- header", offset: 0 });

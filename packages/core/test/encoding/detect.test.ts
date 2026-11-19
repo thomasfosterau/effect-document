@@ -18,7 +18,7 @@ const utf16be = (s: string): Uint8Array =>
 /** "café,naïve\n" in Windows-1252: é and ï are single bytes no UTF-8 sequence starts with. */
 const CP1252 = Uint8Array.from([0x63, 0x61, 0x66, 0xe9, 0x2c, 0x6e, 0x61, 0xef, 0x76, 0x65, 0x0a]);
 
-describe("detectEncoding (#188 §2)", () => {
+describe("detectEncoding", () => {
   it.effect.each([
     ["UTF-8", [0xef, 0xbb, 0xbf]],
     ["UTF-16LE", [0xff, 0xfe]],
@@ -87,7 +87,7 @@ describe("detectEncoding (#188 §2)", () => {
   );
 });
 
-describe("decodeText (#188 §2)", () => {
+describe("decodeText", () => {
   it.effect("decodes with the detected encoding, a byte-order mark stripped", () =>
     Effect.gen(function* () {
       expect((yield* decodeText(bytes(CP1252))).text).toBe("café,naïve\n");

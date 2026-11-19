@@ -1,5 +1,5 @@
 /**
- * The document outline (#20, slice 3 of #198): the writer builds one from the
+ * The document outline: the writer builds one from the
  * headings, and the layout reader takes heading levels from it.
  */
 
@@ -42,7 +42,7 @@ const write = (blocks: ReadonlyArray<Block>) =>
 
 const read = (data: Uint8Array) => makePdfReader().read(bytes(data));
 
-describe("the writer's outline (#20)", () => {
+describe("the writer's outline", () => {
   it.effect("has an item per heading, nested by level, going to its page", () =>
     Effect.gen(function* () {
       const filler = para([str(Array.from({ length: 700 }, (_, i) => `w${i}`).join(" "))]);
@@ -131,7 +131,7 @@ const body = text(11, 640, "Body text that is set in the most common size of all
 const outlineItem = (title: string, entries: Record<string, PdfObject | undefined>): PdfDict =>
   pdfDict({ Title: pdfTextString(title), ...entries });
 
-describe("reading heading levels from the outline (#20)", () => {
+describe("reading heading levels from the outline", () => {
   it.effect("an untagged file's headings take the outline's depth, not their size rank", () =>
     Effect.gen(function* () {
       const data = untagged(

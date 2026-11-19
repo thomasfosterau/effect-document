@@ -1,5 +1,5 @@
 /**
- * Reading a tagged PDF's structure tree (#198): the reader takes headings,
+ * Reading a tagged PDF's structure tree: the reader takes headings,
  * paragraphs, lists, code and quotes from the tags when the tree owns the
  * text, and falls back to the layout when it doesn't.
  */
@@ -48,7 +48,7 @@ const roundTrip = (blocks: ReadonlyArray<Block>) =>
 
 const tags = (blocks: ReadonlyArray<Block>): ReadonlyArray<string> => blocks.map((b) => b._tag);
 
-describe("reading a tagged PDF's structure (#198)", () => {
+describe("reading a tagged PDF's structure", () => {
   it.effect("headings keep their levels, with no body text to compare their sizes with", () =>
     Effect.gen(function* () {
       const back = yield* roundTrip([header(2, [str("Two")]), header(4, [str("Four")])]);
@@ -160,7 +160,7 @@ const line = (tag: string, mcid: number, y: number, text: string, size = 11): st
 const elem = (pdf: PdfBuilder, type: string, page: PdfObject, parent: PdfObject, k: PdfObject) =>
   pdf.add(pdfDict({ Type: pdfName("StructElem"), S: pdfName(type), P: parent, Pg: page, K: k }));
 
-describe("reading other generators' tags (#198)", () => {
+describe("reading other generators' tags", () => {
   it.effect("custom types go through the role map", () =>
     Effect.gen(function* () {
       const data = tagged(
@@ -297,7 +297,7 @@ const layoutOnly = (blocks: ReadonlyArray<Block>) =>
     return layoutBlocks(readPages(PdfFile.open(c.bytes)));
   });
 
-describe("the layout reader still reads untagged output (#198)", () => {
+describe("the layout reader still reads untagged output", () => {
   it.effect("a paragraph that runs over a page break is one paragraph", () =>
     Effect.gen(function* () {
       const words = Array.from({ length: 900 }, (_, i) => `word${i}`).join(" ");

@@ -28,7 +28,7 @@ export interface Format<R extends Feature, W extends Feature = R> {
   /** Writer implementation, if this format supports writing. */
   readonly writer?: Writer<W> | undefined;
   /**
-   * How to recognise this format's content, for `detect` (#188): a pure
+   * How to recognise this format's content, for `detect`: a pure
    * check of the bytes or text, never the file name. A format without one is
    * never a `detect` candidate.
    */

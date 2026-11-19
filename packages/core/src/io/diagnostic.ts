@@ -1,5 +1,5 @@
 /**
- * The diagnostics channel (#112, owner decision: option 3): a reader or
+ * The diagnostics channel: a reader or
  * writer reports a non-fatal issue as a warning log record annotated with its
  * {@link Diagnostic}, so no `Reader` / `Writer` signature changes and no
  * service is required; `convert` (and {@link collectDiagnostics}) gather the

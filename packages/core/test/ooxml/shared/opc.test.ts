@@ -43,7 +43,7 @@ const docx = () =>
     return out;
   });
 
-describe("OpcReader (#55)", () => {
+describe("OpcReader", () => {
   test("inflates parts lazily and matches part names case-insensitively", () => {
     const pkg = new OpcReader(
       zip({ "Word/Document.xml": "<a/>", "media/big.bin": new Uint8Array(1000) }),
@@ -136,7 +136,7 @@ describe("OpcReader (#55)", () => {
   );
 });
 
-describe("readers (#55)", () => {
+describe("readers", () => {
   it.effect(
     "a package of the wrong type fails with WrongPackageType instead of reading empty",
     () =>

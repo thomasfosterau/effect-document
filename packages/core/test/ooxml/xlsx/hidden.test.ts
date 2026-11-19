@@ -66,7 +66,7 @@ const HIDDEN = withSheetLayout(
   [],
 );
 
-describe("XLSX hidden rows and columns (#66)", () => {
+describe("XLSX hidden rows and columns", () => {
   it.effect('round-trip with hidden="1", an empty hidden row included', () =>
     Effect.gen(function* () {
       const written = yield* write([HIDDEN]);
@@ -125,7 +125,7 @@ describe("XLSX hidden rows and columns (#66)", () => {
   );
 });
 
-it.effect("a hidden row keeps its hidden mark when the reader links one of its cells (#67)", () =>
+it.effect("a hidden row keeps its hidden mark when the reader links one of its cells", () =>
   Effect.gen(function* () {
     const linkedCell = new CellRichText({ runs: [link([str("site")], "https://example.com")] });
     const sheet = worksheetFromRows("S", [
@@ -140,7 +140,7 @@ it.effect("a hidden row keeps its hidden mark when the reader links one of its c
   }),
 );
 
-describe("XLSX hidden worksheets (#66)", () => {
+describe("XLSX hidden worksheets", () => {
   const shown = worksheet("Shown", [["a"]]);
   const hidden = withSheetLayout(worksheet("Hidden", [["b"]]), [], [], "hidden");
   const veryHidden = withSheetLayout(worksheet("Very", [["c"]]), [], [], "veryHidden");

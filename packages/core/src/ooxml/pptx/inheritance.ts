@@ -1,5 +1,5 @@
 /**
- * PPTX style inheritance (#82): the list structure and run marks a shape
+ * PPTX style inheritance: the list structure and run marks a shape
  * inherits instead of repeating on every paragraph.
  *
  * Most text in a real deck states no bullet of its own. A paragraph's
@@ -356,7 +356,7 @@ const cachedBase = (
  * The inheritance of one read: loads each slide's layout and master through
  * the relationships, once per part, and reports what is missing as
  * diagnostics (a deck that lacks a layout or master reads without the styles
- * they hold, as it did before #82).
+ * they hold).
  */
 export class Inheritance {
   private readonly defaults: Option.Option<Levels>;

@@ -1,21 +1,8 @@
 /**
- * Consumer smoke test for the published package (`vp run check:pack`, after
- * `vp run -r build`): checks what npm would ship, not the workspace.
- *
- * 1. `pnpm pack` the package, the way `pnpm publish` builds the tarball
- *    (`workspace:` and `catalog:` specifiers replaced with real ranges).
- * 2. Lint the tarball: publint (manifest, `exports` and files agree) and
- *    attw with the `esm-only` profile (every entry's types resolve under
- *    node16 / bundler resolution; the packages ship no CommonJS).
- * 3. Install the tarball, plus `effect`, `@types/node` and the optional
- *    `@thomasfosterau/effect-parse` peer at the catalog versions, into a
- *    scratch project with npm, so they and `fflate` come from the registry as
- *    a consumer gets them.
- * 4. Import every `exports` entry from Node, and type-check an import of
- *    every entry with `module: nodenext` and `skipLibCheck: false`, so the
- *    emitted `.d.ts` must compile under a strict consumer's settings.
- *
- * Needs the network (the registry) for step 3.
+ * Consumer smoke test: packs the package as `pnpm publish` would, lints the
+ * tarball (publint, attw `esm-only`), installs it with its peers from the
+ * registry into a scratch project, then imports and type-checks every entry
+ * (`nodenext`, `skipLibCheck: false`). Needs the network.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

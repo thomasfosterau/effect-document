@@ -109,7 +109,7 @@ export interface XlsxReaderOptions {
   /** Zip-bomb limits (entry count, entry size, total size); see `OpcLimits`. */
   readonly limits?: OpcLimits | undefined;
   /**
-   * A preview read (#188): keep at most this many rows of each worksheet
+   * A preview read: keep at most this many rows of each worksheet
    * (rows the sheet holds, a header row counting as one). A workbook with a
    * longer sheet is marked truncated in its metadata (`isTruncated`), naming
    * the sheets cut, so a preview never passes for the whole file. The sheet
@@ -227,7 +227,7 @@ const tooLarge = (name: string, target: string, remaining: number, maxCells: num
 
 /**
  * A sheet's `rows` with the hyperlinks its part (`root`, at `target`) declares
- * set on their cells (#67), and an `xlsx.hyperlinkDropped` diagnostic for the
+ * set on their cells, and an `xlsx.hyperlinkDropped` diagnostic for the
  * cells that hold no text to link. The rows are returned unchanged for a
  * sheet without hyperlinks.
  */
@@ -253,7 +253,7 @@ const sheetHyperlinks = (
   );
 
 /**
- * The person lookup comment threads need (#67): the workbook's `person.xml`,
+ * The person lookup comment threads need: the workbook's `person.xml`,
  * read the first time a thread asks and not at all for a workbook without
  * threaded comments.
  */
@@ -278,7 +278,7 @@ const commentSources = (
 };
 
 /**
- * `sheet` with the comments its part's relationships lead to (#67), read after
+ * `sheet` with the comments its part's relationships lead to, read after
  * the rows and layout and only when the sheet has any: legacy notes and
  * threaded comments (see `comments.ts`). A malformed comments part fails the
  * read as a bad merge `ref` does, positioned at the sheet and part; a comment
@@ -515,7 +515,7 @@ export const makeXlsxReaderLayer = (options?: XlsxReaderOptions) =>
   Layer.succeed(XlsxReaderTag, makeXlsxReader(options));
 
 /**
- * The XLSX sniffer, for `detect` (#188): a zip whose main part (found as
+ * The XLSX sniffer, for `detect`: a zip whose main part (found as
  * the reader finds it) is declared a SpreadsheetML main part, which is what
  * the reader requires.
  */
