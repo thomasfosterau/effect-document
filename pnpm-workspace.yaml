@@ -25,7 +25,7 @@ catalog:
   # For `./encoding` only (effect-ext's `/Encoding`, which imports only `effect`).
   "@thomasfosterau/effect-ext": ^0.3.1
   # The parser combinators; consumers get it as an optional peer (below).
-  "@thomasfosterau/effect-parse": ^0.5.0
+  "@thomasfosterau/effect-parse": ^0.6.1
   "@types/node": ^26.6.6
   # Benchmark baselines (bench/ only): maintained libraries, each released
   # within the last two years.
@@ -65,7 +65,7 @@ catalog:
 catalogs:
   peers:
     # Optional: reached only from `/csv`, `/rtf`, `/ooxml*` and `/iwork*`.
-    "@thomasfosterau/effect-parse": ^0.5.0
+    "@thomasfosterau/effect-parse": ^0.6.1
     effect: ^4.0.0
 
 overrides:
