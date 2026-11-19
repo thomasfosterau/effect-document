@@ -8,8 +8,8 @@
  * is a slide's title: the reader takes a title placeholder's paragraphs as
  * level-1 headers, and the writer writes a header there as plain title text,
  * so the profile allows `block.header` only at level 1, only inside a title
- * placeholder and not inside a list (with structural rules). A header anywhere else narrows to a paragraph, with the rule's reason
- * in the loss report.
+ * placeholder and not inside a list, as structural rules. A header anywhere
+ * else narrows to a paragraph, with the rule's reason in the loss report.
  */
 
 import { defineProfile, type FeaturesOf, type ProfileOptions } from "../../index.ts";

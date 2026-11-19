@@ -420,8 +420,8 @@ const endsSentence = (l: Line): boolean => /[.!?:;]["'”’)]?$/.test(l.text);
 
 /**
  * Infer prose blocks from the text of a document's pages. A heading whose
- * text is an `outline` item's title takes its level from the item's depth
- *; the rest are ranked by size.
+ * text is an `outline` item's title takes its level from the item's depth;
+ * the rest are ranked by size.
  */
 export const layoutBlocks = (
   pages: ReadonlyArray<PageText>,

@@ -41,8 +41,8 @@ export interface OnlyWithin {
 
 /**
  * A structural rule: a node of `feature` must have its field `field`
- * holding one of `oneOf`. For example, PPTX keeps a heading only at level 1
- *. A node with another value doesn't conform, and `narrow` rewrites it
+ * holding one of `oneOf`. For example, PPTX keeps a heading only at level 1.
+ * A node with another value doesn't conform, and `narrow` rewrites it
  * as if the profile lacked `feature`, giving `reason` in the loss entry.
  */
 export interface FieldValues extends FieldMatch {

@@ -1,6 +1,6 @@
 /**
- * Every reader classifies its failures with the same `ParseError` codes
- *, so a caller can branch on `code` instead of the message, and a
+ * Every reader classifies its failures with the same `ParseError` codes,
+ * so a caller can branch on `code` instead of the message, and a
  * failure's `position` says where it happened when the reader knows.
  */
 

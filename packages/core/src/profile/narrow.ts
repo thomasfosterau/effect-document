@@ -225,8 +225,7 @@ interface Ctx {
  * The context for the contents of a kept node (`node`, of the feature
  * `within`): the features an `onlyWithin` rule allows only inside such a node
  * are allowed again, and the features a `notWithin` rule keeps out of
- * it are no longer allowed there, their loss entries giving the rule's reason
- *.
+ * it are no longer allowed there, their loss entries giving the rule's reason.
  */
 const inside = (within: Feature, node: RuleNode, ctx: Ctx): Ctx => {
   const admitted = ctx.onlyWithin.filter(

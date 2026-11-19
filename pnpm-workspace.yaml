@@ -58,7 +58,7 @@ catalog:
   "@typescript/native": "npm:typescript@7.0.2"
   # `vite` is vite-plus's aliased core and must equal `vite-plus`.
   vite-plus: 1.6.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
   vitest: 5.1.0
 
 # The ranges the published package declares.

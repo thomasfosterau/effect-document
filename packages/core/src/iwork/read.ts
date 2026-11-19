@@ -98,8 +98,8 @@ interface VersionRange {
 }
 
 /**
- * The `fileFormatVersion` majors each reader is known to read. Provisional: they are the majors of the
- * documents it has been run on, the vendored fixtures and the corpora
+ * The `fileFormatVersion` majors each reader is known to read. Provisional:
+ * they are the majors of the documents it has been run on, the vendored fixtures and the corpora
  * (`corpora.json`), and widen as more are. Numbers' version follows the app's
  * (11.0.3 to 26.4.0 across numbers-parser's test files, all read); Keynote's
  * fixture is 3.2.13. Pages has no document to check against yet, so it has no

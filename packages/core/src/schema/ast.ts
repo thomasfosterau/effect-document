@@ -981,8 +981,8 @@ export class Comment extends Schema.Class<Comment, { readonly brand: unique symb
 }) {}
 
 /**
- * A {@link Comment} anchored to the worksheet cell at 0-based `row` and `col`
- *. A worksheet lists its comments in `comments`, not on the cells, so a
+ * A {@link Comment} anchored to the worksheet cell at 0-based `row` and `col`.
+ * A worksheet lists its comments in `comments`, not on the cells, so a
  * cell without one costs nothing; the cell may be blank or beyond the rows the
  * sheet holds, as a note can sit on an empty cell.
  */
