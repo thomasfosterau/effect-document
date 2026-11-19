@@ -1,18 +1,5 @@
-/**
- * Root workspace config. Owns the repo-wide format/lint/staged passes (read
- * statically by `vp fmt` / `vp lint` / `vp staged`), the root aggregates
- * (`check`, `check:dist`, `test:integration`, `test:coverage`) and the
- * cross-format integration suite under `test/integration`. The package's
- * own tasks are defined once in `vite.package.ts` and instantiated by
- * `packages/core/vite.config.ts`; a format is a subpath of that package, not
- * a package of its own, so it adds nothing to the aggregates below.
- *
- * Copied from the effect-web library's root config: every comment that
- * explains a load-bearing decision is part of the standard and travels with
- * the config.
- *
- * @copyright Thomas Foster
- */
+// Workspace-wide format, lint and staged settings, the root task graph and
+// the root test projects. The package's own tasks live in `vite.package.ts`.
 
 import { defineConfig } from "vite-plus";
 import { recommended } from "@effect/tsgo/oxlint-presets";
@@ -20,16 +7,14 @@ import effect from "@enfect/oxlint";
 import { packageAliases } from "./vite.package.ts";
 import { options as core } from "./packages/core/vite.config.ts";
 
-/** The package name and every subpath, resolved to its `src/` file. */
 const integrationAliases = packageAliases(core);
 
 export default defineConfig({
-  // Staged-file checks run by `vp staged` (pre-commit).
   staged: {
     "*.{js,ts,css,json,md}": "vp check --fix",
   },
   fmt: {
-    ignorePatterns: ["**/dist/**", "**/docs/**", "**/coverage/**", "**/vendor/**"],
+    ignorePatterns: ["**/dist/**", "**/coverage/**", "**/vendor/**"],
     overrides: [
       {
         files: ["**/*.md"],
@@ -40,17 +25,8 @@ export default defineConfig({
     ],
   },
   lint: {
-    ignorePatterns: [
-      "**/dist/**",
-      "**/docs/**",
-      "**/coverage/**",
-      "**/node_modules/**",
-      "**/vendor/**",
-    ],
+    ignorePatterns: ["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/vendor/**"],
     extends: [recommended, effect.configs.recommended],
-    // Oxlint's own plugins beyond its defaults (typescript, unicorn, oxc):
-    // the import graph, promise handling, the Vitest suites and JSDoc
-    // comments, each at the categories below.
     plugins: ["typescript", "unicorn", "oxc", "import", "promise", "vitest", "jsdoc"],
     categories: {
       correctness: "error",
@@ -72,13 +48,9 @@ export default defineConfig({
       // Vitest's `expect(value, message)` takes the failure message as its
       // second argument.
       "vitest/valid-expect": ["error", { maxArgs: 2 }],
-      // `survives` (packages/core/test/iwork/malformed.test.ts) is the fuzz
-      // suites' assertion: it fails the test when the decoder throws
-      // anything but its own typed error.
+      // `survives` is the fuzz suites' assertion helper.
       "vitest/expect-expect": ["error", { assertFunctionNames: ["expect", "assert", "survives"] }],
-      // `@effect/vitest` registers its tests as `it.effect` / `it.live` /
-      // `it.effect.each` / `it.effect.prop` (the `it` of a `layer` block is
-      // the same API), which the rule does not know for test blocks.
+      // `@effect/vitest`'s test blocks.
       "vitest/no-standalone-expect": [
         "error",
         {
@@ -94,17 +66,10 @@ export default defineConfig({
           ],
         },
       ],
-      // The lists it flags are module-level constants of a few strings
-      // (structure types, list-numbering names, paragraph content tags). A
-      // module-level `new Set` is a top-level call in a `sideEffects: false`
-      // dist and a native collection the Effect preset's
-      // `avoid-native-object-helpers` flags, so the fix trades one finding
-      // for two and buys nothing at this size.
+      // The flagged lists are a few module-level strings; a top-level `new Set`
+      // would be a side effect in `dist/` and an `avoid-native-object-helpers` finding.
       "unicorn/prefer-set-has": "off",
-      // The `Buffer` global is typed `any` wherever a consumer loads
-      // @cloudflare/workers-types next to @types/node, so every call on it is
-      // unchecked there. These readers and writers work on bytes, so the rule
-      // is load-bearing: use Uint8Array / TextEncoder / DataView instead.
+      // `Buffer` is Node-only and typed `any` under @cloudflare/workers-types.
       "eslint/no-restricted-globals": [
         "error",
         {
@@ -113,82 +78,36 @@ export default defineConfig({
             "The `Buffer` global is typed `any` wherever @cloudflare/workers-types is loaded. Use Uint8Array / TextEncoder / DataView.",
         },
       ],
-      // Hard-codes abbreviations (`Arr`, `P`, `R`, …) with no options, so it is
-      // unsatisfiable under the full-name convention (`import * as Option from
-      // "effect/Option"`) this family shares with its consumers.
+      // The workspace imports Effect modules under their full names.
       "effect/prefer-namespace-imports": "off",
-      // "Shape" here is the presentation-domain term, not a description of
-      // structure: a slide's drawing objects are shapes (PresentationML
-      // `<p:sp>`, Keynote's drawables), and `Shape` / `TextBox` / `Picture` /
-      // `TableShape` are the document model's public schema for them. The
-      // rule cannot tell the domain noun from the structural one.
+      // "Shape" is the presentation-domain noun (a slide's drawing objects).
       "effect/no-shape-in-symbol-names": "off",
-      // Name-based: it flags any relative import of a `make[A-Z]…` function
-      // as an Effect service constructor. Every `make*` this workspace
-      // exports (`makeCsvReader`, `makeXlsxWriter`, `makePdfReader`, …) is a
-      // dependency-free factory returning a plain `Reader` / `Writer` value
-      // with no `R` requirement, and each package's `format` bundle is built
-      // from them by design; there is no service or Layer to yield instead.
+      // Name-based; every `make*` here is a plain factory, not a service.
       "effect/no-service-constructor-imports": "off",
 
-      // ---- Effect preset: ported-code allowances ---------------------------
-      // The modules under packages/core/src predate the Effect oxlint preset.
-      // The rules below sit at `warn` so the code stays committable while each
-      // site stays reported; a new site is a defect, not headroom. Once a
-      // rule's count reaches zero its line is deleted, so it is back at the
-      // preset's `error`.
-      // Remaining sites are listed in effect-document#155, which also says
-      // why each rule could not reach zero in the migration PR.
-      // 241 sites in packages/core/src (pdf 140, ooxml 38, iwork 32, core 22, rtf
-      // 6, csv 3): indexed loops over bytes, glyphs and XML children in the
-      // decoders' hot paths, and the explicit-stack walks that keep deep
-      // documents off the call stack.
+      // Allowances for code that predates the Effect preset: every site stays
+      // reported, and a new one is a defect. Delete a line once its count is 0.
+      // Hot-path loops over bytes, glyphs and XML children, and explicit-stack walks.
       "effect/imperative-loops": "warn",
-      // 172 sites in packages/core/src (pdf 105, ooxml 30, iwork 23, rtf 6,
-      // csv 5, core 3): `buf[i]!`-style reads beside a bounds check the
-      // compiler cannot see (`noUncheckedIndexedAccess`).
+      // `buf[i]!` beside a bounds check the compiler can't see.
       "effect/avoid-non-null-assertion": "warn",
-      // 91 sites in packages/core/src (pdf 40, ooxml 23, iwork 12, core 10,
-      // rtf 4, csv 2): `PdfDict.entries` is a public `Map` in the `./cos` object
-      // model and `Profile.features` / `collectFeatures` are public `Set`s
-      // (a `HashMap` / `HashSet` would change that API), the rest are decoder
-      // caches and identity-keyed cycle guards; plus the CSV compiled-parser
-      // memo (a bounded cache keyed by the option string).
+      // Public `Map` / `Set` APIs (`PdfDict.entries`, `Profile.features`) and decoder caches.
       "effect/avoid-native-object-helpers": "warn",
-      // ---- Effect preset: rules this workspace's conventions cut across ----
-      // `prefer-option-over-null` also fires on `?: T | undefined`, which is
-      // the ONLY spelling of an optional member `exactOptionalPropertyTypes`
-      // lets a caller forward an optional of its own into (AGENTS.md). A bare
-      // `null` / `undefined` in a return type is still a finding to read; the
-      // options-object members are not.
+      // Also fires on `?: T | undefined`, the spelling `exactOptionalPropertyTypes` needs.
       "effect/prefer-option-over-null": "warn",
-      // `unknown` is the honest type at a decoder's input boundary (a cell
-      // value, a JSON metadata entry), and a PDF object is a union of
-      // primitives that `typeof` discriminates. Each stays visible.
+      // `unknown` at decoder input boundaries.
       "effect/no-unknown-parameters": "warn",
-      // One site: the stack-safe codec's `Own`, a node's own fields as the
-      // walker decodes them before the node class is built.
       "effect/no-unsafe-dictionary-type": "warn",
-      "typescript/no-explicit-any": "off",
-      "typescript/no-empty-object-type": "off",
-      "typescript/ban-ts-comment": "off",
-      "unicorn/no-empty-file": "off",
       "vite-plus/prefer-vite-plus-imports": "error",
     },
     overrides: [
-      // Build/test configs are evaluated by Vite and Vitest in bare Node,
-      // before any Effect runtime exists — there is no `Config` provider to
-      // read from and no `FileSystem` service to call, so `process.env` and
-      // `node:*` are the only things that work there. The Effect preset's
-      // service rules have no satisfiable fix in these files.
+      // Configs and scripts run in bare Node, outside any Effect runtime.
       {
         files: ["**/vite.config.ts", "**/vitest.config.ts", "vite.package.ts", "**/scripts/**"],
         rules: {
           "effect/avoid-node-imports": "off",
           "effect/avoid-sync-fs": "off",
           "effect/avoid-process-env": "off",
-          // Plain Node build tooling (the task-graph builder, the dist guard):
-          // native loops, `.length` and `Object.fromEntries` are the idiom.
           "effect/imperative-loops": "off",
           "effect/no-length-comparison": "off",
           "effect/prefer-arr-match": "off",
@@ -198,27 +117,15 @@ export default defineConfig({
           "effect/use-path-service": "off",
           "effect/avoid-native-fetch": "off",
           "effect/effect-promise-vs-trypromise": "off",
-          // The pack smoke test (scripts/check-pack.mjs) is bare-Node tooling
-          // too: it shells out to pnpm, npm, publint, attw and tsc, reads and
-          // writes package manifests as JSON, works in an `os.tmpdir()`
-          // scratch directory it removes in `finally`, and fails the task by
-          // throwing; no Effect runtime or service layer exists there.
           "effect/use-command-executor-service": "off",
           "effect/use-temp-file-scoped": "off",
           "effect/avoid-direct-json": "off",
           "effect/avoid-try-catch": "off",
           "effect/avoid-untagged-errors": "off",
-          // scripts/fetch-corpora.mjs likewise shells out to git and reads
-          // corpora.json with JSON.parse.
         },
       },
-      // The benchmarks (`bench/`) are bare-Node measurement programs, run by
-      // hand over the built packages: the timing loop must run outside any
-      // Effect runtime (an Effect around each sample would be measured too),
-      // awaits each sample in turn so samples never overlap, prints its
-      // tables with `console.log`, and reads its knobs (`BENCH_TIME`,
-      // `BENCH_FILTER`) from `process.env`. Each case runs the effect under
-      // test at the call site, as a consumer would.
+      // Benchmarks time samples in bare Node: an Effect around each sample
+      // would be measured too.
       {
         files: ["bench/**/*.ts"],
         rules: {
@@ -231,41 +138,30 @@ export default defineConfig({
           "effect/no-unknown-returns": "off",
           "effect/avoid-non-null-assertion": "off",
           "effect/prefer-option-over-null": "off",
-          // ...and reads its fixtures (the PDF and iWork test files) once, up
-          // front, before anything is timed.
           "effect/use-filesystem-service": "off",
           "effect/avoid-sync-fs": "off",
-          // ...and drives the Node streaming parsers (Papa Parse's, csv-parse's)
-          // through their `node:stream` interface, as their users do.
           "effect/avoid-node-imports": "off",
           "eslint/no-await-in-loop": "off",
         },
       },
-      // The runnable examples are entrypoints: each ends by running its
-      // program, which is exactly what the rule asks to keep at the boundary.
+      // The examples are entrypoints that run their program.
       {
         files: ["examples/**/*.ts"],
         rules: {
           "effect/effect-run-in-body": "off",
-          // The same boundary provides the platform layer.
           "effecttsgo/strict-effect-provide": "off",
         },
       },
-      // The quadratic-scan regression test counts `charCodeAt` calls by
-      // swapping `String.prototype.charCodeAt` for a counter and restoring it
-      // in `Effect.ensuring` (a `vi.spyOn` recording every call exhausts
-      // memory there): the patch IS the instrument.
+      // A regression test counts `charCodeAt` calls by patching the prototype
+      // (`vi.spyOn` runs out of memory there).
       {
         files: ["packages/core/test/csv/csv.test.ts"],
         rules: {
           "eslint/no-extend-native": "off",
-          // The saved original is re-invoked with `.call(this, …)`.
           "typescript/unbound-method": "off",
         },
       },
-      // Type-level tests: the expect-error directives ARE the assertions
-      // (a statement that must fail to compile), and every binding exists to
-      // be asserted against, never to be read.
+      // Type-level tests: expect-error directives are the assertions.
       {
         files: ["**/test/**/*.types.ts"],
         rules: {
@@ -276,23 +172,14 @@ export default defineConfig({
       {
         files: ["**/test/**/*.ts"],
         rules: {
-          // Table-driven cases run one after another so a failure names its
-          // case; a `Promise.all` over them would interleave the runs.
           "eslint/no-await-in-loop": "off",
-          // `@effect/vitest` is `@stability unstable` throughout (`it`,
-          // `layer`), so every `it.effect` would warn: the owner chose to
-          // adopt it for the Effect tests (2026-11-12).
+          // `@effect/vitest` is marked unstable; the tests use it deliberately.
           "effecttsgo/unstable-api-usage": "off",
-          // `layer(...)` hands each block its own `it` (the same API, wired to
-          // the block's services), which a nested block or a file importing
-          // `it` for its plain tests then shadows.
+          // `layer(...)` hands each block its own `it`.
           "eslint/no-shadow": ["error", { allow: ["it"] }],
         },
       },
     ],
-    // Type-aware rules run through oxlint-tsgolint (bundled with vite-plus,
-    // patched by `effect-tsgo patch --oxlint`), so `vp check` reports the
-    // typescript plugin's type-informed rules and `@effect/tsgo`'s.
     options: {
       typeAware: true,
       typeCheck: true,
@@ -306,63 +193,45 @@ export default defineConfig({
   },
   run: {
     tasks: {
-      // The whole CI gate, in order, failing fast: what `.github/workflows/
-      // ci.yml` runs on every Node in its matrix (`vp run ci`), and what to
-      // run locally before a push. Steps 2-11 of AGENTS.md's Verification.
-      // `test:interop` skips each tool it doesn't find unless INTEROP=1 (CI's
-      // `lts` leg), and `test:validate` needs xmllint, which fails it under CI.
+      // The whole CI gate, in order, failing fast. `test:interop` skips a
+      // missing tool unless INTEROP=1; `test:validate` fails without xmllint
+      // under CI.
       ci: {
         command:
           "vp check && vp run --concurrency-limit 2 check && vp run -r test:unit && vp run test:integration && vp run corpora:fetch && vp run test:validate && vp run test:corpus && vp run test:interop && vp run -r build && vp run check:dist && vp run examples && vp run check:pack && pnpm audit --audit-level high",
         cache: false,
       },
-      // The CI typecheck gate, as one task: the package's `check` (`src`
-      // under tsconfig.json, the tests under tsconfig.test.json) plus the
-      // root tsconfig.test.json (the integration suite, `examples/` and
-      // `bench/`). The package is named explicitly: a `from: "dependencies"`
-      // edge does not traverse the workspace root's own devDependencies.
+      // The package's `check`, then the root config (integration suite,
+      // examples, bench). Named explicitly: a `from: "dependencies"` edge
+      // doesn't follow the root's own devDependencies.
       check: {
         command: "tsc -p tsconfig.test.json",
         dependsOn: ["@thomasfosterau/effect-document#check"],
         cache: false,
       },
-      // Import guard over the built dist: it imports no removed
-      // `effect/unstable/*` path (the family's rc.118 floor), and the core
-      // entries reach no format dependency (`fflate`,
-      // `@thomasfosterau/effect-parse`; `/pdf*` no effect-parse). Reads
-      // `dist/`, hence the build edge.
+      // The built dist imports no `effect/unstable/*`, and the core entries
+      // reach no format dependency.
       "check:dist": {
         command: "node scripts/check-dist-imports.mjs",
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // Consumer smoke test: packs the package as `pnpm publish` would,
-      // lints the tarball (publint, attw), installs it into a scratch
-      // project from npm and imports and type-checks every entry. Reads
-      // `dist/`, hence the build edge; needs the registry.
+      // Packs, lints and installs the tarball into a scratch project and
+      // type-checks every entry. Needs the registry.
       "check:pack": {
         command: "node scripts/check-pack.mjs",
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // Runs every program under `examples/` (the README's worked examples)
-      // against the built package, as a consumer would: each imports it by
-      // name, which resolves through `exports` to `dist/` — hence the build
-      // edge. `convert-csv-to-xlsx` writes a git-ignored
-      // `output.xlsx` to the workspace root.
       examples: {
         command:
           "vpx examples/document-ast.ts && vpx examples/streaming.ts && vpx examples/convert-csv-to-xlsx.ts && vpx examples/read-iwork-directory.ts",
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // Benchmarks (`bench/`): every format's reader and writer against the
-      // leading JavaScript library for it, over the built package (each
-      // imports it by name, through `exports` to `dist/`, hence the build
-      // edge). Run by hand around a change to a reader or writer; not in CI
-      // yet (a non-blocking job is #136), and the numbers depend on the machine. `BENCH_TIME` (ms per group,
-      // default 3000) and `BENCH_FILTER` (a group-name substring) narrow a
-      // run. `bench` runs them all.
+      // Not in CI: the numbers depend on the machine. `BENCH_TIME` (ms per
+      // group) and `BENCH_FILTER` (a group-name substring) narrow a run.
+      // Sequential, so one benchmark never runs beside another.
       bench: {
         command:
           "node --expose-gc bench/csv.bench.ts && node --expose-gc bench/xlsx.bench.ts && node --expose-gc bench/docx.bench.ts && node --expose-gc bench/pptx.bench.ts && node --expose-gc bench/rtf.bench.ts && node --expose-gc bench/pdf.bench.ts && node --expose-gc bench/iwork.bench.ts && node --expose-gc bench/convert.bench.ts",
@@ -409,68 +278,47 @@ export default defineConfig({
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
-      // The cross-format suite under `test/integration` (conversions between
-      // formats). It resolves the package name and its subpaths to `src/` (the
-      // `integration` project below), so it needs no build.
       "test:integration": {
         command: "vp test run --project integration",
         cache: false,
       },
-      // Fetches the public corpora pinned in `corpora.json` into the
-      // git-ignored `.corpora/` (shallow, sparse checkouts; a corpus already
-      // at its pin is kept). Needs the network.
+      // Fetches the corpora pinned in `corpora.json` into `.corpora/`. Needs the network.
       "corpora:fetch": {
         command: "node scripts/fetch-corpora.mjs",
         cache: false,
       },
-      // Runs every reader over every fetched corpus file (`test/corpus`),
-      // failing on a defect or a hang and reporting read rates per format;
-      // skipped when nothing has been fetched.
       "test:corpus": {
         command: "vp test run --project corpus",
         cache: false,
       },
-      // Validates writer output with independent tools (`test/validate`):
-      // every OOXML part against the ECMA-376 schemas with xmllint. Needs
-      // `corpora:fetch` (the schemas) and xmllint; skipped locally without
-      // them, a failure under CI.
       "test:validate": {
         command: "vp test run --project validate",
         cache: false,
       },
-      // Opens our writers' output in independent tools (`test/interop`):
-      // LibreOffice converts every DOCX, XLSX, PPTX and RTF sample to PDF,
-      // qpdf and pdftotext check the PDF samples, pandoc reads the DOCX
-      // ones. A missing tool skips its tests unless INTEROP=1 (CI's `lts` leg
-      // installs them all and sets it).
       "test:interop": {
         command: "vp test run --project interop",
         cache: false,
       },
-      // The package's unit suite plus the integration suite under one
-      // Istanbul coverage map (`coverage/coverage-final.json`), which `fallow
-      // audit` reads for exact per-function CRAP scores (`health.coverage` in
-      // .fallowrc.json). Without it fallow estimates every function as
-      // uncovered, and any function with cyclomatic complexity ≥ 5 fails the
-      // gate on its own. Run this before `fallow audit` (the Claude Code
-      // PreToolUse fallow gate runs the audit on `git commit` / `git push`
-      // but never refreshes this map).
-      //
-      // The package's `build` is named explicitly (cached, so a warm tree
-      // pays nothing), so the run sees the same `dist/` that `check:dist`,
-      // `examples` and `bench` read.
+      // One Istanbul map over the unit and integration suites, which `fallow
+      // audit` reads for its per-function CRAP scores.
       "test:coverage": {
         command:
           "vp test run --coverage --project '!corpus' --project '!validate' --project '!interop'",
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
+      fallow: {
+        command: "vp exec fallow --summary",
+        cache: false,
+      },
+      "fallow:audit": {
+        command: "vp exec fallow audit --base origin/trunk --quiet",
+        dependsOn: ["test:coverage"],
+        cache: false,
+      },
     },
   },
   test: {
-    // The package's own vite.config.ts is a vitest project, plus the
-    // integration, validate, interop and corpus suites, so the root run and
-    // the root coverage map cover them all.
     projects: [
       "packages/*/vite.config.ts",
       {
@@ -481,8 +329,7 @@ export default defineConfig({
           testTimeout: 30_000,
         },
       },
-      // Output validators (#134): writer output checked by independent
-      // tools (xmllint and the ECMA-376 schemas, fetched as a corpus).
+      // Writer output against the ECMA-376 schemas, with xmllint.
       {
         resolve: { alias: integrationAliases },
         test: {
@@ -491,8 +338,7 @@ export default defineConfig({
           testTimeout: 120_000,
         },
       },
-      // Interoperability (#134): our output opened by LibreOffice, qpdf,
-      // pdftotext and pandoc. In `vp run ci`; CI's `lts` leg installs them all.
+      // Writer output opened by LibreOffice, qpdf, pdftotext and pandoc.
       {
         resolve: { alias: integrationAliases },
         test: {
@@ -501,8 +347,7 @@ export default defineConfig({
           testTimeout: 180_000,
         },
       },
-      // Corpus smoke mode (#133): every reader over the corpora fetched into
-      // `.corpora/` (`corpora:fetch`); skipped when none has been fetched.
+      // Every reader over the fetched corpora; skipped when none is fetched.
       {
         resolve: { alias: integrationAliases },
         test: {

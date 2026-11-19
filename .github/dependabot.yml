@@ -1,51 +1,13 @@
-# Dependabot version updates.
-#
-# Groups exist only for dependencies that MUST move together, released as one
-# train or tied by a hard compatibility table, so updating one alone breaks
-# the install or the build. Everything else (fallow, the changesets CLI, the
-# pack linters, the benchmark baselines, `@enfect/oxlint`, `fflate`,
-# `@thomasfosterau/effect-parse`) arrives as its own PR:
-#
-# - `toolchain`: `vite-plus` pins `oxlint`, `oxfmt`, `oxlint-tsgolint` and
-#   `vitest` exactly (the `vitest` catalog entry and the `@vitest/*` packages
-#   must equal its pin), and `effect-tsgo patch` (the `prepare` script)
-#   hard-errors on any oxlint / tsgolint / native `tsc` its `components` table
-#   has no artifact for. Read that table in
-#   node_modules/@effect/tsgo/dist/effect-tsgo.cjs before merging.
-#   `@enfect/oxlint` is not in it: it takes `@oxlint/plugins` as a range, so
-#   nothing ties it to vite-plus's oxlint.
-# - `effect`: `effect` and the `@effect/*` runtime packages are one release
-#   train (`@effect/platform-node` peers on the exact `effect` version).
-#   `@effect/tsgo` belongs to the toolchain; `@effect/language-service` is
-#   versioned on its own and stays ungrouped.
-#
-# Moved by hand, on the matching group's PR (Dependabot cannot do these):
-# - the npm-alias catalog entries: `vite`
-#   (`npm:@voidzero-dev/vite-plus-core@<v>`, must equal `vite-plus`; or run
-#   `pnpm dlx --package=vite-plus@<v> vp migrate --no-interactive` and drop
-#   the `minimumReleaseAgeExclude` entries it adds), `typescript`
-#   (`npm:@typescript/typescript6@<v>`) and `@typescript/native`
-#   (`npm:typescript@<v>`, matching `@effect/tsgo`'s `components` table);
-# - `vitest` / `@vitest/coverage-istanbul`, to the exact vitest the new
-#   `vite-plus` pins;
-# - an `@effect/tsgo` release that supports the new vite-plus's oxlint and
-#   oxlint-tsgolint, when the toolchain PR goes red at install;
-# - the published peer range (`catalogs.peers.effect`), a breaking change.
-#
-# `cooldown` is 1 day, Dependabot's smallest unit; pnpm-workspace.yaml's
-# `minimumReleaseAge` is 8 hours (480 minutes). The cooldown is the longer of
-# the two, so a Dependabot PR never proposes a version pnpm would still
-# refuse. The first-party `@thomasfosterau/*` packages are exempt in both.
+# Lockstep sets are grouped; the by-hand follow-ups are in docs/CONTRIBUTING.md.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
     open-pull-requests-limit: 10
     assignees:
-      - "thomasfosterau"
+      - thomasfosterau
     labels:
       - "dependencies"
     commit-message:
@@ -55,20 +17,14 @@ updates:
       exclude:
         - "@thomasfosterau/*"
     groups:
-      # vite-plus pins vitest / oxlint exactly; @effect/tsgo's patch only
-      # supports the oxlint / tsgolint / tsc versions its components table lists.
       toolchain:
         applies-to: version-updates
         patterns:
           - "vite-plus"
-          - "vite"
+          - "@voidzero-dev/*"
           - "vitest"
           - "@vitest/*"
           - "@effect/tsgo"
-          - "@typescript/native"
-          - "typescript"
-        update-types: ["major", "minor", "patch"]
-      # One release train: the @effect/* runtime packages pin the exact effect.
       effect:
         applies-to: version-updates
         patterns:
@@ -77,30 +33,26 @@ updates:
         exclude-patterns:
           - "@effect/tsgo"
           - "@effect/language-service"
-        update-types: ["major", "minor", "patch"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
+      interval: "daily"
     assignees:
-      - "thomasfosterau"
+      - thomasfosterau
     labels:
       - "dependencies"
     commit-message:
-      prefix: "ci"
+      prefix: "chore"
     cooldown:
       default-days: 1
-  # The .devcontainer/ features (the image tag moves with vite-plus by hand).
+
   - package-ecosystem: "devcontainers"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
+      interval: "daily"
     assignees:
-      - "thomasfosterau"
+      - thomasfosterau
     labels:
       - "dependencies"
     commit-message:

@@ -27,7 +27,7 @@
     "word",
     "xlsx"
   ],
-  "homepage": "https://github.com/thomasfosterau/effect-document/tree/main/packages/core#readme",
+  "homepage": "https://github.com/thomasfosterau/effect-document/tree/trunk/packages/core#readme",
   "bugs": {
     "url": "https://github.com/thomasfosterau/effect-document/issues"
   },
@@ -42,7 +42,7 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE.md"
   ],
   "type": "module",
   "sideEffects": false,
