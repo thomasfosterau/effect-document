@@ -1,5 +1,11 @@
 # @thomasfosterau/effect-document
 
+## 0.2.1
+
+### Patch Changes
+
+- [#322](https://github.com/thomasfosterau/effect-document/pull/322) [`52b9f4e`](https://github.com/thomasfosterau/effect-document/commit/52b9f4e0b1118fb5424be7d25a06da9425a48ca1) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - Tidy doc comments: drop issue references and history.
+
 ## 0.2.0
 
 ### Minor Changes
