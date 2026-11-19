@@ -1,8 +1,7 @@
 /**
- * The feature × format table in `packages/core/README.md` is generated from the
- * formats' own profiles (#130), so it can't drift from the code: this test
- * renders it and fails, printing the table to paste, when the README's copy
- * between the `feature-matrix` markers differs (layout aside).
+ * The feature × format table in `packages/core/docs/formats.md` is generated
+ * from the formats' profiles: this test fails, printing the table to paste,
+ * when the copy between the `feature-matrix` markers differs (layout aside).
  */
 
 import { layer } from "@effect/vitest";
@@ -44,7 +43,7 @@ const columnOf = <R extends Feature, W extends Feature>(
   write: format.writer === undefined ? Option.none() : Option.some(format.writeProfile.features),
 });
 
-/** The formats, in the order the README lists them. */
+/** The formats, in the order the table lists them. */
 const COLUMNS: ReadonlyArray<Column> = [
   columnOf("CSV", Csv.format),
   columnOf("TSV", Csv.tsvFormat),
@@ -98,7 +97,7 @@ const renderMatrix = (): string => {
 };
 
 /**
- * A table with its layout taken out: the README's copy is padded by `vp fmt`,
+ * A table with its layout taken out: the doc's copy is padded by `vp fmt`,
  * so runs of spaces and the dashes of the rule row don't count.
  */
 const layoutFree = (table: string): string =>
@@ -107,12 +106,12 @@ const layoutFree = (table: string): string =>
     .replace(/:-+:/g, ":-:")
     .replace(/\| -+ \|/g, "| --- |");
 
-/** The README's current copy of the table, markers included. */
-const readmeMatrix = Effect.fn("readmeMatrix")(function* () {
+/** The doc's current copy of the table, markers included. */
+const docMatrix = Effect.fn("docMatrix")(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const readme = yield* fs.readFileString(
-    yield* path.fromFileUrl(new URL("../../packages/core/README.md", import.meta.url)),
+    yield* path.fromFileUrl(new URL("../../packages/core/docs/formats.md", import.meta.url)),
   );
   const from = readme.indexOf(START);
   const to = readme.indexOf(END);
@@ -120,13 +119,13 @@ const readmeMatrix = Effect.fn("readmeMatrix")(function* () {
 });
 
 layer(NodeServices.layer)((it) => {
-  describe("feature × format matrix (#130)", () => {
-    it.effect("the README's table is the one the profiles give", () =>
+  describe("feature × format matrix", () => {
+    it.effect("the doc's table is the one the profiles give", () =>
       Effect.gen(function* () {
-        const current = yield* readmeMatrix();
+        const current = yield* docMatrix();
         expect(
           layoutFree(current),
-          `paste this into packages/core/README.md (then vp fmt):\n\n${renderMatrix()}\n`,
+          `paste this into packages/core/docs/formats.md (then vp fmt):\n\n${renderMatrix()}\n`,
         ).toBe(layoutFree(renderMatrix()));
       }),
     );
