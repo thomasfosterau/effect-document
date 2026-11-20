@@ -12,7 +12,7 @@ Read [README.md](README.md) and [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) fir
 - `vp check` (format + lint) and `vp run check` (the type gate) are different commands.
 - The pre-commit hook runs the full coverage suite before `fallow audit`; expect a commit to take a couple of minutes.
 - Corpus, validate and interop suites need the network, `xmllint`, or LibreOffice / qpdf / poppler / pandoc; locally they skip without them. Say in the PR body which gates didn't run.
-- Publish only through the Release workflow (`vp run release`: `vp pm publish -r`, then `changeset git-tag`). Release-path registry calls go through `vp pm`, never `npm` / `pnpm` directly; `check:pack`'s consumer install is a check, not a publish.
+- Publish only through the Release workflow (`vp run release`: `vp pm publish -r`, then `changeset git-tag`). Release-path registry calls go through `vp pm`, never `npm` / `pnpm` directly; `release` depends only on the build and offline checks, never on `check:pack`, whose consumer install fetches registry code.
 - The feature matrix in `packages/core/docs/formats.md` is generated: when a profile changes, `test/integration/feature-matrix.test.ts` prints the table to paste.
 - Write idiomatic Effect v4 and read `node_modules/effect` rather than guessing an API. Hot-path lint allowances with measured reasons stay. Non-idiomatic code you find outside your change gets an issue listing the sites and the replacement, unless the fix is trivial.
 

@@ -120,8 +120,9 @@ jobs:
           cache: false
           run-install: |
             - args: ["--frozen-lockfile", "--ignore-scripts"]
-      # `vp run release` (vite.config.ts): builds, runs `check:dist` and the
-      # consumer `check:pack` on this commit, publishes each unpublished version
+      # `vp run release` (vite.config.ts): builds, runs the offline `check:dist`
+      # on this commit (not `check:pack`, whose consumer install fetches registry
+      # code; CI runs it), publishes each unpublished version
       # with `vp pm publish -r` (pnpm does the OIDC exchange itself), then
       # `changeset git-tag` reports the new tags through CHANGESETS_OUTPUT, and
       # the action pushes them and creates the releases.

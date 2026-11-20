@@ -6,9 +6,9 @@ Releases use [Changesets](https://github.com/changesets/changesets) and npm [tru
 
 1. A change that affects the published package carries a changeset (`vp exec changeset`).
 2. On `trunk`, the Release workflow opens or updates the "chore: version packages" PR (`pnpm run version`: `changeset version`, then `vp fmt` on the changelogs and a lockfile refresh). `.changeset/config.json` sets `"format": false` because Changesets would otherwise call Vite+'s IDE-only `oxfmt` shim, which fails outside an editor.
-3. Merging that PR lets the `publish` job, after approval in the `release` environment, run `vp run release`: the build, `vp run check:dist` and the consumer pack check `vp run check:pack` on that commit, then `vp pm publish -r --access public --no-git-checks -- --ignore-scripts` (pnpm skips versions already on npm and does the OIDC exchange itself), then `changeset git-tag`, which tags each untagged version and reports the tags to the action, which pushes them and creates GitHub releases. A failed publish stops before tagging. There is no publish script.
+3. Merging that PR lets the `publish` job, after approval in the `release` environment, run `vp run release`: the build and `vp run check:dist` on that commit, then `vp pm publish -r --access public --no-git-checks -- --ignore-scripts` (pnpm skips versions already on npm and does the OIDC exchange itself), then `changeset git-tag`, which tags each untagged version and reports the tags to the action, which pushes them and creates GitHub releases. A failed publish stops before tagging. There is no publish script.
 
-`vp run release:dry-run` runs the same checks and lists what `vp pm publish` would publish, without publishing or tagging. `check:pack` packs separately from the publish: the checked and published tarballs come from the same commit in the same job, not the same file.
+`vp run release:dry-run` runs the same checks and lists what `vp pm publish` would publish, without publishing or tagging. The consumer pack check (`vp run check:pack`) runs in CI, not in the release: it installs registry packages, which must not run in the job that holds `id-token: write`.
 
 ## One-time setup
 
