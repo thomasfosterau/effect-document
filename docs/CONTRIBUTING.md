@@ -26,7 +26,7 @@ The main branch is `trunk`. Branch off `trunk`, open a pull request into `trunk`
 | `vp run test:interop` | Writer output opened by LibreOffice, qpdf, pdftotext and pandoc; a missing tool skips unless `INTEROP=1` |
 | `vp run -r build` | `vp pack` → `packages/core/dist/` |
 | `vp run check:dist` | The built entries reach only the dependencies they may |
-| `vp run check:pack` | Pack, lint (publint, attw) and type-check the tarball as a consumer (network) |
+| `vp run check:pack` | Pack, lint (publint, attw) and type-check the tarball as a consumer (network); CI only, never the release job |
 | `vp run examples` | Run `examples/` against the build |
 | `vp run bench` | Benchmarks against other libraries (`bench:<format>` for one) |
 | `vp run ci` | Everything CI runs, in the same order |
@@ -57,7 +57,7 @@ Say in the PR body which gates couldn't run. CI ([ci.yml](../.github/workflows/c
 
 ## Changesets
 
-Every change to the published package's behaviour or its emitted `.d.ts` (doc comments included, as a `patch`) needs a changeset: `vp exec changeset`. Docs, CI and tooling changes need none. Never version or publish by hand: the Release workflow opens the "chore: version packages" PR and publishes once the owner merges it ([PUBLISHING.md](PUBLISHING.md)).
+Every change to the published package's behaviour or its emitted `.d.ts` (doc comments included, as a `patch`) needs a changeset: `vp exec changeset`. Docs, CI and tooling changes need none. Never version or publish by hand: the Release workflow opens the "chore: version packages" PR and publishes once the owner merges it, with `vp run release` (`check:dist`, then `vp pm publish -r` and `changeset git-tag`; there is no publish script). `vp run release:dry-run` shows what it would publish ([PUBLISHING.md](PUBLISHING.md)).
 
 ## Dependencies
 

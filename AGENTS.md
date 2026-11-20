@@ -12,6 +12,7 @@ Read [README.md](README.md) and [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) fir
 - `vp check` (format + lint) and `vp run check` (the type gate) are different commands.
 - The pre-commit hook runs the full coverage suite before `fallow audit`; expect a commit to take a couple of minutes.
 - Corpus, validate and interop suites need the network, `xmllint`, or LibreOffice / qpdf / poppler / pandoc; locally they skip without them. Say in the PR body which gates didn't run.
+- Publish only through the Release workflow (`vp run release`: `vp pm publish -r`, then `changeset git-tag`). Release-path registry calls go through `vp pm`, never `npm` / `pnpm` directly; `release` depends only on the build and offline checks, never on `check:pack`, whose consumer install fetches registry code.
 - The feature matrix in `packages/core/docs/formats.md` is generated: when a profile changes, `test/integration/feature-matrix.test.ts` prints the table to paste.
 - Write idiomatic Effect v4 and read `node_modules/effect` rather than guessing an API. Hot-path lint allowances with measured reasons stay. Non-idiomatic code you find outside your change gets an issue listing the sites and the replacement, unless the fix is trivial.
 
@@ -20,3 +21,7 @@ Read [README.md](README.md) and [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) fir
 - You may open PRs in this repository, and should watch them through CI and review.
 - Out-of-scope work you notice: file an issue (search for duplicates first) and move on.
 - Use the GitHub MCP tools or `gh`, whichever is available. Write only to `thomasfosterau/effect-document`; with `gh`, pass `-R thomasfosterau/effect-document` when the cwd might be another checkout.
+
+## Fallow
+
+The `fallow` agent skill is linked into `.claude/skills/` from the installed `fallow` package after `vp install`; repository-specific rules (the pre-commit audit, tracing before deleting) are in docs/CONTRIBUTING.md.

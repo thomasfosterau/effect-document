@@ -9,7 +9,6 @@
   "type": "module",
   "scripts": {
     "version": "changeset version && vp fmt && pnpm install --lockfile-only",
-    "release": "vp run -r build && pnpm -r --filter './packages/*' publish --access public --no-git-checks --ignore-scripts && changeset tag",
     "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
@@ -40,5 +39,5 @@
       "version": "lts"
     }
   },
-  "packageManager": "pnpm@11.28.6"
+  "packageManager": "pnpm@12.21.0"
 }
