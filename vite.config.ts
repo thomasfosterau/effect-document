@@ -193,6 +193,9 @@ export default defineConfig({
   },
   run: {
     tasks: {
+      // The API reference the Pages workflow publishes. Examples are
+      // rendered but not compiled (`tscExecutable: "true"` in docgen.json).
+      docgen: { command: "vp run --filter ./packages/core docgen", cache: false },
       // The whole CI gate, in order, failing fast. `test:interop` skips a
       // missing tool unless INTEROP=1; `test:validate` fails without xmllint
       // under CI.

@@ -129,11 +129,15 @@
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "docgen": "docgen"
+  },
   "dependencies": {
     "@thomasfosterau/effect-ext": "catalog:",
     "fflate": "catalog:"
   },
   "devDependencies": {
+    "@effect/docgen": "catalog:",
     "@effect/language-service": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
