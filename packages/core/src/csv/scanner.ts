@@ -687,6 +687,15 @@ export const scanCsvStream = <E, R>(
           // a grammar failure from this stream's own string parser
           return fromSyntaxError(e, nextRow);
         }
+        if (e instanceof ParserStream.BufferLimitError) {
+          return new ParseError({
+            format: "csv",
+            reason: `a row starting on row ${nextRow} exceeds ${e.limit} characters`,
+            code: "LimitExceeded",
+            position: { row: nextRow },
+            cause: e,
+          });
+        }
         // anything else is the input stream's own failure, `E`
         return e;
       }),
