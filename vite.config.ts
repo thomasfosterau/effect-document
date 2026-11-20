@@ -209,7 +209,7 @@ export default defineConfig({
         cache: false,
       },
       // The package's `check`, then the root config (integration suite,
-      // examples, bench). Named explicitly: a `from: "dependencies"` edge
+      // examples, bench, and the root vite configs). Named explicitly: a `from: "dependencies"` edge
       // doesn't follow the root's own devDependencies.
       check: {
         command: "tsc -p tsconfig.test.json",
