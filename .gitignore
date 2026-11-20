@@ -35,3 +35,6 @@ dist/
 # Written by examples/convert-csv-to-xlsx.ts.
 output.xlsx
 .vitest/
+
+# docgen output (`vp run docgen`), published by the Pages workflow.
+packages/core/docs/reference/
