@@ -11,7 +11,7 @@ The readers parse files from anywhere and are written to fail, not hang or crash
 ## Supply chain
 
 - Releases use npm [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC); there is no npm token. Provenance is attached once the repository is public.
-- Privileged release jobs install with `--frozen-lockfile --ignore-scripts`, publish with `--ignore-scripts`, use no dependency cache, and run only after `actions.lock` verifies. Publishing needs approval in the protected `release` environment.
+- Privileged release jobs install with `--frozen-lockfile --ignore-scripts`, publish with `vp pm publish -- --ignore-scripts` (`vp run release`, after `check:dist` and `check:pack` on the same commit), use no dependency cache, and run only after `actions.lock` verifies. Publishing needs approval in the protected `release` environment.
 - Workflows default to `permissions: {}` and pin actions by tag, locked to commits by `.github/workflows/actions.lock`.
 - pnpm's `minimumReleaseAge` holds new versions for 24 hours; Dependabot waits a day.
 - [Socket](https://socket.dev) scans dependencies (`socket.yml`), except the private `bench/` package.

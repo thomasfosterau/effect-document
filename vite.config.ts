@@ -223,6 +223,28 @@ export default defineConfig({
         dependsOn: ["@thomasfosterau/effect-document#build"],
         cache: false,
       },
+      // The publish job's script (.github/workflows/release.yml), after the
+      // dist and consumer pack checks on the same commit: pnpm publishes each
+      // public package whose version isn't on npm yet, under OIDC trusted
+      // publishing; then `changeset git-tag` tags each untagged version and
+      // reports the tags to `changesets/action` through `CHANGESETS_OUTPUT`,
+      // which pushes them and creates the GitHub releases. A failed publish
+      // stops before tagging; a re-run publishes only what is missing.
+      // Uncached, so it sees the job's full environment.
+      release: {
+        command: [
+          "vp pm publish -r --access public --no-git-checks -- --ignore-scripts",
+          "changeset git-tag",
+        ],
+        dependsOn: ["check:dist", "check:pack"],
+        cache: false,
+      },
+      // What `release` would publish, without publishing or tagging.
+      "release:dry-run": {
+        command: "vp pm publish -r --access public --dry-run --no-git-checks -- --ignore-scripts",
+        dependsOn: ["check:dist", "check:pack"],
+        cache: false,
+      },
       examples: {
         command:
           "vpx examples/document-ast.ts && vpx examples/streaming.ts && vpx examples/convert-csv-to-xlsx.ts && vpx examples/read-iwork-directory.ts",

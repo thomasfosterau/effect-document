@@ -120,11 +120,12 @@ jobs:
           cache: false
           run-install: |
             - args: ["--frozen-lockfile", "--ignore-scripts"]
-      # pnpm 12 publishes natively and does the OIDC exchange itself, so npm is
-      # never on the publish path. The script builds, publishes and tags.
+      # `vp run release` (vite.config.ts): builds, runs `check:dist` and the
+      # consumer `check:pack` on this commit, publishes each unpublished version
+      # with `vp pm publish -r` (pnpm does the OIDC exchange itself), then
+      # `changeset git-tag` reports the new tags through CHANGESETS_OUTPUT, and
+      # the action pushes them and creates the releases.
       - name: Publish to npm
         uses: changesets/action/publish@v2.1.2
         with:
-          script: pnpm run release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          script: vp run release
