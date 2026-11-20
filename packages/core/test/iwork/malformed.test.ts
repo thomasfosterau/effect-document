@@ -265,6 +265,15 @@ layer(NodeServices.layer)((it) => {
       expect(e.reason).toBe("Truncated");
       expect(e.offset).toBe(4);
       expect(failure(() => readVarint(new Uint8Array([0x80]), 0)).reason).toBe("Truncated");
+      expect(failure(() => readVarint(new Uint8Array([1, 2, 0x80]), 2)).offset).toBe(3);
+    });
+
+    test("field number 0 and group wire types are malformed", () => {
+      expect(failure(() => parseMessage(new Uint8Array([0x00, 0x01]))).reason).toBe("Malformed");
+      const group = failure(() => parseMessage(new Uint8Array([0x08, 0x01, 0x0b])));
+      expect(group.reason).toBe("Malformed");
+      expect(group.offset).toBe(2);
+      expect(group.message).toMatch(/unsupported wire type 3 \(field 1\)/);
     });
   });
 
