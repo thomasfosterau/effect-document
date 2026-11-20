@@ -17,7 +17,7 @@ catalog:
   # `effect-tsgo patch` (the `prepare` script) supports only the oxlint,
   # tsgolint and native `tsc` versions in the `components` table of
   # node_modules/@effect/tsgo/dist/effect-tsgo.cjs; move them together.
-  "@effect/tsgo": 0.69.0
+  "@effect/tsgo": 0.70.0
   # Dev-only; exact, in lockstep with `effect`.
   "@effect/platform-node": 4.1.4
   "@effect/vitest": 4.1.4
@@ -48,7 +48,7 @@ catalog:
   udsv: ^0.7.3
   write-excel-file: ^4.1.1
   # Must equal the vitest vite-plus pins.
-  "@vitest/coverage-istanbul": 5.1.0
+  "@vitest/coverage-istanbul": 5.1.1
   effect: 4.1.4
   fallow: 3.44.0
   fflate: ^0.8.2
@@ -58,9 +58,9 @@ catalog:
   typescript: "npm:@typescript/typescript6@6.0.2"
   "@typescript/native": "npm:typescript@7.0.2"
   # `vite` is vite-plus's aliased core and must equal `vite-plus`.
-  vite-plus: 1.6.0
+  vite-plus: 1.7.0
   vite: npm:@voidzero-dev/vite-plus-core@1.6.0
-  vitest: 5.1.0
+  vitest: 5.1.1
 
 # The ranges the published package declares.
 catalogs:
