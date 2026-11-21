@@ -77,7 +77,7 @@ Malformed input fails with the codec's `IworkError`, a `Schema.TaggedError` whos
 - `openBundle` opens the ZIP bundle and its `.iwa` components, including older documents' nested `Index.zip`; `openBundleDirectory` opens a package saved as a directory (a `.key` folder) through the `FileSystem` service; see [Documents saved as a directory](#documents-saved-as-a-directory) for reading one with the readers.
 - `dechunk` / `chunk` handle IWA chunk framing.
 - `decompressBlock` / `compressBlock` are Apple's non-standard Snappy block format; the compressor writes literals only, which every Snappy decoder accepts.
-- The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors.
+- The protobuf wire reader: `parseMessage`, `readVarint` and the field accessors, over `ProtobufReader` from `effect/protobuf`.
 - `decodeArchiveStream` decodes archived objects and their messages.
 - `readPackageMetadata` reads `Index/Metadata.iwa` (`TSP.PackageMetadata`): the file format version, every component's path and the objects it refers to in other components, and every data file with its path under `Data/` (`None` for the app's own stock images, which the package does not hold).
 - `makeObjectResolver` finds an archived object by identifier across components, decoding each component at most once and only when a lookup needs it: the metadata's hints first, then a scan in natural order. `referenceAt` reads the identifier a `TSP.Reference` field names.

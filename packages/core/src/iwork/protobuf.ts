@@ -1,29 +1,23 @@
 /**
- * A minimal, schema-free Protobuf wire reader/writer.
- *
- * iWork payloads are not self-describing, but the *wire* format is: every
- * field's length is determined by its wire type alone, so a generic field-walk
- * can traverse any message without a compiled `.proto`. We read each message
- * into an ordered list of {field, wire, ...} records; callers that know a field
- * number (from the reverse-engineered schemas) pull values out by hand.
- *
- * Only the wire types iWork uses are needed: varint (0), 64-bit (1),
- * length-delimited (2), 32-bit (5).
+ * Schema-free protobuf field records over Effect's `ProtobufReader`. iWork
+ * payloads aren't self-describing, but every field's length follows from its
+ * wire type, so a message reads into an ordered list of records that callers
+ * pick apart by the field numbers in the reverse-engineered schemas.
  */
 
-import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
+import { ProtobufReader } from "effect/protobuf";
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
-import { codecError, type IworkError } from "./errors.ts";
+import { codecError, type IworkError, rethrowing, shiftOffset, toIworkError } from "./errors.ts";
 
 /** Protobuf wire type 0: a base-128 varint. */
-export const WIRE_VARINT = 0;
+export const WIRE_VARINT = ProtobufReader.WireType.Varint;
 /** Protobuf wire type 1: a fixed 64-bit value. */
-export const WIRE_I64 = 1;
+export const WIRE_I64 = ProtobufReader.WireType.I64;
 /** Protobuf wire type 2: a length-delimited byte string. */
-export const WIRE_LEN = 2;
+export const WIRE_LEN = ProtobufReader.WireType.Len;
 /** Protobuf wire type 5: a fixed 32-bit value. */
-export const WIRE_I32 = 5;
+export const WIRE_I32 = ProtobufReader.WireType.I32;
 
 /** One protobuf field record: its number, wire type, and value (numeric types) or bytes (length-delimited). */
 export interface Field {
@@ -44,139 +38,69 @@ export interface Field {
 }
 
 // ============================================================================
-// Parsers
+// Reading
 // ============================================================================
 
-// The wire format is read by plain functions over a cursor, wrapped as
-// effect-parse parsers (`varint`, `field`, `message`) for use in grammars.
-// `parseMessage` and `readVarint` call the functions directly and turn a
-// problem into an `IworkError`: iWork reads tens of thousands of tiny
-// messages, and a parser run costs a few hundred ns each.
-
-/** A read position in a byte buffer (an effect-parse `State` is one). */
-interface Cursor {
-  readonly input: Uint8Array;
-  pos: number;
-  readonly end: number;
-}
-
-/** Why a read failed; the cursor is left where the problem is. */
-type Problem =
-  | {
-      readonly _tag: "Truncated";
-      readonly what: string;
-      readonly size: number;
-      readonly at: number;
-    }
-  | { readonly _tag: "VarintTooLong"; readonly at: number }
-  | { readonly _tag: "VarintTruncated"; readonly at: number }
-  | {
-      readonly _tag: "UnsupportedWire";
-      readonly wire: number;
-      readonly field: number;
-      readonly at: number;
-    };
-
-/** Read a varint at the cursor, or the problem with it. */
-const varintAt = (c: Cursor): number | Problem => {
-  const start = c.pos;
-  let value = 0;
-  let shift = 0;
-  for (;;) {
-    if (c.pos >= c.end) return { _tag: "VarintTruncated", at: start };
-    const b = c.input[c.pos++]!;
-    value += (b & 0x7f) * 2 ** shift;
-    if ((b & 0x80) === 0) return value;
-    shift += 7;
-    if (shift > 63) return { _tag: "VarintTooLong", at: start };
+/** Read one field. `input` is the reader's whole input, which `raw` and `big` are sliced from. */
+const readField = (r: ProtobufReader.ProtobufReader, input: Uint8Array): Field => {
+  const start = r.offset;
+  const tag = r.tag();
+  const field = ProtobufReader.fieldNumber(tag);
+  const wire = ProtobufReader.wireType(tag);
+  const at = r.offset;
+  if (wire === WIRE_VARINT) {
+    const value = r.uint64Number();
+    return Number.isSafeInteger(value)
+      ? { field, wire, value }
+      : { field, wire, value, big: ProtobufReader.make(input.subarray(at, r.offset)).uint64() };
   }
+  if (wire === WIRE_I64 || wire === WIRE_I32) {
+    const value = wire === WIRE_I64 ? r.fixed64Number() : r.fixed32();
+    return { field, wire, value, raw: input.subarray(at, r.offset) };
+  }
+  if (wire === WIRE_LEN) return { field, wire, bytes: r.bytesView() };
+  // Group tags (wire types 3 and 4) are valid protobuf, but iWork never writes them.
+  throw codecError("Malformed", `protobuf: unsupported wire type ${wire} (field ${field})`, start);
 };
 
-/** The exact value of the varint in `input[start, end)` (for values above 2^53). */
-const bigVarint = (input: Uint8Array, start: number, end: number): bigint => {
-  let value = 0n;
-  for (let i = end - 1; i >= start; i--) value = (value << 7n) | BigInt(input[i]! & 0x7f);
-  return BigInt.asUintN(64, value);
-};
+const isTruncation = (e: ProtobufReader.ProtobufReaderError): boolean =>
+  e.message.startsWith("Expected a complete value");
 
-/** Read a little-endian unsigned integer of `size` bytes at the cursor. */
-const fixedAt = (c: Cursor, size: number): number => {
-  let value = 0;
-  for (let i = 0; i < size; i++) value += c.input[c.pos + i]! * 2 ** (8 * i);
-  c.pos += size;
-  return value;
-};
+/** The reader's message without its trailing offset, which the error carries already. */
+const readerDetail = (e: ProtobufReader.ProtobufReaderError): string =>
+  `protobuf: ${e.message.replace(/ at offset \d+$/, "")}`;
 
-/** Read one field at the cursor, or the problem with it. */
-const fieldAt = (c: Cursor): Field | Problem => {
-  const start = c.pos;
-  const tag = varintAt(c);
-  if (!Predicate.isNumber(tag)) return tag;
-  const field = Math.floor(tag / 8);
-  const wire = tag & 7;
-  const valueStart = c.pos;
-  if (wire === WIRE_VARINT) return varintValue(c, field, wire, valueStart);
-  if (wire === WIRE_I64 || wire === WIRE_I32) return fixedValue(c, field, wire, valueStart);
-  if (wire === WIRE_LEN) return lengthDelimited(c, field, wire);
-  return { _tag: "UnsupportedWire", wire, field, at: start };
-};
+/** A read failure as an `IworkError`, its offset moved by `shift` (the reader's start in the caller's buffer). */
+const readError =
+  (shift: number) =>
+  (cause: unknown): IworkError => {
+    if (cause instanceof ProtobufReader.ProtobufReaderError)
+      return codecError(
+        isTruncation(cause) ? "Truncated" : "Malformed",
+        readerDetail(cause),
+        cause.offset + shift,
+      );
+    return shiftOffset(toIworkError(cause), shift);
+  };
 
-const varintValue = (
-  c: Cursor,
-  field: number,
-  wire: number,
-  valueStart: number,
-): Field | Problem => {
-  const value = varintAt(c);
-  if (!Predicate.isNumber(value)) return value;
-  return value > Number.MAX_SAFE_INTEGER
-    ? { field, wire, value, big: bigVarint(c.input, valueStart, c.pos) }
-    : { field, wire, value };
-};
-
-const fixedValue = (
-  c: Cursor,
-  field: number,
-  wire: number,
-  valueStart: number,
-): Field | Problem => {
-  const size = wire === WIRE_I64 ? 8 : 4;
-  if (c.end - c.pos < size)
-    return { _tag: "Truncated", what: "fixed-width field", size, at: valueStart };
-  const raw = c.input.subarray(c.pos, c.pos + size);
-  return { field, wire, value: fixedAt(c, size), raw };
-};
-
-const lengthDelimited = (c: Cursor, field: number, wire: number): Field | Problem => {
-  const length = varintAt(c);
-  if (!Predicate.isNumber(length)) return length;
-  if (c.end - c.pos < length)
-    return { _tag: "Truncated", what: "length-delimited field", size: length, at: c.pos };
-  const bytes = c.input.subarray(c.pos, c.pos + length);
-  c.pos += length;
-  return { field, wire, bytes };
-};
-
-const isProblem = (r: Field | Problem): r is Problem => "_tag" in r;
-
-/** Report a problem as an effect-parse failure (always a cut: the input is malformed). */
-const fail = (state: Input.State<Uint8Array>, p: Problem): Input.Fail => {
-  if (Predicate.isTagged(p, "VarintTruncated"))
-    return state.cut("Take", ["varint byte"], state.end);
-  if (Predicate.isTagged(p, "VarintTooLong"))
-    return state.failMessage("Cut", "Verify", "varint longer than 10 bytes", p.at);
-  if (Predicate.isTagged(p, "Truncated"))
-    return state.failMessage(
-      "Cut",
-      "Take",
-      `${p.what} needs ${p.size} bytes, only ${state.end - p.at} left`,
-      p.at,
-    );
+/** Run `read` over `state`'s remaining input as an effect-parse step (failures are cuts: the input is malformed). */
+const parseStep = <A>(
+  state: Input.State<Uint8Array>,
+  read: (r: ProtobufReader.ProtobufReader, input: Uint8Array) => A,
+): A | Input.Fail => {
+  const input = state.input.subarray(state.pos, state.end);
+  const r = ProtobufReader.make(input);
+  const result = Result.try({ try: () => read(r, input), catch: readError(state.pos) });
+  if (Result.isSuccess(result)) {
+    state.pos += r.offset;
+    return result.success;
+  }
+  const e = result.failure;
   return state.failMessage(
     "Cut",
-    "Verify",
-    `unsupported wire type ${p.wire} (field ${p.field})`,
-    p.at,
+    e.reason === "Truncated" ? "Take" : "Verify",
+    e.detail,
+    e.offset ?? state.pos,
   );
 };
 
@@ -187,10 +111,8 @@ export const varint: Parser.Parser<number, never, never, Uint8Array> = Parser.ma
   never,
   Uint8Array
 >((state) => {
-  const start = state.pos;
-  if (start >= state.end) return state.eoi("Token", ["varint"], 1);
-  const value = varintAt(state);
-  return Predicate.isNumber(value) ? value : fail(state, value);
+  if (state.pos >= state.end) return state.eoi("Token", ["varint"], 1);
+  return parseStep(state, (r) => r.uint64Number());
 }, "varint");
 
 /**
@@ -204,27 +126,11 @@ export const field: Parser.Parser<Field, never, never, Uint8Array> = Parser.make
   Uint8Array
 >((state) => {
   if (state.pos >= state.end) return state.eoi("Token", ["field"], 1);
-  const result = fieldAt(state);
-  return isProblem(result) ? fail(state, result) : result;
+  return parseStep(state, readField);
 }, "protobuf field");
 
 /** A whole message: fields until the end of the input. */
 export const message: Parser.Parser<Field[], never, never, Uint8Array> = Parser.repeat(field);
-
-/** A problem as an `IworkError`, positioned in the buffer being read. */
-const problemError = (p: Problem, end: number): IworkError =>
-  Match.valueTags(p, {
-    VarintTruncated: (q) => codecError("Truncated", "protobuf: truncated varint", q.at),
-    VarintTooLong: (q) => codecError("Malformed", "protobuf: varint longer than 10 bytes", q.at),
-    Truncated: (q) =>
-      codecError(
-        "Truncated",
-        `protobuf: ${q.what} needs ${q.size} bytes, only ${end - q.at} left`,
-        q.at,
-      ),
-    UnsupportedWire: (q) =>
-      codecError("Malformed", `protobuf: unsupported wire type ${q.wire} (field ${q.field})`, q.at),
-  });
 
 /** A varint read by {@link readVarint}: its value and the position after it. */
 export interface VarintRead {
@@ -237,26 +143,22 @@ export interface VarintRead {
  * Throws a positioned `IworkError` if it is truncated or too long.
  */
 export const readVarint = (buf: Uint8Array, pos: number): VarintRead => {
-  const cursor: Cursor = { input: buf, pos, end: buf.length };
-  const value = varintAt(cursor);
-  if (Predicate.isNumber(value)) return { value, pos: cursor.pos };
-  throw problemError(value, buf.length);
+  const r = ProtobufReader.make(buf.subarray(pos));
+  const value = rethrowing(() => r.uint64Number(), readError(pos));
+  return { value, pos: pos + r.offset };
 };
 
 /**
  * Parse a message into an ordered list of field records. Throws a positioned
  * `IworkError` on a truncated field or an unsupported wire type.
  */
-export const parseMessage = (buf: Uint8Array): Field[] => {
-  const cursor: Cursor = { input: buf, pos: 0, end: buf.length };
-  const fields: Field[] = [];
-  while (cursor.pos < cursor.end) {
-    const result = fieldAt(cursor);
-    if (isProblem(result)) throw problemError(result, buf.length);
-    fields.push(result);
-  }
-  return fields;
-};
+export const parseMessage = (buf: Uint8Array): Field[] =>
+  rethrowing(() => {
+    const r = ProtobufReader.make(buf);
+    const fields: Field[] = [];
+    while (!r.isDone()) fields.push(readField(r, buf));
+    return fields;
+  }, readError(0));
 
 /** The first varint/fixed value for a field number, if present. */
 export const getVarint = (fields: ReadonlyArray<Field>, fieldNumber: number): number | undefined =>
@@ -351,17 +253,26 @@ const PACKED_SIZE: Record<PackedType, number> = {
   double: 8,
 };
 
-/** Read one fixed-width element of a packed run (or a single fixed field's raw bytes). */
-const fixedElement = (view: DataView, at: number, type: PackedType): number => {
-  if (type === "double") {
-    return view.getFloat64(at, true);
-  } else if (type === "float") {
-    return view.getFloat32(at, true);
-  } else if (type === "fixed32") {
-    return view.getUint32(at, true);
-  } else {
-    return view.getUint32(at, true) + view.getUint32(at + 4, true) * 2 ** 32;
-  }
+/** How to read one element of a packed run, or the value of one unpacked field. */
+const READ_ELEMENT: Record<PackedType, (r: ProtobufReader.ProtobufReader) => number> = {
+  varint: (r) => r.uint64Number(),
+  sint: (r) => r.sint64Number(),
+  fixed32: (r) => r.fixed32(),
+  float: (r) => r.float(),
+  fixed64: (r) => r.fixed64Number(),
+  double: (r) => r.double(),
+};
+
+/** The elements of one packed run. */
+const readRun = (bytes: Uint8Array, type: PackedType, out: number[]): void => {
+  const size = PACKED_SIZE[type];
+  if (size !== 0 && bytes.length % size !== 0)
+    throw codecError("Malformed", `protobuf: packed ${type} run of ${bytes.length} bytes`, 0);
+  const r = ProtobufReader.make(bytes);
+  const read = READ_ELEMENT[type];
+  rethrowing(() => {
+    while (!r.isDone()) out.push(read(r));
+  }, readError(0));
 };
 
 /**
@@ -380,31 +291,15 @@ export const getPacked = (
   const out: number[] = [];
   for (const f of fields) {
     if (f.field !== fieldNumber) continue;
-    if (f.bytes !== undefined) {
-      const bytes = f.bytes;
-      if (size === 0) {
-        const c: Cursor = { input: bytes, pos: 0, end: bytes.length };
-        while (c.pos < c.end) {
-          const v = varintAt(c);
-          if (!Predicate.isNumber(v)) throw problemError(v, bytes.length);
-          out.push(type === "sint" ? unzigzagNumber(v) : v);
-        }
-      } else {
-        if (bytes.length % size !== 0) {
-          throw codecError("Malformed", `protobuf: packed ${type} run of ${bytes.length} bytes`, 0);
-        }
-        const view = viewOf(bytes);
-        for (let at = 0; at < bytes.length; at += size) out.push(fixedElement(view, at, type));
-      }
-    } else if (f.wire === wire) {
+    if (f.bytes !== undefined) readRun(f.bytes, type, out);
+    else if (f.wire === wire)
       out.push(
         size !== 0
-          ? fixedElement(viewOf(f.raw!), 0, type)
+          ? READ_ELEMENT[type](ProtobufReader.make(f.raw!))
           : type === "sint"
             ? unzigzagNumber(f.value!)
             : f.value!,
       );
-    }
   }
   return out;
 };
