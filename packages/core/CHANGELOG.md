@@ -1,5 +1,13 @@
 # @thomasfosterau/effect-document
 
+## 0.3.0
+
+### Minor Changes
+
+- [#316](https://github.com/thomasfosterau/effect-document/pull/316) [`102a40c`](https://github.com/thomasfosterau/effect-document/commit/102a40c7d6638ad06cb4c833516c2d8b4a25cc4b) Thanks [@dependabot](https://github.com/apps/dependabot)! - The optional `@thomasfosterau/effect-parse` peer is now `^0.6.1` (was `^0.5.0`). **Breaking** for apps on effect-parse 0.5: upgrade it to 0.6. A streamed CSV row longer than effect-parse's 64 MiB stream buffer now fails with a `ParseError` whose `code` is `"LimitExceeded"`.
+
+- [#331](https://github.com/thomasfosterau/effect-document/pull/331) [`7dd147f`](https://github.com/thomasfosterau/effect-document/commit/7dd147f366f0c070fc4d87a8fa5369092f737908) Thanks [@thomasfosterau](https://github.com/thomasfosterau)! - The `effect` peer is now `^4.1.5` (was `^4.0.0`). **Breaking** for apps on an earlier effect 4: upgrade it to 4.1.5. The iWork protobuf wire reader (`parseMessage`, `readVarint`, `getPacked` and the `varint`, `field` and `message` parsers in `/iwork/codec`) now runs on `ProtobufReader` from `effect/protobuf`. Records and accessors are unchanged; a tag with field number 0 is now a `Malformed` error, and a wire error's `detail` is worded as `effect/protobuf` words it.
+
 ## 0.2.1
 
 ### Patch Changes
