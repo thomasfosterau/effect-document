@@ -234,8 +234,8 @@ catalogs:
       specifier: ^3.0.1
       version: 3.0.2
     docx:
-      specifier: ^9.15.4
-      version: 9.15.4
+      specifier: ^9.16.0
+      version: 9.16.0
     exceljs:
       specifier: ^4.4.0
       version: 4.4.0
@@ -378,7 +378,7 @@ importers:
         version: 3.0.2
       docx:
         specifier: 'catalog:'
-        version: 9.15.4
+        version: 9.16.0
       effect:
         specifier: 4.1.4
         version: 4.1.4
@@ -2203,8 +2203,8 @@ packages:
     resolution: {integrity: sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==}
     engines: {node: '>=6.0.0'}
 
-  docx@9.15.4:
-    resolution: {integrity: sha512-5UUTdR+eE7KVeNroYYt6K0Ixi9yez18BBKnypz3XyQSR8FsVYTiZ4vqKZr83JHjYPAgO+Tw7T/+13KyITpkgFw==}
+  docx@9.16.0:
+    resolution: {integrity: sha512-fvAuqxV0705bEQ9OGPLt6onJqufGJTMS+b7PtRxNktea+iPWYgc1zO+OQBMW9ZmRLj9THTnOeiAoxTDz2ub0Fw==}
     engines: {node: '>=16'}
 
   dom-accessibility-api@0.5.16:
@@ -4972,7 +4972,7 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
-  docx@9.15.4:
+  docx@9.16.0:
     dependencies:
       '@types/node': 26.6.6
       fflate: 0.8.3
