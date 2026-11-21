@@ -8,7 +8,7 @@
 import * as Result from "effect/Result";
 import { ProtobufReader } from "effect/protobuf";
 import { type Input, Parser } from "@thomasfosterau/effect-parse";
-import { codecError, type IworkError, rethrowing, toIworkError } from "./errors.ts";
+import { codecError, type IworkError, rethrowing, shiftOffset, toIworkError } from "./errors.ts";
 
 /** Protobuf wire type 0: a base-128 varint. */
 export const WIRE_VARINT = ProtobufReader.WireType.Varint;
@@ -41,15 +41,6 @@ export interface Field {
 // Reading
 // ============================================================================
 
-/** A group tag (wire type 3 or 4): valid protobuf, but never in iWork. */
-class UnsupportedWire {
-  constructor(
-    readonly wire: number,
-    readonly field: number,
-    readonly offset: number,
-  ) {}
-}
-
 /** Read one field. `input` is the reader's whole input, which `raw` and `big` are sliced from. */
 const readField = (r: ProtobufReader.ProtobufReader, input: Uint8Array): Field => {
   const start = r.offset;
@@ -57,26 +48,19 @@ const readField = (r: ProtobufReader.ProtobufReader, input: Uint8Array): Field =
   const field = ProtobufReader.fieldNumber(tag);
   const wire = ProtobufReader.wireType(tag);
   const at = r.offset;
-  switch (wire) {
-    case WIRE_VARINT: {
-      const value = r.uint64Number();
-      return Number.isSafeInteger(value)
-        ? { field, wire, value }
-        : { field, wire, value, big: ProtobufReader.make(input.subarray(at, r.offset)).uint64() };
-    }
-    case WIRE_I64: {
-      const value = r.fixed64Number();
-      return { field, wire, value, raw: input.subarray(at, r.offset) };
-    }
-    case WIRE_I32: {
-      const value = r.fixed32();
-      return { field, wire, value, raw: input.subarray(at, r.offset) };
-    }
-    case WIRE_LEN:
-      return { field, wire, bytes: r.bytesView() };
-    default:
-      throw new UnsupportedWire(wire, field, start);
+  if (wire === WIRE_VARINT) {
+    const value = r.uint64Number();
+    return Number.isSafeInteger(value)
+      ? { field, wire, value }
+      : { field, wire, value, big: ProtobufReader.make(input.subarray(at, r.offset)).uint64() };
   }
+  if (wire === WIRE_I64 || wire === WIRE_I32) {
+    const value = wire === WIRE_I64 ? r.fixed64Number() : r.fixed32();
+    return { field, wire, value, raw: input.subarray(at, r.offset) };
+  }
+  if (wire === WIRE_LEN) return { field, wire, bytes: r.bytesView() };
+  // Group tags (wire types 3 and 4) are valid protobuf, but iWork never writes them.
+  throw codecError("Malformed", `protobuf: unsupported wire type ${wire} (field ${field})`, start);
 };
 
 const isTruncation = (e: ProtobufReader.ProtobufReaderError): boolean =>
@@ -96,13 +80,7 @@ const readError =
         readerDetail(cause),
         cause.offset + shift,
       );
-    if (cause instanceof UnsupportedWire)
-      return codecError(
-        "Malformed",
-        `protobuf: unsupported wire type ${cause.wire} (field ${cause.field})`,
-        cause.offset + shift,
-      );
-    return toIworkError(cause);
+    return shiftOffset(toIworkError(cause), shift);
   };
 
 /** Run `read` over `state`'s remaining input as an effect-parse step (failures are cuts: the input is malformed). */
@@ -275,22 +253,14 @@ const PACKED_SIZE: Record<PackedType, number> = {
   double: 8,
 };
 
-/** Read one element of a packed run, or the value of one unpacked field. */
-const readElement = (r: ProtobufReader.ProtobufReader, type: PackedType): number => {
-  switch (type) {
-    case "varint":
-      return r.uint64Number();
-    case "sint":
-      return r.sint64Number();
-    case "fixed32":
-      return r.fixed32();
-    case "float":
-      return r.float();
-    case "fixed64":
-      return r.fixed64Number();
-    case "double":
-      return r.double();
-  }
+/** How to read one element of a packed run, or the value of one unpacked field. */
+const READ_ELEMENT: Record<PackedType, (r: ProtobufReader.ProtobufReader) => number> = {
+  varint: (r) => r.uint64Number(),
+  sint: (r) => r.sint64Number(),
+  fixed32: (r) => r.fixed32(),
+  float: (r) => r.float(),
+  fixed64: (r) => r.fixed64Number(),
+  double: (r) => r.double(),
 };
 
 /** The elements of one packed run. */
@@ -299,8 +269,9 @@ const readRun = (bytes: Uint8Array, type: PackedType, out: number[]): void => {
   if (size !== 0 && bytes.length % size !== 0)
     throw codecError("Malformed", `protobuf: packed ${type} run of ${bytes.length} bytes`, 0);
   const r = ProtobufReader.make(bytes);
+  const read = READ_ELEMENT[type];
   rethrowing(() => {
-    while (!r.isDone()) out.push(readElement(r, type));
+    while (!r.isDone()) out.push(read(r));
   }, readError(0));
 };
 
@@ -324,7 +295,7 @@ export const getPacked = (
     else if (f.wire === wire)
       out.push(
         size !== 0
-          ? readElement(ProtobufReader.make(f.raw!), type)
+          ? READ_ELEMENT[type](ProtobufReader.make(f.raw!))
           : type === "sint"
             ? unzigzagNumber(f.value!)
             : f.value!,

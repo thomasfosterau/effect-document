@@ -74,17 +74,21 @@ layer(NodeServices.layer)((it) => {
 
     test("reads multi-byte varints at an offset", () => {
       expect(readVarint(new Uint8Array([0xff, 0xac, 0x02]), 1)).toEqual({ value: 300, pos: 3 });
-      expect(() => readVarint(new Uint8Array(11).fill(0xff), 0)).toThrow(/longer than 10 bytes/);
+      expect(() => readVarint(new Uint8Array(11).fill(0xff), 0)).toThrow(
+        /varint of at most 10 bytes/,
+      );
     });
 
     test("truncated fields and unknown wire types fail with their offset", () => {
       expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x12, 0x05, 0x68]))).toThrow(
-        /offset 4[\s\S]*needs 5 bytes, only 1 left/,
+        /offset 4: protobuf: Expected a complete value/,
       );
       expect(() => parseMessage(new Uint8Array([0x09, 1, 2, 3]))).toThrow(
-        /needs 8 bytes, only 3 left/,
+        /offset 1: protobuf: Expected a complete value/,
       );
-      expect(() => parseMessage(new Uint8Array([0x08, 0x80]))).toThrow(/varint/);
+      expect(() => parseMessage(new Uint8Array([0x08, 0x80]))).toThrow(
+        /offset 2: protobuf: Expected a complete value/,
+      );
       expect(() => parseMessage(new Uint8Array([0x08, 0x01, 0x0b]))).toThrow(
         /offset 2[\s\S]*unsupported wire type 3 \(field 1\)/,
       );
