@@ -4,5 +4,5 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["test", "examples", "bench"]
+  "include": ["test", "examples", "bench", "vite.config.ts", "vite.package.ts"]
 }

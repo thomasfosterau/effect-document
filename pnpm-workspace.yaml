@@ -15,9 +15,9 @@ catalog:
   "@effect/docgen": ^4.1.4
   "@effect/language-service": ^0.87.5
   # `effect-tsgo patch` (the `prepare` script) supports only the oxlint,
-  # tsgolint and native `tsc` versions in the `components` table of
+  # tsrs and native `tsc` versions in the `components` table of
   # node_modules/@effect/tsgo/dist/effect-tsgo.cjs; move them together.
-  "@effect/tsgo": 0.69.0
+  "@effect/tsgo": 0.73.2
   # Dev-only; exact, in lockstep with `effect`.
   "@effect/platform-node": 4.1.4
   "@effect/vitest": 4.1.4
@@ -47,7 +47,7 @@ catalog:
   read-excel-file: ^9.3.20
   udsv: ^0.7.3
   write-excel-file: ^4.1.1
-  # Must equal the vitest vite-plus pins.
+  # Must equal the vitest vite-plus depends on.
   "@vitest/coverage-istanbul": 5.1.0
   effect: 4.1.4
   fallow: 3.44.0
@@ -57,9 +57,11 @@ catalog:
   # bundling) beside TypeScript 7 (native `tsc`, patched by @effect/tsgo).
   typescript: "npm:@typescript/typescript6@6.0.2"
   "@typescript/native": "npm:typescript@7.0.2"
-  # `vite` is vite-plus's aliased core and must equal `vite-plus`.
-  vite-plus: 1.6.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
+  # `vite` (vite-plus's aliased core) and `vitest` must equal what vite-plus
+  # itself depends on (`npm view vite-plus@<v> dependencies`); `vite` no longer
+  # equals vite-plus.
+  vite-plus: 1.7.0
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
   vitest: 5.1.0
 
 # The ranges the published package declares.
@@ -89,14 +91,6 @@ permissions:
     skills: [fallow]
 skills:
   dirs: [.claude/skills]
-peerDependencyRules:
-  allowAny:
-    - vite
-    - vitest
-  allowedVersions:
-    vite: "*"
-    vitest: "*"
-
 # Hold new versions for 24 hours (minutes); Dependabot's cooldown matches it.
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
