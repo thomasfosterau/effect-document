@@ -50,7 +50,7 @@ catalog:
   # Must equal the vitest vite-plus pins.
   "@vitest/coverage-istanbul": 5.1.0
   effect: 4.1.4
-  fallow: 3.43.2
+  fallow: 3.44.0
   fflate: ^0.8.2
   publint: ^0.3.25
   # TypeScript 6 (the JS API, for the language service and declaration
