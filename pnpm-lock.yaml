@@ -183,8 +183,8 @@ catalogs:
       specifier: ^3.0.3
       version: 3.0.3
     '@effect/docgen':
-      specifier: ^4.1.4
-      version: 4.1.4
+      specifier: ^4.1.5
+      version: 4.1.5
     '@effect/language-service':
       specifier: ^0.87.5
       version: 0.87.5
@@ -436,7 +436,7 @@ importers:
     devDependencies:
       '@effect/docgen':
         specifier: 'catalog:'
-        version: 4.1.4(@typescript/typescript6@6.0.2)(redis@6.3.0)(tsx@4.23.15)
+        version: 4.1.5(@typescript/typescript6@6.0.2)(redis@6.3.0)(tsx@4.23.15)
       '@effect/language-service':
         specifier: 'catalog:'
         version: 0.87.5
@@ -593,8 +593,8 @@ packages:
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
 
-  '@effect/docgen@4.1.4':
-    resolution: {integrity: sha512-ROTVPve76XrqsL5YKlw6Wngv1tt/yX0nfq9HaT6WbibFDTQiZcDiaB0FwJWr53Usx2QSgJbpnwMXo8E3XlH+eg==}
+  '@effect/docgen@4.1.5':
+    resolution: {integrity: sha512-qDXsWPsrOliGFiAmNNScxcSJYwPJSWim3aor2z6+sSR9EQRcHsFd/OWpDaWBbjngmBJCYWZajtFgxfoqlYYQ9Q==}
     engines: {node: '>=22.19.0'}
     hasBin: true
     peerDependencies:
@@ -3799,7 +3799,7 @@ snapshots:
   '@colors/colors@1.5.0':
     optional: true
 
-  '@effect/docgen@4.1.4(@typescript/typescript6@6.0.2)(redis@6.3.0)(tsx@4.23.15)':
+  '@effect/docgen@4.1.5(@typescript/typescript6@6.0.2)(redis@6.3.0)(tsx@4.23.15)':
     dependencies:
       '@babel/code-frame': 8.0.6
       '@effect/markdown-toc': 0.1.0
