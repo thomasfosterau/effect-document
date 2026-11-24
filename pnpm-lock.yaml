@@ -201,8 +201,8 @@ catalogs:
       specifier: ^0.10.0
       version: 0.10.0
     '@thomasfosterau/effect-ext':
-      specifier: ^0.3.1
-      version: 0.3.1
+      specifier: ^0.4.0
+      version: 0.4.0
     '@thomasfosterau/effect-parse':
       specifier: ^0.6.2
       version: 0.6.2
@@ -429,7 +429,7 @@ importers:
     dependencies:
       '@thomasfosterau/effect-ext':
         specifier: 'catalog:'
-        version: 0.3.1(@effect/platform-node@4.1.5(effect@4.1.5)(redis@6.3.0))(@thomasfosterau/effect-parse@0.6.2(effect@4.1.5))(effect@4.1.5)
+        version: 0.4.0(@effect/platform-node@4.1.5(effect@4.1.5)(redis@6.3.0))(@thomasfosterau/effect-parse@0.6.2(effect@4.1.5))(effect@4.1.5)
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
@@ -1441,18 +1441,15 @@ packages:
     peerDependencies:
       '@testing-library/dom': '>=7.21.4'
 
-  '@thomasfosterau/effect-ext@0.3.1':
-    resolution: {integrity: sha512-r9co+0cnkrrUjPoyyiFXC82AIjYDCqhboXlDitsc1hL231WwSlxIGjqqQIdWMgufCAcphLCJkGHKsd+1P+uvPw==}
+  '@thomasfosterau/effect-ext@0.4.0':
+    resolution: {integrity: sha512-Jf5/gSArdycCeUYf3YKtdOZJQhjkbBcd8HNMfgsr7QK+JlF7KJNK/dplgDdlxSPPWI0UCuKGIZGrVNjfNk2CaA==}
     engines: {node: '>=22'}
     hasBin: true
     peerDependencies:
-      '@effect/platform-browser': ^4.0.0
       '@effect/platform-node': ^4.0.0
       '@thomasfosterau/effect-parse': ^0.4.1 || ^0.5.0 || ^0.6.0
       effect: 4.1.5
     peerDependenciesMeta:
-      '@effect/platform-browser':
-        optional: true
       '@effect/platform-node':
         optional: true
       '@thomasfosterau/effect-parse':
@@ -4358,7 +4355,7 @@ snapshots:
     dependencies:
       '@testing-library/dom': 10.4.2
 
-  '@thomasfosterau/effect-ext@0.3.1(@effect/platform-node@4.1.5(effect@4.1.5)(redis@6.3.0))(@thomasfosterau/effect-parse@0.6.2(effect@4.1.5))(effect@4.1.5)':
+  '@thomasfosterau/effect-ext@0.4.0(@effect/platform-node@4.1.5(effect@4.1.5)(redis@6.3.0))(@thomasfosterau/effect-parse@0.6.2(effect@4.1.5))(effect@4.1.5)':
     dependencies:
       effect: 4.1.5
     optionalDependencies:
