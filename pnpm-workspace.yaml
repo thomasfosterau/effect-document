@@ -48,7 +48,7 @@ catalog:
   udsv: ^0.7.3
   write-excel-file: ^4.1.1
   # Must equal the vitest vite-plus depends on.
-  "@vitest/coverage-istanbul": 5.1.2
+  "@vitest/coverage-istanbul": 5.1.1
   effect: 4.1.5
   fallow: 3.48.0
   fflate: ^0.8.2
@@ -61,8 +61,8 @@ catalog:
   # itself depends on (`npm view vite-plus@<v> dependencies`); `vite` no longer
   # equals vite-plus.
   vite-plus: 1.8.0
-  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
-  vitest: 5.1.2
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8001
+  vitest: 5.1.1
 
 # The ranges the published package declares.
 catalogs:
@@ -95,3 +95,7 @@ skills:
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@thomasfosterau/*"
+# Vite+ selects Node.js (.node-version) and pnpm (packageManager); pnpm
+# must not download or switch to its own.
+runtimeOnFail: ignore
+pmOnFail: ignore
