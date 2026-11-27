@@ -358,15 +358,6 @@ importers:
       '@thomasfosterau/effect-document':
         specifier: workspace:*
         version: link:../packages/core
-      '@types/d3-dsv':
-        specifier: 'catalog:'
-        version: 3.0.7
-      '@types/papaparse':
-        specifier: 'catalog:'
-        version: 5.5.2
-      '@types/pdfkit':
-        specifier: 'catalog:'
-        version: 0.17.7
       csv-parse:
         specifier: 'catalog:'
         version: 7.0.3
@@ -409,6 +400,16 @@ importers:
       write-excel-file:
         specifier: 'catalog:'
         version: 4.1.1
+    devDependencies:
+      '@types/d3-dsv':
+        specifier: 'catalog:'
+        version: 3.0.7
+      '@types/papaparse':
+        specifier: 'catalog:'
+        version: 5.5.2
+      '@types/pdfkit':
+        specifier: 'catalog:'
+        version: 0.17.7
 
   examples:
     dependencies:

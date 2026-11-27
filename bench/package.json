@@ -8,9 +8,6 @@
   "type": "module",
   "dependencies": {
     "@thomasfosterau/effect-document": "workspace:*",
-    "@types/d3-dsv": "catalog:",
-    "@types/papaparse": "catalog:",
-    "@types/pdfkit": "catalog:",
     "csv-parse": "catalog:",
     "csv-stringify": "catalog:",
     "d3-dsv": "catalog:",
@@ -25,5 +22,10 @@
     "read-excel-file": "catalog:",
     "udsv": "catalog:",
     "write-excel-file": "catalog:"
+  },
+  "devDependencies": {
+    "@types/d3-dsv": "catalog:",
+    "@types/papaparse": "catalog:",
+    "@types/pdfkit": "catalog:"
   }
 }
