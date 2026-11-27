@@ -27,7 +27,7 @@ catalog:
   "@thomasfosterau/effect-ext": ^0.4.0
   # The parser combinators; consumers get it as an optional peer (below).
   "@thomasfosterau/effect-parse": ^0.6.2
-  "@types/node": ^26.6.10
+  "@types/node": ^26.6.11
   # Benchmark baselines (bench/ only): maintained libraries, each released
   # within the last two years.
   "@types/d3-dsv": ^3.0.7
