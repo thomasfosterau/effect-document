@@ -12,15 +12,15 @@ catalogMode: strict
 catalog:
   "@changesets/changelog-github": ^1.0.1
   "@changesets/cli": ^3.0.3
-  "@effect/docgen": ^4.1.5
+  "@effect/docgen": ^4.1.6
   "@effect/language-service": ^0.87.5
   # `effect-tsgo patch` (the `prepare` script) supports only the oxlint,
   # tsrs and native `tsc` versions in the `components` table of
   # node_modules/@effect/tsgo/dist/effect-tsgo.cjs; move them together.
   "@effect/tsgo": 0.73.7
   # Dev-only; exact, in lockstep with `effect`.
-  "@effect/platform-node": 4.1.5
-  "@effect/vitest": 4.1.5
+  "@effect/platform-node": 4.1.6
+  "@effect/vitest": 4.1.6
   "@arethetypeswrong/cli": ^0.18.5
   "@enfect/oxlint": ^0.10.0
   # For `./encoding` only (effect-ext's `/Encoding`, which imports only `effect`).
@@ -49,7 +49,7 @@ catalog:
   write-excel-file: ^4.1.1
   # Must equal the vitest vite-plus depends on.
   "@vitest/coverage-istanbul": 5.1.1
-  effect: 4.1.5
+  effect: 4.1.6
   fallow: 3.49.0
   fflate: ^0.8.2
   publint: ^0.3.25
