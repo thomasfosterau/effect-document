@@ -62,6 +62,25 @@ updates:
         exclude-patterns:
           - "@effect/language-service"
           - "@effect/tsgo"
+      # The comparators in bench/package.json, production dependencies there.
+      bench:
+        patterns:
+          - "@types/d3-dsv"
+          - "@types/papaparse"
+          - "@types/pdfkit"
+          - "csv-parse"
+          - "csv-stringify"
+          - "d3-dsv"
+          - "docx"
+          - "exceljs"
+          - "mammoth"
+          - "papaparse"
+          - "pdfjs-dist"
+          - "pdfkit"
+          - "pptxgenjs"
+          - "read-excel-file"
+          - "udsv"
+          - "write-excel-file"
       toolchain:
         dependency-type: "development"
         patterns:
